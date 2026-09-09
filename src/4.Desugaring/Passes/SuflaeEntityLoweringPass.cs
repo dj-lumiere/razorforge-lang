@@ -50,23 +50,26 @@ internal sealed class SuflaeEntityLoweringPass
 
     public void Run(Program program)
     {
-        if (_registry.Language != Language.Suflae) return;
+        if (_registry.Language != Language.Suflae)
+        {
+            return;
+        }
 
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration r:
-                    program.Declarations[i] = LowerRoutine(r);
+                    program.Declarations[index: i] = LowerRoutine(r: r);
                     break;
                 case EntityDeclaration e:
-                    LowerMemberList(e.Members);
+                    LowerMemberList(members: e.Members);
                     break;
                 case RecordDeclaration rec:
-                    LowerMemberList(rec.Members);
+                    LowerMemberList(members: rec.Members);
                     break;
                 case CrashableDeclaration cr:
-                    LowerMemberList(cr.Members);
+                    LowerMemberList(members: cr.Members);
                     break;
             }
         }
@@ -88,45 +91,57 @@ internal sealed class SuflaeEntityLoweringPass
     private void AssertNoBareEntityInSignature(RoutineDeclaration r)
     {
         string? file = r.Location.FileName;
-        if (file == null
-            || !file.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase)
-            || IsStdlibPath(file: file))
+        if (file == null ||
+            !file.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase) ||
+            IsStdlibPath(file: file))
         {
             return;
         }
 
         foreach (Parameter p in r.Parameters)
+        {
             if (p.Type?.ResolvedType is EntityTypeInfo bareParam)
+            {
                 throw new InvalidOperationException(
-                    $"SF representation-unification invariant violated: parameter '{p.Name}' of routine "
-                    + $"'{r.Name}' ({file}:{r.Location.Line}) resolved to a BARE entity '{bareParam.Name}' "
-                    + "instead of Roamed[E]. An entity slot slipped TypeResolver.RoamSuflaeEntitySlot.");
+                    message:
+                    $"SF representation-unification invariant violated: parameter '{p.Name}' of routine " +
+                    $"'{r.Name}' ({file}:{r.Location.Line}) resolved to a BARE entity '{bareParam.Name}' " +
+                    "instead of Roamed[E]. An entity slot slipped TypeResolver.RoamSuflaeEntitySlot.");
+            }
+        }
 
-        if (r.ResolvedInfo is not { IsCreator: true }
-            && r.ReturnType?.ResolvedType is EntityTypeInfo bareReturn)
+        if (r.ResolvedInfo is not { IsCreator: true } &&
+            r.ReturnType?.ResolvedType is EntityTypeInfo bareReturn)
+        {
             throw new InvalidOperationException(
-                $"SF representation-unification invariant violated: return type of routine '{r.Name}' "
-                + $"({file}:{r.Location.Line}) resolved to a BARE entity '{bareReturn.Name}' instead of "
-                + "Roamed[E]. An entity slot slipped TypeResolver.RoamSuflaeEntitySlot.");
+                message:
+                $"SF representation-unification invariant violated: return type of routine '{r.Name}' " +
+                $"({file}:{r.Location.Line}) resolved to a BARE entity '{bareReturn.Name}' instead of " +
+                "Roamed[E]. An entity slot slipped TypeResolver.RoamSuflaeEntitySlot.");
+        }
     }
 
     private bool IsStdlibPath(string file)
     {
         string? root = _registry.StdlibPath;
-        return root != null
-               && file.StartsWith(value: root, comparisonType: StringComparison.OrdinalIgnoreCase);
+        return root != null &&
+               file.StartsWith(value: root, comparisonType: StringComparison.OrdinalIgnoreCase);
     }
 
     private void LowerMemberList(List<SyntaxTree.Declaration> members)
     {
         for (int i = 0; i < members.Count; i++)
-            if (members[i] is RoutineDeclaration mr)
-                members[i] = LowerRoutine(mr);
+        {
+            if (members[index: i] is RoutineDeclaration mr)
+            {
+                members[index: i] = LowerRoutine(r: mr);
+            }
+        }
     }
 
     private RoutineDeclaration LowerRoutine(RoutineDeclaration r)
     {
-        AssertNoBareEntityInSignature(r);
+        AssertNoBareEntityInSignature(r: r);
         _roamedLocals.Clear();
         _borrowNames.Clear();
         _borrowNames.Add(item: "me");
@@ -134,12 +149,17 @@ internal sealed class SuflaeEntityLoweringPass
         // the bare entity by convention; the caller roams. (The routine is mangled to `T.create` at
         // codegen, but its declaration name is the type name here.)
         _inCreateRoutine = r.ReturnType is { Name: var rn } && r.Name == rn;
-        foreach (Parameter p in r.Parameters.Where(
-                     p => p.Type?.ResolvedType is WrapperTypeInfo { Name: RuntimeContract.Roamed }
-                          or RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }))
+        foreach (Parameter p in r.Parameters.Where(predicate: p =>
+                     p.Type?.ResolvedType is WrapperTypeInfo { Name: RuntimeContract.Roamed }
+                         or RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }))
+        {
             _borrowNames.Add(item: p.Name);
-        Statement newBody = LowerStatement(r.Body);
-        return ReferenceEquals(newBody, r.Body) ? r : r with { Body = newBody };
+        }
+
+        Statement newBody = LowerStatement(stmt: r.Body);
+        return ReferenceEquals(objA: newBody, objB: r.Body)
+            ? r
+            : r with { Body = newBody };
     }
 
     // ---- Statements -----------------------------------------------------------------------------
@@ -150,13 +170,19 @@ internal sealed class SuflaeEntityLoweringPass
         {
             case BlockStatement block:
                 return LowerBlockStatement(block: block);
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd } ds:
+            case DeclarationStatement
+            {
+                Declaration: VariableDeclaration { Initializer: not null } vd
+            } ds:
                 return LowerDeclarationStatement(stmt: stmt, ds: ds, vd: vd);
             case AssignmentStatement assign:
                 return LowerAssignmentStatement(stmt: stmt, assign: assign);
             case ReturnStatement { Value: not null } ret:
                 return LowerReturnStatement(stmt: stmt, ret: ret);
-            case ExpressionStatement { Expression: BinaryExpression { Operator: BinaryOperator.Assign } bin } es:
+            case ExpressionStatement
+            {
+                Expression: BinaryExpression { Operator: BinaryOperator.Assign } bin
+            } es:
                 return LowerBinaryAssignStatement(stmt: stmt, es: es, bin: bin);
             case ExpressionStatement es:
                 return LowerExpressionStatement(stmt: stmt, es: es);
@@ -183,50 +209,64 @@ internal sealed class SuflaeEntityLoweringPass
 
     private Statement LowerExpressionStatement(Statement stmt, ExpressionStatement es)
     {
-        Expression e = LowerExpression(es.Expression);
-        return ReferenceEquals(e, es.Expression) ? stmt : es with { Expression = e };
+        Expression e = LowerExpression(expr: es.Expression);
+        return ReferenceEquals(objA: e, objB: es.Expression)
+            ? stmt
+            : es with { Expression = e };
     }
 
     private Statement LowerDiscardStatement(Statement stmt, DiscardStatement dis)
     {
-        Expression e = LowerExpression(dis.Expression);
-        return ReferenceEquals(e, dis.Expression) ? stmt : dis with { Expression = e };
+        Expression e = LowerExpression(expr: dis.Expression);
+        return ReferenceEquals(objA: e, objB: dis.Expression)
+            ? stmt
+            : dis with { Expression = e };
     }
 
     private Statement LowerWhileStatement(Statement stmt, WhileStatement w)
     {
-        Expression c = LowerExpression(w.Condition);
-        Statement b = LowerStatement(w.Body);
-        return !ReferenceEquals(c, w.Condition) || !ReferenceEquals(b, w.Body)
+        Expression c = LowerExpression(expr: w.Condition);
+        Statement b = LowerStatement(stmt: w.Body);
+        return !ReferenceEquals(objA: c, objB: w.Condition) ||
+               !ReferenceEquals(objA: b, objB: w.Body)
             ? w with { Condition = c, Body = b }
             : stmt;
     }
 
     private Statement LowerLoopStatement(Statement stmt, LoopStatement loop)
     {
-        Statement b = LowerStatement(loop.Body);
-        return ReferenceEquals(b, loop.Body) ? stmt : loop with { Body = b };
+        Statement b = LowerStatement(stmt: loop.Body);
+        return ReferenceEquals(objA: b, objB: loop.Body)
+            ? stmt
+            : loop with { Body = b };
     }
 
     private Statement LowerEachStatement(Statement stmt, EachStatement f)
     {
-        Statement b = LowerStatement(f.Body);
-        return ReferenceEquals(b, f.Body) ? stmt : f with { Body = b };
+        Statement b = LowerStatement(stmt: f.Body);
+        return ReferenceEquals(objA: b, objB: f.Body)
+            ? stmt
+            : f with { Body = b };
     }
 
     private Statement LowerUsingStatement(Statement stmt, UsingStatement u)
     {
-        Statement b = LowerStatement(u.Body);
-        Statement? fb = u.FallbackBody != null ? LowerStatement(u.FallbackBody) : null;
-        return !ReferenceEquals(b, u.Body) || !ReferenceEquals(fb, u.FallbackBody)
+        Statement b = LowerStatement(stmt: u.Body);
+        Statement? fb = u.FallbackBody != null
+            ? LowerStatement(stmt: u.FallbackBody)
+            : null;
+        return !ReferenceEquals(objA: b, objB: u.Body) ||
+               !ReferenceEquals(objA: fb, objB: u.FallbackBody)
             ? u with { Body = b, FallbackBody = fb }
             : stmt;
     }
 
     private Statement LowerDangerStatement(Statement stmt, DangerStatement d)
     {
-        Statement b = LowerStatement(d.Body);
-        return ReferenceEquals(b, d.Body) ? stmt : d with { Body = (BlockStatement)b };
+        Statement b = LowerStatement(stmt: d.Body);
+        return ReferenceEquals(objA: b, objB: d.Body)
+            ? stmt
+            : d with { Body = (BlockStatement)b };
     }
 
     private BlockStatement LowerBlockStatement(BlockStatement block)
@@ -235,30 +275,39 @@ internal sealed class SuflaeEntityLoweringPass
         var list = new List<Statement>(capacity: block.Statements.Count);
         foreach (Statement s in block.Statements)
         {
-            Statement ns = LowerStatement(s);
-            list.Add(ns);
-            if (!ReferenceEquals(ns, s)) changed = true;
+            Statement ns = LowerStatement(stmt: s);
+            list.Add(item: ns);
+            if (!ReferenceEquals(objA: ns, objB: s))
+            {
+                changed = true;
+            }
         }
-        return changed ? block with { Statements = list } : block;
+
+        return changed
+            ? block with { Statements = list }
+            : block;
     }
 
     private Statement LowerDeclarationStatement(Statement stmt, DeclarationStatement ds,
         VariableDeclaration vd)
     {
-        Expression init = MaybeRoamCopy(LowerExpression(vd.Initializer!));
+        Expression init = MaybeRoamCopy(expr: LowerExpression(expr: vd.Initializer!));
         // Track the local as Roamed[E] when its initializer resolved to a Roamed wrapper, so
         // later references (aliasing / access) retype consistently. `var` locals infer their
         // type from the initializer at codegen, so no declared-type rewrite is needed here.
         if (init.ResolvedType is WrapperTypeInfo { Name: RuntimeContract.Roamed } w)
-            _roamedLocals[vd.Name] = w;
-        return ReferenceEquals(init, vd.Initializer)
+        {
+            _roamedLocals[key: vd.Name] = w;
+        }
+
+        return ReferenceEquals(objA: init, objB: vd.Initializer)
             ? stmt
             : ds with { Declaration = vd with { Initializer = init } };
     }
 
     private Statement LowerAssignmentStatement(Statement stmt, AssignmentStatement assign)
     {
-        Expression v = LowerExpression(assign.Value);
+        Expression v = LowerExpression(expr: assign.Value);
         // SF implicit share: a borrowed Roamed RHS bound into a LOCAL slot retains so the slot owns
         // its own count. FIELD-target writes (`o.inner = x`) are NOT handled here — SF entity field
         // REASSIGNMENT has a separate pre-existing codegen crash (baseline AVs with or without the
@@ -266,8 +315,13 @@ internal sealed class SuflaeEntityLoweringPass
         // The former RcRetainLoweringPass.RoamBump auto-share for field targets is removed (it was the
         // compiler hand-simulating the refcount; RF now spells the co-owner explicitly `x.share()`).
         if (assign.Target is IdentifierExpression)
-            v = MaybeRoamCopy(v);
-        return ReferenceEquals(v, assign.Value) ? stmt : assign with { Value = v };
+        {
+            v = MaybeRoamCopy(expr: v);
+        }
+
+        return ReferenceEquals(objA: v, objB: assign.Value)
+            ? stmt
+            : assign with { Value = v };
     }
 
     // A statement-level assignment `target = value` parses as an ExpressionStatement wrapping a
@@ -283,22 +337,29 @@ internal sealed class SuflaeEntityLoweringPass
     private Statement LowerBinaryAssignStatement(Statement stmt, ExpressionStatement es,
         BinaryExpression bin)
     {
-        Expression left = LowerExpression(bin.Left);
-        Expression right = LowerExpression(bin.Right);
+        Expression left = LowerExpression(expr: bin.Left);
+        Expression right = LowerExpression(expr: bin.Right);
         if (bin.Left is IdentifierExpression or MemberExpression)
-            right = MaybeRoamCopy(right);
-        return ReferenceEquals(left, bin.Left) && ReferenceEquals(right, bin.Right)
+        {
+            right = MaybeRoamCopy(expr: right);
+        }
+
+        return ReferenceEquals(objA: left, objB: bin.Left) &&
+               ReferenceEquals(objA: right, objB: bin.Right)
             ? stmt
             : es with { Expression = bin with { Left = left, Right = right } };
     }
 
     private Statement LowerIfStatement(Statement stmt, IfStatement ifs)
     {
-        Expression c = LowerExpression(ifs.Condition);
-        Statement t = LowerStatement(ifs.ThenStatement);
-        Statement? el = ifs.ElseStatement != null ? LowerStatement(ifs.ElseStatement) : null;
-        return !ReferenceEquals(c, ifs.Condition) || !ReferenceEquals(t, ifs.ThenStatement)
-               || !ReferenceEquals(el, ifs.ElseStatement)
+        Expression c = LowerExpression(expr: ifs.Condition);
+        Statement t = LowerStatement(stmt: ifs.ThenStatement);
+        Statement? el = ifs.ElseStatement != null
+            ? LowerStatement(stmt: ifs.ElseStatement)
+            : null;
+        return !ReferenceEquals(objA: c, objB: ifs.Condition) ||
+               !ReferenceEquals(objA: t, objB: ifs.ThenStatement) ||
+               !ReferenceEquals(objA: el, objB: ifs.ElseStatement)
             ? ifs with { Condition = c, ThenStatement = t, ElseStatement = el }
             : stmt;
     }
@@ -306,36 +367,59 @@ internal sealed class SuflaeEntityLoweringPass
     private Statement LowerWhenStatement(Statement stmt, WhenStatement whenStmt)
     {
         bool changed = false;
-        Expression subj = LowerExpression(whenStmt.Expression);
-        if (!ReferenceEquals(subj, whenStmt.Expression)) changed = true;
+        Expression subj = LowerExpression(expr: whenStmt.Expression);
+        if (!ReferenceEquals(objA: subj, objB: whenStmt.Expression))
+        {
+            changed = true;
+        }
+
         var clauses = new List<WhenClause>(capacity: whenStmt.Clauses.Count);
         foreach (WhenClause cl in whenStmt.Clauses)
         {
-            Statement nb = LowerStatement(cl.Body);
-            clauses.Add(ReferenceEquals(nb, cl.Body) ? cl : cl with { Body = nb });
-            if (!ReferenceEquals(nb, cl.Body)) changed = true;
+            Statement nb = LowerStatement(stmt: cl.Body);
+            clauses.Add(item: ReferenceEquals(objA: nb, objB: cl.Body)
+                ? cl
+                : cl with { Body = nb });
+            if (!ReferenceEquals(objA: nb, objB: cl.Body))
+            {
+                changed = true;
+            }
         }
-        return changed ? whenStmt with { Expression = subj, Clauses = clauses } : stmt;
+
+        return changed
+            ? whenStmt with { Expression = subj, Clauses = clauses }
+            : stmt;
     }
 
     private Statement LowerReturnStatement(Statement stmt, ReturnStatement ret)
     {
-        Expression v = LowerExpression(ret.Value!);
+        Expression v = LowerExpression(expr: ret.Value!);
         // A `create` constructor returns the BARE entity — the caller roams it (documented
         // convention; stdlib's generic constructors already return bare). If lowering roamed the
         // return construction, peel that top `Roamed(from: X)` back off so the value isn't roamed
         // AGAIN at the call site (the double-roam bug: outer controller.data → inner controller).
-        if (_inCreateRoutine && TryUnwrapRoamConstruction(expr: v, inner: out Expression? bareInner))
-            return ReferenceEquals(bareInner, ret.Value) ? stmt : ret with { Value = bareInner };
+        if (_inCreateRoutine &&
+            TryUnwrapRoamConstruction(expr: v, inner: out Expression? bareInner))
+        {
+            return ReferenceEquals(objA: bareInner, objB: ret.Value)
+                ? stmt
+                : ret with { Value = bareInner };
+        }
+
         // Returning a BORROW (`me` / a Roamed param) or a Roamed FIELD read hands a fresh
         // reference to the caller; retain so the caller owns its own count. The borrow itself is
         // not released at scope exit (teardown skips `me` + SF Roamed params), so without the
         // retain the caller's binding and the original owner both release one shared count →
         // double free. An owned local returned by MOVE is not a borrow and is left as-is.
-        if ((v is IdentifierExpression rid && _borrowNames.Contains(item: rid.Name))
-            || v is MemberExpression)
-            v = MaybeRoamCopy(v);
-        return ReferenceEquals(v, ret.Value) ? stmt : ret with { Value = v };
+        if (v is IdentifierExpression rid && _borrowNames.Contains(item: rid.Name) ||
+            v is MemberExpression)
+        {
+            v = MaybeRoamCopy(expr: v);
+        }
+
+        return ReferenceEquals(objA: v, objB: ret.Value)
+            ? stmt
+            : ret with { Value = v };
     }
 
     // ---- Expressions ----------------------------------------------------------------------------
@@ -363,8 +447,8 @@ internal sealed class SuflaeEntityLoweringPass
             // Reference to a local we've retyped to Roamed[E] -> flip its resolved type so aliasing
             // and access see the wrapper.
             case IdentifierExpression id
-                when _roamedLocals.TryGetValue(id.Name, out WrapperTypeInfo? w)
-                     && id.ResolvedType is EntityTypeInfo:
+                when _roamedLocals.TryGetValue(key: id.Name, value: out WrapperTypeInfo? w) &&
+                     id.ResolvedType is EntityTypeInfo:
                 return RetypeIdentifier(id: id, w: w);
 
             case MemberExpression m:
@@ -382,7 +466,7 @@ internal sealed class SuflaeEntityLoweringPass
             // Roamed[E].is_none() instance gets seeded/instantiated for the concrete entity; codegen has
             // no direct IsPattern lowering for a Roamed handle. The frontend already narrowed the flow.
             case IsPatternExpression ipe
-                when (ipe.Pattern is NonePattern or TypePattern { Type.Name: "None" }):
+                when ipe.Pattern is NonePattern or TypePattern { Type.Name: "None" }:
                 return LowerNoneIsPattern(ipe: ipe);
 
             // A call — INCLUDING a constructor call `E(...)`, which is a CallExpression (not a
@@ -419,7 +503,8 @@ internal sealed class SuflaeEntityLoweringPass
         }
     }
 
-    private static IdentifierExpression RetypeIdentifier(IdentifierExpression id, WrapperTypeInfo w)
+    private static IdentifierExpression RetypeIdentifier(IdentifierExpression id,
+        WrapperTypeInfo w)
     {
         id.ResolvedType = w;
         return id;
@@ -427,38 +512,46 @@ internal sealed class SuflaeEntityLoweringPass
 
     private MemberExpression LowerMemberExpression(MemberExpression m)
     {
-        Expression obj = LowerExpression(m.Object);
-        return ReferenceEquals(obj, m.Object) ? m : m with { Object = obj };
+        Expression obj = LowerExpression(expr: m.Object);
+        return ReferenceEquals(objA: obj, objB: m.Object)
+            ? m
+            : m with { Object = obj };
     }
 
     private IndexExpression LowerIndexExpression(IndexExpression ix)
     {
-        Expression o = LowerExpression(ix.Object);
-        Expression ii = LowerExpression(ix.Index);
-        return !ReferenceEquals(o, ix.Object) || !ReferenceEquals(ii, ix.Index)
+        Expression o = LowerExpression(expr: ix.Object);
+        Expression ii = LowerExpression(expr: ix.Index);
+        return !ReferenceEquals(objA: o, objB: ix.Object) ||
+               !ReferenceEquals(objA: ii, objB: ix.Index)
             ? ix with { Object = o, Index = ii }
             : ix;
     }
 
     private BinaryExpression LowerBinaryExpression(BinaryExpression bin)
     {
-        Expression l = LowerExpression(bin.Left);
-        Expression r = LowerExpression(bin.Right);
-        return !ReferenceEquals(l, bin.Left) || !ReferenceEquals(r, bin.Right)
+        Expression l = LowerExpression(expr: bin.Left);
+        Expression r = LowerExpression(expr: bin.Right);
+        return !ReferenceEquals(objA: l, objB: bin.Left) ||
+               !ReferenceEquals(objA: r, objB: bin.Right)
             ? bin with { Left = l, Right = r }
             : bin;
     }
 
     private UnaryExpression LowerUnaryExpression(UnaryExpression un)
     {
-        Expression o = LowerExpression(un.Operand);
-        return ReferenceEquals(o, un.Operand) ? un : un with { Operand = o };
+        Expression o = LowerExpression(expr: un.Operand);
+        return ReferenceEquals(objA: o, objB: un.Operand)
+            ? un
+            : un with { Operand = o };
     }
 
     private NamedArgumentExpression LowerNamedArgumentExpression(NamedArgumentExpression namedArg)
     {
-        Expression v = LowerExpression(namedArg.Value);
-        return ReferenceEquals(v, namedArg.Value) ? namedArg : namedArg with { Value = v };
+        Expression v = LowerExpression(expr: namedArg.Value);
+        return ReferenceEquals(objA: v, objB: namedArg.Value)
+            ? namedArg
+            : namedArg with { Value = v };
     }
 
     // f-string: recurse into each embedded `{ expr }` so entity references inside it retype
@@ -472,13 +565,21 @@ internal sealed class SuflaeEntityLoweringPass
         {
             if (part is ExpressionPart ep)
             {
-                Expression ne = LowerExpression(ep.Expression);
-                parts.Add(ReferenceEquals(ne, ep.Expression) ? ep : ep with { Expression = ne });
-                if (!ReferenceEquals(ne, ep.Expression)) changed = true;
+                Expression ne = LowerExpression(expr: ep.Expression);
+                parts.Add(item: ReferenceEquals(objA: ne, objB: ep.Expression)
+                    ? ep
+                    : ep with { Expression = ne });
+                if (!ReferenceEquals(objA: ne, objB: ep.Expression))
+                {
+                    changed = true;
+                }
             }
-            else { parts.Add(part); }
+            else { parts.Add(item: part); }
         }
-        return changed ? fstr with { Parts = parts } : fstr;
+
+        return changed
+            ? fstr with { Parts = parts }
+            : fstr;
     }
 
     // `x is None` / `x isnot None` on a nullable entity reference (`E?` = Roamed[E]): rewrite to
@@ -487,22 +588,29 @@ internal sealed class SuflaeEntityLoweringPass
     // lowering for a Roamed handle. The frontend already narrowed the flow.
     private Expression LowerNoneIsPattern(IsPatternExpression ipe)
     {
-        Expression inner = LowerExpression(ipe.Expression);
-        if (!IsRoamedType(inner.ResolvedType))
+        Expression inner = LowerExpression(expr: ipe.Expression);
+        if (!IsRoamedType(t: inner.ResolvedType))
         {
             // Not a Roamed operand — leave the IsPattern as-is (Maybe/variant handled downstream).
-            return ReferenceEquals(inner, ipe.Expression) ? ipe : ipe with { Expression = inner };
+            return ReferenceEquals(objA: inner, objB: ipe.Expression)
+                ? ipe
+                : ipe with { Expression = inner };
         }
 
         TypeInfo? boolType = _registry.LookupType(name: "Bool");
         var isNoneCall = new CallExpression(
-            Callee: new MemberExpression(Object: inner, MemberName: "is_none",
+            Callee: new MemberExpression(Object: inner,
+                MemberName: "is_none",
                 Location: ipe.Location) { ResolvedType = boolType },
             Arguments: new List<Expression>(),
             Location: ipe.Location) { ResolvedType = boolType };
         if (!ipe.IsNegated)
+        {
             return isNoneCall;
-        return new UnaryExpression(Operator: UnaryOperator.Not, Operand: isNoneCall,
+        }
+
+        return new UnaryExpression(Operator: UnaryOperator.Not,
+            Operand: isNoneCall,
             Location: ipe.Location) { ResolvedType = boolType };
     }
 
@@ -511,27 +619,37 @@ internal sealed class SuflaeEntityLoweringPass
     // `.roam()` the whole value.
     private CallExpression LowerCallExpression(CallExpression call)
     {
-        Expression callee = LowerExpression(call.Callee);
-        bool changed = !ReferenceEquals(callee, call.Callee);
+        Expression callee = LowerExpression(expr: call.Callee);
+        bool changed = !ReferenceEquals(objA: callee, objB: call.Callee);
 
         callee = ProjectRoamedReceiverIntoBareMe(call: call, callee: callee, changed: ref changed);
 
         var args = new List<Expression>(capacity: call.Arguments.Count);
         foreach (Expression a in call.Arguments)
         {
-            Expression na = LowerExpression(a);
-            args.Add(na);
-            if (!ReferenceEquals(na, a)) changed = true;
+            Expression na = LowerExpression(expr: a);
+            args.Add(item: na);
+            if (!ReferenceEquals(objA: na, objB: a))
+            {
+                changed = true;
+            }
         }
+
         // A construction `E(...)` stores its args into fields; a borrowed Roamed arg going into a
         // Roamed field must retain (else the field + the source local both release → double free).
         if (call.ResolvedType is EntityTypeInfo)
         {
-            for (int k = 0; k < args.Count; k++) args[k] = RetainConstructionArg(args[k]);
+            for (int k = 0; k < args.Count; k++)
+            {
+                args[index: k] = RetainConstructionArg(arg: args[index: k]);
+            }
+
             changed = true;
         }
 
-        CallExpression lowered = changed ? call with { Callee = callee, Arguments = args } : call;
+        CallExpression lowered = changed
+            ? call with { Callee = callee, Arguments = args }
+            : call;
 
         // Project each Roamed argument that flows into a BARE-entity parameter through
         // `.raw_inner()`. SF routine/memberRoutine parameters are NOT Roamed-substituted, so their slot
@@ -561,21 +679,24 @@ internal sealed class SuflaeEntityLoweringPass
     // correctly take the handle; memberRoutines declared on Roamed/RoamController itself
     // (roam/raw_inner/is_none) own the handle too. Gate on the resolved routine owning a
     // bare entity with a non-Roamed MeType. Mirrors the argument projection.
-    private static Expression ProjectRoamedReceiverIntoBareMe(CallExpression call, Expression callee,
-        ref bool changed)
+    private static Expression ProjectRoamedReceiverIntoBareMe(CallExpression call,
+        Expression callee, ref bool changed)
     {
-        if (callee is MemberExpression { Object: { } recv } calleeMember
-            && call.ResolvedRoutine is { OwnerType: EntityTypeInfo } resolvedCallee
-            && resolvedCallee.MeType is not RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }
-            && RoamedInnerEntity(recv.ResolvedType) is { } recvEntity)
+        if (callee is MemberExpression { Object: { } recv } calleeMember &&
+            call.ResolvedRoutine is { OwnerType: EntityTypeInfo } resolvedCallee &&
+            resolvedCallee.MeType is not RecordTypeInfo
+            {
+                GenericDefinition.Name: RuntimeContract.Roamed
+            } && RoamedInnerEntity(t: recv.ResolvedType) is { } recvEntity)
         {
             Expression rawRecv = ProjectRawInner(arg: recv, targetEntity: recvEntity);
-            if (!ReferenceEquals(rawRecv, recv))
+            if (!ReferenceEquals(objA: rawRecv, objB: recv))
             {
                 changed = true;
                 return calleeMember with { Object = rawRecv };
             }
         }
+
         return callee;
     }
 
@@ -583,8 +704,10 @@ internal sealed class SuflaeEntityLoweringPass
     // parameterized SF constructor whose `create` body returns the bare entity.
     private CallExpression WrapCallResultInRoam(CallExpression call, CallExpression lowered)
     {
-        if (call.ResolvedType is EntityTypeInfo callEntity && !IsRfRealmRef(call.Callee))
+        if (call.ResolvedType is EntityTypeInfo callEntity && !IsRfRealmRef(callee: call.Callee))
+        {
             return WrapInRoam(inner: lowered, entity: callEntity);
+        }
 
         // A PARAMETERIZED SF constructor call (`Pt(v: x)`) is a CallExpression typed `Roamed[E]`
         // (SA roamed `create`'s declared return), but the `create` BODY returns the BARE entity
@@ -594,9 +717,9 @@ internal sealed class SuflaeEntityLoweringPass
         // `Box()` is typed bare (handled above); this catches the arg-carrying form. Gated on
         // `create` (returns bare) so an ordinary routine returning a `Roamed[E]` value is NOT
         // re-wrapped, and on the SF realm (an RF entity stays bare).
-        if (lowered.ResolvedRoutine is { IsCreator: true }
-            && RoamedInnerEntity(call.ResolvedType) is { } createEntity
-            && !IsRfRealmRef(call.Callee))
+        if (lowered.ResolvedRoutine is { IsCreator: true } &&
+            RoamedInnerEntity(t: call.ResolvedType) is { } createEntity &&
+            !IsRfRealmRef(callee: call.Callee))
         {
             lowered.ResolvedType = createEntity;
             return WrapInRoam(inner: lowered, entity: createEntity);
@@ -616,20 +739,28 @@ internal sealed class SuflaeEntityLoweringPass
         bool gChanged = false;
         foreach (Expression a in gmce.Arguments)
         {
-            Expression na = LowerExpression(a);
-            gArgs.Add(na);
-            if (!ReferenceEquals(na, a)) gChanged = true;
+            Expression na = LowerExpression(expr: a);
+            gArgs.Add(item: na);
+            if (!ReferenceEquals(objA: na, objB: a))
+            {
+                gChanged = true;
+            }
         }
 
         if (gmce.ResolvedType is EntityTypeInfo)
         {
-            for (int k = 0; k < gArgs.Count; k++) gArgs[k] = RetainConstructionArg(gArgs[k]);
+            for (int k = 0; k < gArgs.Count; k++)
+            {
+                gArgs[index: k] = RetainConstructionArg(arg: gArgs[index: k]);
+            }
+
             gChanged = true;
         }
 
-        GenericMemberRoutineCallExpression loweredG =
-            gChanged ? gmce with { Arguments = gArgs } : gmce;
-        return gmce.ResolvedType is EntityTypeInfo gEntity && !IsRfRealmRef(gmce.Object)
+        GenericMemberRoutineCallExpression loweredG = gChanged
+            ? gmce with { Arguments = gArgs }
+            : gmce;
+        return gmce.ResolvedType is EntityTypeInfo gEntity && !IsRfRealmRef(callee: gmce.Object)
             ? WrapInRoam(inner: loweredG, entity: gEntity)
             : loweredG;
     }
@@ -637,9 +768,10 @@ internal sealed class SuflaeEntityLoweringPass
     // Rewrite each argument that lands in a BARE-entity parameter of `routine` from a Roamed handle to
     // `arg.raw_inner()` (the real entity pointer). Named args match by parameter name; positional args
     // map by order over the non-`me` parameters. Non-Roamed args and non-entity params are untouched.
-    private static CallExpression ProjectRoamedArgsIntoBareParams(CallExpression call, RoutineInfo routine)
+    private static CallExpression ProjectRoamedArgsIntoBareParams(CallExpression call,
+        RoutineInfo routine)
     {
-        List<ParameterInfo> nonMe = BuildNonMeParams(routine);
+        List<ParameterInfo> nonMe = BuildNonMeParams(routine: routine);
 
         bool changed = false;
         var newArgs = new List<Expression>(capacity: call.Arguments.Count);
@@ -650,16 +782,21 @@ internal sealed class SuflaeEntityLoweringPass
             if (param?.Type is EntityTypeInfo entity)
             {
                 Expression projected = ProjectRawInner(arg: a, targetEntity: entity);
-                newArgs.Add(projected);
-                if (!ReferenceEquals(projected, a)) changed = true;
+                newArgs.Add(item: projected);
+                if (!ReferenceEquals(objA: projected, objB: a))
+                {
+                    changed = true;
+                }
             }
             else
             {
-                newArgs.Add(a);
+                newArgs.Add(item: a);
             }
         }
 
-        return changed ? call with { Arguments = newArgs } : call;
+        return changed
+            ? call with { Arguments = newArgs }
+            : call;
     }
 
     // Builds the list of non-`me` parameters from a routine (the subset that call arguments map to).
@@ -667,7 +804,13 @@ internal sealed class SuflaeEntityLoweringPass
     {
         var nonMe = new List<ParameterInfo>();
         foreach (ParameterInfo p in routine.Parameters)
-            if (p.Name != "me") nonMe.Add(p);
+        {
+            if (p.Name != "me")
+            {
+                nonMe.Add(item: p);
+            }
+        }
+
         return nonMe;
     }
 
@@ -679,11 +822,19 @@ internal sealed class SuflaeEntityLoweringPass
         if (a is NamedArgumentExpression named)
         {
             foreach (ParameterInfo p in nonMe)
-                if (p.Name == named.Name) return p;
+            {
+                if (p.Name == named.Name)
+                {
+                    return p;
+                }
+            }
+
             return null;
         }
 
-        ParameterInfo? param = posIdx < nonMe.Count ? nonMe[posIdx] : null;
+        ParameterInfo? param = posIdx < nonMe.Count
+            ? nonMe[index: posIdx]
+            : null;
         posIdx++;
         return param;
     }
@@ -695,11 +846,17 @@ internal sealed class SuflaeEntityLoweringPass
     // so reaching the inner through it stays serialized (unlike the old raw_inner, which was unlocked).
     private static Expression ProjectRawInner(Expression arg, EntityTypeInfo targetEntity)
     {
-        Expression val = arg is NamedArgumentExpression na ? na.Value : arg;
-        if (!IsRoamedType(val.ResolvedType)) return arg;
+        Expression val = arg is NamedArgumentExpression na
+            ? na.Value
+            : arg;
+        if (!IsRoamedType(t: val.ResolvedType))
+        {
+            return arg;
+        }
 
         var inner = new CallExpression(
-            Callee: new MemberExpression(Object: val, MemberName: RuntimeContract.Control,
+            Callee: new MemberExpression(Object: val,
+                MemberName: RuntimeContract.Control,
                 Location: val.Location) { ResolvedType = targetEntity },
             Arguments: new List<Expression>(),
             Location: val.Location) { ResolvedType = targetEntity };
@@ -714,18 +871,28 @@ internal sealed class SuflaeEntityLoweringPass
     // TypeBodyResolver builds via GetOrCreateResolution).
     private static bool IsRoamedType(TypeInfo? t)
     {
-        return t is WrapperTypeInfo { Name: RuntimeContract.Roamed } or RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed };
+        return t is WrapperTypeInfo { Name: RuntimeContract.Roamed } or RecordTypeInfo
+        {
+            GenericDefinition.Name: RuntimeContract.Roamed
+        };
     }
 
     // The bare entity `E` inside a `Roamed[E]` handle, in either representation the pipeline produces
     // (WrapperTypeInfo from WrapInRoam, RecordTypeInfo from a resolver-built handle). Null when the
     // type is not a Roamed handle over an entity.
-    private static EntityTypeInfo? RoamedInnerEntity(TypeInfo? t) => t switch
+    private static EntityTypeInfo? RoamedInnerEntity(TypeInfo? t)
     {
-        WrapperTypeInfo { Name: RuntimeContract.Roamed, InnerType: EntityTypeInfo e } => e,
-        RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed, TypeArguments: [EntityTypeInfo e] } => e,
-        _ => null
-    };
+        return t switch
+        {
+            WrapperTypeInfo { Name: RuntimeContract.Roamed, InnerType: EntityTypeInfo e } => e,
+            RecordTypeInfo
+            {
+                GenericDefinition.Name: RuntimeContract.Roamed,
+                TypeArguments: [EntityTypeInfo e]
+            } => e,
+            _ => null
+        };
+    }
 
     // A construction arg (a `NamedArgumentExpression` or bare value) whose value is a borrowed Roamed
     // reference must retain — it is stored into a Roamed field which the constructed entity now co-owns.
@@ -733,10 +900,13 @@ internal sealed class SuflaeEntityLoweringPass
     {
         if (arg is NamedArgumentExpression na)
         {
-            Expression v = MaybeRoamCopy(na.Value);
-            return ReferenceEquals(v, na.Value) ? na : na with { Value = v };
+            Expression v = MaybeRoamCopy(expr: na.Value);
+            return ReferenceEquals(objA: v, objB: na.Value)
+                ? na
+                : na with { Value = v };
         }
-        return MaybeRoamCopy(arg);
+
+        return MaybeRoamCopy(expr: arg);
     }
 
     // A borrowed reference (identifier / field read) to a Roamed value in a COPY position (var-init or
@@ -748,18 +918,20 @@ internal sealed class SuflaeEntityLoweringPass
         // Accept BOTH Roamed representations: WrapperTypeInfo (from this pass's WrapInRoam) and
         // RecordTypeInfo (from the resolver's GetOrCreateResolution — e.g. `me`/params/fields typed via
         // MeType / TypeBodyResolver). The `.roam()` copy verb retains the shared controller either way.
-        if (expr is (IdentifierExpression or MemberExpression) && IsRoamedType(expr.ResolvedType))
+        if (expr is IdentifierExpression or MemberExpression && IsRoamedType(t: expr.ResolvedType))
         {
             TypeInfo roamed = expr.ResolvedType!;
             // Copy a borrowed Roamed value by bumping its biased refcount via the RC copy verb `.share()`
             // (renamed from the old construction-masquerading `.roam()` — Roamed[T].share() is the real
             // same-strength co-owner mint).
             return new CallExpression(
-                Callee: new MemberExpression(Object: expr, MemberName: RuntimeContract.RefCount.Share,
+                Callee: new MemberExpression(Object: expr,
+                    MemberName: RuntimeContract.RefCount.Share,
                     Location: expr.Location) { ResolvedType = roamed },
                 Arguments: new List<Expression>(),
                 Location: expr.Location) { ResolvedType = roamed };
         }
+
         return expr;
     }
 
@@ -770,8 +942,10 @@ internal sealed class SuflaeEntityLoweringPass
     // without re-roaming it into a `Roamed[List]`. Mirrors TypeResolver.ResolveType's `Realm != "RF"`
     // gate on the type-annotation side; the realm survives on the construction callee's identifier
     // (Parser.Expressions parses `RF::Core.List` into `IdentifierExpression { Realm = "RF" }`).
-    private static bool IsRfRealmRef(Expression callee) =>
-        callee is IdentifierExpression { Realm: "RF" };
+    private static bool IsRfRealmRef(Expression callee)
+    {
+        return callee is IdentifierExpression { Realm: "RF" };
+    }
 
     // Recognizes the `Roamed(from: X)` wrapper construction that <see cref="WrapInRoam"/> builds and
     // yields the inner (pre-roam) construction X. Used to peel a redundant roam off a `create` return.
@@ -787,6 +961,7 @@ internal sealed class SuflaeEntityLoweringPass
             inner = from;
             return true;
         }
+
         inner = null;
         return false;
     }
@@ -794,7 +969,9 @@ internal sealed class SuflaeEntityLoweringPass
     private CallExpression WrapInRoam(Expression inner, EntityTypeInfo entity)
     {
         WrapperTypeInfo roamed = _registry.GetOrCreateWrapperType(
-            wrapperName: RuntimeContract.Roamed, innerType: entity, isReadOnly: false);
+            wrapperName: RuntimeContract.Roamed,
+            innerType: entity,
+            isReadOnly: false);
         // Build the resolved `Roamed[E](from: inner)` CONSTRUCTOR call (routes to `Roamed[T].create(from:T)`)
         // instead of the construction-masquerading `inner.roam()` — mirrors what the SA path produces for a
         // bare `Roamed(from: n)` (Calls.cs). `inner` is a FRESH entity rvalue (creator/literal/call), so it
@@ -802,9 +979,13 @@ internal sealed class SuflaeEntityLoweringPass
         // ConstructedType + ResolvedRoutine (see GenericCallLoweringPass wrapper-construction lowering).
         RoutineInfo? create = _registry.LookupCreatorOverload(type: roamed, argTypes: [entity]);
         return new CallExpression(
-            Callee: new IdentifierExpression(Name: RuntimeContract.Roamed, Location: inner.Location)
-                { ResolvedType = roamed },
-            Arguments: [new NamedArgumentExpression(Name: "from", Value: inner, Location: inner.Location)],
+            Callee:
+            new IdentifierExpression(Name: RuntimeContract.Roamed, Location: inner.Location)
+            {
+                ResolvedType = roamed
+            },
+            Arguments:
+            [new NamedArgumentExpression(Name: "from", Value: inner, Location: inner.Location)],
             Location: inner.Location)
         {
             LoweringKind = CallLoweringKind.WrapperConstruction,

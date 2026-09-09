@@ -13,19 +13,26 @@ public partial class LlvmCodeGenerator
     {
         string funcName = nameOverride ?? MangleRoutineName(routine: routine);
         if (ShouldSkipDeclaration(routine: routine, funcName: funcName))
+        {
             return;
+        }
 
         _generatedRoutines.Add(item: funcName);
 
         bool isCExtern = routine.CallingConvention == "C";
         bool isCreator = IsCreatorRoutine(routine: routine);
-        List<string> paramTypes = BuildDeclarationParameterList(routine: routine, isCExtern: isCExtern, isCreator: isCreator);
+        List<string> paramTypes = BuildDeclarationParameterList(routine: routine,
+            isCExtern: isCExtern,
+            isCreator: isCreator);
         EnsureRecordTypesDeclared(routine: routine);
 
         string returnType = ComputeDeclarationReturnType(routine: routine, isCExtern: isCExtern);
-        EmitRoutineDeclarationString(routine: routine, funcName: funcName,
-            paramTypes: paramTypes, returnType: returnType,
-            isCExtern: isCExtern, isCreator: isCreator);
+        EmitRoutineDeclarationString(routine: routine,
+            funcName: funcName,
+            paramTypes: paramTypes,
+            returnType: returnType,
+            isCExtern: isCExtern,
+            isCreator: isCreator);
     }
 
     /// <summary>
@@ -35,21 +42,31 @@ public partial class LlvmCodeGenerator
     private bool ShouldSkipDeclaration(RoutineInfo routine, string funcName)
     {
         if (_generatedRoutines.Contains(item: funcName))
+        {
             return true;
+        }
+
         if (routine.Annotations.Contains(value: "innate"))
+        {
             return true;
+        }
+
         if (routine.OwnerType?.IsGenericDefinition == true)
+        {
             return true;
-        return routine.Parameters.Any(predicate: p => ContainsGenericParameter(type: p.Type))
-            || (routine.ReturnType != null && ContainsGenericParameter(type: routine.ReturnType))
-            || (routine.OwnerType != null && ContainsGenericParameter(type: routine.OwnerType));
+        }
+
+        return routine.Parameters.Any(predicate: p => ContainsGenericParameter(type: p.Type)) ||
+               routine.ReturnType != null && ContainsGenericParameter(type: routine.ReturnType) ||
+               routine.OwnerType != null && ContainsGenericParameter(type: routine.OwnerType);
     }
 
     /// <summary>
     /// Builds the LLVM parameter type list (no names) for a routine declaration: the implicit
     /// me receiver, then each explicit parameter in its ABI form.
     /// </summary>
-    private List<string> BuildDeclarationParameterList(RoutineInfo routine, bool isCExtern, bool isCreator)
+    private List<string> BuildDeclarationParameterList(RoutineInfo routine, bool isCExtern,
+        bool isCreator)
     {
         var paramTypes = new List<string>();
 
@@ -57,7 +74,8 @@ public partial class LlvmCodeGenerator
         // Skip for create routines (static factories) and common (type-level) routines.
         if (routine.OwnerType != null && !isCreator && !routine.IsCommon)
         {
-            paramTypes.Add(item: GetImplicitMeParameterDeclaration(routine: routine, includeName: false));
+            paramTypes.Add(
+                item: GetImplicitMeParameterDeclaration(routine: routine, includeName: false));
         }
 
         // Add explicit parameters. For external C functions, F16 (half) becomes i16 (integer ABI register).
@@ -70,20 +88,37 @@ public partial class LlvmCodeGenerator
     /// <summary>
     /// Formats a single parameter for a routine declaration (no name, just ABI type string).
     /// </summary>
-    private string FormatDeclarationParameter(RoutineInfo routine, ParameterInfo param, bool isCExtern)
+    private string FormatDeclarationParameter(RoutineInfo routine, ParameterInfo param,
+        bool isCExtern)
     {
         // By-ref struct-record thread arg: the worker receives a pointer to the spawner's cell.
-        if (IsByRefThreadArg(routine: routine, param: param)) return "ptr";
+        if (IsByRefThreadArg(routine: routine, param: param))
+        {
+            return "ptr";
+        }
+
         // ABI-Indirect struct value arg: passed as a hidden byval pointer-to-copy.
         if (ParameterPassedByval(routine: routine, paramType: param.Type))
+        {
             return $"ptr byval({GetLlvmType(type: param.Type)})";
+        }
+
         // ABI-Coerce small struct value arg: passed reinterpreted as an integer register form.
         if (ParameterCoerceType(routine: routine, paramType: param.Type) is { } coerceArg)
+        {
             return coerceArg;
+        }
+
         string t = GetParameterLlvmType(type: param.Type);
-        if (isCExtern && t == "half") return "i16";
+        if (isCExtern && t == "half")
+        {
+            return "i16";
+        }
+
         string attrs = GetExplicitParameterAttributes(type: param.Type);
-        return string.IsNullOrEmpty(attrs) ? t : $"{t} {attrs}";
+        return string.IsNullOrEmpty(value: attrs)
+            ? t
+            : $"{t} {attrs}";
     }
 
     /// <summary>
@@ -94,13 +129,19 @@ public partial class LlvmCodeGenerator
     {
         foreach (ParameterInfo param in routine.Parameters)
         {
-            if (param.Type is RecordTypeInfo { BackendType: null, IsGenericDefinition: false } paramRecord)
+            if (param.Type is RecordTypeInfo
+                {
+                    BackendType: null, IsGenericDefinition: false
+                } paramRecord)
             {
                 GenerateRecordType(record: paramRecord);
             }
         }
 
-        if (routine.ReturnType is RecordTypeInfo { BackendType: null, IsGenericDefinition: false } returnRecord)
+        if (routine.ReturnType is RecordTypeInfo
+            {
+                BackendType: null, IsGenericDefinition: false
+            } returnRecord)
         {
             GenerateRecordType(record: returnRecord);
         }
@@ -148,7 +189,8 @@ public partial class LlvmCodeGenerator
     /// add a noalias prefix for creator routines that return a freshly allocated pointer.
     /// </summary>
     private void EmitRoutineDeclarationString(RoutineInfo routine, string funcName,
-        List<string> paramTypes, string returnType, bool isCExtern, bool isCreator)
+        List<string> paramTypes, string returnType, bool isCExtern,
+        bool isCreator)
     {
         // Struct returns classified Indirect by the target ABI go through a hidden sret pointer.
         // For external C routines this matches the platform C ABI (Win-x64 MSVC: structs > 8 bytes).
@@ -159,7 +201,9 @@ public partial class LlvmCodeGenerator
             : ReturnsViaSret(routine: routine);
         // Phase 2: a small struct return is coerced to an integer register form — the declared
         // return type becomes that, matching the define/return/call sites. (Not for C externs.)
-        string? declCoerceReturn = isCExtern || needsSret ? null : ReturnCoerceType(routine: routine);
+        string? declCoerceReturn = isCExtern || needsSret
+            ? null
+            : ReturnCoerceType(routine: routine);
 
         if (needsSret)
         {
@@ -177,7 +221,9 @@ public partial class LlvmCodeGenerator
         else
         {
             string parameters = string.Join(separator: ", ", values: paramTypes);
-            string returnPrefix = isCreator && returnType == "ptr" ? "noalias " : "";
+            string returnPrefix = isCreator && returnType == "ptr"
+                ? "noalias "
+                : "";
             _rfRoutineDeclarations[key: funcName] =
                 $"declare {returnPrefix}{returnType} @{funcName}({parameters})";
         }
@@ -204,8 +250,11 @@ public partial class LlvmCodeGenerator
         if (lambda.ClosureCaptures != null)
         {
             foreach ((string _, TypeInfo capType) in lambda.ClosureCaptures)
+            {
                 fields.Add(item: GetLlvmType(type: capType));
+            }
         }
+
         _typeDeclarationsClosure[key: name] =
             $"{name} = type {{ {string.Join(separator: ", ", values: fields)} }}\n";
         return name;
@@ -217,8 +266,8 @@ public partial class LlvmCodeGenerator
     {
         // The binding attached at registration is authoritative — it is the exact RoutineInfo this
         // declaration was registered as, so it needs no name re-parsing or module-blind owner lookup.
-        RoutineInfo? routineInfo = preResolvedInfo ?? routine.ResolvedInfo
-            ?? ResolveRoutineInfoForDefinition(routine: routine, moduleContext: moduleContext);
+        RoutineInfo? routineInfo = preResolvedInfo ?? routine.ResolvedInfo ??
+            ResolveRoutineInfoForDefinition(routine: routine, moduleContext: moduleContext);
 
         if (ShouldSkipRoutineDefinition(routineInfo: routineInfo))
         {
@@ -250,7 +299,9 @@ public partial class LlvmCodeGenerator
         _currentReturnViaSret = ReturnsViaSret(routine: info);
         // Phase 2: a small struct return is coerced to an integer register form; the header returns
         // that type and every `return` reinterprets the struct into it (see EmitReturn).
-        _currentReturnCoerceType = _currentReturnViaSret ? null : ReturnCoerceType(routine: info);
+        _currentReturnCoerceType = _currentReturnViaSret
+            ? null
+            : ReturnCoerceType(routine: info);
         if (_currentReturnViaSret)
         {
             paramList.Insert(index: 0, item: $"ptr sret({returnType}) %sret");
@@ -261,8 +312,11 @@ public partial class LlvmCodeGenerator
         int savedLength = _functionDefinitions.Length;
         int savedTempCounter = _tempCounter;
 
-        string defineHeader = BuildDefineHeader(info: info, funcName: funcName,
-            parameters: parameters, returnType: returnType, isCreator: isCreator);
+        string defineHeader = BuildDefineHeader(info: info,
+            funcName: funcName,
+            parameters: parameters,
+            returnType: returnType,
+            isCreator: isCreator);
         _generatedRoutineDefHeaders[key: funcName] = defineHeader;
         RecordDebugSubprogram(funcName: funcName, location: info.Location);
         _currentDbgLoc = null; // reset the Layer-2 location cursor at each routine boundary
@@ -318,7 +372,8 @@ public partial class LlvmCodeGenerator
             return ownerType == null
                 ? null
                 : _registry.LookupMemberRoutineOverload(type: ownerType,
-                    memberRoutineName: shortName, argTypes: astParamTypes);
+                    memberRoutineName: shortName,
+                    argTypes: astParamTypes);
         }
 
         // Free routine — resolve by (name, argTypes), module-qualified key first so two modules'
@@ -331,7 +386,8 @@ public partial class LlvmCodeGenerator
                 argTypes: astParamTypes);
         }
 
-        return info ?? _registry.LookupRoutineOverload(baseName: freeBase, argTypes: astParamTypes);
+        return info ??
+               _registry.LookupRoutineOverload(baseName: freeBase, argTypes: astParamTypes);
     }
 
     /// <summary>
@@ -340,10 +396,10 @@ public partial class LlvmCodeGenerator
     private List<TypeInfo> ResolveAstParameterTypes(RoutineDeclaration routine)
     {
         return routine.Parameters
-            .Where(predicate: param => param.Type != null)
-            .Select(selector: param => ResolveAstParameterType(param: param))
-            .OfType<TypeInfo>()
-            .ToList();
+                      .Where(predicate: param => param.Type != null)
+                      .Select(selector: param => ResolveAstParameterType(param: param))
+                      .OfType<TypeInfo>()
+                      .ToList();
     }
 
     /// <summary>
@@ -363,7 +419,8 @@ public partial class LlvmCodeGenerator
         // A bare unresolvable name is a generic PARAMETER (e.g. value: T in List[T].add_last).
         // Keep it as a GenericParameterTypeInfo so the arg-type list stays arity-complete and the
         // overload matcher's Tier-1 name match (param.Name == arg.Name) can bind the generic-def routine.
-        return t ?? (param.Type.GenericArguments is not { Count: > 0 } && !typeName.Contains(value: '.')
+        return t ?? (param.Type.GenericArguments is not { Count: > 0 } &&
+                     !typeName.Contains(value: '.')
             ? new GenericParameterTypeInfo(name: typeName)
             : null);
     }
@@ -389,7 +446,8 @@ public partial class LlvmCodeGenerator
         }
 
         if (routineInfo.Parameters.Any(predicate: p => ContainsGenericParameter(type: p.Type)) ||
-            routineInfo.ReturnType != null && ContainsGenericParameter(type: routineInfo.ReturnType) ||
+            routineInfo.ReturnType != null &&
+            ContainsGenericParameter(type: routineInfo.ReturnType) ||
             routineInfo.OwnerType != null && ContainsGenericParameter(type: routineInfo.OwnerType))
         {
             return true;
@@ -403,9 +461,8 @@ public partial class LlvmCodeGenerator
         // Reachability gate: when LiveRoutineKeys is populated, skip routines not reachable from
         // program entry points. Lifted lambdas are exempt — LambdaLiftingPass runs after
         // reachability, so their keys aren't in the live set even when referenced by address.
-        return _liveRoutineKeys.Count > 0
-            && !_liveRoutineKeys.Contains(item: routineInfo.RegistryKey)
-            && !routineInfo.IsLambda;
+        return _liveRoutineKeys.Count > 0 &&
+               !_liveRoutineKeys.Contains(item: routineInfo.RegistryKey) && !routineInfo.IsLambda;
     }
 
     /// <summary>
@@ -444,6 +501,7 @@ public partial class LlvmCodeGenerator
         {
             paramList.Add(item: "ptr %__bound");
         }
+
         return paramList;
     }
 
@@ -463,20 +521,34 @@ public partial class LlvmCodeGenerator
             : null;
         string paramType;
         if (byRefThreadArg)
+        {
             paramType = "ptr";
+        }
         else if (byval)
+        {
             paramType = $"ptr byval({GetLlvmType(type: param.Type)})";
+        }
         else
+        {
             paramType = coerce ?? GetParameterLlvmType(type: param.Type);
+        }
+
         string paramAttrs = byRefThreadArg || byval || coerce != null
             ? string.Empty
             : GetExplicitParameterAttributes(type: param.Type);
         string emittedName;
         if (byRefThreadArg || byval)
+        {
             emittedName = $"{param.Name}.addr";
+        }
         else
-            emittedName = param.Name == "entry" ? "entry_" : param.Name;
-        return string.IsNullOrEmpty(paramAttrs)
+        {
+            emittedName = param.Name == "entry"
+                ? "entry_"
+                : param.Name;
+        }
+
+        return string.IsNullOrEmpty(value: paramAttrs)
             ? $"{paramType} %{emittedName}"
             : $"{paramType} {paramAttrs} %{emittedName}";
     }
@@ -492,7 +564,9 @@ public partial class LlvmCodeGenerator
             FailableVariant.Lookup => GetLookupCarrierLlvmType(valueType: info.ReturnType!),
             FailableVariant.Check => GetResultCarrierLlvmType(valueType: info.ReturnType!),
             FailableVariant.TryBool => "i1",
-            _ => info.ReturnType != null ? GetLlvmType(type: info.ReturnType) : "void"
+            _ => info.ReturnType != null
+                ? GetLlvmType(type: info.ReturnType)
+                : "void"
         };
     }
 
@@ -504,22 +578,28 @@ public partial class LlvmCodeGenerator
     private string BuildDefineHeader(RoutineInfo info, string funcName, string parameters,
         string returnType, bool isCreator)
     {
-        string headerReturnType = _currentReturnViaSret ? "void"
+        string headerReturnType = _currentReturnViaSret
+            ? "void"
             : _currentReturnCoerceType ?? returnType;
-        string returnPrefix =
-            !_currentReturnViaSret && isCreator && returnType == "ptr" ? "noalias " : "";
+        string returnPrefix = !_currentReturnViaSret && isCreator && returnType == "ptr"
+            ? "noalias "
+            : "";
         (bool isCompilerGenerated, string linkagePrefix) = ComputeRoutineLinkage(routine: info);
-        string funcAttrs = info.Annotations.Contains(value: "inline") ? " alwaysinline" : "";
+        string funcAttrs = info.Annotations.Contains(value: "inline")
+            ? " alwaysinline"
+            : "";
         if (isCompilerGenerated)
         {
             funcAttrs += " nounwind";
         }
+
         // `@no_optimize` emits `noinline optnone` — a per-routine optimization barrier for the
         // softfloat gamma cores that LLVM 21's InstCombine miscompiles at -O2+.
         if (info.Annotations.Contains(value: "no_optimize"))
         {
             funcAttrs += " noinline optnone";
         }
+
         return
             $"define {linkagePrefix}{returnPrefix}{headerReturnType} @{funcName}({parameters}){funcAttrs} {{";
     }
@@ -540,13 +620,16 @@ public partial class LlvmCodeGenerator
     /// <see cref="BuildDefineHeader"/> and the synthesized-runtime header — MUST route through here so they
     /// never drift (WarmCompile_Repeatable).
     /// </summary>
-    private (bool isCompilerGenerated, string linkagePrefix) ComputeRoutineLinkage(RoutineInfo routine)
+    private (bool isCompilerGenerated, string linkagePrefix) ComputeRoutineLinkage(
+        RoutineInfo routine)
     {
-        bool ownerIsMonomorphizedInstance =
-            routine.OwnerType is { IsGenericDefinition: false, TypeArguments.Count: > 0 };
-        bool isCompilerGenerated =
-            routine.IsSynthesized || routine.IsWiredMemberRoutine || ownerIsMonomorphizedInstance;
-        string linkagePrefix = isCompilerGenerated && !_baseMode ? "internal " : "";
+        bool ownerIsMonomorphizedInstance = routine.OwnerType is
+            { IsGenericDefinition: false, TypeArguments.Count: > 0 };
+        bool isCompilerGenerated = routine.IsSynthesized || routine.IsWiredMemberRoutine ||
+                                   ownerIsMonomorphizedInstance;
+        string linkagePrefix = isCompilerGenerated && !_baseMode
+            ? "internal "
+            : "";
         return (isCompilerGenerated, linkagePrefix);
     }
 
@@ -561,17 +644,19 @@ public partial class LlvmCodeGenerator
         // synthesized body from WiredRoutinePass via _synthesizedBodies. The parser produces an
         // empty BlockStatement for missing bodies, so check both null and empty.
         Statement? effectiveBody = routine.Body;
-        bool isStubBody = effectiveBody is null
-            || effectiveBody is BlockStatement { Statements.Count: 0 };
-        if (isStubBody
-            && _synthesizedBodies.TryGetValue(key: info.RegistryKey, value: out Statement? synthStub))
+        bool isStubBody = effectiveBody is null ||
+                          effectiveBody is BlockStatement { Statements.Count: 0 };
+        if (isStubBody &&
+            _synthesizedBodies.TryGetValue(key: info.RegistryKey, value: out Statement? synthStub))
         {
             effectiveBody = synthStub;
         }
+
         if (effectiveBody != null)
         {
             GenerateRoutineBody(sb: bodyBuilder, body: effectiveBody, routine: info);
         }
+
         _functionDefinitions.Append(value: _currentRoutineEntryAllocas);
         _functionDefinitions.Append(value: bodyBuilder);
     }
@@ -626,7 +711,8 @@ public partial class LlvmCodeGenerator
 
         // Track current routine for source_routine() / source_module() injection
         _currentEmittingRoutine = routine;
-        _currentRoutineDiagName = $"{routine.OwnerType?.FullName ?? routine.Module}.{routine.Name}";
+        _currentRoutineDiagName =
+            $"{routine.OwnerType?.FullName ?? routine.Module}.{routine.Name}";
     }
 
     /// <summary>
@@ -646,8 +732,7 @@ public partial class LlvmCodeGenerator
         // fresh pointer, and let the body mutate via `me.field = …` / `return me`. Canonical
         // `return Type(field: …)` creates that never touch `me` skip this.
         if (routine.OwnerType is EntityTypeInfo creatorEntity &&
-            IsCreatorRoutine(routine: routine) &&
-            MeReferenceScanner.Scan(body: body))
+            IsCreatorRoutine(routine: routine) && MeReferenceScanner.Scan(body: body))
         {
             string mePtr = EmitEntityAllocation(sb: sb, entity: creatorEntity);
             EmitEntryAlloca(llvmName: "%me.addr", llvmType: "ptr");
@@ -664,10 +749,12 @@ public partial class LlvmCodeGenerator
         // bare entity and reads the RC controller's refcount instead of dereferencing the handle.
         // Gated to a Roamed MeType so the specialized-receiver MeType path (List[Agent[V]]) is
         // untouched. The LLVM param type is a `ptr` for both, so only the tracked type changes.
-        TypeInfo meLocalType =
-            routine.MeType is RecordTypeInfo { GenericDefinition.Name: Declaration.RuntimeContract.Roamed }
-                ? routine.MeType
-                : routine.OwnerType!;
+        TypeInfo meLocalType = routine.MeType is RecordTypeInfo
+        {
+            GenericDefinition.Name: Declaration.RuntimeContract.Roamed
+        }
+            ? routine.MeType
+            : routine.OwnerType!;
 
         // Struct-record `me` passed by reference: %me.addr IS the function parameter (the caller's
         // storage pointer). No alloca/store — mutations and address-taking reach it directly.
@@ -684,6 +771,7 @@ public partial class LlvmCodeGenerator
             EmitEntryAlloca(llvmName: "%me.addr", llvmType: meType);
             EmitLine(sb: sb, line: $"  store {meType} %me, ptr %me.addr");
         }
+
         _localVariables[key: "me"] = meLocalType;
     }
 
@@ -697,7 +785,8 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>Registers a single parameter as a local variable per its ABI passing mode.</summary>
-    private void RegisterParameterAsLocal(StringBuilder sb, RoutineInfo routine, ParameterInfo param)
+    private void RegisterParameterAsLocal(StringBuilder sb, RoutineInfo routine,
+        ParameterInfo param)
     {
         // By-ref struct-record thread arg / ABI-Indirect byval param: `%<name>.addr` IS the
         // parameter (a pointer to the caller's / callee's copy). No alloca/store — field/memberRoutine
@@ -710,7 +799,9 @@ public partial class LlvmCodeGenerator
         }
 
         // Use "entry_" instead of "entry" to avoid conflict with the entry: block label
-        string emittedParamName = param.Name == "entry" ? "entry_" : param.Name;
+        string emittedParamName = param.Name == "entry"
+            ? "entry_"
+            : param.Name;
         string paramPtr = $"%{param.Name}.addr";
 
         // ABI-Coerce small struct value param: the parameter arrives as an integer register value.
@@ -769,8 +860,7 @@ public partial class LlvmCodeGenerator
     private void EmitTracePush(StringBuilder sb, RoutineInfo routine)
     {
         bool isInline = routine.Annotations.Contains(value: "inline");
-        _traceCurrentRoutine = ShouldEmitTrace &&
-                               !routine.IsSynthesized &&
+        _traceCurrentRoutine = ShouldEmitTrace && !routine.IsSynthesized &&
                                !(_buildMode is RfBuildMode.Release && isInline);
         if (!_traceCurrentRoutine)
         {
@@ -779,7 +869,9 @@ public partial class LlvmCodeGenerator
 
         string paramTypes = string.Join(separator: ", ",
             values: routine.Parameters.Select(selector: p => p.Type.FullName));
-        string failable = routine.IsFailable ? "!" : "";
+        string failable = routine.IsFailable
+            ? "!"
+            : "";
         string routineName = $"{routine.BaseName}{failable}({paramTypes})";
         string fileName = routine.Location?.FileName ?? "";
         int line = routine.Location?.Line ?? 0;
@@ -787,7 +879,8 @@ public partial class LlvmCodeGenerator
         string routineCStr = EmitCStringConstant(value: routineName);
         string fileCStr = EmitCStringConstant(value: fileName);
         EmitLine(sb: sb,
-            line: $"  call void @_rf_trace_push(ptr {routineCStr}, ptr {fileCStr}, i32 {line}, i32 {col})");
+            line:
+            $"  call void @_rf_trace_push(ptr {routineCStr}, ptr {fileCStr}, i32 {line}, i32 {col})");
     }
 
     /// <summary>
@@ -811,6 +904,7 @@ public partial class LlvmCodeGenerator
             EmitVoidFallthroughReturn(sb: sb, routine: routine);
             return;
         }
+
         if (_currentReturnViaSret)
         {
             // Indirect (sret) return: the header is void, so store the zero struct through the
@@ -820,12 +914,14 @@ public partial class LlvmCodeGenerator
             EmitLine(sb: sb, line: "  ret void");
             return;
         }
+
         if (_currentReturnCoerceType != null)
         {
             // Coerced (Phase 2) return: the header returns the ABI integer type; zero fills it.
             EmitLine(sb: sb, line: $"  ret {_currentReturnCoerceType} zeroinitializer");
             return;
         }
+
         EmitLine(sb: sb, line: $"  ret {retType} {GetZeroValue(type: routine.ReturnType!)}");
     }
 
@@ -860,7 +956,10 @@ public partial class LlvmCodeGenerator
         // duplication error (RegistryKey excludes failability), so `owner.name(params)` is already
         // a unique symbol and the bang would only be decorative. Kept as a no-op wrapper so the
         // owner-case call sites below read uniformly.
-        static string Bang(string name) => name;
+        static string Bang(string name)
+        {
+            return name;
+        }
 
         // Structured attribute prefix — the routine's PROPERTIES (kind, failability, async mode,
         // storage) are obfuscated into a bracketed list so the name itself carries only the
@@ -870,40 +969,73 @@ public partial class LlvmCodeGenerator
         // raw C symbol so the LLVM declare links against the native lib), so this is not called there.
         static string AttrPrefix(RoutineInfo r)
         {
-            var attrs = new List<string> { r.OwnerType != null ? "member" : "independent" };
+            var attrs = new List<string>
+            {
+                r.OwnerType != null
+                    ? "member"
+                    : "independent"
+            };
             // A creator carries no name — its constructor identity rides here as an attribute, so the
             // symbol reads `[member, creator] Owner(params)` with no `.create` segment.
-            if (r.IsCreator) attrs.Add(item: "creator");
-            if (r.IsCommon) attrs.Add(item: "common");
+            if (r.IsCreator)
+            {
+                attrs.Add(item: "creator");
+            }
+
+            if (r.IsCommon)
+            {
+                attrs.Add(item: "common");
+            }
+
             // Wired-ness is a routine PROPERTY (IsWiredMemberRoutine), never part of the symbol name —
             // it is not an overload/disambiguation axis, so two routines never differ only by it. Keeping
             // it out of the mangled name also makes the symbol independent of paths that disagree on the
             // flag (a fresh cold compile vs a .pbrf warm restore), so both produce identical defines.
-            if (r.IsFailable) attrs.Add(item: "crashable");
-            if (r.IsDangerous) attrs.Add(item: "dangerous");
+            if (r.IsFailable)
+            {
+                attrs.Add(item: "crashable");
+            }
+
+            if (r.IsDangerous)
+            {
+                attrs.Add(item: "dangerous");
+            }
+
             // Visibility is an attribute too. A member of a `secret` (module-private) type is itself
             // module-private regardless of its own modifier (owner-secrecy cap), so decorate `secret`
             // when EITHER the routine or its owner type is secret. `open` is the default → not emitted.
             // (`posted` is member-variable-only — routines are only secret/open/external.)
             if (r is { Visibility: VisibilityModifier.Secret } or
-                { OwnerType.Visibility: VisibilityModifier.Secret }) attrs.Add(item: "secret");
-            if (r.IsSuspended) attrs.Add(item: "suspended");
-            else if (r.IsThreaded) attrs.Add(item: "threaded");
+                { OwnerType.Visibility: VisibilityModifier.Secret })
+            {
+                attrs.Add(item: "secret");
+            }
+
+            if (r.IsSuspended)
+            {
+                attrs.Add(item: "suspended");
+            }
+            else if (r.IsThreaded)
+            {
+                attrs.Add(item: "threaded");
+            }
+
             attrs.Sort();
             return $"[{string.Join(separator: ", ", values: attrs)}] ";
         }
 
         // Labeled parameter list — `(label: Core.Type, …)` — the label participates in overload
         // identity (RazorForge dispatches on named args), so it belongs in the mangled symbol.
-        static string LabeledParams(RoutineInfo r) =>
-            "(" + string.Join(separator: ", ",
+        static string LabeledParams(RoutineInfo r)
+        {
+            return "(" + string.Join(separator: ", ",
                 values: r.Parameters.Select(selector: p => $"{p.Name}: {p.Type.FullName}")) + ")";
+        }
 
         // Lambda closures: [lambda]filename:line:col!(paramTypes)
         if (routine.IsLambda)
         {
-            string fileName =
-                Path.GetFileName(path: routine.Location?.FileName ?? "[unknown]");
+            string fileName = Path.GetFileName(path: routine.Location?.FileName ?? "[unknown]");
             int line = routine.Location?.Line ?? 0;
             int col = routine.Location?.Column ?? 0;
             string paramTypes = string.Join(separator: ",",
@@ -918,7 +1050,10 @@ public partial class LlvmCodeGenerator
         // both mangle from the same RoutineInfo, so they agree on the override.
         if (routine.CallingConvention == "C")
         {
-            return Q(name: Bang(name: SanitizeLlvmName(name: routine.LinkSymbol is { Length: > 0 } sym ? sym : routine.Name)));
+            return Q(name: Bang(name: SanitizeLlvmName(
+                name: routine.LinkSymbol is { Length: > 0 } sym
+                    ? sym
+                    : routine.Name)));
         }
 
         string name = SanitizeLlvmName(name: routine.Name);
@@ -949,7 +1084,8 @@ public partial class LlvmCodeGenerator
         if (routine.IsCommon)
         {
             string typeName = RealmMangleBase(t: routine.OwnerType);
-            return Q(name: $"{AttrPrefix(r: routine)}{typeName}.{name}{LabeledParams(r: routine)}");
+            return Q(
+                name: $"{AttrPrefix(r: routine)}{typeName}.{name}{LabeledParams(r: routine)}");
         }
 
         // memberRoutine: `[member, crashable?, …] Module.OwnerType.name(label: Type, …)`
@@ -958,8 +1094,9 @@ public partial class LlvmCodeGenerator
         string ownerTypeName = RealmMangleBase(t: routine.OwnerType);
         // A creator has no member name — the symbol is `[member, creator] Owner(params)`, never
         // `Owner.create`. Non-creators append `.name`.
-        string baseName = AttrPrefix(r: routine) +
-            (routine.IsCreator ? ownerTypeName : $"{ownerTypeName}.{name}");
+        string baseName = AttrPrefix(r: routine) + (routine.IsCreator
+            ? ownerTypeName
+            : $"{ownerTypeName}.{name}");
 
         // memberRoutine-level type arguments (e.g., Hijacked[U64].recast_as[BTreeListNode[S64]]).
         // Distinct from owner type args already in OwnerType.FullName.
@@ -969,8 +1106,8 @@ public partial class LlvmCodeGenerator
         // is part of overload identity. Uses MangleParamTypeName for wrapper-forwarder inner-generic
         // param mapping.
         baseName += "(" + string.Join(separator: ", ",
-            values: routine.Parameters.Select(
-                selector: p => $"{p.Name}: {MangleParamTypeName(routine: routine, paramType: p.Type)}")) + ")";
+            values: routine.Parameters.Select(selector: p =>
+                $"{p.Name}: {MangleParamTypeName(routine: routine, paramType: p.Type)}")) + ")";
 
         return Q(name: baseName);
     }
@@ -997,7 +1134,7 @@ public partial class LlvmCodeGenerator
             // or SubstituteMemberRoutineForOwner forwards a stale leftover TypeInfo named "T" that is
             // *not* a GenericParameterTypeInfo (some passes wrap the owner-leak in a non-GPTI),
             // the GPTI check above doesn't catch it. Matching by name closes that hole.
-            var ownerArgs = routine.OwnerType!.TypeArguments ?? [];
+            List<TypeInfo> ownerArgs = routine.OwnerType!.TypeArguments ?? [];
             TypeInfo? ownerGenDef = routine.OwnerType switch
             {
                 RecordTypeInfo r => r.GenericDefinition ?? r,
@@ -1006,11 +1143,14 @@ public partial class LlvmCodeGenerator
                 _ => routine.OwnerType
             };
             List<string> ownerGenDefParamNames = ownerGenDef?.GenericParameters ?? [];
-            var memberRoutineOnlyArgs = memberRoutineTypeArgs
-                .Where(predicate: a => a is not GenericParameterTypeInfo
-                    && !ownerArgs.Any(predicate: o => o.FullName == a.FullName)
-                    && !ownerGenDefParamNames.Contains(item: a.Name))
-                .ToList();
+            var memberRoutineOnlyArgs = memberRoutineTypeArgs.Where(predicate: a =>
+                                                                  a is not
+                                                                      GenericParameterTypeInfo &&
+                                                                  !ownerArgs.Any(predicate: o =>
+                                                                      o.FullName == a.FullName) &&
+                                                                  !ownerGenDefParamNames.Contains(
+                                                                      item: a.Name))
+                                                             .ToList();
             if (memberRoutineOnlyArgs.Count > 0)
             {
                 string typeArgSuffix = string.Join(separator: ",",
@@ -1031,28 +1171,37 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static string MangleParamTypeName(RoutineInfo routine, TypeInfo paramType)
     {
-        if (routine.WrapperForwarderInnerGenericDef?.GenericParameters
-                is { Count: > 0 } innerParamNames
-            && routine.OwnerType?.TypeArguments is { Count: > 0 and 1 } ownerArgs
-            && ownerArgs[index: 0].TypeArguments is { } innerArgs
-            && innerArgs.Count == innerParamNames.Count)
+        if (routine.WrapperForwarderInnerGenericDef?.GenericParameters is
+                { Count: > 0 } innerParamNames &&
+            routine.OwnerType?.TypeArguments is { Count: > 0 and 1 } ownerArgs &&
+            ownerArgs[index: 0].TypeArguments is { } innerArgs &&
+            innerArgs.Count == innerParamNames.Count)
         {
             return MangleParamTypeFullName(type: paramType,
-                innerParamNames: innerParamNames, innerArgs: innerArgs);
+                innerParamNames: innerParamNames,
+                innerArgs: innerArgs);
         }
+
         return paramType.FullName;
     }
 
-    private static string MangleParamTypeFullName(TypeInfo type,
-        List<string> innerParamNames, List<TypeInfo> innerArgs)
+    private static string MangleParamTypeFullName(TypeInfo type, List<string> innerParamNames,
+        List<TypeInfo> innerArgs)
     {
         if (type is GenericParameterTypeInfo gp)
         {
             string lookup = gp.ForwarderOriginalName ?? gp.Name;
             int idx = innerParamNames.IndexOf(item: lookup);
-            if (idx < 0) idx = innerParamNames.IndexOf(item: gp.Name);
-            return idx >= 0 ? innerArgs[index: idx].FullName : type.FullName;
+            if (idx < 0)
+            {
+                idx = innerParamNames.IndexOf(item: gp.Name);
+            }
+
+            return idx >= 0
+                ? innerArgs[index: idx].FullName
+                : type.FullName;
         }
+
         if (type.TypeArguments is { Count: > 0 } args)
         {
             string baseName = string.IsNullOrEmpty(value: type.Module)
@@ -1066,11 +1215,14 @@ public partial class LlvmCodeGenerator
                     ? type.BareName
                     : $"{type.Module}.{type.BareName}";
             }
+
             string joined = string.Join(separator: ", ",
-                values: args.Select(selector: a => MangleParamTypeFullName(
-                    type: a, innerParamNames: innerParamNames, innerArgs: innerArgs)));
+                values: args.Select(selector: a => MangleParamTypeFullName(type: a,
+                    innerParamNames: innerParamNames,
+                    innerArgs: innerArgs)));
             return $"{baseName}[{joined}]";
         }
+
         return type.FullName;
     }
 
@@ -1094,27 +1246,34 @@ public partial class LlvmCodeGenerator
     // A creator is identified by its semantic KIND, not a name substring. SA sets Kind=Creator for
     // `create` and `routine T(...)` (SemanticVerifier.Declarations.cs); error-handling variants inherit it
     // (ErrorHandlingGenerator copies `Kind = original.Kind`), so try_/check_/lookup_create qualify too.
-    private static bool IsCreatorRoutine(RoutineInfo routine) =>
-        routine.Kind == TypeModel.Enums.RoutineKind.Creator;
+    private static bool IsCreatorRoutine(RoutineInfo routine)
+    {
+        return routine.Kind == TypeModel.Enums.RoutineKind.Creator;
+    }
 
     private string GetImplicitMeParameterDeclaration(RoutineInfo routine, bool includeName)
     {
         if (routine.OwnerType == null)
         {
-            throw new InvalidOperationException(message: "Implicit 'me' requested for routine without owner type.");
+            throw new InvalidOperationException(
+                message: "Implicit 'me' requested for routine without owner type.");
         }
 
         if (IsByRefMeReceiver(routine: routine))
         {
             // Struct-record `me` is a pointer to the caller's storage (named %me.addr), so the
             // parameter doubles as the field-access base — no alloca/store prologue needed.
-            string nameSuffix = includeName ? " %me.addr" : string.Empty;
+            string nameSuffix = includeName
+                ? " %me.addr"
+                : string.Empty;
             return $"ptr{nameSuffix}";
         }
 
         string meType = GetParameterLlvmType(type: routine.OwnerType);
         string attrs = GetImplicitMeParameterAttributes(routine: routine);
-        string nameSuffix2 = includeName ? " %me" : string.Empty;
+        string nameSuffix2 = includeName
+            ? " %me"
+            : string.Empty;
 
         return string.IsNullOrEmpty(value: attrs)
             ? $"{meType}{nameSuffix2}"
@@ -1127,8 +1286,11 @@ public partial class LlvmCodeGenerator
         //   - bare entity (bound T can't be duplicated, so the me pointer is exclusive
         //     at the call boundary by the entity-ownership rule),
         //   - `Modifying[T]` (scope-bound exclusive borrow — its definition).
-        bool isExclusive = routine.OwnerType is EntityTypeInfo
-                           || routine.OwnerType is WrapperTypeInfo { Name: Declaration.RuntimeContract.Modifying };
+        bool isExclusive = routine.OwnerType is EntityTypeInfo ||
+                           routine.OwnerType is WrapperTypeInfo
+                           {
+                               Name: Declaration.RuntimeContract.Modifying
+                           };
         if (isExclusive)
         {
             return routine.MutationCategory == MutationCategory.Readonly
@@ -1147,18 +1309,23 @@ public partial class LlvmCodeGenerator
         // RuntimeContract.WrapperTypes. The two must emit the SAME attr or the cold vs warm/snapshot
         // codegen paths diverge (the monomorph reaches codegen in one path, the generic in the other) —
         // WarmCodegenAst_MatchesCold.
-        bool isWrapperOwner = routine.OwnerType is WrapperTypeInfo
-            || (routine.OwnerType != null
-                && GetGenericBaseNameStatic(type: routine.OwnerType) is { } ownerBase
-                && Declaration.RuntimeContract.WrapperTypes.Contains(item: ownerBase));
-        return isWrapperOwner ? "readonly" : string.Empty;
+        bool isWrapperOwner = routine.OwnerType is WrapperTypeInfo || routine.OwnerType != null &&
+            GetGenericBaseNameStatic(type: routine.OwnerType) is { } ownerBase &&
+            Declaration.RuntimeContract.WrapperTypes.Contains(item: ownerBase);
+        return isWrapperOwner
+            ? "readonly"
+            : string.Empty;
     }
 
-    private static string GetExplicitParameterAttributes(TypeInfo? type) =>
-        type is EntityTypeInfo
-        || type is WrapperTypeInfo { Name: Declaration.RuntimeContract.Modifying }
+    private static string GetExplicitParameterAttributes(TypeInfo? type)
+    {
+        return type is EntityTypeInfo || type is WrapperTypeInfo
+        {
+            Name: Declaration.RuntimeContract.Modifying
+        }
             ? "noalias"
             : string.Empty;
+    }
 
     /// <summary>
     /// Checks if an external("C") function returns a struct type that must be called with an
@@ -1178,15 +1345,17 @@ public partial class LlvmCodeGenerator
 
         // Aggregate return (named record — NOT a variant, which returns its own struct — or a tuple).
         // Structural type check, NOT a parse of the emitted LLVM type string.
-        bool isAggregate = routine.ReturnType is TupleTypeInfo
-            || routine.ReturnType is RecordTypeInfo and not VariantTypeInfo;
+        bool isAggregate = routine.ReturnType is TupleTypeInfo ||
+                           routine.ReturnType is RecordTypeInfo and not VariantTypeInfo;
         if (!isAggregate)
         {
             return false;
         }
 
         int size = GetTypeSize(type: routine.ReturnType);
-        return _target.TargetOS == "windows" ? size > 8 : size > 16;
+        return _target.TargetOS == "windows"
+            ? size > 8
+            : size > 16;
     }
 
     /// <summary>
@@ -1208,20 +1377,26 @@ public partial class LlvmCodeGenerator
     /// name-check: <c>Array.setitem</c> is by-ref because Array is aggregate-backed, like every
     /// other Array memberRoutine — not because of its name.
     /// </summary>
-    internal static bool IsByRefMeRecord(TypeInfo? ownerType) => ownerType switch
+    internal static bool IsByRefMeRecord(TypeInfo? ownerType)
     {
-        // Struct record: no @llvm backend -> storage-backed -> by-ref.
-        RecordTypeInfo { BackendType: null } => true,
-        // @llvm record: by-ref iff the backend is an aggregate — an array `[N x T]` or a SIMD
-        // vector `<N x E>`. Both are always accessed through a load/store (never fed to an
-        // intrinsic as a bare SSA value like a scalar `i64`), and both need in-place `setitem!`
-        // to reach the caller's storage. Scalar backends (`i64`, `i1`, `ptr`, ...) stay by-value.
-        RecordTypeInfo { BackendType: not null, BackendType: { } bt } => bt.StartsWith(value: '[') || bt.StartsWith(value: '<'),
-        _ => false
-    };
+        return ownerType switch
+        {
+            // Struct record: no @llvm backend -> storage-backed -> by-ref.
+            RecordTypeInfo { BackendType: null } => true,
+            // @llvm record: by-ref iff the backend is an aggregate — an array `[N x T]` or a SIMD
+            // vector `<N x E>`. Both are always accessed through a load/store (never fed to an
+            // intrinsic as a bare SSA value like a scalar `i64`), and both need in-place `setitem!`
+            // to reach the caller's storage. Scalar backends (`i64`, `i1`, `ptr`, ...) stay by-value.
+            RecordTypeInfo { BackendType: not null, BackendType: { } bt } =>
+                bt.StartsWith(value: '[') || bt.StartsWith(value: '<'),
+            _ => false
+        };
+    }
 
-    private static bool IsByRefMeReceiver(RoutineInfo routine) =>
-        IsByRefMeRecord(ownerType: routine.OwnerType);
+    private static bool IsByRefMeReceiver(RoutineInfo routine)
+    {
+        return IsByRefMeRecord(ownerType: routine.OwnerType);
+    }
 
     /// <summary>
     /// A <b>thread-shareable</b> record argument to a <c>threaded routine</c> is passed BY
@@ -1238,10 +1413,11 @@ public partial class LlvmCodeGenerator
     /// that are neither shareable nor trivially copyable, so they never reach codegen.
     /// </para>
     /// </summary>
-    private static bool IsByRefThreadArg(RoutineInfo routine, ParameterInfo param) =>
-        routine.AsyncStatus == AsyncStatus.Threaded &&
-        IsByRefMeRecord(ownerType: param.Type) &&
-        IsThreadShareableType(type: param.Type);
+    private static bool IsByRefThreadArg(RoutineInfo routine, ParameterInfo param)
+    {
+        return routine.AsyncStatus == AsyncStatus.Threaded &&
+               IsByRefMeRecord(ownerType: param.Type) && IsThreadShareableType(type: param.Type);
+    }
 
     /// <summary>
     /// True when a type carries its own cross-thread synchronization — the atomic / shared-ownership
@@ -1249,9 +1425,12 @@ public partial class LlvmCodeGenerator
     /// reference across a thread boundary; everything else is copied. Mirrors the SA-side
     /// <c>IsThreadShareable</c>.
     /// </summary>
-    private static bool IsThreadShareableType(TypeInfo? type) =>
-        type != null &&
-        GetGenericBaseNameStatic(type: type) is Declaration.RuntimeContract.Atomic or Declaration.RuntimeContract.Guarded or Declaration.RuntimeContract.Witnessed;
+    private static bool IsThreadShareableType(TypeInfo? type)
+    {
+        return type != null &&
+               GetGenericBaseNameStatic(type: type) is Declaration.RuntimeContract.Atomic
+                   or Declaration.RuntimeContract.Guarded or Declaration.RuntimeContract.Witnessed;
+    }
 
     /// <summary>
     /// Gets the zero/default value for a type.
@@ -1281,10 +1460,10 @@ public partial class LlvmCodeGenerator
             // `zeroinitializer`, not the integer literal `0`. Without this, BitArray[N]() and
             // similar no-arg constructors emit `store [1 x i8] 0, ...` which opt rejects with
             // "integer constant must have integer type".
-            _ when llvmType.Length > 0 &&
-                   (llvmType[0] == '[' || llvmType[0] == '{' || llvmType[0] == '%') => "zeroinitializer",
+            _ when llvmType.Length > 0 && (llvmType[index: 0] == '[' ||
+                                           llvmType[index: 0] == '{' ||
+                                           llvmType[index: 0] == '%') => "zeroinitializer",
             _ => "0"
         };
     }
-
 }

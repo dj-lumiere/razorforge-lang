@@ -68,18 +68,26 @@ public sealed partial class SemanticVerifier
         }
 
         string baseName = r.GenericDefinition?.Name ?? r.Name;
-        return baseName is MaybeTypeName or "Result" or "Lookup" ? baseName : null;
+        return baseName is MaybeTypeName or "Result" or "Lookup"
+            ? baseName
+            : null;
     }
 
     /// <summary>
     /// Returns true if the type is a carrier type (Maybe, Result, or Lookup).
     /// </summary>
-    private static bool IsCarrierType(TypeSymbol type) => GetCarrierBaseName(type: type) != null;
+    private static bool IsCarrierType(TypeSymbol type)
+    {
+        return GetCarrierBaseName(type: type) != null;
+    }
 
     /// <summary>
     /// Returns true if the type is a Maybe carrier type.
     /// </summary>
-    private static bool IsMaybeType(TypeSymbol type) => GetCarrierBaseName(type: type) == MaybeTypeName;
+    private static bool IsMaybeType(TypeSymbol type)
+    {
+        return GetCarrierBaseName(type: type) == MaybeTypeName;
+    }
 
     /// <summary>
     /// Returns true if the type is a legal target for the value-position `none` literal:
@@ -93,6 +101,7 @@ public sealed partial class SemanticVerifier
         {
             return true;
         }
+
         return type is VariantTypeInfo variant && variant.Members.Any(predicate: m => m.IsNone);
     }
 
@@ -146,15 +155,22 @@ public sealed partial class SemanticVerifier
     private static void PunMatchingNamedArgs(List<Expression> arguments,
         IReadOnlyList<string> targetNames)
     {
-        if (arguments.Count == 0) return;
+        if (arguments.Count == 0)
+        {
+            return;
+        }
+
         var names = new HashSet<string>(collection: targetNames, comparer: StringComparer.Ordinal);
         var seen = new HashSet<string>(comparer: StringComparer.Ordinal);
         foreach (Expression arg in arguments)
         {
-            if (arg is not IdentifierExpression id || !names.Contains(item: id.Name)
-                || !seen.Add(item: id.Name))
+            if (arg is not IdentifierExpression id || !names.Contains(item: id.Name) ||
+                !seen.Add(item: id.Name))
+            {
                 return; // not all bare-identifier-and-distinct-matching → do not pun
+            }
         }
+
         for (int i = 0; i < arguments.Count; i++)
         {
             var id = (IdentifierExpression)arguments[index: i];
@@ -172,22 +188,32 @@ public sealed partial class SemanticVerifier
         // Field-init shorthand: pun bare identifiers matching parameter names into named args.
         PunMatchingNamedArgs(arguments: arguments,
             targetNames: parameters.Where(predicate: p => p.Name != "me")
-                                   .Select(selector: p => p.Name).ToList());
+                                   .Select(selector: p => p.Name)
+                                   .ToList());
 
         // Step 1: Validate named argument ordering and build parameter bindings.
-        Dictionary<int, Expression> boundParams = BuildArgumentBindings(
-            routine: routine, arguments: arguments,
-            parameters: parameters, totalParams: totalParams, location: location);
+        Dictionary<int, Expression> boundParams = BuildArgumentBindings(routine: routine,
+            arguments: arguments,
+            parameters: parameters,
+            totalParams: totalParams,
+            location: location);
 
         // Step 2: Check argument count against required parameters.
         int positionalCount = arguments.Count(predicate: a => a is not NamedArgumentExpression);
-        ValidateArgumentCount(routine: routine, arguments: arguments, parameters: parameters,
-            totalParams: totalParams, boundParams: boundParams,
-            positionalCount: positionalCount, location: location);
+        ValidateArgumentCount(routine: routine,
+            arguments: arguments,
+            parameters: parameters,
+            totalParams: totalParams,
+            boundParams: boundParams,
+            positionalCount: positionalCount,
+            location: location);
 
         // Step 3: Type-check each bound argument against its parameter.
-        TypeCheckBoundArguments(routine: routine, parameters: parameters,
-            totalParams: totalParams, boundParams: boundParams, callObjectType: callObjectType);
+        TypeCheckBoundArguments(routine: routine,
+            parameters: parameters,
+            totalParams: totalParams,
+            boundParams: boundParams,
+            callObjectType: callObjectType);
     }
 
     /// <summary>
@@ -197,10 +223,11 @@ public sealed partial class SemanticVerifier
     /// Extracted from <see cref="AnalyzeCallArguments"/>.
     /// </summary>
     private Dictionary<int, Expression> BuildArgumentBindings(RoutineInfo routine,
-        List<Expression> arguments, List<ParameterInfo> parameters,
-        int totalParams, SourceLocation location)
+        List<Expression> arguments, List<ParameterInfo> parameters, int totalParams,
+        SourceLocation location)
     {
-        int nonMeParamCount = parameters.Count(predicate: p => p.Name != "me" && !p.HasDefaultValue);
+        int nonMeParamCount =
+            parameters.Count(predicate: p => p.Name != "me" && !p.HasDefaultValue);
         bool requiresNamedArgs = nonMeParamCount >= 3 && !routine.IsVariadic;
         bool recommendsNamedArgs = nonMeParamCount == 2 && !routine.IsVariadic;
 
@@ -234,15 +261,25 @@ public sealed partial class SemanticVerifier
             if (arg is NamedArgumentExpression named)
             {
                 seenNamed = true;
-                ProcessNamedArg(named: named, routine: routine, parameters: parameters,
-                    totalParams: totalParams, boundParams: boundParams);
+                ProcessNamedArg(named: named,
+                    routine: routine,
+                    parameters: parameters,
+                    totalParams: totalParams,
+                    boundParams: boundParams);
             }
             else
             {
-                ProcessPositionalArg(arg: arg, routine: routine, parameters: parameters,
-                    totalParams: totalParams, boundParams: boundParams,
-                    ctx: new PositionalArgContext(requiresNamedArgs, recommendsNamedArgs,
-                        isPositional, isMixed, seenNamed, nonMeParamCount),
+                ProcessPositionalArg(arg: arg,
+                    routine: routine,
+                    parameters: parameters,
+                    totalParams: totalParams,
+                    boundParams: boundParams,
+                    ctx: new PositionalArgContext(RequiresNamedArgs: requiresNamedArgs,
+                        RecommendsNamedArgs: recommendsNamedArgs,
+                        IsPositional: isPositional,
+                        IsMixed: isMixed,
+                        SeenNamed: seenNamed,
+                        NonMeParamCount: nonMeParamCount),
                     positionalIndex: ref positionalIndex);
             }
         }
@@ -289,8 +326,12 @@ public sealed partial class SemanticVerifier
     }
 
     private readonly record struct PositionalArgContext(
-        bool RequiresNamedArgs, bool RecommendsNamedArgs, bool IsPositional,
-        bool IsMixed, bool SeenNamed, int NonMeParamCount);
+        bool RequiresNamedArgs,
+        bool RecommendsNamedArgs,
+        bool IsPositional,
+        bool IsMixed,
+        bool SeenNamed,
+        int NonMeParamCount);
 
     /// <summary>
     /// Processes a single positional argument: validates naming rules (S510/W258/S507), determines
@@ -301,7 +342,8 @@ public sealed partial class SemanticVerifier
         List<ParameterInfo> parameters, int totalParams, Dictionary<int, Expression> boundParams,
         PositionalArgContext ctx, ref int positionalIndex)
     {
-        bool requiresNamedArgs = ctx.RequiresNamedArgs, recommendsNamedArgs = ctx.RecommendsNamedArgs;
+        bool requiresNamedArgs = ctx.RequiresNamedArgs,
+            recommendsNamedArgs = ctx.RecommendsNamedArgs;
         bool isPositional = ctx.IsPositional, isMixed = ctx.IsMixed, seenNamed = ctx.SeenNamed;
         int nonMeParamCount = ctx.NonMeParamCount;
         if (requiresNamedArgs && !isMixed)
@@ -360,7 +402,9 @@ public sealed partial class SemanticVerifier
         }
 
         if (!inVariadicSlot)
+        {
             positionalIndex++;
+        }
     }
 
     /// <summary>
@@ -377,7 +421,9 @@ public sealed partial class SemanticVerifier
         for (int i = 0; i < totalParams; i++)
         {
             if (!boundParams.ContainsKey(key: i) && !parameters[index: i].HasDefaultValue)
+            {
                 unboundRequired++;
+            }
         }
 
         if (unboundRequired > 0)
@@ -385,7 +431,9 @@ public sealed partial class SemanticVerifier
             string msg = requiredParams == totalParams
                 ? $"'{routine.Name}' expects {totalParams} argument(s), but got {arguments.Count}."
                 : $"'{routine.Name}' expects at least {requiredParams} argument(s), but got {arguments.Count}.";
-            ReportError(code: SemanticDiagnosticCode.TooFewArguments, message: msg, location: location);
+            ReportError(code: SemanticDiagnosticCode.TooFewArguments,
+                message: msg,
+                location: location);
         }
         else if (positionalCount > totalParams && !routine.IsVariadic)
         {
@@ -413,7 +461,9 @@ public sealed partial class SemanticVerifier
             }
 
             ParameterInfo param = parameters[index: binding.Key];
-            TypeSymbol paramType = ResolveParamType(param: param, routine: routine, callObjectType: callObjectType);
+            TypeSymbol paramType = ResolveParamType(param: param,
+                routine: routine,
+                callObjectType: callObjectType);
 
             Expression argExpr = binding.Value;
             TypeSymbol argType = AnalyzeExpression(expression: argExpr, expectedType: paramType);
@@ -421,15 +471,20 @@ public sealed partial class SemanticVerifier
             if (IsEntityRefType(type: paramType) && IsNullableEntityRead(expr: argExpr))
             {
                 ReportNullableIntoNonNull(target: $"parameter '{param.Name}' of '{routine.Name}'",
-                    value: argExpr, optionalHint: $"{param.Name}: <Type>?");
+                    value: argExpr,
+                    optionalHint: $"{param.Name}: <Type>?");
             }
 
             if (argType.Category == TypeCategory.Error || paramType.Category == TypeCategory.Error)
+            {
                 continue;
+            }
 
-            if (!IsAssignableTo(source: argType, target: paramType)
-                && !IsBareRoutineRefToCPtr(argExpr: argExpr, argType: argType, paramType: paramType)
-                && !ContainsUnresolvedMemberRoutineGeneric(type: paramType,
+            if (!IsAssignableTo(source: argType, target: paramType) &&
+                !IsBareRoutineRefToCPtr(argExpr: argExpr,
+                    argType: argType,
+                    paramType: paramType) &&
+                !ContainsUnresolvedMemberRoutineGeneric(type: paramType,
                     genericParameters: routine.GenericParameters))
             {
                 ReportError(code: SemanticDiagnosticCode.ArgumentTypeMismatch,
@@ -439,8 +494,10 @@ public sealed partial class SemanticVerifier
             }
 
             bool isCapturingLambdaLiteral = argExpr is LambdaExpression { Captures.Count: > 0 };
-            if (IsForeignCapturingCallbackArg(routine: routine, paramType: paramType,
-                    argType: argType, isCapturingLambdaLiteral: isCapturingLambdaLiteral))
+            if (IsForeignCapturingCallbackArg(routine: routine,
+                    paramType: paramType,
+                    argType: argType,
+                    isCapturingLambdaLiteral: isCapturingLambdaLiteral))
             {
                 ReportError(code: SemanticDiagnosticCode.ForeignCallbackMustBeNonCapturing,
                     message:
@@ -451,16 +508,27 @@ public sealed partial class SemanticVerifier
                     location: argExpr.Location);
             }
 
-            Expression argValue = UnwrapNamedArgument(argExpr);
-            ValidateImplicitWrapperCopyArg(routine: routine, param: param, paramType: paramType,
-                argExpr: argExpr, argValue: argValue, argType: argType);
-            ValidateBareEntityConsumingArg(routine: routine, param: param, paramType: paramType,
-                argValue: argValue, argType: argType);
+            Expression argValue = UnwrapNamedArgument(argument: argExpr);
+            ValidateImplicitWrapperCopyArg(routine: routine,
+                param: param,
+                paramType: paramType,
+                argExpr: argExpr,
+                argValue: argValue,
+                argType: argType);
+            ValidateBareEntityConsumingArg(routine: routine,
+                param: param,
+                paramType: paramType,
+                argValue: argValue,
+                argType: argType);
         }
     }
 
-    private static Expression UnwrapNamedArgument(Expression argument) =>
-        argument is NamedArgumentExpression named ? named.Value : argument;
+    private static Expression UnwrapNamedArgument(Expression argument)
+    {
+        return argument is NamedArgumentExpression named
+            ? named.Value
+            : argument;
+    }
 
     /// <summary>
     /// Resolves the effective type for <paramref name="param"/> by substituting owner-level or
@@ -468,11 +536,15 @@ public sealed partial class SemanticVerifier
     /// Returns the original parameter type when no substitution applies. Extracted from
     /// <see cref="TypeCheckBoundArguments"/>.
     /// </summary>
-    private TypeSymbol ResolveParamType(ParameterInfo param, RoutineInfo routine, TypeSymbol? callObjectType)
+    private TypeSymbol ResolveParamType(ParameterInfo param, RoutineInfo routine,
+        TypeSymbol? callObjectType)
     {
         TypeSymbol paramType = param.Type;
         if (callObjectType == null)
+        {
             return paramType;
+        }
+
         if (routine.OwnerType is GenericParameterTypeInfo genParamOwner)
         {
             var substitutions = new Dictionary<string, TypeSymbol>
@@ -481,15 +553,18 @@ public sealed partial class SemanticVerifier
             };
             return SubstituteWithMapping(type: paramType, substitutions: substitutions);
         }
+
         if (routine.OwnerType is { IsGenericDefinition: true })
         {
             // Owner like List[T] (gen-def) against receiver List[S64] — substitute T → S64 so
             // callback parameter types target-type lambda parameters correctly. Skip when
             // OwnerType is already a resolution (its Parameters are already substituted, applying
             // again would double-wrap).
-            return SubstituteOwnerGenerics(paramType: paramType, lookupType: callObjectType,
+            return SubstituteOwnerGenerics(paramType: paramType,
+                lookupType: callObjectType,
                 ownerType: routine.OwnerType) ?? paramType;
         }
+
         return paramType;
     }
 
@@ -499,7 +574,8 @@ public sealed partial class SemanticVerifier
     /// <see cref="AnalyzeCallArguments"/>.
     /// </summary>
     private void ValidateImplicitWrapperCopyArg(RoutineInfo routine, ParameterInfo param,
-        TypeSymbol paramType, Expression argExpr, Expression argValue, TypeSymbol argType)
+        TypeSymbol paramType, Expression argExpr, Expression argValue,
+        TypeSymbol argType)
     {
         // Borrow protocols (Accessing[T] / Controlling[T]) accept the source by reference —
         // no copy/move is happening at the call site, so no verb is required.
@@ -507,15 +583,15 @@ public sealed partial class SemanticVerifier
         // Detect the marker bound on the ORIGINAL param type (`param.Type`, the generic `V`), not the
         // post-inference `paramType` which may already be substituted to the concrete token
         // (Viewing/Modifying) and would no longer look like a generic-param bound.
-        bool paramIsBorrow = (paramType.Category == TypeCategory.Protocol &&
-                             Declaration.RuntimeContract.IsMarkerProtocol(baseName: paramBase))
-                             || IsMarkerBoundParam(paramType: param.Type, routine: routine);
+        bool paramIsBorrow =
+            paramType.Category == TypeCategory.Protocol &&
+            Declaration.RuntimeContract.IsMarkerProtocol(baseName: paramBase) ||
+            IsMarkerBoundParam(paramType: param.Type, routine: routine);
         if (_registry.Language == Language.RazorForge &&
             argValue is IdentifierExpression or MemberExpression &&
-            !IsTriviallyAssignable(type: argType) &&
-            !paramIsBorrow)
+            !IsTriviallyAssignable(type: argType) && !paramIsBorrow)
         {
-            var hint = FindNonTriviallyAssignableWrapper(type: argType);
+            (string Wrapper, string Path)? hint = FindNonTriviallyAssignableWrapper(type: argType);
             if (hint != null)
             {
                 string verb = NonTriviallyAssignableWrappers[key: hint.Value.Wrapper];
@@ -524,7 +600,10 @@ public sealed partial class SemanticVerifier
                 // borrow (into a marker-bound / token param), never an implicit copy, so there is
                 // nothing to force. Emitting RF-S420 here would ask the user to "spell out (none)".
                 if (verb == ScopedNoEscapeHint)
+                {
                     return;
+                }
+
                 string fieldNote = hint.Value.Path == "<value>"
                     ? $"argument of type '{argType.Name}' is a '{hint.Value.Wrapper}[…]' wrapper"
                     : $"field '{hint.Value.Path}' of type '{hint.Value.Wrapper}[…]'";
@@ -545,10 +624,9 @@ public sealed partial class SemanticVerifier
     private static bool IsForeignCapturingCallbackArg(RoutineInfo routine, TypeSymbol paramType,
         TypeSymbol argType, bool isCapturingLambdaLiteral)
     {
-        return routine.IsForeign
-            && argType is RoutineTypeInfo
-            && (paramType is RoutineTypeInfo || paramType.Name == "CPtr")
-            && isCapturingLambdaLiteral;
+        return routine.IsForeign && argType is RoutineTypeInfo &&
+               (paramType is RoutineTypeInfo || paramType.Name == "CPtr") &&
+               isCapturingLambdaLiteral;
     }
 
     /// <summary>
@@ -566,10 +644,9 @@ public sealed partial class SemanticVerifier
         // excludes all borrow forms with no name list. Verb-wrapped arguments (steal/copy/share)
         // are Steal/Call expressions, not Identifier/Member, so they are excluded automatically.
         // Safety comes from move tracking; this check makes the destructive transfer visible in source.
-        if (_registry.Language == Language.RazorForge
-            && argValue is IdentifierExpression or MemberExpression
-            && argType is EntityTypeInfo
-            && paramType is EntityTypeInfo)
+        if (_registry.Language == Language.RazorForge &&
+            argValue is IdentifierExpression or MemberExpression && argType is EntityTypeInfo &&
+            paramType is EntityTypeInfo)
         {
             ReportError(code: SemanticDiagnosticCode.BareEntityAssignment,
                 message:
@@ -588,29 +665,40 @@ public sealed partial class SemanticVerifier
     /// <c>lambda.ResolvedType</c> with concrete parameter types so the post-processing lambda-lift
     /// mangles a defined symbol instead of one carrying an unbound generic.
     /// </summary>
-    private void ReanalyzeLambdaArguments(RoutineInfo resolvedMemberRoutine, List<Expression> arguments,
-        TypeSymbol? callObjectType)
+    private void ReanalyzeLambdaArguments(RoutineInfo resolvedMemberRoutine,
+        List<Expression> arguments, TypeSymbol? callObjectType)
     {
         IReadOnlyList<ParameterInfo> parameters = resolvedMemberRoutine.Parameters;
         foreach (Expression argExpr in arguments)
         {
-            Expression inner = argExpr is NamedArgumentExpression nae ? nae.Value : argExpr;
-            if (inner is not LambdaExpression) continue;
+            Expression inner = argExpr is NamedArgumentExpression nae
+                ? nae.Value
+                : argExpr;
+            if (inner is not LambdaExpression)
+            {
+                continue;
+            }
 
             // Named arguments match by parameter name; a bare positional lambda matches the (single)
             // Routine-typed parameter — robust against the implicit `me` receiver offset.
             ParameterInfo? param = argExpr is NamedArgumentExpression named
                 ? parameters.FirstOrDefault(predicate: p => p.Name == named.Name)
                 : parameters.FirstOrDefault(predicate: p => p.Type is RoutineTypeInfo);
-            if (param?.Type is not RoutineTypeInfo) continue;
+            if (param?.Type is not RoutineTypeInfo)
+            {
+                continue;
+            }
 
             TypeSymbol paramType = param.Type;
             // Owner-level generics (T) are substituted the same way AnalyzeCallArguments does, so a
             // `Routine[(U,T),U]` parameter is fully concrete once both U (memberRoutine) and T (owner) bind.
-            if (callObjectType != null && resolvedMemberRoutine.OwnerType is { IsGenericDefinition: true })
+            if (callObjectType != null && resolvedMemberRoutine.OwnerType is
+                    { IsGenericDefinition: true })
+            {
                 paramType = SubstituteOwnerGenerics(paramType: paramType,
                     lookupType: callObjectType,
                     ownerType: resolvedMemberRoutine.OwnerType) ?? paramType;
+            }
 
             AnalyzeExpression(expression: inner, expectedType: paramType);
         }
@@ -633,12 +721,14 @@ public sealed partial class SemanticVerifier
     /// Narrow scope (phase 1): only `show` and `alert` are eligible. Other `@readonly`
     /// routines are not rewritten — they don't have a canonical readonly accessor.
     /// </remarks>
-    private void RewriteDisplayRoutineWrapperArgs(string callName,
-        List<Expression> arguments)
+    private void RewriteDisplayRoutineWrapperArgs(string callName, List<Expression> arguments)
     {
         bool isShow = callName == "show";
         bool isAlert = callName == "alert";
-        if (!isShow && !isAlert) return;
+        if (!isShow && !isAlert)
+        {
+            return;
+        }
 
         for (int i = 0; i < arguments.Count; i++)
         {
@@ -651,7 +741,10 @@ public sealed partial class SemanticVerifier
             // most expression kinds (the result is cached on `.ResolvedType`). Literals
             // re-analyze cheaply.
             TypeSymbol argType = AnalyzeExpression(expression: innerExpr);
-            if (argType.Category == TypeCategory.Error) continue;
+            if (argType.Category == TypeCategory.Error)
+            {
+                continue;
+            }
 
             // Rewrite for args that don't match the bare-Text/Bytes overloads:
             //   - copy-restricted wrappers (Owned, Retained, Tracked, …) — `IsTriviallyAssignable`
@@ -661,17 +754,18 @@ public sealed partial class SemanticVerifier
             //     copies the entity ptr by value, which corrupts. Rewriting to `arg.diagnose()`
             //     extracts a Text and uses the cleaner `Accessing[Text]` overload instead.
             bool isEntity = argType is EntityTypeInfo;
-            if (!isEntity && IsTriviallyAssignable(type: argType)) continue;
+            if (!isEntity && IsTriviallyAssignable(type: argType))
+            {
+                continue;
+            }
 
             string memberRoutineName = isAlert
                 ? Declaration.RuntimeContract.Display.Diagnose
                 : Declaration.RuntimeContract.Display.Represent;
-            var memberAccess = new MemberExpression(
-                Object: innerExpr,
+            var memberAccess = new MemberExpression(Object: innerExpr,
                 MemberName: memberRoutineName,
                 Location: innerExpr.Location);
-            var displayCall = new CallExpression(
-                Callee: memberAccess,
+            var displayCall = new CallExpression(Callee: memberAccess,
                 Arguments: [],
                 Location: innerExpr.Location);
             // ResolvedType is left null — overload resolution will analyze the new
@@ -701,12 +795,12 @@ public sealed partial class SemanticVerifier
     /// routine reference cannot capture, so its native symbol is a valid C function pointer; codegen
     /// emits <c>ptr @&lt;routine&gt;</c>. Excludes routine-typed locals and lambdas (possible closures).
     /// </summary>
-    private bool IsBareRoutineRefToCPtr(Expression argExpr, TypeSymbol argType, TypeSymbol paramType)
+    private bool IsBareRoutineRefToCPtr(Expression argExpr, TypeSymbol argType,
+        TypeSymbol paramType)
     {
-        return paramType.Name == "CPtr"
-               && argType is RoutineTypeInfo
-               && argExpr is IdentifierExpression id
-               && _registry.LookupRoutineByName(name: id.Name) != null;
+        return paramType.Name == "CPtr" && argType is RoutineTypeInfo &&
+               argExpr is IdentifierExpression id &&
+               _registry.LookupRoutineByName(name: id.Name) != null;
     }
 
     /// <summary>True when <paramref name="type"/> is <c>Roamed[E]</c> (record or wrapper form) for the given
@@ -719,9 +813,8 @@ public sealed partial class SemanticVerifier
             WrapperTypeInfo w => w.Name,
             _ => string.Empty
         };
-        return baseName == Declaration.RuntimeContract.Roamed
-            && type.TypeArguments is [{ } inner]
-            && inner.FullName == entity.FullName;
+        return baseName == Declaration.RuntimeContract.Roamed &&
+               type.TypeArguments is [{ } inner] && inner.FullName == entity.FullName;
     }
 
     /// <summary>
@@ -732,60 +825,85 @@ public sealed partial class SemanticVerifier
     private bool IsAssignableTo(TypeSymbol source, TypeSymbol target)
     {
         if (source.Name == target.Name || source.FullName == target.FullName)
+        {
             return true;
+        }
 
         // Suflae: bare entity E and Roamed[E] are mutually assignable (the lowering pass inserts roam).
-        if (_registry.Language == Language.Suflae && IsSuflaeEntityRoamedAssignable(source, target))
+        if (_registry.Language == Language.Suflae &&
+            IsSuflaeEntityRoamedAssignable(source: source, target: target))
+        {
             return true;
+        }
 
         // Error types suppress cascading errors.
         if (source.Category == TypeCategory.Error || target.Category == TypeCategory.Error)
+        {
             return true;
+        }
 
         // Routine type (lambda) compatibility with covariant return type.
         if (source is RoutineTypeInfo srcRoutine && target is RoutineTypeInfo tgtRoutine)
-            return IsRoutineAssignableTo(srcRoutine, tgtRoutine);
+        {
+            return IsRoutineAssignableTo(src: srcRoutine, tgt: tgtRoutine);
+        }
 
         // Variant auto-wrap: a value whose type matches a variant member is implicitly coerced.
-        if (IsVariantMemberAssignable(source, target))
+        if (IsVariantMemberAssignable(source: source, target: target))
+        {
             return true;
+        }
 
         // Generic type matching.
-        if (IsGenericDefinitionResolutionAssignable(source, target))
+        if (IsGenericDefinitionResolutionAssignable(source: source, target: target))
+        {
             return true;
+        }
 
         // Protocol conformance.
         if (target.Category == TypeCategory.Protocol)
-            return IsAssignableToBorrowProtocol(source: source, target: target)
-                || ImplementsProtocol(type: source, protocolName: target.Name);
+        {
+            return IsAssignableToBorrowProtocol(source: source, target: target) ||
+                   ImplementsProtocol(type: source, protocolName: target.Name);
+        }
 
         // Const generic: `needs N is U64` — N is a U64 value at runtime.
-        if (IsConstGenericAssignable(source, target))
+        if (IsConstGenericAssignable(source: source, target: target))
+        {
             return true;
+        }
 
         // Maybe auto-wrap cases.
-        if (IsMaybeAssignable(source, target))
+        if (IsMaybeAssignable(source: source, target: target))
+        {
             return true;
+        }
 
         // Raw entity E → Owned[E]: a freshly produced entity transfers ownership.
-        return IsOwnedEntityAssignable(source, target);
+        return IsOwnedEntityAssignable(source: source, target: target);
     }
 
-    private static bool IsOwnedEntityAssignable(TypeSymbol source, TypeSymbol target) =>
-        source.Category == TypeCategory.Entity &&
-        IsOwnedOf(type: target, out TypeSymbol? inner) &&
-        (source.Name == inner.Name || source.FullName == inner.FullName);
+    private static bool IsOwnedEntityAssignable(TypeSymbol source, TypeSymbol target)
+    {
+        return source.Category == TypeCategory.Entity &&
+               IsOwnedOf(type: target, inner: out TypeSymbol? inner) &&
+               (source.Name == inner.Name || source.FullName == inner.FullName);
+    }
 
-    private static bool IsVariantMemberAssignable(TypeSymbol source, TypeSymbol target) =>
-        target is VariantTypeInfo variant && variant.Members.Any(member =>
-            member.Type != null &&
-            (member.Type.Name == source.Name || member.Type.FullName == source.FullName));
+    private static bool IsVariantMemberAssignable(TypeSymbol source, TypeSymbol target)
+    {
+        return target is VariantTypeInfo variant && variant.Members.Any(predicate: member =>
+            member.Type != null && (member.Type.Name == source.Name ||
+                                    member.Type.FullName == source.FullName));
+    }
 
-    private bool IsConstGenericAssignable(TypeSymbol source, TypeSymbol target) =>
-        (source is GenericParameterTypeInfo srcGen &&
-            ConstGenericMatches(paramName: srcGen.Name, otherTypeName: target.Name)) ||
-        (target is GenericParameterTypeInfo tgtGen &&
-            ConstGenericMatches(paramName: tgtGen.Name, otherTypeName: source.Name));
+    private bool IsConstGenericAssignable(TypeSymbol source, TypeSymbol target)
+    {
+        return (source is GenericParameterTypeInfo srcGen &&
+                ConstGenericMatches(paramName: srcGen.Name, otherTypeName: target.Name)) ||
+               (target is GenericParameterTypeInfo tgtGen &&
+                ConstGenericMatches(paramName: tgtGen.Name, otherTypeName: source.Name));
+    }
 
     /// <summary>
     /// Returns true when the Suflae entity↔Roamed assignability rule applies: a bare entity and its
@@ -793,8 +911,16 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsSuflaeEntityRoamedAssignable(TypeSymbol source, TypeSymbol target)
     {
-        if (source is EntityTypeInfo se && IsRoamedOfEntity(type: target, entity: se)) return true;
-        if (target is EntityTypeInfo te && IsRoamedOfEntity(type: source, entity: te)) return true;
+        if (source is EntityTypeInfo se && IsRoamedOfEntity(type: target, entity: se))
+        {
+            return true;
+        }
+
+        if (target is EntityTypeInfo te && IsRoamedOfEntity(type: source, entity: te))
+        {
+            return true;
+        }
+
         return false;
     }
 
@@ -806,15 +932,26 @@ public sealed partial class SemanticVerifier
     private bool IsRoutineAssignableTo(RoutineTypeInfo src, RoutineTypeInfo tgt)
     {
         if (src.ParameterTypes.Count != tgt.ParameterTypes.Count)
+        {
             return false;
+        }
+
         for (int i = 0; i < src.ParameterTypes.Count; i++)
         {
-            if (!IsAssignableTo(source: src.ParameterTypes[index: i], target: tgt.ParameterTypes[index: i])
-                && !IsAssignableTo(source: tgt.ParameterTypes[index: i], target: src.ParameterTypes[index: i]))
+            if (!IsAssignableTo(source: src.ParameterTypes[index: i],
+                    target: tgt.ParameterTypes[index: i]) && !IsAssignableTo(
+                    source: tgt.ParameterTypes[index: i],
+                    target: src.ParameterTypes[index: i]))
+            {
                 return false;
+            }
         }
+
         if (src.ReturnType == null || tgt.ReturnType == null)
+        {
             return src.ReturnType == null && tgt.ReturnType == null;
+        }
+
         return IsAssignableTo(source: src.ReturnType, target: tgt.ReturnType);
     }
 
@@ -823,17 +960,25 @@ public sealed partial class SemanticVerifier
     /// assignable to its bare definition, and a generic definition is assignable to a parameterized
     /// form when all type args are unresolved generic parameters. Extracted from <see cref="IsAssignableTo"/>.
     /// </summary>
-    private static bool IsGenericDefinitionResolutionAssignable(TypeSymbol source, TypeSymbol target)
+    private static bool IsGenericDefinitionResolutionAssignable(TypeSymbol source,
+        TypeSymbol target)
     {
         // Resolution → definition (e.g. List[S64] → List).
-        if (target.IsGenericDefinition && source.IsGenericResolution && source.BareName == target.Name)
+        if (target.IsGenericDefinition && source.IsGenericResolution &&
+            source.BareName == target.Name)
+        {
             return true;
+        }
+
         // Definition → parameterized form within a generic context (e.g. 'me: Total' → 'Total[T]').
-        if (source.IsGenericDefinition
-            && target is { IsGenericResolution: true, TypeArguments: not null }
-            && target.TypeArguments.All(predicate: t => t is GenericParameterTypeInfo)
-            && target.BareName == source.Name)
+        if (source.IsGenericDefinition &&
+            target is { IsGenericResolution: true, TypeArguments: not null } &&
+            target.TypeArguments.All(predicate: t => t is GenericParameterTypeInfo) &&
+            target.BareName == source.Name)
+        {
             return true;
+        }
+
         return false;
     }
 
@@ -844,13 +989,20 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsMaybeAssignable(TypeSymbol source, TypeSymbol target)
     {
-        if (source is { IsGenericDefinition: true, Name: MaybeTypeName } && IsMaybeType(type: target))
+        if (source is { IsGenericDefinition: true, Name: MaybeTypeName } &&
+            IsMaybeType(type: target))
+        {
             return true;
+        }
+
         if ((source.Category == TypeCategory.Entity || source.Category == TypeCategory.Record ||
-             source.Category == TypeCategory.Wrapper) &&
-            IsMaybeType(type: target) && target.TypeArguments is { Count: 1 } &&
+             source.Category == TypeCategory.Wrapper) && IsMaybeType(type: target) &&
+            target.TypeArguments is { Count: 1 } &&
             IsAssignableToMaybeInner(source: source, maybeTarget: target))
+        {
             return true;
+        }
+
         return false;
     }
 
@@ -862,21 +1014,24 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsAssignableToMaybeInner(TypeSymbol source, TypeSymbol maybeTarget)
     {
-        TypeSymbol typeArg = maybeTarget.TypeArguments![0];
-        if (source.Name == typeArg.Name ||
-            source.FullName == typeArg.FullName ||
-            source.FullName == typeArg.Name ||
-            source.Name == typeArg.FullName)
+        TypeSymbol typeArg = maybeTarget.TypeArguments![index: 0];
+        if (source.Name == typeArg.Name || source.FullName == typeArg.FullName ||
+            source.FullName == typeArg.Name || source.Name == typeArg.FullName)
+        {
             return true;
+        }
+
         // Raw entity E -> Maybe[E]: rvalue entity auto-wraps into Owned, then carrier.
         // T is declared as `record T` in stdlib, so it surfaces as
         // RecordTypeInfo (not WrapperTypeInfo) at runtime — match by name + arity instead
         // of pattern-matching the runtime kind.
         if (source.Category == TypeCategory.Entity &&
-            IsOwnedOf(type: typeArg, out TypeSymbol? ownedInnerOfMaybe) &&
+            IsOwnedOf(type: typeArg, inner: out TypeSymbol? ownedInnerOfMaybe) &&
             (source.Name == ownedInnerOfMaybe.Name ||
              source.FullName == ownedInnerOfMaybe.FullName))
+        {
             return true;
+        }
 
         return false;
     }
@@ -891,31 +1046,40 @@ public sealed partial class SemanticVerifier
     private static bool IsAssignableToBorrowProtocol(TypeSymbol source, TypeSymbol target)
     {
         string targetBase = target.BareName;
-        if ((targetBase != Declaration.RuntimeContract.Accessing && targetBase != Declaration.RuntimeContract.Controlling) ||
-            target.TypeArguments is not { Count: 1 } borrowArgs)
+        if (targetBase != Declaration.RuntimeContract.Accessing &&
+            targetBase != Declaration.RuntimeContract.Controlling || target.TypeArguments is not
+                { Count: 1 } borrowArgs)
         {
             return false;
         }
 
         TypeSymbol borrowInner = borrowArgs[index: 0];
-        if (TryGetOwnershipWrapperInner(type: source, wrapperBase: out string? srcWrapper,
+        if (TryGetOwnershipWrapperInner(type: source,
+                wrapperBase: out string? srcWrapper,
                 inner: out TypeSymbol? srcInner))
         {
             bool wrapperAllowed = targetBase == Declaration.RuntimeContract.Accessing
-                ? srcWrapper is Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Modifying or Declaration.RuntimeContract.Viewing
-                    or Declaration.RuntimeContract.Controlling or Declaration.RuntimeContract.Accessing
-                : srcWrapper is Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Modifying or Declaration.RuntimeContract.Controlling;
-            if (wrapperAllowed && srcInner != null &&
-                (srcInner.FullName == borrowInner.FullName ||
-                 srcInner.Name == borrowInner.Name))
+                ? srcWrapper is Declaration.RuntimeContract.Retained
+                    or Declaration.RuntimeContract.Modifying or Declaration.RuntimeContract.Viewing
+                    or Declaration.RuntimeContract.Controlling
+                    or Declaration.RuntimeContract.Accessing
+                : srcWrapper is Declaration.RuntimeContract.Retained
+                    or Declaration.RuntimeContract.Modifying
+                    or Declaration.RuntimeContract.Controlling;
+            if (wrapperAllowed && srcInner != null && (srcInner.FullName == borrowInner.FullName ||
+                                                       srcInner.Name == borrowInner.Name))
+            {
                 return true;
+            }
         }
+
         // Bare entity T: accepted by both Accessing[T] and Controlling[T].
-        if (source.Category == TypeCategory.Entity &&
-            (source.FullName == borrowInner.FullName ||
-             source.Name == borrowInner.Name ||
-             source.BareName == borrowInner.BareName))
+        if (source.Category == TypeCategory.Entity && (source.FullName == borrowInner.FullName ||
+                                                       source.Name == borrowInner.Name ||
+                                                       source.BareName == borrowInner.BareName))
+        {
             return true;
+        }
 
         return false;
     }
@@ -937,8 +1101,10 @@ public sealed partial class SemanticVerifier
         out TypeSymbol? inner)
     {
         string baseName = type.BareName;
-        if (baseName is Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Tracked or Declaration.RuntimeContract.Modifying or Declaration.RuntimeContract.Viewing
-            or Declaration.RuntimeContract.Controlling or Declaration.RuntimeContract.Accessing or Declaration.RuntimeContract.Hijacked)
+        if (baseName is Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Tracked
+            or Declaration.RuntimeContract.Modifying or Declaration.RuntimeContract.Viewing
+            or Declaration.RuntimeContract.Controlling or Declaration.RuntimeContract.Accessing
+            or Declaration.RuntimeContract.Hijacked)
         {
             if (type is WrapperTypeInfo { InnerType: not null } w)
             {
@@ -946,6 +1112,7 @@ public sealed partial class SemanticVerifier
                 inner = w.InnerType;
                 return true;
             }
+
             if (type.TypeArguments is { Count: 1 } args)
             {
                 wrapperBase = baseName;
@@ -953,6 +1120,7 @@ public sealed partial class SemanticVerifier
                 return true;
             }
         }
+
         wrapperBase = null;
         inner = null;
         return false;
@@ -1008,8 +1176,15 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private bool IsNumericGenericParam(TypeSymbol type)
     {
-        if (type is ConstGenericValueTypeInfo) return true;
-        if (type is not GenericParameterTypeInfo gp) return false;
+        if (type is ConstGenericValueTypeInfo)
+        {
+            return true;
+        }
+
+        if (type is not GenericParameterTypeInfo gp)
+        {
+            return false;
+        }
 
         // Search the active generic-constraint scope for a numeric const-generic constraint.
         // Constraints can live on the routine, the enclosing type, or on the routine's owner type
@@ -1020,7 +1195,8 @@ public sealed partial class SemanticVerifier
             _currentType?.GenericConstraints,
             _currentRoutine?.OwnerType?.GenericConstraints
         ];
-        return sources.Any(constraints => HasNumericConstGenericConstraint(constraints, gp.Name));
+        return sources.Any(predicate: constraints =>
+            HasNumericConstGenericConstraint(constraints: constraints, paramName: gp.Name));
     }
 
     /// <summary>
@@ -1028,22 +1204,36 @@ public sealed partial class SemanticVerifier
     /// <paramref name="paramName"/> whose bound resolves to a numeric type. Extracted from
     /// <see cref="IsNumericGenericParam"/>.
     /// </summary>
-    private bool HasNumericConstGenericConstraint(IEnumerable<GenericConstraintDeclaration>? constraints,
-        string paramName)
+    private bool HasNumericConstGenericConstraint(
+        IEnumerable<GenericConstraintDeclaration>? constraints, string paramName)
     {
-        if (constraints == null) return false;
+        if (constraints == null)
+        {
+            return false;
+        }
+
         foreach (GenericConstraintDeclaration c in constraints)
         {
             if (c.ParameterName != paramName || c.ConstraintType != ConstraintKind.ConstGeneric)
+            {
                 continue;
-            if (c.ConstraintTypes is not { Count: > 0 } types) continue;
-            if (types.Any(boundExpr =>
+            }
+
+            if (c.ConstraintTypes is not { Count: > 0 } types)
+            {
+                continue;
+            }
+
+            if (types.Any(predicate: boundExpr =>
                 {
                     TypeSymbol? bound = LookupTypeWithImports(name: boundExpr.Name);
                     return bound != null && IsNumericType(type: bound);
                 }))
+            {
                 return true;
+            }
         }
+
         return false;
     }
 
@@ -1128,16 +1318,21 @@ public sealed partial class SemanticVerifier
         // to nothing (e.g. `record Cat` with no `eq` resolving `==` to `Equatable.eq`). Only a
         // concrete implementation counts as support here; generic-parameter receivers get their
         // constraint-based support from the dedicated branch below.
-        RoutineInfo? resolved = _registry.LookupMemberRoutine(type: type, memberRoutineName: memberRoutineName);
+        RoutineInfo? resolved =
+            _registry.LookupMemberRoutine(type: type, memberRoutineName: memberRoutineName);
         if (resolved != null && resolved.OwnerType is not ProtocolTypeInfo)
+        {
             return true;
+        }
 
         // Phase D: transparent wrappers (T, etc.) forward operator wired memberRoutines
         // to the inner T's implementation. Synthesize the forwarder lazily.
-        if (IsWrapperType(type: type) &&
-            TrySynthesizeWrapperForwarder(wrapperType: type, memberRoutineName: memberRoutineName,
+        if (IsWrapperType(type: type) && TrySynthesizeWrapperForwarder(wrapperType: type,
+                memberRoutineName: memberRoutineName,
                 isFailable: false) != null)
+        {
             return true;
+        }
 
         // For generic parameters, check if any constrained protocol declares the memberRoutine.
         if (type is GenericParameterTypeInfo)
@@ -1155,15 +1350,23 @@ public sealed partial class SemanticVerifier
     /// a <c>needs N is U64</c> const-generic whose underlying value type has it. Extracted from
     /// <see cref="SupportsOperator"/>.
     /// </summary>
-    private bool GenericParamConstraintSupportsMemberRoutine(string paramName, string memberRoutineName)
+    private bool GenericParamConstraintSupportsMemberRoutine(string paramName,
+        string memberRoutineName)
     {
         foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: paramName))
         {
-            if (ObeysConstraintSupportsMemberRoutine(c, memberRoutineName))
+            if (ObeysConstraintSupportsMemberRoutine(c: c, memberRoutineName: memberRoutineName))
+            {
                 return true;
-            if (ConstGenericConstraintSupportsMemberRoutine(c, memberRoutineName))
+            }
+
+            if (ConstGenericConstraintSupportsMemberRoutine(c: c,
+                    memberRoutineName: memberRoutineName))
+            {
                 return true;
+            }
         }
+
         return false;
     }
 
@@ -1171,15 +1374,20 @@ public sealed partial class SemanticVerifier
     /// Returns true when an <c>obeys P</c> constraint's protocol (transitively) declares
     /// <paramref name="memberRoutineName"/>. Extracted from <see cref="GenericParamConstraintSupportsMemberRoutine"/>.
     /// </summary>
-    private bool ObeysConstraintSupportsMemberRoutine(GenericConstraintDeclaration c, string memberRoutineName)
+    private bool ObeysConstraintSupportsMemberRoutine(GenericConstraintDeclaration c,
+        string memberRoutineName)
     {
         if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null })
+        {
             return false;
-        return c.ConstraintTypes.Any(protocolExpr =>
+        }
+
+        return c.ConstraintTypes.Any(predicate: protocolExpr =>
         {
             TypeSymbol? proto = _registry.LookupType(name: protocolExpr.Name);
             return proto is ProtocolTypeInfo &&
-                   ProtocolDeclaresMemberRoutine(proto: proto, memberRoutineName: memberRoutineName);
+                   ProtocolDeclaresMemberRoutine(proto: proto,
+                       memberRoutineName: memberRoutineName);
         });
     }
 
@@ -1187,16 +1395,20 @@ public sealed partial class SemanticVerifier
     /// Returns true when a <c>needs N is T</c> const-generic constraint's underlying value type has
     /// <paramref name="memberRoutineName"/>. Extracted from <see cref="GenericParamConstraintSupportsMemberRoutine"/>.
     /// </summary>
-    private bool ConstGenericConstraintSupportsMemberRoutine(GenericConstraintDeclaration c, string memberRoutineName)
+    private bool ConstGenericConstraintSupportsMemberRoutine(GenericConstraintDeclaration c,
+        string memberRoutineName)
     {
         if (c is not { ConstraintType: ConstraintKind.ConstGeneric, ConstraintTypes: not null })
+        {
             return false;
-        return c.ConstraintTypes.Any(ct =>
+        }
+
+        return c.ConstraintTypes.Any(predicate: ct =>
         {
             TypeSymbol? underlying = _registry.LookupType(name: ct.Name);
-            return underlying != null
-                && underlying.Category != TypeCategory.Protocol
-                && _registry.LookupMemberRoutine(type: underlying, memberRoutineName: memberRoutineName) != null;
+            return underlying != null && underlying.Category != TypeCategory.Protocol &&
+                   _registry.LookupMemberRoutine(type: underlying,
+                       memberRoutineName: memberRoutineName) != null;
         });
     }
 
@@ -1208,13 +1420,26 @@ public sealed partial class SemanticVerifier
     private static bool ProtocolDeclaresMemberRoutine(TypeSymbol proto, string memberRoutineName,
         HashSet<string>? visited = null)
     {
-        if (proto is not ProtocolTypeInfo p) return false;
-        visited ??= new HashSet<string>(StringComparer.Ordinal);
-        if (!visited.Add(item: p.Name)) return false;
+        if (proto is not ProtocolTypeInfo p)
+        {
+            return false;
+        }
+
+        visited ??= new HashSet<string>(comparer: StringComparer.Ordinal);
+        if (!visited.Add(item: p.Name))
+        {
+            return false;
+        }
+
         if (p.MemberRoutines.Any(predicate: m => m.Name == memberRoutineName))
+        {
             return true;
-        return p.ParentProtocols.Any(parent =>
-            ProtocolDeclaresMemberRoutine(proto: parent, memberRoutineName: memberRoutineName, visited: visited));
+        }
+
+        return p.ParentProtocols.Any(predicate: parent =>
+            ProtocolDeclaresMemberRoutine(proto: parent,
+                memberRoutineName: memberRoutineName,
+                visited: visited));
     }
 
     /// <summary>
@@ -1226,8 +1451,10 @@ public sealed partial class SemanticVerifier
     private bool ConstGenericMatches(string paramName, string otherTypeName)
     {
         return ActiveConstraintsFor(paramName: paramName)
-            .Where(c => c is { ConstraintType: ConstraintKind.ConstGeneric, ConstraintTypes: not null })
-            .Any(c => c.ConstraintTypes!.Any(ct => ct.Name == otherTypeName));
+              .Where(predicate: c => c is
+                   { ConstraintType: ConstraintKind.ConstGeneric, ConstraintTypes: not null })
+              .Any(predicate: c =>
+                   c.ConstraintTypes!.Any(predicate: ct => ct.Name == otherTypeName));
     }
 
     /// <summary>
@@ -1244,13 +1471,17 @@ public sealed partial class SemanticVerifier
     private static bool IsMarkerBoundParam(TypeSymbol paramType, RoutineInfo routine)
     {
         if (paramType is not GenericParameterTypeInfo gp || routine.GenericConstraints == null)
+        {
             return false;
+        }
+
         return routine.GenericConstraints
-            .Where(c => c.ParameterName == gp.Name && c.ConstraintType == ConstraintKind.Obeys
-                        && c.ConstraintTypes != null)
-            .SelectMany(c => c.ConstraintTypes!)
-            .Any(pe => pe.Name is Declaration.RuntimeContract.Accessing
-                       or Declaration.RuntimeContract.Controlling);
+                      .Where(predicate: c =>
+                           c.ParameterName == gp.Name &&
+                           c.ConstraintType == ConstraintKind.Obeys && c.ConstraintTypes != null)
+                      .SelectMany(selector: c => c.ConstraintTypes!)
+                      .Any(predicate: pe => pe.Name is Declaration.RuntimeContract.Accessing
+                           or Declaration.RuntimeContract.Controlling);
     }
 
     private IEnumerable<GenericConstraintDeclaration> ActiveConstraintsFor(string paramName)
@@ -1258,14 +1489,24 @@ public sealed partial class SemanticVerifier
         if (_currentRoutine?.GenericConstraints != null)
         {
             foreach (GenericConstraintDeclaration c in _currentRoutine.GenericConstraints)
-                if (c.ParameterName == paramName) yield return c;
+            {
+                if (c.ParameterName == paramName)
+                {
+                    yield return c;
+                }
+            }
         }
 
         TypeSymbol? ownerType = _currentRoutine?.OwnerType;
         if (ownerType?.GenericConstraints != null)
         {
             foreach (GenericConstraintDeclaration c in ownerType.GenericConstraints)
-                if (c.ParameterName == paramName) yield return c;
+            {
+                if (c.ParameterName == paramName)
+                {
+                    yield return c;
+                }
+            }
         }
     }
 
@@ -1278,8 +1519,8 @@ public sealed partial class SemanticVerifier
     {
         return op is BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less
             or BinaryOperator.LessEqual or BinaryOperator.Greater or BinaryOperator.GreaterEqual
-            or BinaryOperator.In or BinaryOperator.NotIn or BinaryOperator.Is or BinaryOperator.IsNot
-            or BinaryOperator.Obeys or BinaryOperator.Disobeys;
+            or BinaryOperator.In or BinaryOperator.NotIn or BinaryOperator.Is
+            or BinaryOperator.IsNot or BinaryOperator.Obeys or BinaryOperator.Disobeys;
     }
 
     /// <summary>Returns true if the operator is a short-circuit logical operator (<c>and</c> or <c>or</c>).</summary>
@@ -1440,7 +1681,9 @@ public sealed partial class SemanticVerifier
                 return;
             }
 
-            if (!TryTrackComparisonDirection(op: op, isAscending: ref isAscending, location: location))
+            if (!TryTrackComparisonDirection(op: op,
+                    isAscending: ref isAscending,
+                    location: location))
             {
                 return;
             }
@@ -1499,7 +1742,7 @@ public sealed partial class SemanticVerifier
         // Marker-protocol unwrap: `Accessing[X]` / `Controlling[X]` are transparent
         // pass-throughs to X. If iterating one, dispatch to X's Iterable conformance.
         if (TryGetTransparentProtocolTarget(type: iterableType,
-            targetType: out TypeSymbol unwrapped))
+                targetType: out TypeSymbol unwrapped))
         {
             iterableType = unwrapped;
         }
@@ -1508,15 +1751,21 @@ public sealed partial class SemanticVerifier
         // protocol that obeys Iterable), trust the dispatch and take the
         // element type from the type-arg. Any concrete value bound will
         // implement Iterable structurally.
-        if (TryGetProtocolIterableElement(iterableType) is { } protocolElement)
+        if (TryGetProtocolIterableElement(type: iterableType) is { } protocolElement)
+        {
             return protocolElement;
+        }
 
         // Generic-parameter receiver constrained to Iterable[X]: take the element type directly
         // from the constraint's type argument to avoid leaking the unsubstituted generic param T.
         if (iterableType is GenericParameterTypeInfo gp)
         {
-            TypeSymbol? fromConstraint = TryGetIterableElementFromGenericConstraint(gp.Name);
-            if (fromConstraint != null) return fromConstraint;
+            TypeSymbol? fromConstraint =
+                TryGetIterableElementFromGenericConstraint(paramName: gp.Name);
+            if (fromConstraint != null)
+            {
+                return fromConstraint;
+            }
         }
 
         // Verify the type follows the Iterable protocol (or has an iter member routine).
@@ -1545,12 +1794,15 @@ public sealed partial class SemanticVerifier
         // CONCRETE memberRoutine compiled before that instance is monomorphized. There, ImplementedProtocols
         // is still empty and the naive `TypeArguments[0]` fallback below would wrongly pick the first
         // type arg (`K`, i.e. `Text` for a Dict) instead of `DictEntry[Text, SerialValue]`.
-        RoutineInfo? iterMemberRoutine = _registry.LookupMemberRoutine(type: iterableType, memberRoutineName: "iter");
+        RoutineInfo? iterMemberRoutine =
+            _registry.LookupMemberRoutine(type: iterableType, memberRoutineName: "iter");
         if (iterMemberRoutine?.ReturnType is { } iteratorType and not ErrorTypeInfo)
         {
-            RoutineInfo? emitMemberRoutine =
-                _registry.LookupMemberRoutine(type: iteratorType, memberRoutineName: "emit", isFailable: true);
-            if (emitMemberRoutine?.ReturnType is { } emittedType and not (ErrorTypeInfo or GenericParameterTypeInfo))
+            RoutineInfo? emitMemberRoutine = _registry.LookupMemberRoutine(type: iteratorType,
+                memberRoutineName: "emit",
+                isFailable: true);
+            if (emitMemberRoutine?.ReturnType is { } emittedType
+                and not (ErrorTypeInfo or GenericParameterTypeInfo))
             {
                 return emittedType;
             }
@@ -1576,11 +1828,13 @@ public sealed partial class SemanticVerifier
         return ErrorTypeInfo.Instance;
     }
 
-    private static TypeSymbol? TryGetProtocolIterableElement(TypeSymbol type) =>
-        type is ProtocolTypeInfo { TypeArguments: { Count: > 0 } arguments } protocol
-        && (protocol.GenericDefinition ?? protocol).BareName == IterableProtocolName
-            ? arguments[0]
+    private static TypeSymbol? TryGetProtocolIterableElement(TypeSymbol type)
+    {
+        return type is ProtocolTypeInfo { TypeArguments: { Count: > 0 } arguments } protocol &&
+               (protocol.GenericDefinition ?? protocol).BareName == IterableProtocolName
+            ? arguments[index: 0]
             : null;
+    }
 
     /// <summary>
     /// Walks the <c>Obeys Iterable[X]</c> constraints on the generic parameter named
@@ -1592,15 +1846,25 @@ public sealed partial class SemanticVerifier
         foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: paramName))
         {
             if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null })
+            {
                 continue;
+            }
+
             foreach (TypeExpression protocolExpr in c.ConstraintTypes)
             {
-                if (BareTypeName(typeName: protocolExpr.Name) != IterableProtocolName) continue;
+                if (BareTypeName(typeName: protocolExpr.Name) != IterableProtocolName)
+                {
+                    continue;
+                }
+
                 TypeSymbol resolved = _typeResolver.ResolveType(typeExpr: protocolExpr);
                 if (resolved.TypeArguments is { Count: > 0 })
+                {
                     return resolved.TypeArguments[index: 0];
+                }
             }
         }
+
         return null;
     }
 
@@ -1612,9 +1876,16 @@ public sealed partial class SemanticVerifier
     private bool IsOrObeysIterable(TypeSymbol iterableType)
     {
         if (ImplementsProtocol(type: iterableType, protocolName: IterableProtocolName))
+        {
             return true;
+        }
+
         if (iterableType.IsGenericResolution)
-            return _registry.LookupMemberRoutine(type: iterableType, memberRoutineName: "iter") != null;
+        {
+            return _registry.LookupMemberRoutine(type: iterableType, memberRoutineName: "iter") !=
+                   null;
+        }
+
         return false;
     }
 
@@ -1639,11 +1910,15 @@ public sealed partial class SemanticVerifier
 
         foreach (TypeSymbol proto in protocols)
         {
-            if (proto.BareName != IterableProtocolName || proto.TypeArguments is not { Count: > 0 })
+            if (proto.BareName != IterableProtocolName ||
+                proto.TypeArguments is not { Count: > 0 })
+            {
                 continue;
+            }
 
             TypeInfo elementType = proto.TypeArguments[index: 0];
-            return SubstituteIterableElementTypeParams(iterableType: iterableType, elementType: elementType);
+            return SubstituteIterableElementTypeParams(iterableType: iterableType,
+                elementType: elementType);
         }
 
         return null;
@@ -1654,10 +1929,13 @@ public sealed partial class SemanticVerifier
     /// <paramref name="elementType"/> when the iterable is a generic resolution.
     /// Returns <paramref name="elementType"/> unchanged when no substitution applies.
     /// </summary>
-    private static TypeInfo SubstituteIterableElementTypeParams(TypeSymbol iterableType, TypeInfo elementType)
+    private static TypeInfo SubstituteIterableElementTypeParams(TypeSymbol iterableType,
+        TypeInfo elementType)
     {
         if (iterableType is not { IsGenericResolution: true, TypeArguments: not null })
+        {
             return elementType;
+        }
 
         TypeInfo? genericDef = iterableType switch
         {
@@ -1667,7 +1945,9 @@ public sealed partial class SemanticVerifier
         };
 
         if (genericDef?.GenericParameters == null)
+        {
             return elementType;
+        }
 
         var substitution = new Dictionary<string, TypeInfo>();
         for (int i = 0;
@@ -1689,12 +1969,14 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private TypeSymbol? TryGetElementFromIterReturnType(TypeSymbol iterableType)
     {
-        RoutineInfo? seqMemberRoutine2 = _registry.LookupRoutine(fullName: $"{iterableType.Name}.iter");
+        RoutineInfo? seqMemberRoutine2 =
+            _registry.LookupRoutine(fullName: $"{iterableType.Name}.iter");
 
         // Generic fallback: Range[S64].iter -> Range.iter via LookupMemberRoutine
         if (seqMemberRoutine2 == null)
         {
-            seqMemberRoutine2 = _registry.LookupMemberRoutine(type: iterableType, memberRoutineName: "iter");
+            seqMemberRoutine2 =
+                _registry.LookupMemberRoutine(type: iterableType, memberRoutineName: "iter");
         }
 
         if (seqMemberRoutine2?.ReturnType?.TypeArguments is not { Count: > 0 })
@@ -1748,21 +2030,28 @@ public sealed partial class SemanticVerifier
             return true;
         }
 
-        if (type.TypeArguments is { Count: > 0 } args &&
-            args.Any(arg => ContainsUnresolvedMemberRoutineGeneric(type: arg, genericParameters: genericParameters)))
+        if (type.TypeArguments is { Count: > 0 } args && args.Any(predicate: arg =>
+                ContainsUnresolvedMemberRoutineGeneric(type: arg,
+                    genericParameters: genericParameters)))
         {
             return true;
         }
 
         if (type is RoutineTypeInfo routine)
         {
-            if (routine.ParameterTypes.Any(pt =>
-                    ContainsUnresolvedMemberRoutineGeneric(type: pt, genericParameters: genericParameters)))
+            if (routine.ParameterTypes.Any(predicate: pt =>
+                    ContainsUnresolvedMemberRoutineGeneric(type: pt,
+                        genericParameters: genericParameters)))
+            {
                 return true;
+            }
 
             if (routine.ReturnType is { } ret &&
-                ContainsUnresolvedMemberRoutineGeneric(type: ret, genericParameters: genericParameters))
+                ContainsUnresolvedMemberRoutineGeneric(type: ret,
+                    genericParameters: genericParameters))
+            {
                 return true;
+            }
         }
 
         return false;

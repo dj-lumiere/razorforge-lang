@@ -30,7 +30,8 @@ public sealed partial class SemanticVerifier
         // Extract narrowing info from condition: carrier/None (NarrowingInfo) + general user variant
         // (VariantIsNarrowing, which accumulates arm exclusions down an if/elseif chain).
         NarrowingInfo? narrowing = TryExtractNarrowingFromCondition(condition: ifStmt.Condition);
-        VariantIsNarrowing? variantNarrowing = TryGetVariantIsNarrowing(condition: ifStmt.Condition);
+        VariantIsNarrowing? variantNarrowing =
+            TryGetVariantIsNarrowing(condition: ifStmt.Condition);
 
         // ── Deadref (steal) flow across the branches ──────────────────────────────
         // `steal x` marks x dead for the REST of the current linear scope (_deadrefVariables
@@ -42,7 +43,8 @@ public sealed partial class SemanticVerifier
         var deadrefBefore = new HashSet<string>(collection: _deadrefVariables);
 
         // Analyze then branch (with narrowing if applicable)
-        AnalyzeIfThenBranch(ifStmt: ifStmt, narrowing: narrowing,
+        AnalyzeIfThenBranch(ifStmt: ifStmt,
+            narrowing: narrowing,
             variantNarrowing: variantNarrowing);
 
         bool thenExits = HasDefiniteExit(statement: ifStmt.ThenStatement);
@@ -55,7 +57,8 @@ public sealed partial class SemanticVerifier
         // Analyze else branch if present (with inverse narrowing if applicable)
         if (ifStmt.ElseStatement != null)
         {
-            AnalyzeIfElseBranch(ifStmt: ifStmt, narrowing: narrowing,
+            AnalyzeIfElseBranch(ifStmt: ifStmt,
+                narrowing: narrowing,
                 variantNarrowing: variantNarrowing);
         }
 
@@ -70,6 +73,7 @@ public sealed partial class SemanticVerifier
         {
             _deadrefVariables.UnionWith(other: afterThen);
         }
+
         if (!elseExits)
         {
             _deadrefVariables.UnionWith(other: afterElse);
@@ -212,24 +216,30 @@ public sealed partial class SemanticVerifier
         // comptime intrinsics housed in the BuilderExpansion module — no longer keywords, siblings of
         // nameof/typeof. Using them requires the opt-in import (mirrors `import BuilderQuery`).
         if (!_importedModules.Contains(item: "BuilderExpansion"))
+        {
             ReportError(code: SemanticDiagnosticCode.BuilderExpansionImportRequired,
                 message: "'expand' requires 'import BuilderExpansion'.",
                 location: expandStmt.Location);
+        }
 
         // The parser is name-agnostic (it stored whatever identifier followed `in`); validate here that it
         // is a real reflection source.
         if (!ExpandSources.IsSource(name: expandStmt.SourceName))
+        {
             ReportError(code: SemanticDiagnosticCode.UnknownExpandSource,
                 message:
                 $"'{expandStmt.SourceName}' is not a valid expand source — use 'allmemvarof', 'openmemvarof', 'caseof', or 'branchof'.",
                 location: expandStmt.Location);
+        }
 
         // Expansion is single-level: a member walk cannot itself contain a member walk.
         if (_inExpandBody)
+        {
             ReportError(code: SemanticDiagnosticCode.NestedExpandNotAllowed,
                 message:
                 "An 'expand' cannot be nested inside another 'expand' — comptime member expansion is single-level.",
                 location: expandStmt.Location);
+        }
 
         _registry.EnterScope(kind: ScopeKind.Loop, name: "expand");
 
@@ -264,7 +274,8 @@ public sealed partial class SemanticVerifier
         if (eachStmt.Variable != null)
         {
             // Simple variable binding: for item in items
-            _registry.DeclareVariable(name: eachStmt.Variable, type: elementType,
+            _registry.DeclareVariable(name: eachStmt.Variable,
+                type: elementType,
                 location: eachStmt.Location);
         }
         else if (eachStmt.VariablePattern != null)
@@ -301,9 +312,13 @@ public sealed partial class SemanticVerifier
     private void DeclareEachDestructuringBindings(EachStatement eachStmt, TypeSymbol elementType)
     {
         if (elementType is TupleTypeInfo tupleType)
+        {
             DeclareTupleDestructuringBindings(eachStmt: eachStmt, tupleType: tupleType);
+        }
         else
+        {
             DeclareErrorDestructuringBindings(eachStmt: eachStmt, elementType: elementType);
+        }
     }
 
     /// <summary>
@@ -325,7 +340,10 @@ public sealed partial class SemanticVerifier
         {
             DestructuringBinding binding = eachStmt.VariablePattern.Bindings[index: i];
             if (binding.BindingName == null)
+            {
                 continue;
+            }
+
             TypeSymbol bindingType = i < tupleType.Arity
                 ? tupleType.ElementTypes[index: i]
                 : ErrorTypeInfo.Instance;
@@ -342,9 +360,13 @@ public sealed partial class SemanticVerifier
         ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
             message: $"Cannot destructure non-tuple type '{elementType.Name}' in for loop.",
             location: eachStmt.VariablePattern!.Location);
-        foreach (string? name in eachStmt.VariablePattern.Bindings.Select(b => b.BindingName)
-                     .Where(n => n != null))
+        foreach (string? name in eachStmt.VariablePattern
+                                         .Bindings
+                                         .Select(selector: b => b.BindingName)
+                                         .Where(predicate: n => n != null))
+        {
             _registry.DeclareVariable(name: name!, type: ErrorTypeInfo.Instance);
+        }
     }
 
     private void AnalyzeWhenStatement(WhenStatement whenStmt)
@@ -361,7 +383,9 @@ public sealed partial class SemanticVerifier
 
         // #161: Mark Lookup variable as dismantled when targeted by 'when'.
         if (whenStmt.Expression is IdentifierExpression whenTarget)
+        {
             _pendingLookupVars.RemoveAll(match: v => v.Name == whenTarget.Name);
+        }
 
         CheckWhenPatternOrder(whenStmt: whenStmt);
         CheckWhenDuplicatePatterns(whenStmt: whenStmt);
@@ -369,7 +393,8 @@ public sealed partial class SemanticVerifier
 
         string? whenVarName = (whenStmt.Expression as IdentifierExpression)?.Name;
         VariantTypeInfo? whenVariant =
-            whenVarName != null && matchedType is VariantTypeInfo wv && !IsCarrierType(type: matchedType)
+            whenVarName != null && matchedType is VariantTypeInfo wv &&
+            !IsCarrierType(type: matchedType)
                 ? wv
                 : null;
         var handledArms = new List<string>();
@@ -380,12 +405,19 @@ public sealed partial class SemanticVerifier
         foreach (WhenClause clause in whenStmt.Clauses)
         {
             _registry.EnterScope(kind: ScopeKind.Block, name: "when_clause");
-            bool handled = AnalyzeWhenClause(clause: clause, matchedType: matchedType,
-                ctx: new WhenClauseContext(whenVarName, whenVariant, handledArms),
-                handledNone: ref handledNone, handledNoneValue: ref handledNoneValue,
+            bool handled = AnalyzeWhenClause(clause: clause,
+                matchedType: matchedType,
+                ctx: new WhenClauseContext(WhenVarName: whenVarName,
+                    WhenVariant: whenVariant,
+                    HandledArms: handledArms),
+                handledNone: ref handledNone,
+                handledNoneValue: ref handledNoneValue,
                 handledCrashable: ref handledCrashable);
             if (handled)
+            {
                 continue;
+            }
+
             _registry.ExitScope();
         }
 
@@ -419,24 +451,33 @@ public sealed partial class SemanticVerifier
     /// <c>continue</c>), or <c>false</c> when the caller should call <c>ExitScope</c>.
     /// </summary>
     private readonly record struct WhenClauseContext(
-        string? WhenVarName, VariantTypeInfo? WhenVariant, List<string> HandledArms);
+        string? WhenVarName,
+        VariantTypeInfo? WhenVariant,
+        List<string> HandledArms);
 
     private bool AnalyzeWhenClause(WhenClause clause, TypeSymbol matchedType,
-        WhenClauseContext ctx, ref bool handledNone, ref bool handledNoneValue, ref bool handledCrashable)
+        WhenClauseContext ctx, ref bool handledNone, ref bool handledNoneValue,
+        ref bool handledCrashable)
     {
-        ApplyElseVariantNarrowing(clause: clause, whenVarName: ctx.WhenVarName,
-            whenVariant: ctx.WhenVariant, handledArms: ctx.HandledArms);
-        UpdateCarrierHandledFlags(clause: clause, matchedType: matchedType,
-            handledNone: ref handledNone, handledNoneValue: ref handledNoneValue,
+        ApplyElseVariantNarrowing(clause: clause,
+            whenVarName: ctx.WhenVarName,
+            whenVariant: ctx.WhenVariant,
+            handledArms: ctx.HandledArms);
+        UpdateCarrierHandledFlags(clause: clause,
+            matchedType: matchedType,
+            handledNone: ref handledNone,
+            handledNoneValue: ref handledNoneValue,
             handledCrashable: ref handledCrashable);
 
         if (clause.Pattern is ElsePattern elsePat && IsCarrierType(type: matchedType))
         {
             TypeSymbol? narrowedType = ComputeNarrowedType(type: matchedType,
-                eliminateNone: handledNone, eliminateCrashable: handledCrashable);
+                eliminateNone: handledNone,
+                eliminateCrashable: handledCrashable);
             if (narrowedType != null && elsePat.VariableName != null)
             {
-                DeclarePatternVariable(name: elsePat.VariableName, type: narrowedType,
+                DeclarePatternVariable(name: elsePat.VariableName,
+                    type: narrowedType,
                     location: elsePat.Location);
                 AnalyzeStatement(statement: clause.Body);
                 _registry.ExitScope();
@@ -445,8 +486,10 @@ public sealed partial class SemanticVerifier
         }
 
         AnalyzePattern(pattern: clause.Pattern, matchedType: matchedType);
-        ApplyVariantArmNarrowing(clause: clause, whenVarName: ctx.WhenVarName,
-            whenVariant: ctx.WhenVariant, handledArms: ctx.HandledArms);
+        ApplyVariantArmNarrowing(clause: clause,
+            whenVarName: ctx.WhenVarName,
+            whenVariant: ctx.WhenVariant,
+            handledArms: ctx.HandledArms);
         AnalyzeStatement(statement: clause.Body);
         return false;
     }
@@ -459,12 +502,19 @@ public sealed partial class SemanticVerifier
         VariantTypeInfo? whenVariant, List<string> handledArms)
     {
         if (whenVariant == null || whenVarName == null || clause.Pattern is not ElsePattern)
+        {
             return;
+        }
+
         foreach (string armName in handledArms)
+        {
             _registry.ExcludeVariantArm(name: whenVarName, armFullName: armName);
+        }
+
         IReadOnlyCollection<string> excluded = _registry.GetExcludedVariantArms(name: whenVarName);
-        if (whenVariant.Members.Where(predicate: m => !excluded.Contains(m.Name))
-                .ToList() is [{ Type: not null } sole])
+        if (whenVariant.Members
+                       .Where(predicate: m => !excluded.Contains(value: m.Name))
+                       .ToList() is [{ Type: not null } sole])
         {
             _registry.NarrowVariable(name: whenVarName, narrowedType: sole.Type);
         }
@@ -480,11 +530,17 @@ public sealed partial class SemanticVerifier
         string? carrierBase = GetCarrierBaseName(type: matchedType);
         bool carrierUsesNoneForAbsent = carrierBase is "Maybe" or "Lookup";
         if (carrierUsesNoneForAbsent && IsNonePattern(pattern: clause.Pattern))
+        {
             handledNone = true;
+        }
         else if (carrierBase == "Result" && IsNoneTypePattern(pattern: clause.Pattern))
+        {
             handledNoneValue = true;
+        }
         else if (IsCrashablePattern(pattern: clause.Pattern))
+        {
             handledCrashable = true;
+        }
     }
 
     /// <summary>
@@ -495,12 +551,23 @@ public sealed partial class SemanticVerifier
         VariantTypeInfo? whenVariant, List<string> handledArms)
     {
         if (whenVariant == null || whenVarName == null)
+        {
             return;
+        }
+
         if (ResolveVariantArm(pattern: clause.Pattern, variant: whenVariant) is { } matchedArm)
+        {
             handledArms.Add(item: matchedArm.Name);
-        Pattern armPattern = clause.Pattern is GuardPattern gp ? gp.InnerPattern : clause.Pattern;
-        if (ResolveVariantArm(pattern: armPattern, variant: whenVariant) is { Type: not null } bodyArm)
+        }
+
+        Pattern armPattern = clause.Pattern is GuardPattern gp
+            ? gp.InnerPattern
+            : clause.Pattern;
+        if (ResolveVariantArm(pattern: armPattern, variant: whenVariant) is
+            { Type: not null } bodyArm)
+        {
             _registry.NarrowVariable(name: whenVarName, narrowedType: bodyArm.Type);
+        }
     }
 
     /// <summary>
@@ -526,8 +593,7 @@ public sealed partial class SemanticVerifier
         }
 
         _registry.EnterScope(kind: ScopeKind.Block, name: "expand-arm");
-        _registry.DeclareVariable(name: armExp.HandleName,
-            type: ComptimeHandleTypeInfo.Instance);
+        _registry.DeclareVariable(name: armExp.HandleName, type: ComptimeHandleTypeInfo.Instance);
         if (armExp.Template.Pattern is SpliceTypePattern { VariableName: { } bindName })
         {
             _registry.DeclareVariable(name: bindName, type: ErrorTypeInfo.Instance);
@@ -543,7 +609,7 @@ public sealed partial class SemanticVerifier
     private void CheckWhenPatternOrder(WhenStatement whenStmt)
     {
         bool seenElse = false;
-        foreach (Pattern pattern in whenStmt.Clauses.Select(c => c.Pattern))
+        foreach (Pattern pattern in whenStmt.Clauses.Select(selector: c => c.Pattern))
         {
             if (seenElse)
             {
@@ -553,7 +619,9 @@ public sealed partial class SemanticVerifier
             }
 
             if (pattern is ElsePattern or WildcardPattern)
+            {
                 seenElse = true;
+            }
         }
     }
 
@@ -563,7 +631,7 @@ public sealed partial class SemanticVerifier
     private void CheckWhenDuplicatePatterns(WhenStatement whenStmt)
     {
         var seenPatterns = new HashSet<string>();
-        foreach (Pattern pattern in whenStmt.Clauses.Select(c => c.Pattern))
+        foreach (Pattern pattern in whenStmt.Clauses.Select(selector: c => c.Pattern))
         {
             string? patternKey = GetPatternKey(pattern: pattern);
             if (patternKey != null && !seenPatterns.Add(item: patternKey))
@@ -649,9 +717,8 @@ public sealed partial class SemanticVerifier
             // Validate that tokens cannot be returned (RazorForge only)
             ValidateNotTokenReturnType(type: returnType, location: ret.Location);
 
-            if (!isNormalizedBareReturn &&
-                _currentRoutine.ReturnType != null && !IsAssignableTo(source: returnType,
-                    target: _currentRoutine.ReturnType))
+            if (!isNormalizedBareReturn && _currentRoutine.ReturnType != null &&
+                !IsAssignableTo(source: returnType, target: _currentRoutine.ReturnType))
             {
                 ReportError(code: SemanticDiagnosticCode.ReturnTypeMismatch,
                     message:
@@ -700,8 +767,7 @@ public sealed partial class SemanticVerifier
         // explicit-`obeys Crashable` path for records/entities. `Error`/ErrorTypeInfo are the
         // catch-all error references used by generic error handling.
         bool isCrashable = errorType.Category == TypeCategory.Crashable ||
-                           errorType is ErrorTypeInfo ||
-                           errorType.Name == "Error";
+                           errorType is ErrorTypeInfo || errorType.Name == "Error";
         if (!isCrashable)
         {
             ReportError(code: SemanticDiagnosticCode.ThrowNotCrashable,
@@ -716,7 +782,9 @@ public sealed partial class SemanticVerifier
         // HasThrow to derive IsFailable, so it must be set even when `!` was not declared. A `pierce`
         // never marks failable — it is a crash, not a recoverable failure.
         if (!throwStmt.IsFatal)
+        {
             _currentRoutine.HasThrow = true;
+        }
     }
 
     private void AnalyzeAbsentStatement(AbsentStatement absent)
@@ -786,7 +854,8 @@ public sealed partial class SemanticVerifier
         // `discard foo()` on an Agent is the lazy-async footgun: `discard` only throws away the value,
         // it does NOT run the routine — an un-launched Agent's body never executes. (In the old eager
         // model `discard foo()` still ran the work.) So warn even though the value was explicitly ignored.
-        if (discardedType is RecordTypeInfo dag && (dag.GenericDefinition?.Name ?? dag.Name) == "Agent")
+        if (discardedType is RecordTypeInfo dag &&
+            (dag.GenericDefinition?.Name ?? dag.Name) == "Agent")
         {
             string routineName = discard.Expression switch
             {
@@ -795,9 +864,10 @@ public sealed partial class SemanticVerifier
                 _ => "routine"
             };
             ReportWarning(code: SemanticWarningCode.AsyncAgentNeverLaunched,
-                message: $"`discard {routineName}()` does NOT run the routine — `discard` only ignores " +
-                         "the value, and an un-launched Agent never executes. Call `.execute()` to run " +
-                         "it in the background, or `.retrieve()` to run it and await the value.",
+                message:
+                $"`discard {routineName}()` does NOT run the routine — `discard` only ignores " +
+                "the value, and an un-launched Agent never executes. Call `.execute()` to run " +
+                "it in the background, or `.retrieve()` to run it and await the value.",
                 location: discard.Location);
         }
     }
@@ -853,13 +923,15 @@ public sealed partial class SemanticVerifier
         // The hold is pushed for the duration of the body and popped on exit, so only OVERLAPPING
         // scopes conflict (sequential `using`s on the same handle are fine).
         string accessBase = resourceType.BareName;
-        bool opensAccessToken = accessBase is Declaration.RuntimeContract.Consulting or Declaration.RuntimeContract.Amending;
+        bool opensAccessToken = accessBase is Declaration.RuntimeContract.Consulting
+            or Declaration.RuntimeContract.Amending;
         string? accessHandle = opensAccessToken
             ? ExtractAccessReceiverName(resource: usingStmt.Resource)
             : null;
         if (accessHandle != null)
         {
-            CheckReadersXorWriter(usingStmt: usingStmt, accessBase: accessBase,
+            CheckReadersXorWriter(usingStmt: usingStmt,
+                accessBase: accessBase,
                 accessHandle: accessHandle);
         }
 
@@ -872,7 +944,8 @@ public sealed partial class SemanticVerifier
         // is the gate, so being `using`-able is an explicit, checked capability.
         if (_registry.Language == Language.RazorForge)
         {
-            ValidateEnterableResource(usingStmt: usingStmt, resourceType: resourceType,
+            ValidateEnterableResource(usingStmt: usingStmt,
+                resourceType: resourceType,
                 boundType: ref boundType);
         }
 
@@ -880,7 +953,8 @@ public sealed partial class SemanticVerifier
         _registry.EnterScope(kind: ScopeKind.Block, name: "using");
 
         // Declare the binding variable in the using scope
-        _registry.DeclareVariable(name: usingStmt.Name, type: boundType,
+        _registry.DeclareVariable(name: usingStmt.Name,
+            type: boundType,
             location: usingStmt.Location);
 
         // Analyze the body
@@ -894,7 +968,9 @@ public sealed partial class SemanticVerifier
 
         // Pop the MT access hold now that the scope has closed (readers-XOR-writer, RF-S630).
         if (accessHandle != null)
+        {
             _activeAccessHolds.RemoveAt(index: _activeAccessHolds.Count - 1);
+        }
 
         // The `fallback` branch runs when acquisition fails: no hold is taken and the bound
         // name is NOT in scope. Analyze it in its own fresh scope, outside the access hold.
@@ -916,25 +992,39 @@ public sealed partial class SemanticVerifier
     {
         bool isWriter = accessBase == Declaration.RuntimeContract.Amending;
         int accessIdentity = GetOrAssignHandleIdentity(path: accessHandle);
-        foreach ((string Handle, int Identity, bool IsWriter, SourceLocation Location) hold
-                 in _activeAccessHolds)
+        foreach ((string Handle, int Identity, bool IsWriter, SourceLocation Location) hold in
+                 _activeAccessHolds)
         {
             // Two holds touch the same memory when they resolve to the same controller identity
             // (aliased handles — `s` and `s2 = s.share()`) OR when their syntactic paths overlap
             // on a field boundary (a parent handle and one of its sub-handles).
             bool sameMemory = hold.Identity == accessIdentity ||
                               PathsOverlap(a: hold.Handle, b: accessHandle);
-            if (!sameMemory || (!isWriter && !hold.IsWriter))
+            if (!sameMemory || !isWriter && !hold.IsWriter)
+            {
                 continue;
-            string newKind = isWriter ? "amend()" : "consult()";
-            string heldKind = hold.IsWriter ? "amend()" : "consult()";
+            }
+
+            string newKind = isWriter
+                ? "amend()"
+                : "consult()";
+            string heldKind = hold.IsWriter
+                ? "amend()"
+                : "consult()";
             string overlapNote;
             if (hold.Handle == accessHandle)
+            {
                 overlapNote = "the same shared handle";
+            }
             else if (hold.Identity == accessIdentity)
+            {
                 overlapNote = $"the aliased handle '{hold.Handle}' (same shared data)";
+            }
             else
+            {
                 overlapNote = $"the overlapping handle '{hold.Handle}'";
+            }
+
             ReportError(code: SemanticDiagnosticCode.ReadersXorWriter,
                 message:
                 $"'{newKind}' on '{accessHandle}' conflicts with an active '{heldKind}' on " +
@@ -944,8 +1034,7 @@ public sealed partial class SemanticVerifier
             break;
         }
 
-        _activeAccessHolds.Add(
-            item: (accessHandle, accessIdentity, isWriter, usingStmt.Location));
+        _activeAccessHolds.Add(item: (accessHandle, accessIdentity, isWriter, usingStmt.Location));
     }
 
     /// <summary>
@@ -970,13 +1059,16 @@ public sealed partial class SemanticVerifier
         RoutineInfo? enterMemberRoutine =
             _registry.LookupMemberRoutine(type: resourceType, memberRoutineName: "enter");
         if (enterMemberRoutine?.ReturnType is { IsNone: false } enterReturn)
+        {
             boundType = enterReturn;
+        }
 
         // A `fallback` branch drives a non-blocking acquisition — the resource must
         // provide `try_enter` (returns Bool: did the hold succeed?). Types whose entry
         // can only block (no `try_enter`) cannot take a `fallback`.
         if (usingStmt.FallbackBody != null &&
-            _registry.LookupMemberRoutine(type: resourceType, memberRoutineName: "try_enter") == null)
+            _registry.LookupMemberRoutine(type: resourceType, memberRoutineName: "try_enter") ==
+            null)
         {
             ReportError(code: SemanticDiagnosticCode.UsingFallbackRequiresTryEnter,
                 message:
@@ -1018,7 +1110,9 @@ public sealed partial class SemanticVerifier
         {
             IdentifierExpression id => id.Name,
             MemberExpression { Object: var inner, MemberName: var prop } =>
-                BuildAccessPath(expr: inner) is { } prefix ? $"{prefix}.{prop}" : null,
+                BuildAccessPath(expr: inner) is { } prefix
+                    ? $"{prefix}.{prop}"
+                    : null,
             _ => null
         };
     }
@@ -1031,8 +1125,11 @@ public sealed partial class SemanticVerifier
     /// for handles whose origin it can't see).</summary>
     private int GetOrAssignHandleIdentity(string path)
     {
-        if (_sharedHandleIdentity.TryGetValue(key: path, out int id))
+        if (_sharedHandleIdentity.TryGetValue(key: path, value: out int id))
+        {
             return id;
+        }
+
         id = _nextSharedHandleIdentity++;
         _sharedHandleIdentity[key: path] = id;
         return id;
@@ -1053,18 +1150,17 @@ public sealed partial class SemanticVerifier
             // Clone: `s.share()` (RC copy verb — mint a co-owner) / `s.observe()` (strong→weak conversion)
             // — inherit the receiver handle's identity (both alias the same controller).
             CallExpression
+            {
+                Callee: MemberExpression
                 {
-                    Callee: MemberExpression
-                    {
-                        Object: var receiver,
-                        MemberName: Declaration.RuntimeContract.RefCount.Share or "observe"
-                    }
-                } when BuildAccessPath(expr: receiver) is { } recvPath =>
-                GetOrAssignHandleIdentity(path: recvPath),
+                    Object: var receiver,
+                    MemberName: Declaration.RuntimeContract.RefCount.Share or "observe"
+                }
+            } when BuildAccessPath(expr: receiver) is { } recvPath => GetOrAssignHandleIdentity(
+                path: recvPath),
             // Plain copy: `var s2 = s` — inherit (usually blocked by the copy-verb rule, handled
             // here for completeness).
-            IdentifierExpression copySource =>
-                GetOrAssignHandleIdentity(path: copySource.Name),
+            IdentifierExpression copySource => GetOrAssignHandleIdentity(path: copySource.Name),
             _ => _nextSharedHandleIdentity++
         };
         _sharedHandleIdentity[key: name] = identity;

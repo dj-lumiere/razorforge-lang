@@ -11,10 +11,10 @@ using static TestHelpers;
 public class TupleTests
 {
     #region Type Inference
+
     /// <summary>
     /// Verifies semantic analysis behavior for infers tuple.
     /// </summary>
-
     [Fact]
     public void Analyze_InfersTuple()
     {
@@ -31,7 +31,6 @@ public class TupleTests
     /// <summary>
     /// Verifies semantic analysis behavior for contains entity and infers tuple type information.
     /// </summary>
-
     [Fact]
     public void Analyze_ContainsEntity_InfersTuple()
     {
@@ -53,7 +52,6 @@ public class TupleTests
     /// <summary>
     /// Verifies semantic analysis behavior for nested tuples and infers the expected type information.
     /// </summary>
-
     [Fact]
     public void Analyze_NestedTuples_InfersCorrectly()
     {
@@ -69,7 +67,6 @@ public class TupleTests
     /// <summary>
     /// Verifies semantic analysis behavior for single element tuple with trailing comma.
     /// </summary>
-
     [Fact]
     public void Analyze_SingleElementTuple_WithTrailingComma()
     {
@@ -86,10 +83,10 @@ public class TupleTests
     #endregion
 
     #region Tuple Type Category
+
     /// <summary>
     /// Verifies semantic analysis behavior for tuple type without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_TupleType_NoErrors()
     {
@@ -108,10 +105,10 @@ public class TupleTests
     #endregion
 
     #region Mixed Types
+
     /// <summary>
     /// Verifies semantic analysis behavior for mixed numeric types successfully.
     /// </summary>
-
     [Fact]
     public void Analyze_MixedNumericTypes_Works()
     {
@@ -127,7 +124,6 @@ public class TupleTests
     /// <summary>
     /// Verifies semantic analysis behavior for tuple with entity and infers tuple type information.
     /// </summary>
-
     [Fact]
     public void Analyze_TupleWithEntity_InfersTuple()
     {
@@ -148,10 +144,10 @@ public class TupleTests
     #endregion
 
     #region For-Loop Destructuring
+
     /// <summary>
     /// Verifies semantic analysis behavior for for loop destructuring non tuple and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_EachLoopDestructuring_NonTuple_ReportsError()
     {
@@ -214,10 +210,10 @@ public class TupleTests
     #endregion
 
     #region #173: Tuple assignment destructuring
+
     /// <summary>
     /// Verifies semantic analysis behavior for tuple assignment destructuring without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_TupleAssignmentDestructuring_NoError()
     {
@@ -235,7 +231,6 @@ public class TupleTests
     /// <summary>
     /// Verifies semantic analysis behavior for tuple assignment non assignable target and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_TupleAssignmentNonAssignableTarget_ReportsError()
     {

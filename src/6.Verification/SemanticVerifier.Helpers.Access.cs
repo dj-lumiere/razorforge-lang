@@ -46,8 +46,7 @@ public sealed partial class SemanticVerifier
         // `T.view() -> Viewing[T]`, `T.modify() -> Modifying[T]`). These live in the stdlib
         // wrapper modules, so scope the exemption to stdlib files — a USER routine declaring a
         // token return type is escaping a scope-bound token and must be rejected.
-        if (IsStdlibFile(filePath: _currentFilePath) &&
-            _currentRoutine?.ReturnType != null &&
+        if (IsStdlibFile(filePath: _currentFilePath) && _currentRoutine?.ReturnType != null &&
             IsInlineOnlyTokenType(type: _currentRoutine.ReturnType))
         {
             return;
@@ -163,8 +162,10 @@ public sealed partial class SemanticVerifier
 
         foreach (ParameterInfo param in routine.Parameters)
         {
-            ValidateAsyncRoutineParameter(param: param, stolenParams: stolenParams,
-                boundaryKind: boundaryKind, location: location);
+            ValidateAsyncRoutineParameter(param: param,
+                stolenParams: stolenParams,
+                boundaryKind: boundaryKind,
+                location: location);
         }
     }
 
@@ -209,8 +210,9 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        (string Wrapper, string Path)? offender =
-            isEntity ? null : FindNonTriviallyAssignableWrapper(type: type);
+        (string Wrapper, string Path)? offender = isEntity
+            ? null
+            : FindNonTriviallyAssignableWrapper(type: type);
         if (!isEntity && offender == null)
         {
             return;
@@ -241,7 +243,7 @@ public sealed partial class SemanticVerifier
         IReadOnlyList<Expression> arguments)
     {
         var stolen = new HashSet<string>(comparer: StringComparer.Ordinal);
-        var positional = 0;
+        int positional = 0;
         foreach (Expression arg in arguments)
         {
             if (arg is NamedArgumentExpression named)
@@ -399,8 +401,8 @@ public sealed partial class SemanticVerifier
         // module-private too, no matter their own modifier. The type name is already hidden cross-module,
         // but an importer can still obtain an instance by inference through a non-secret factory that
         // returns it — this closes that hole. No per-member `secret` annotation is required.
-        if (ownerType is { Visibility: VisibilityModifier.Secret }
-            && !IsAccessingFromSameModule(memberModule: ownerType.Module))
+        if (ownerType is { Visibility: VisibilityModifier.Secret } &&
+            !IsAccessingFromSameModule(memberModule: ownerType.Module))
         {
             ReportError(code: SemanticDiagnosticCode.SecretMemberAccess,
                 message:

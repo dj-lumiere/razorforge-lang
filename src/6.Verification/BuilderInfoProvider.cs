@@ -32,10 +32,12 @@ public readonly record struct BuilderQueryTypeSet(
 public static class BuilderInfoProvider
 {
     /// <summary>Per-type BuilderQuery member routines (require 'import BuilderQuery').</summary>
-    private static readonly IReadOnlySet<string> PerTypeRoutines = RuntimeContract.BuilderPerTypeRoutines;
+    private static readonly IReadOnlySet<string> PerTypeRoutines =
+        RuntimeContract.BuilderPerTypeRoutines;
 
     /// <summary>Standalone BuilderQuery routines (require 'import BuilderQuery').</summary>
-    private static readonly IReadOnlySet<string> StandaloneRoutines = RuntimeContract.BuilderStandaloneRoutines;
+    private static readonly IReadOnlySet<string> StandaloneRoutines =
+        RuntimeContract.BuilderStandaloneRoutines;
 
     /// <summary>Returns true if the routine name is a per-type BuilderQuery member routine.</summary>
     public static bool IsBuilderQueryRoutine(string name)
@@ -55,12 +57,18 @@ public static class BuilderInfoProvider
     public static readonly IReadOnlySet<string> ListReturningConstantRoutines =
         new HashSet<string>(comparer: StringComparer.Ordinal)
         {
-            "routine_names", "protocols", "generic_args", "annotations", "dependencies"
+            "routine_names",
+            "protocols",
+            "generic_args",
+            "annotations",
+            "dependencies"
         };
 
     /// <summary>Returns true if the routine name is a constant list-returning BuilderQuery reflection routine.</summary>
-    public static bool IsListReturningConstantRoutine(string name) =>
-        ListReturningConstantRoutines.Contains(item: name);
+    public static bool IsListReturningConstantRoutine(string name)
+    {
+        return ListReturningConstantRoutines.Contains(item: name);
+    }
 
     /// <summary>Returns true if the routine name is a standalone BuilderQuery routine.</summary>
     public static bool IsBuilderQueryStandalone(string name)
@@ -71,14 +79,18 @@ public static class BuilderInfoProvider
     /// <summary>
     /// Registers all per-type BuilderQuery metadata routines on a given type.
     /// </summary>
-    public static void RegisterRoutinesOnType(TypeSymbol type, List<RoutineInfo> existingMemberRoutines,
-        TypeRegistry registry, BuilderQueryTypeSet types)
+    public static void RegisterRoutinesOnType(TypeSymbol type,
+        List<RoutineInfo> existingMemberRoutines, TypeRegistry registry, BuilderQueryTypeSet types)
     {
-        RegisterScalarReturningRoutines(type: type, existingMemberRoutines: existingMemberRoutines,
-            registry: registry, types: types);
+        RegisterScalarReturningRoutines(type: type,
+            existingMemberRoutines: existingMemberRoutines,
+            registry: registry,
+            types: types);
 
-        RegisterListReturningRoutines(type: type, existingMemberRoutines: existingMemberRoutines,
-            registry: registry, types: types);
+        RegisterListReturningRoutines(type: type,
+            existingMemberRoutines: existingMemberRoutines,
+            registry: registry,
+            types: types);
 
         // member_type_id(member_name: Text) -> U64
         if (types.U64Type != null && types.TextType != null)

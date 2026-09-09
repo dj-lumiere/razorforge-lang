@@ -345,7 +345,9 @@ public partial class Parser
         Expression expr = ParseComparison();
 
         // `!=` value inequality, plus the non-chainable reference-identity operators `===` / `!==`.
-        while (CheckAndAdvance(TokenType.NotEqual, TokenType.IdentityEqual, TokenType.IdentityNotEqual))
+        while (CheckAndAdvance(TokenType.NotEqual,
+                   TokenType.IdentityEqual,
+                   TokenType.IdentityNotEqual))
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseComparison();
@@ -473,7 +475,7 @@ public partial class Parser
         // `None` carries no payload, so it binds nothing: reject a binding (`is None x`) or a
         // destructuring (`is None (x, y)`) after it.
         if (type.Name == "None" &&
-            ((Check(type: TokenType.Identifier) && !IsKeywordToken(token: CurrentToken)) ||
+            (Check(type: TokenType.Identifier) && !IsKeywordToken(token: CurrentToken) ||
              Check(type: TokenType.LeftParen)))
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
@@ -482,8 +484,7 @@ public partial class Parser
         }
 
         // Check if this is a flags test chain: identifier followed by and/or/but
-        if (Check(type: TokenType.And) || Check(type: TokenType.Or) ||
-            Check(type: TokenType.But))
+        if (Check(type: TokenType.And) || Check(type: TokenType.Or) || Check(type: TokenType.But))
         {
             string firstFlag = type.Name;
             return ParseFlagsTestChain(subject: expr,
@@ -492,7 +493,9 @@ public partial class Parser
                 location: location);
         }
 
-        return BuildIsPatternExpression(expr: expr, type: type, isNegated: isNegated,
+        return BuildIsPatternExpression(expr: expr,
+            type: type,
+            isNegated: isNegated,
             location: location);
     }
 
@@ -505,9 +508,7 @@ public partial class Parser
         // Handle 'is None' or 'isnot None' as a special case - None is a keyword
         if (CheckAndAdvance(type: TokenType.None))
         {
-            return new TypeExpression(Name: "None",
-                GenericArguments: null,
-                Location: location);
+            return new TypeExpression(Name: "None", GenericArguments: null, Location: location);
         }
 
         TypeExpression type = ParseType();
@@ -530,8 +531,8 @@ public partial class Parser
     /// Builds the IsPatternExpression for the destructuring / single-binding / simple-type-check forms
     /// after the type is parsed and flags/None special cases are ruled out.
     /// </summary>
-    private IsPatternExpression BuildIsPatternExpression(Expression expr, TypeExpression type, bool isNegated,
-        SourceLocation location)
+    private IsPatternExpression BuildIsPatternExpression(Expression expr, TypeExpression type,
+        bool isNegated, SourceLocation location)
     {
         switch (isNegated)
         {

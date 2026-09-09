@@ -21,14 +21,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\RazorForge.csproj" />
+    <ProjectReference Include="..\RazorForge.csproj"/>
   </ItemGroup>
 
   <!-- Test/tooling packages live ONLY here so they never reach the compiler publish. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
-    <PackageReference Include="xunit" Version="2.6.6" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.6" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0"/>
+    <PackageReference Include="xunit" Version="2.6.6"/>
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.6"/>
   </ItemGroup>
 
   <!-- StdlibApiTests spawns `RazorForge.dll buildandrun` from this project's output
@@ -37,7 +37,7 @@
        mirror the Standard copy here; the native-runtime DLLs are staged by the build-time target
        below. -->
   <ItemGroup>
-    <Content Include="..\Standard\**\*" LinkBase="Standard" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\Standard\**\*" LinkBase="Standard" CopyToOutputDirectory="PreserveNewest"/>
   </ItemGroup>
 
   <!-- Stage the native runtime DLLs at BUILD TIME, not via an evaluation-time Content glob.
@@ -50,13 +50,13 @@
        is reliable on both clean and incremental builds. -->
   <Target Name="StageNativeRuntimeDlls" AfterTargets="Build">
     <ItemGroup>
-      <_NativeRuntimeDll Include="..\native\build\bin\**\*.*" />
-      <_NativeRuntimeDll Include="..\native\build\lib\**\*.*" />
+      <_NativeRuntimeDll Include="..\native\build\bin\**\*.*"/>
+      <_NativeRuntimeDll Include="..\native\build\lib\**\*.*"/>
     </ItemGroup>
     <Copy SourceFiles="@(_NativeRuntimeDll)"
           DestinationFiles="@(_NativeRuntimeDll->'$(OutDir)%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true"
-          Condition="'@(_NativeRuntimeDll)' != ''" />
+          Condition="'@(_NativeRuntimeDll)' != ''"/>
   </Target>
 
 </Project>

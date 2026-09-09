@@ -61,11 +61,13 @@ public partial class Parser
     private Expression ParseDollarSpliceInner()
     {
         SourceLocation loc = GetLocation();
-        if (!Check(type: TokenType.Identifier) && !IsKeywordValidAsMemberRoutineName(CurrentToken.Type))
+        if (!Check(type: TokenType.Identifier) &&
+            !IsKeywordValidAsMemberRoutineName(type: CurrentToken.Type))
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedIdentifier,
                 message: "Expected a primary (e.g. 'nameof(m)') after a '$' comptime splice.");
         }
+
         string name = CurrentToken.Text;
         Advance();
         Expression expr = new IdentifierExpression(Name: name, Location: loc);
@@ -75,6 +77,7 @@ public partial class Parser
             Consume(type: TokenType.RightParen, errorMessage: ExpectedRightParenAfterArguments);
             expr = new CallExpression(Callee: expr, Arguments: args, Location: loc);
         }
+
         return expr;
     }
 
@@ -201,7 +204,8 @@ public partial class Parser
         {
             Advance();
             var realmSb = new System.Text.StringBuilder(
-                ConsumeIdentifier(errorMessage: "Expected name after realm qualifier '::'"));
+                value: ConsumeIdentifier(
+                    errorMessage: "Expected name after realm qualifier '::'"));
             while (Check(type: TokenType.Dot) || Check(type: TokenType.Slash))
             {
                 char segSep;
@@ -214,11 +218,16 @@ public partial class Parser
                     CheckAndAdvance(type: TokenType.Slash);
                     segSep = '/';
                 }
-                realmSb.Append(segSep);
-                realmSb.Append(ConsumeIdentifier(
-                    errorMessage: "Expected name component after '.'/'/' in realm-qualified reference"));
+
+                realmSb.Append(value: segSep);
+                realmSb.Append(value: ConsumeIdentifier(
+                    errorMessage:
+                    "Expected name component after '.'/'/' in realm-qualified reference"));
             }
-            return new IdentifierExpression(Name: realmSb.ToString(), Location: location, Realm: text);
+
+            return new IdentifierExpression(Name: realmSb.ToString(),
+                Location: location,
+                Realm: text);
         }
 
         return new IdentifierExpression(Name: text, Location: location);
@@ -264,7 +273,8 @@ public partial class Parser
     /// Parses the remainder of a tuple literal after the first element and its trailing comma have been
     /// consumed: a single-element tuple (<c>(expr,)</c>) or a multi-element tuple.
     /// </summary>
-    private TupleLiteralExpression ParseTupleLiteralTail(Expression firstExpr, SourceLocation location)
+    private TupleLiteralExpression ParseTupleLiteralTail(Expression firstExpr,
+        SourceLocation location)
     {
         var elements = new List<Expression> { firstExpr };
 
@@ -281,14 +291,14 @@ public partial class Parser
             elements.Add(item: ParseExpression());
         } while (CheckAndAdvance(type: TokenType.Comma) && !Check(type: TokenType.RightParen));
 
-        Consume(type: TokenType.RightParen,
-            errorMessage: "Expected ')' after tuple elements");
+        Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple elements");
         return new TupleLiteralExpression(Elements: elements, Location: location);
     }
 
     private WhenExpression ParseWhenExpression(SourceLocation location)
     {
-        Expression? subject = ParseWhenExpressionSubject(isConditionBased: out bool isConditionBased);
+        Expression? subject =
+            ParseWhenExpressionSubject(isConditionBased: out bool isConditionBased);
 
         Consume(type: TokenType.Newline, errorMessage: "Expected newline after when expression");
 
@@ -314,7 +324,8 @@ public partial class Parser
                 clauseLocation: clauseLocation);
             Statement body = ParseWhenExpressionArmBody();
 
-            clauses.Add(item: new WhenClause(Pattern: pattern, Body: body, Location: GetLocation()));
+            clauses.Add(
+                item: new WhenClause(Pattern: pattern, Body: body, Location: GetLocation()));
             CheckAndAdvance(TokenType.Comma, TokenType.Newline);
         }
 
@@ -344,7 +355,8 @@ public partial class Parser
             return null;
         }
 
-        if (Check(type: TokenType.True) && PeekToken(offset: 1).Type == TokenType.Newline)
+        if (Check(type: TokenType.True) && PeekToken(offset: 1)
+               .Type == TokenType.Newline)
         {
             isConditionBased = true;
             Advance();
@@ -360,7 +372,8 @@ public partial class Parser
     /// expression pattern, an <c>is</c>/<c>isnot</c> type or flags pattern, a comparison pattern, or a
     /// general pattern.
     /// </summary>
-    private Pattern ParseWhenExpressionPattern(bool isConditionBased, SourceLocation clauseLocation)
+    private Pattern ParseWhenExpressionPattern(bool isConditionBased,
+        SourceLocation clauseLocation)
     {
         if (CheckAndAdvance(type: TokenType.Else))
         {
@@ -413,10 +426,12 @@ public partial class Parser
     {
         if (Check(type: TokenType.Identifier))
         {
-            TokenType nextAfterIdent = PeekToken(offset: 1).Type;
+            TokenType nextAfterIdent = PeekToken(offset: 1)
+               .Type;
             if (nextAfterIdent is TokenType.FatArrow or TokenType.Newline)
             {
-                string varName = ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
+                string varName =
+                    ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
                 return new ElsePattern(VariableName: varName, Location: clauseLocation);
             }
 
@@ -437,7 +452,8 @@ public partial class Parser
 
         if (CheckAndAdvance(type: TokenType.FatArrow))
         {
-            if (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Indent)
+            if (Check(type: TokenType.Newline) && PeekToken(offset: 1)
+                   .Type == TokenType.Indent)
             {
                 Advance();
                 body = ParseIndentedBlock();
@@ -467,12 +483,36 @@ public partial class Parser
     /// </summary>
     private bool TryParseLiteralPrimary(SourceLocation location, out Expression? result)
     {
-        if (TryParseNumericLiteral(location: location, result: out result)) return true;
-        if (TryParseInsertedText(location: location, result: out result)) return true;
-        if (TryParseTextLiteral(location: location, result: out result)) return true;
-        if (TryParseCharacterLiteral(location: location, result: out result)) return true;
-        if (TryParseByteSizeLiteral(location: location, result: out result)) return true;
-        if (TryParseDurationLiteral(location: location, result: out result)) return true;
+        if (TryParseNumericLiteral(location: location, result: out result))
+        {
+            return true;
+        }
+
+        if (TryParseInsertedText(location: location, result: out result))
+        {
+            return true;
+        }
+
+        if (TryParseTextLiteral(location: location, result: out result))
+        {
+            return true;
+        }
+
+        if (TryParseCharacterLiteral(location: location, result: out result))
+        {
+            return true;
+        }
+
+        if (TryParseByteSizeLiteral(location: location, result: out result))
+        {
+            return true;
+        }
+
+        if (TryParseDurationLiteral(location: location, result: out result))
+        {
+            return true;
+        }
+
         result = null;
         return false;
     }
@@ -485,8 +525,8 @@ public partial class Parser
     {
         _inWhenPatternContext = true;
         Pattern pattern;
-        if (Check(type: TokenType.Identifier) &&
-            PeekToken(offset: 1).Type is TokenType.And or TokenType.Or or TokenType.But)
+        if (Check(type: TokenType.Identifier) && PeekToken(offset: 1)
+               .Type is TokenType.And or TokenType.Or or TokenType.But)
         {
             pattern = ParseFlagsIsWhenPattern();
         }
@@ -497,7 +537,8 @@ public partial class Parser
         else
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                message: $"'is' must be followed by a type name. For value comparisons, use '== {CurrentToken.Text}' instead of 'is {CurrentToken.Text}'.");
+                message:
+                $"'is' must be followed by a type name. For value comparisons, use '== {CurrentToken.Text}' instead of 'is {CurrentToken.Text}'.");
         }
 
         _inWhenPatternContext = false;
@@ -532,10 +573,11 @@ public partial class Parser
     /// (<c>x =&gt; expr</c> or <c>x given y =&gt; expr</c>): an identifier followed by
     /// <c>=&gt;</c> or <c>given</c>, outside any when-pattern or when-condition context.
     /// </summary>
-    private bool IsArrowLambdaStart() =>
-        !_inWhenPatternContext && !_inWhenConditionContext &&
-        Check(type: TokenType.Identifier) &&
-        (PeekToken(offset: 1).Type == TokenType.FatArrow ||
-         PeekToken(offset: 1).Type == TokenType.Given);
-
+    private bool IsArrowLambdaStart()
+    {
+        return !_inWhenPatternContext && !_inWhenConditionContext &&
+               Check(type: TokenType.Identifier) && (PeekToken(offset: 1)
+                  .Type == TokenType.FatArrow || PeekToken(offset: 1)
+                  .Type == TokenType.Given);
+    }
 }

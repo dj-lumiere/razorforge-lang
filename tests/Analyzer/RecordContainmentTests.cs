@@ -11,10 +11,10 @@ using static TestHelpers;
 public class RecordContainmentTests
 {
     #region Valid Record MemberVariables (no errors expected)
+
     /// <summary>
     /// Verifies semantic analysis behavior for record with primitive member variables without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_RecordWithPrimitiveMemberVariables_NoErrors()
     {
@@ -31,7 +31,6 @@ public class RecordContainmentTests
     /// <summary>
     /// Verifies semantic analysis behavior for record with record member variable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_RecordWithRecordMemberVariable_NoErrors()
     {
@@ -49,7 +48,6 @@ public class RecordContainmentTests
     /// <summary>
     /// Verifies semantic analysis behavior for record with choice member variable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_RecordWithChoiceMemberVariable_NoErrors()
     {
@@ -71,7 +69,6 @@ public class RecordContainmentTests
     /// <summary>
     /// Verifies semantic analysis behavior for generic record with type parameter without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericRecordWithTypeParameter_NoErrors()
     {
@@ -88,7 +85,6 @@ public class RecordContainmentTests
     /// <summary>
     /// Verifies semantic analysis behavior for generic record multiple type params without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericRecordMultipleTypeParams_NoErrors()
     {
@@ -181,12 +177,12 @@ public class RecordContainmentTests
     #endregion
 
     #region Invalid Record MemberVariables (errors expected)
+
     /// <summary>
     /// Verifies a record MAY contain an entity-typed field. Entities are reference (pointer-shaped)
     /// types, so the field stores a reference — only the scoped access tokens (Viewing/Modifying/
     /// Consulting/Amending) are rejected as record members (see the token tests below).
     /// </summary>
-
     [Fact]
     public void Analyze_RecordWithEntityReferenceField_NoError()
     {
@@ -218,8 +214,9 @@ public class RecordContainmentTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Code == SemanticDiagnosticCode.TokenMemberVariableNotAllowed
-                         && e.Message.Contains("view"));
+            filter: e =>
+                e.Code == SemanticDiagnosticCode.TokenMemberVariableNotAllowed &&
+                e.Message.Contains(value: "view"));
     }
 
     /// <summary>
@@ -238,8 +235,9 @@ public class RecordContainmentTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Code == SemanticDiagnosticCode.TokenMemberVariableNotAllowed
-                         && e.Message.Contains("modifying"));
+            filter: e =>
+                e.Code == SemanticDiagnosticCode.TokenMemberVariableNotAllowed &&
+                e.Message.Contains(value: "modifying"));
     }
 
     #endregion
@@ -337,10 +335,10 @@ public class RecordContainmentTests
     #endregion
 
     #region With Expression on Non-Records
+
     /// <summary>
     /// Verifies semantic analysis behavior for with on entity and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_WithOnEntity_ReportsError()
     {
@@ -359,7 +357,6 @@ public class RecordContainmentTests
     /// <summary>
     /// Verifies semantic analysis behavior for with on record without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WithOnRecord_NoError()
     {
@@ -379,7 +376,6 @@ public class RecordContainmentTests
     /// <summary>
     /// Verifies semantic analysis behavior for with on record multi member variable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WithOnRecordMultiMemberVariable_NoError()
     {

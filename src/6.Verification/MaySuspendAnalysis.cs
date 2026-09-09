@@ -127,7 +127,7 @@ public static class SuspendPrimitives
         "rf_channel_feed",
         "rf_channel_next",
         "rf_signal_wait",
-        "rf_signal_wait_deadline",
+        "rf_signal_wait_deadline"
     };
 
     /// <summary>
@@ -137,6 +137,6 @@ public static class SuspendPrimitives
     /// </summary>
     public static bool IsSuspendPrimitive(RoutineInfo routine)
     {
-        return routine is { OwnerType: null } && PrimitiveNames.Contains(routine.Name);
+        return routine is { OwnerType: null } && PrimitiveNames.Contains(item: routine.Name);
     }
 }

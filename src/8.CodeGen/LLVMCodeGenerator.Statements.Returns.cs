@@ -46,7 +46,8 @@ public partial class LlvmCodeGenerator
         TypeInfo? retValType = GetExpressionType(expr: ret.Value);
         if (retValType is CrashableTypeInfo && _currentRoutineIsFailable)
         {
-            EmitThrow(sb: sb, throwStmt: new ThrowStatement(Error: ret.Value, Location: ret.Location));
+            EmitThrow(sb: sb,
+                throwStmt: new ThrowStatement(Error: ret.Value, Location: ret.Location));
             return;
         }
 
@@ -59,7 +60,10 @@ public partial class LlvmCodeGenerator
         string value = EmitExpression(sb: sb, expr: ret.Value!);
         TypeInfo? retType = _currentRoutineReturnType ?? GetExpressionType(expr: ret.Value!);
         if (retType == null)
-            throw new InvalidOperationException(message: "Cannot determine return type for return statement");
+        {
+            throw new InvalidOperationException(
+                message: "Cannot determine return type for return statement");
+        }
 
         string llvmType = GetLlvmType(type: retType);
 
@@ -70,7 +74,9 @@ public partial class LlvmCodeGenerator
         EmitRcRecordCleanup(sb: sb);
         EmitEntityCleanup(sb: sb, returnedVarName: returnedVarName);
         if (_traceCurrentRoutine)
+        {
             EmitLine(sb: sb, line: TracePop);
+        }
 
         TypeInfo? exprType = GetExpressionType(expr: ret.Value!);
         if (IsMaybeType(type: retType) && value != "zeroinitializer" &&
@@ -88,14 +94,18 @@ public partial class LlvmCodeGenerator
             EmitLine(sb: sb, line: RetVoid);
             return;
         }
+
         // Coerced (Phase 2) return: reinterpret the struct value into its ABI register type.
         if (_currentReturnCoerceType != null)
         {
-            string coerced = CoerceStructToAbi(sb: sb, structValue: value, structLlvm: llvmType,
+            string coerced = CoerceStructToAbi(sb: sb,
+                structValue: value,
+                structLlvm: llvmType,
                 abiType: _currentReturnCoerceType);
             EmitLine(sb: sb, line: $"  ret {_currentReturnCoerceType} {coerced}");
             return;
         }
+
         EmitLine(sb: sb, line: $"  ret {llvmType} {value}");
     }
 
@@ -104,15 +114,21 @@ public partial class LlvmCodeGenerator
         EmitRcRecordCleanup(sb: sb);
         EmitEntityCleanup(sb: sb, returnedVarName: null);
         if (_traceCurrentRoutine)
+        {
             EmitLine(sb: sb, line: TracePop);
+        }
+
         if (_currentRoutineReturnType == null)
         {
             EmitLine(sb: sb, line: RetVoid);
             return;
         }
+
         string retLlvmType = GetLlvmType(type: _currentRoutineReturnType);
         if (retLlvmType == "void")
+        {
             EmitLine(sb: sb, line: RetVoid);
+        }
         else
         {
             string retZero = GetZeroValue(type: _currentRoutineReturnType);
@@ -126,7 +142,10 @@ public partial class LlvmCodeGenerator
         EmitRcRecordCleanup(sb: sb);
         EmitEntityCleanup(sb: sb, returnedVarName: null);
         if (_traceCurrentRoutine)
+        {
             EmitLine(sb: sb, line: TracePop);
+        }
+
         if (_currentEmittingRoutine?.FailableVariant == FailableVariant.Check &&
             _currentRoutineReturnType != null)
         {
@@ -149,12 +168,15 @@ public partial class LlvmCodeGenerator
             ? retType.TypeArguments[index: 0]
             : retType;
         string carrierType = GetLlvmType(type: retType);
-        string innerLlvm = innerType is EntityTypeInfo ? "ptr" : GetLlvmType(type: innerType);
+        string innerLlvm = innerType is EntityTypeInfo
+            ? "ptr"
+            : GetLlvmType(type: innerType);
         // Maybe `present` (field 0) is a Bool, stored as i8 (see GetFieldStorageLlvmType).
         string v0 = NextTemp();
         EmitLine(sb: sb, line: $"  {v0} = insertvalue {carrierType} zeroinitializer, i8 1, 0");
         string v1 = NextTemp();
-        EmitLine(sb: sb, line: $"  {v1} = insertvalue {carrierType} {v0}, {innerLlvm} {innerValue}, 1");
+        EmitLine(sb: sb,
+            line: $"  {v1} = insertvalue {carrierType} {v0}, {innerLlvm} {innerValue}, 1");
         EmitLine(sb: sb, line: $"  ret {carrierType} {v1}");
     }
 
@@ -162,9 +184,8 @@ public partial class LlvmCodeGenerator
     {
         return expr switch
         {
-            CreatorExpression { ConstructedType: EntityTypeInfo } or
-                ListLiteralExpression or SetLiteralExpression
-                or DictLiteralExpression => true,
+            CreatorExpression { ConstructedType: EntityTypeInfo } or ListLiteralExpression
+                or SetLiteralExpression or DictLiteralExpression => true,
             CreatorExpression => true,
             CallExpression { ConstructedType: EntityTypeInfo } => true,
             CallExpression { Callee: IdentifierExpression id } =>
@@ -194,7 +215,6 @@ public partial class LlvmCodeGenerator
 
     #region Throw / Absent / Becomes
 
-
     private void EmitThrow(StringBuilder sb, ThrowStatement throwStmt)
     {
         TypeInfo? errorType = GetExpressionType(expr: throwStmt.Error);
@@ -214,12 +234,17 @@ public partial class LlvmCodeGenerator
         string dataPtr = "null";
         string msgLen = "0";
         ResolvedMemberRoutine? resolvedCrash = errorType != null
-            ? ResolveMemberRoutine(receiverType: errorType, memberRoutineName: Declaration.RuntimeContract.CrashMessage)
+            ? ResolveMemberRoutine(receiverType: errorType,
+                memberRoutineName: Declaration.RuntimeContract.CrashMessage)
             : null;
         if (resolvedCrash != null)
         {
-            EmitCrashMessageText(sb: sb, resolvedCrash: resolvedCrash, errorType: errorType!,
-                errorVal: errorVal, dataPtr: out dataPtr, msgLen: out msgLen);
+            EmitCrashMessageText(sb: sb,
+                resolvedCrash: resolvedCrash,
+                errorType: errorType!,
+                errorVal: errorVal,
+                dataPtr: out dataPtr,
+                msgLen: out msgLen);
         }
 
         string typeCStr = EmitCStringConstant(value: typeName);
@@ -253,7 +278,8 @@ public partial class LlvmCodeGenerator
     /// codepoint-buffer pointer and count into <paramref name="dataPtr"/> / <paramref name="msgLen"/>.
     /// </summary>
     private void EmitCrashMessageText(StringBuilder sb, ResolvedMemberRoutine resolvedCrash,
-        TypeInfo errorType, string errorVal, out string dataPtr, out string msgLen)
+        TypeInfo errorType, string errorVal, out string dataPtr,
+        out string msgLen)
     {
         GenerateRoutineDeclaration(routine: resolvedCrash.Routine);
         string mangledCrash = resolvedCrash.MangledName;
@@ -261,8 +287,8 @@ public partial class LlvmCodeGenerator
 
         // crash_message() returns a Text by value. Derive the Text record type AND the buffer/count
         // field indices from the registered Text type — never assume the physical field order.
-        var textRecord = _registry.LookupType(name: "Text") as RecordTypeInfo
-            ?? _registry.LookupType(name: "Core.Text") as RecordTypeInfo;
+        RecordTypeInfo? textRecord = _registry.LookupType(name: "Text") as RecordTypeInfo ??
+                                     _registry.LookupType(name: "Core.Text") as RecordTypeInfo;
         string textLlvm = textRecord != null
             ? GetRecordTypeName(record: textRecord)
             : "%Record.Core.Text";
@@ -292,14 +318,14 @@ public partial class LlvmCodeGenerator
         else
         {
             EmitLine(sb: sb,
-                line: $"  {textVal} = call {textLlvm} @{mangledCrash}({llvmReceiverType} {errorVal})");
+                line:
+                $"  {textVal} = call {textLlvm} @{mangledCrash}({llvmReceiverType} {errorVal})");
         }
+
         dataPtr = NextTemp();
-        EmitLine(sb: sb,
-            line: $"  {dataPtr} = extractvalue {textLlvm} {textVal}, {dataIdx}");
+        EmitLine(sb: sb, line: $"  {dataPtr} = extractvalue {textLlvm} {textVal}, {dataIdx}");
         msgLen = NextTemp();
-        EmitLine(sb: sb,
-            line: $"  {msgLen} = extractvalue {textLlvm} {textVal}, {countIdx}");
+        EmitLine(sb: sb, line: $"  {msgLen} = extractvalue {textLlvm} {textVal}, {countIdx}");
     }
 
     private void EmitAbsent(StringBuilder sb, AbsentStatement absentStmt)
@@ -352,7 +378,10 @@ public partial class LlvmCodeGenerator
         // Subsequent `_rf_trace_update_loc` calls in the caller then update the leaked frame's
         // slot instead of the caller's, corrupting the stack trace.
         if (_traceCurrentRoutine)
+        {
             EmitLine(sb: sb, line: TracePop);
+        }
+
         EmitLine(sb: sb, line: $"  ret {absentCarrierType} zeroinitializer");
     }
 

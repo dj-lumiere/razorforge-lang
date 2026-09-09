@@ -3,7 +3,6 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 using System.Text;
-
 using Compiler.Instantiation;
 
 namespace Compiler.Verification;
@@ -67,7 +66,8 @@ public sealed partial class SemanticVerifier
                 continue;
             }
 
-            PreRegisterVariantsForDeclaration(generator: generator, decl: routineDecl,
+            PreRegisterVariantsForDeclaration(generator: generator,
+                decl: routineDecl,
                 module: currentModule);
         }
 
@@ -85,16 +85,30 @@ public sealed partial class SemanticVerifier
     {
         foreach (ISyntaxTreeNode node in program.Declarations)
         {
-            if (node is not RoutineDeclaration decl) continue;
-            if (!TrySplitVariantName(variantName: decl.Name, baseName: out string baseName)) continue;
+            if (node is not RoutineDeclaration decl)
+            {
+                continue;
+            }
 
-            RoutineInfo? handWritten = ResolveRoutineInfoForDeclaration(decl: decl, moduleName: module);
-            if (handWritten is null or { IsSynthesized: true }) continue;
+            if (!TrySplitVariantName(variantName: decl.Name, baseName: out string baseName))
+            {
+                continue;
+            }
+
+            RoutineInfo? handWritten =
+                ResolveRoutineInfoForDeclaration(decl: decl, moduleName: module);
+            if (handWritten is null or { IsSynthesized: true })
+            {
+                continue;
+            }
 
             RoutineInfo? baseRoutine = FindBaseRoutineForVariantName(handWritten: handWritten,
-                baseName: baseName, module: module);
+                baseName: baseName,
+                module: module);
             if (baseRoutine is { IsFailable: true })
+            {
                 CheckReservedVariantCollision(baseRoutine: baseRoutine, variant: handWritten);
+            }
         }
     }
 
@@ -103,16 +117,22 @@ public sealed partial class SemanticVerifier
     /// routine: checks the member-routine table when the hand-written routine has an owner type, otherwise
     /// searches free routines (bare name first, then module-qualified if module is known and the name is unqualified).
     /// </summary>
-    private RoutineInfo? FindBaseRoutineForVariantName(RoutineInfo handWritten, string baseName, string? module)
+    private RoutineInfo? FindBaseRoutineForVariantName(RoutineInfo handWritten, string baseName,
+        string? module)
     {
         if (handWritten.OwnerType != null)
         {
             return _registry.LookupMemberRoutine(type: handWritten.OwnerType,
-                memberRoutineName: baseName, isFailable: true);
+                memberRoutineName: baseName,
+                isFailable: true);
         }
 
         RoutineInfo? found = _registry.LookupRoutine(fullName: baseName, isFailable: true);
-        if (found != null) return found;
+        if (found != null)
+        {
+            return found;
+        }
+
         if (module != null && !baseName.Contains(value: '.'))
         {
             return _registry.LookupRoutine(fullName: $"{module}.{baseName}", isFailable: true);
@@ -139,15 +159,23 @@ public sealed partial class SemanticVerifier
 
         RoutineInfo? routineInfo =
             ResolveRoutineInfoForDeclaration(decl: decl, moduleName: module);
-        if (routineInfo == null || !routineInfo.IsFailable) return;
-        if (routineInfo.Annotations.Contains(item: "crash_only")) return;
+        if (routineInfo == null || !routineInfo.IsFailable)
+        {
+            return;
+        }
+
+        if (routineInfo.Annotations.Contains(item: "crash_only"))
+        {
+            return;
+        }
 
         // Record the base routine's body for ON-DEMAND variant synthesis: a call to
         // try_X/check_X/lookup_X that misses registry lookup during Phase 5 resolves by synthesizing
         // this base's variants here (TrySynthesizeVariantOnDemand). Keyed by the base RegistryKey.
         // Non-emit variants are LAZY: only the base is indexed; the try_/check_/lookup_ variant is
         // synthesized the first time a call site looks it up (TrySynthesizeVariantOnDemand).
-        _registry.DeferredVariantBases[key: routineInfo.RegistryKey] = (routineInfo, decl.Body!, !hasDirect);
+        _registry.DeferredVariantBases[key: routineInfo.RegistryKey] =
+            (routineInfo, decl.Body!, !hasDirect);
 
         // ITERATOR `emit` stays EAGER and is owned END-TO-END by the existing pipeline (for-loop desugar
         // synthesizes `iter.try_emit()`; Phase-8 monomorphization path-2 generates each composed emitter's
@@ -156,10 +184,19 @@ public sealed partial class SemanticVerifier
         // PreRegisterStdlibVariants is skipped — the generic-def emit variants are RESTORED from the snapshot,
         // so resolution + path-2 monomorphization proceed without the hook. `emit` is a bounded set; the
         // COMBINATORIAL failable surface (every `foo!` → try_/check_/lookup_) is what stays lazy.
-        if (routineInfo.Name != "emit") return;
-        ErrorHandlingResult result = generator.GenerateVariants(
-            routine: routineInfo, body: decl.Body!, pessimistic: !hasDirect);
-        if (result.Error != null) return;
+        if (routineInfo.Name != "emit")
+        {
+            return;
+        }
+
+        ErrorHandlingResult result = generator.GenerateVariants(routine: routineInfo,
+            body: decl.Body!,
+            pessimistic: !hasDirect);
+        if (result.Error != null)
+        {
+            return;
+        }
+
         foreach (GeneratedVariant variant in result.Variants)
         {
             CheckReservedVariantCollision(baseRoutine: routineInfo, variant: variant.Routine);
@@ -176,7 +213,12 @@ public sealed partial class SemanticVerifier
     /// Per-run state (not captured): a fresh verifier re-derives it as calls arrive.</summary>
     private readonly HashSet<string> _synthesizedVariantBases = new();
 
-    private static readonly string[] VariantPrefixes = { "try_", "check_", "lookup_" };
+    private static readonly string[] VariantPrefixes =
+    {
+        "try_",
+        "check_",
+        "lookup_"
+    };
 
     /// <summary>
     /// On-demand failable-variant synthesis. When a member call <c>x.try_foo()</c> /
@@ -188,18 +230,30 @@ public sealed partial class SemanticVerifier
     /// </summary>
     internal RoutineInfo? TrySynthesizeVariantOnDemand(TypeInfo dispatchType, string variantName)
     {
-        if (!TrySplitVariantName(variantName: variantName, baseName: out string baseName)) return null;
+        if (!TrySplitVariantName(variantName: variantName, baseName: out string baseName))
+        {
+            return null;
+        }
 
         RoutineInfo? baseRoutine = _registry.LookupMemberRoutine(type: dispatchType,
-            memberRoutineName: baseName, isFailable: true);
-        if (baseRoutine is not { IsFailable: true }) return null;
-        if (!EnsureVariantsSynthesizedForBase(baseRoutine: baseRoutine)) return null;
+            memberRoutineName: baseName,
+            isFailable: true);
+        if (baseRoutine is not { IsFailable: true })
+        {
+            return null;
+        }
+
+        if (!EnsureVariantsSynthesizedForBase(baseRoutine: baseRoutine))
+        {
+            return null;
+        }
 
         // Resolve one by exact name.
-        return _registry.LookupMemberRoutine(type: dispatchType, memberRoutineName: variantName,
-            isFailable: false)
-            ?? _registry.LookupMemberRoutine(type: dispatchType, memberRoutineName: variantName,
-                isFailable: true);
+        return _registry.LookupMemberRoutine(type: dispatchType,
+            memberRoutineName: variantName,
+            isFailable: false) ?? _registry.LookupMemberRoutine(type: dispatchType,
+            memberRoutineName: variantName,
+            isFailable: true);
     }
 
     /// <summary>
@@ -210,23 +264,38 @@ public sealed partial class SemanticVerifier
     /// </summary>
     internal RoutineInfo? TrySynthesizeFreeVariantOnDemand(string callName)
     {
-        if (!TrySplitVariantName(variantName: callName, baseName: out string baseName)) return null;
+        if (!TrySplitVariantName(variantName: callName, baseName: out string baseName))
+        {
+            return null;
+        }
 
         RoutineInfo? baseRoutine = _registry.LookupRoutine(fullName: baseName, isFailable: true);
         if (baseRoutine == null && _currentModuleName != null && !baseName.Contains(value: '.'))
+        {
             baseRoutine = _registry.LookupRoutine(fullName: $"{_currentModuleName}.{baseName}",
                 isFailable: true);
-        if (baseRoutine is not { IsFailable: true }) return null;
-        if (!EnsureVariantsSynthesizedForBase(baseRoutine: baseRoutine)) return null;
+        }
+
+        if (baseRoutine is not { IsFailable: true })
+        {
+            return null;
+        }
+
+        if (!EnsureVariantsSynthesizedForBase(baseRoutine: baseRoutine))
+        {
+            return null;
+        }
 
         // The variant name is always callName regardless of whether the base name matches (defensive).
         string variantFull = callName;
-        return _registry.LookupRoutine(fullName: variantFull, isFailable: false)
-            ?? _registry.LookupRoutine(fullName: variantFull, isFailable: true)
-            ?? (_currentModuleName != null && !variantFull.Contains(value: '.')
-                ? _registry.LookupRoutine(fullName: $"{_currentModuleName}.{variantFull}", isFailable: false)
-                  ?? _registry.LookupRoutine(fullName: $"{_currentModuleName}.{variantFull}", isFailable: true)
-                : null);
+        return _registry.LookupRoutine(fullName: variantFull, isFailable: false) ??
+               _registry.LookupRoutine(fullName: variantFull, isFailable: true) ??
+               (_currentModuleName != null && !variantFull.Contains(value: '.')
+                   ? _registry.LookupRoutine(fullName: $"{_currentModuleName}.{variantFull}",
+                       isFailable: false) ?? _registry.LookupRoutine(
+                       fullName: $"{_currentModuleName}.{variantFull}",
+                       isFailable: true)
+                   : null);
     }
 
     /// <summary>
@@ -237,15 +306,24 @@ public sealed partial class SemanticVerifier
     /// </summary>
     internal RoutineInfo? SynthesizeVariantForBase(RoutineInfo baseOverload, string prefix)
     {
-        if (baseOverload.Name == "emit") return null; // owned by the eager/monomorphization pipeline
-        if (!EnsureVariantsSynthesizedForBase(baseRoutine: baseOverload)) return null;
+        if (baseOverload.Name == "emit")
+        {
+            return null; // owned by the eager/monomorphization pipeline
+        }
+
+        if (!EnsureVariantsSynthesizedForBase(baseRoutine: baseOverload))
+        {
+            return null;
+        }
 
         // Return the EXACT variant generated for THIS overload (not a by-argType re-lookup).
         if (!_synthesizedVariantsByBase.TryGetValue(key: baseOverload.RegistryKey,
-                out List<GeneratedVariant>? variants)
-            && !(baseOverload.GenericDefinition is { } gd
-                 && _synthesizedVariantsByBase.TryGetValue(key: gd.RegistryKey, out variants)))
+                value: out List<GeneratedVariant>? variants) &&
+            !(baseOverload.GenericDefinition is { } gd &&
+              _synthesizedVariantsByBase.TryGetValue(key: gd.RegistryKey, value: out variants)))
+        {
             return null;
+        }
 
         foreach (GeneratedVariant v in variants)
         {
@@ -256,8 +334,12 @@ public sealed partial class SemanticVerifier
                 ErrorHandlingVariantKind.Lookup => "lookup",
                 _ => ""
             };
-            if (vprefix == prefix) return v.Routine;
+            if (vprefix == prefix)
+            {
+                return v.Routine;
+            }
         }
+
         return null;
     }
 
@@ -270,7 +352,11 @@ public sealed partial class SemanticVerifier
     {
         baseName = "";
         string? prefix = VariantPrefixes.FirstOrDefault(predicate: variantName.StartsWith);
-        if (prefix == null) return false;
+        if (prefix == null)
+        {
+            return false;
+        }
+
         baseName = variantName[prefix.Length..];
         return baseName.Length > 0 && baseName != "emit";
     }
@@ -285,9 +371,10 @@ public sealed partial class SemanticVerifier
     private bool EnsureVariantsSynthesizedForBase(RoutineInfo baseRoutine)
     {
         if (!_registry.DeferredVariantBases.TryGetValue(key: baseRoutine.RegistryKey,
-                value: out (RoutineInfo baseRoutine, Statement body, bool pessimistic) deferred)
-            && !(baseRoutine.GenericDefinition is { } baseDef
-                 && _registry.DeferredVariantBases.TryGetValue(key: baseDef.RegistryKey, value: out deferred)))
+                value: out (RoutineInfo baseRoutine, Statement body, bool pessimistic) deferred) &&
+            !(baseRoutine.GenericDefinition is { } baseDef &&
+              _registry.DeferredVariantBases.TryGetValue(key: baseDef.RegistryKey,
+                  value: out deferred)))
         {
             // Not in the pre-registered index (e.g. a `Type!(from_text:)` constructor whose declaration
             // resolves under a different key than its registered `create#…` overload). Its body is still in
@@ -298,10 +385,15 @@ public sealed partial class SemanticVerifier
             // stdlib bodies ARE available via `_warmStdlibRoutineBodies`; use them so warm can synthesize
             // the variant exactly as cold does — else the inner rewrite fails and the user variant calls
             // the raw failable form, crashing on the recoverable path.
-            if (!_routineBodies.TryGetValue(key: baseRoutine.RegistryKey, value: out Statement? collectedBody)
-                && (_warmStdlibRoutineBodies == null
-                    || !_warmStdlibRoutineBodies.TryGetValue(key: baseRoutine.RegistryKey, value: out collectedBody)))
+            if (!_routineBodies.TryGetValue(key: baseRoutine.RegistryKey,
+                    value: out Statement? collectedBody) && (_warmStdlibRoutineBodies == null ||
+                                                             !_warmStdlibRoutineBodies.TryGetValue(
+                                                                 key: baseRoutine.RegistryKey,
+                                                                 value: out collectedBody)))
+            {
                 return false;
+            }
+
             bool hasDirect = ErrorHandlingGenerator.BodyHasThrowOrAbsent(body: collectedBody);
             deferred = (baseRoutine, collectedBody, !hasDirect);
         }
@@ -310,7 +402,8 @@ public sealed partial class SemanticVerifier
         {
             var generator = new ErrorHandlingGenerator(registry: _registry);
             ErrorHandlingResult result = generator.GenerateVariants(routine: deferred.baseRoutine,
-                body: deferred.body, pessimistic: deferred.pessimistic);
+                body: deferred.body,
+                pessimistic: deferred.pessimistic);
             if (result.Error == null)
             {
                 foreach (GeneratedVariant variant in result.Variants)
@@ -319,11 +412,13 @@ public sealed partial class SemanticVerifier
                         variant: variant.Routine);
                     _registry.RegisterRoutine(routine: variant.Routine);
                 }
+
                 // Remember this base's EXACT variants so SynthesizeVariantForBase returns the precise
                 // overload's variant (a by-argType re-lookup can pick the wrong overload — S64 args match an
                 // S8 param via conversion). Keyed by BOTH the base overload's own key and the deferred key.
                 _synthesizedVariantsByBase[key: baseRoutine.RegistryKey] = result.Variants;
-                _synthesizedVariantsByBase[key: deferred.baseRoutine.RegistryKey] = result.Variants;
+                _synthesizedVariantsByBase[key: deferred.baseRoutine.RegistryKey] =
+                    result.Variants;
                 // ENQUEUE body generation — do NOT generate here: this runs inside the LookupMemberRoutine
                 // on-demand hook (re-entry-guarded), and generating a body re-looks-up its inner variants,
                 // which must re-fire the hook. So bodies are built later by DrainVariantBodyGenQueue, OUTSIDE
@@ -341,7 +436,8 @@ public sealed partial class SemanticVerifier
 
     /// <summary>Bases whose variants are registered but whose bodies are not yet generated. Drained by
     /// <see cref="DrainVariantBodyGenQueue"/> before variant-body analysis.</summary>
-    private readonly Queue<(Statement baseBody, List<GeneratedVariant> variants)> _variantBodyGenQueue = new();
+    private readonly Queue<(Statement baseBody, List<GeneratedVariant> variants)>
+        _variantBodyGenQueue = new();
 
     /// <summary>
     /// Generates the bodies of all on-demand-synthesized variants (the demand-driven replacement for
@@ -359,10 +455,16 @@ public sealed partial class SemanticVerifier
             foreach (GeneratedVariant variant in variants)
             {
                 string key = variant.Routine.RegistryKey;
-                if (_variantBodies.ContainsKey(key: key) || _restoredVariantKeys.Contains(item: key))
+                if (_variantBodies.ContainsKey(key: key) ||
+                    _restoredVariantKeys.Contains(item: key))
+                {
                     continue;
+                }
+
                 _variantBodies[key: key] = ErrorHandlingVariantPass.GenerateVariantBody(
-                    baseBody: baseBody, variant: variant, registry: _registry);
+                    baseBody: baseBody,
+                    variant: variant,
+                    registry: _registry);
             }
         }
     }
@@ -387,11 +489,17 @@ public sealed partial class SemanticVerifier
         // RegisterRoutine never lets a synthesized routine overwrite a user-written one, so a
         // non-synthesized occupant means a real hand-declared clash.
         string key = variant.RegistryKey;
-        if (_registry.GetRoutineByExactKey(registryKey: key) is not { IsSynthesized: false } handWritten)
+        if (_registry.GetRoutineByExactKey(registryKey: key) is not
+            { IsSynthesized: false } handWritten)
+        {
             return;
+        }
 
         SourceLocation? location = handWritten.Location ?? baseRoutine.Location;
-        if (location == null || !_reportedVariantCollisions.Add(item: key)) return;
+        if (location == null || !_reportedVariantCollisions.Add(item: key))
+        {
+            return;
+        }
 
         ReportError(code: SemanticDiagnosticCode.ReservedRoutinePrefix,
             message:
@@ -417,9 +525,13 @@ public sealed partial class SemanticVerifier
             foreach (ISyntaxTreeNode node in program.Declarations)
             {
                 if (node is not RoutineDeclaration decl || !decl.IsFailable || decl.Body == null)
+                {
                     continue;
+                }
 
-                PreRegisterVariantsForDeclaration(generator: generator, decl: decl, module: module);
+                PreRegisterVariantsForDeclaration(generator: generator,
+                    decl: decl,
+                    module: module);
             }
         }
 
@@ -442,18 +554,24 @@ public sealed partial class SemanticVerifier
             foreach (ISyntaxTreeNode node in program.Declarations)
             {
                 if (node is not RoutineDeclaration decl || decl.Body == null)
+                {
                     continue;
+                }
 
                 // Only member routines: standalone free routines aren't candidates for
                 // either variant generation or protocol-default-impl monomorphization.
                 if (decl.MemberRoutineName is null)
+                {
                     continue;
+                }
 
                 // Auto-derive template (`@overridable/@override routine T.MemberRoutine()`): register it
                 // in the derive-template store and SKIP `_routineBodies` (its body is consumed ONLY via
                 // GetDeriveTemplate / CloneUniversalDeriveBody). See TryRegisterStdlibDeriveTemplate.
                 if (TryRegisterStdlibDeriveTemplate(decl: decl))
+                {
                     continue;
+                }
 
                 // WARM: derive templates (above) MUST still register — user types clone their destroy/
                 // represent/… derives from them (WiredRoutinePass). But the stdlib routine BODIES must NOT
@@ -462,13 +580,21 @@ public sealed partial class SemanticVerifier
                 // REGENERATE all stdlib variants (key drift → thousands of duplicate variant bodies that
                 // AnalyzeVariantBodies re-analyzes (~8 s) + codegen over-prune). So skip only the body-add.
                 if (_registry.SkipStdlibReprocessing)
+                {
                     continue;
+                }
 
-                RoutineInfo? routineInfo = ResolveRoutineInfoForDeclaration(decl: decl, moduleName: module);
-                if (routineInfo == null) continue;
+                RoutineInfo? routineInfo =
+                    ResolveRoutineInfoForDeclaration(decl: decl, moduleName: module);
+                if (routineInfo == null)
+                {
+                    continue;
+                }
 
                 if (!_routineBodies.ContainsKey(key: routineInfo.RegistryKey))
+                {
                     _routineBodies[key: routineInfo.RegistryKey] = decl.Body;
+                }
             }
         }
     }
@@ -486,9 +612,13 @@ public sealed partial class SemanticVerifier
     private void RegisterStdlibDeriveTemplates()
     {
         foreach ((Program program, _, _) in _registry.StdlibPrograms)
-            foreach (ISyntaxTreeNode node in program.Declarations)
-                if (node is RoutineDeclaration decl)
-                    TryRegisterStdlibDeriveTemplate(decl: decl);
+        foreach (ISyntaxTreeNode node in program.Declarations)
+        {
+            if (node is RoutineDeclaration decl)
+            {
+                TryRegisterStdlibDeriveTemplate(decl: decl);
+            }
+        }
     }
 
     /// <summary>
@@ -510,10 +640,26 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private bool TryRegisterStdlibDeriveTemplate(RoutineDeclaration decl)
     {
-        if (decl.Body == null) return false;
-        if (decl.HasReceiverTypeArgs) return false;
-        if (decl.OwnerName is not { } deriveOwner) return false;
-        if (decl.MemberRoutineName is not { } deriveMember) return false;
+        if (decl.Body == null)
+        {
+            return false;
+        }
+
+        if (decl.HasReceiverTypeArgs)
+        {
+            return false;
+        }
+
+        if (decl.OwnerName is not { } deriveOwner)
+        {
+            return false;
+        }
+
+        if (decl.MemberRoutineName is not { } deriveMember)
+        {
+            return false;
+        }
+
         // A derive TEMPLATE is per-type MATERIALIZED (its body is cloned into the template store, NOT filed
         // as one shared generic routine body). Two shapes qualify, and both are read from what's already
         // written — no dedicated marker:
@@ -523,12 +669,19 @@ public sealed partial class SemanticVerifier
         //     `cmp`, not `lt`).
         // An untagged bare-`T` routine with only a KIND gate (`T.view() needs T is EntityType`) is a normal
         // GENERIC method — one shared body via `_routineBodies` — and must NOT be diverted into the store.
-        bool hasDeriveAnnotation = decl.Annotations.Contains(item: "overridable")
-                                   || decl.Annotations.Contains(item: "override");
+        bool hasDeriveAnnotation = decl.Annotations.Contains(item: "overridable") ||
+                                   decl.Annotations.Contains(item: "override");
         bool hasOwnerObeysConstraint = decl.GenericConstraints?.Any(predicate: c =>
             c.ParameterName == deriveOwner && c.ConstraintType == ConstraintKind.Obeys) == true;
-        if (!hasDeriveAnnotation && !hasOwnerObeysConstraint) return false;
-        if (!DeriveOwnerIsTypeParameter(ownerName: deriveOwner, decl: decl)) return false;
+        if (!hasDeriveAnnotation && !hasOwnerObeysConstraint)
+        {
+            return false;
+        }
+
+        if (!DeriveOwnerIsTypeParameter(ownerName: deriveOwner, decl: decl))
+        {
+            return false;
+        }
 
         _registry.RegisterDeriveTemplate(memberRoutine: deriveMember,
             ownerParam: deriveOwner,
@@ -567,7 +720,11 @@ public sealed partial class SemanticVerifier
         {
             // Templates live in the derive-template store keyed on a `T` placeholder, never as member
             // routines, so a GenericParameterTypeInfo owner cannot appear here — but guard anyway.
-            if (type is GenericParameterTypeInfo) continue;
+            if (type is GenericParameterTypeInfo)
+            {
+                continue;
+            }
+
             foreach (RoutineInfo routine in _registry.GetMemberRoutinesForType(type: type))
             {
                 CheckRoutineForOverridableDeriveCollision(type: type, routine: routine);
@@ -583,7 +740,11 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void CheckRoutineForOverridableDeriveCollision(TypeInfo type, RoutineInfo routine)
     {
-        if (routine.IsSynthesized) return;
+        if (routine.IsSynthesized)
+        {
+            return;
+        }
+
         // Gate-aware: only a collision if THIS type actually RECEIVES a derive of this name+arity —
         // i.e. it satisfies the template's `needs T is <kind>` gate. A name-only HasDeriveTemplate
         // check wrongly flagged a collection's own `count()` against the choice/flags-gated `count`
@@ -591,15 +752,31 @@ public sealed partial class SemanticVerifier
         // FlagsType-gated buildtime derives; represent/diagnose keep the universal (`T is TypeName`)
         // template, so they still require @override on every concrete override.
         if (_registry.GetDeriveTemplate(name: routine.Name,
-                arity: routine.Parameters.Count, forType: type) == null) return;
-        if (_registry.IsOptInDeriveMemberRoutine(memberRoutine: routine.Name)) return;
-        if (routine.Annotations.Contains(value: "override")) return;
+                arity: routine.Parameters.Count,
+                forType: type) == null)
+        {
+            return;
+        }
+
+        if (_registry.IsOptInDeriveMemberRoutine(memberRoutine: routine.Name))
+        {
+            return;
+        }
+
+        if (routine.Annotations.Contains(value: "override"))
+        {
+            return;
+        }
+
         ReportError(code: SemanticDiagnosticCode.OverridableDeriveNeedsOverrideMarker,
             message:
             $"'{type.Name}.{routine.Name}' collides with the auto-derived '{routine.Name}' every type " +
             $"receives. Mark it '@override' to replace the auto-derive, or remove it (without the " +
             $"marker it would be silently shadowed).",
-            location: routine.Location ?? new SourceLocation("", 0, 0, 0));
+            location: routine.Location ?? new SourceLocation(FileName: "",
+                Line: 0,
+                Column: 0,
+                Position: 0));
     }
 
     private static bool DeriveOwnerIsTypeParameter(string ownerName, RoutineDeclaration decl)
@@ -617,23 +794,45 @@ public sealed partial class SemanticVerifier
 
     private static bool LooksLikeGenericParamArg(string ownerTypeName)
     {
-        if (TypeInfo.ExtractTypeArgsString(name: ownerTypeName) is not { } inside) return false;
-        foreach (string arg in inside.Split(','))
+        if (TypeInfo.ExtractTypeArgsString(name: ownerTypeName) is not { } inside)
+        {
+            return false;
+        }
+
+        foreach (string arg in inside.Split(separator: ','))
         {
             string a = arg.Trim();
-            if (a.Length == 0) return false;
-            if (a.Length > 2) return false; // T, K, V, N — single/double upper letters
-            if (!char.IsUpper(a[0])) return false;
-            if (a.Length == 2 && !char.IsLetterOrDigit(a[1])) return false;
+            if (a.Length == 0)
+            {
+                return false;
+            }
+
+            if (a.Length > 2)
+            {
+                return false; // T, K, V, N — single/double upper letters
+            }
+
+            if (!char.IsUpper(c: a[index: 0]))
+            {
+                return false;
+            }
+
+            if (a.Length == 2 && !char.IsLetterOrDigit(c: a[index: 1]))
+            {
+                return false;
+            }
         }
+
         return true;
     }
 
-    private RoutineInfo? ResolveRoutineInfoForDeclaration(RoutineDeclaration decl, string? moduleName = null)
+    private RoutineInfo? ResolveRoutineInfoForDeclaration(RoutineDeclaration decl,
+        string? moduleName = null)
     {
         if (decl.MemberRoutineName is { } memberRoutineName)
         {
-            return ResolveRoutineInfoForMemberDeclaration(decl: decl, memberRoutineName: memberRoutineName,
+            return ResolveRoutineInfoForMemberDeclaration(decl: decl,
+                memberRoutineName: memberRoutineName,
                 moduleName: moduleName);
         }
 
@@ -643,12 +842,15 @@ public sealed partial class SemanticVerifier
             : $"{moduleName}.{bareName}";
 
         var standaloneCandidates = _registry.GetAllRoutines()
-                                            .Where(routine => routine.OwnerType == null &&
-                                                              routine.Name == bareName &&
-                                                              (string.IsNullOrEmpty(moduleName) || routine.Module == moduleName ||
-                                                               routine.BaseName == qualifiedName))
+                                            .Where(predicate: routine =>
+                                                 routine.OwnerType == null &&
+                                                 routine.Name == bareName &&
+                                                 (string.IsNullOrEmpty(value: moduleName) ||
+                                                  routine.Module == moduleName ||
+                                                  routine.BaseName == qualifiedName))
                                             .ToList();
-        return MatchRoutineDeclaration(candidates: standaloneCandidates, decl: decl,
+        return MatchRoutineDeclaration(candidates: standaloneCandidates,
+            decl: decl,
             moduleName: moduleName);
     }
 
@@ -674,27 +876,35 @@ public sealed partial class SemanticVerifier
         // `Standard/Suflae/…` file owns the SF-realm `Core.List`, not the RazorForge-realm one that
         // shares the bare key. The decl's source-file extension (.sf → SF) gives its realm; a realm-
         // blind lookup would type `me` as the RF list (which lacks the SF wrapper's `inner`) → RF-S450.
-        string declRealm = decl.Location?.FileName is { } df
-                           && df.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase)
-            ? "SF" : "RF";
+        string declRealm = decl.Location?.FileName is { } df && df.EndsWith(value: ".sf",
+            comparisonType: StringComparison.OrdinalIgnoreCase)
+            ? "SF"
+            : "RF";
         TypeSymbol? bareOwner = LookupBareOwner(moduleName: moduleName,
-            bareLookupName: bareLookupName, declRealm: declRealm);
-        if (bareOwner == null) return null;
+            bareLookupName: bareLookupName,
+            declRealm: declRealm);
+        if (bareOwner == null)
+        {
+            return null;
+        }
 
         var candidates = new List<RoutineInfo>();
-        _registry.CollectMemberRoutineCandidates(type: bareOwner, memberRoutineName: memberRoutineName,
+        _registry.CollectMemberRoutineCandidates(type: bareOwner,
+            memberRoutineName: memberRoutineName,
             candidates: candidates);
 
         // Protocol-extension decls like `Iterable[Text].join` register their routines under
         // a bracketed-owner bucket (e.g. owner FullName="Core.Iterable[Text]") that the
         // gen-def lookup misses. Scan all routines for owners whose name shape matches the
         // bracketed form.
-        if (ownerTypeName.Contains('[') && !LooksLikeGenericParamArg(ownerTypeName))
+        if (ownerTypeName.Contains(value: '[') &&
+            !LooksLikeGenericParamArg(ownerTypeName: ownerTypeName))
         {
             TypeSymbol? bracketed = _registry.LookupType(name: ownerTypeName);
-            if (bracketed != null && !ReferenceEquals(bracketed, bareOwner))
+            if (bracketed != null && !ReferenceEquals(objA: bracketed, objB: bareOwner))
             {
-                _registry.CollectMemberRoutineCandidates(type: bracketed, memberRoutineName: memberRoutineName,
+                _registry.CollectMemberRoutineCandidates(type: bracketed,
+                    memberRoutineName: memberRoutineName,
                     candidates: candidates);
             }
         }
@@ -702,7 +912,8 @@ public sealed partial class SemanticVerifier
         // For member-routine decls, prefer the decl's actual module (passed in) over the
         // owner type's module: common routines for built-in types (e.g. `S64.from_digit_bytes`
         // declared in `IO/BytesIO`) live in a different module from the owner.
-        return MatchRoutineDeclaration(candidates: candidates, decl: decl,
+        return MatchRoutineDeclaration(candidates: candidates,
+            decl: decl,
             moduleName: moduleName ?? bareOwner.Module);
     }
 
@@ -710,14 +921,18 @@ public sealed partial class SemanticVerifier
     /// Looks up the bare (unparameterized) owner type for a member-routine declaration, preferring a
     /// realm-and-module-qualified lookup when <paramref name="moduleName"/> is known.
     /// </summary>
-    private TypeSymbol? LookupBareOwner(string? moduleName, string bareLookupName, string declRealm)
+    private TypeSymbol? LookupBareOwner(string? moduleName, string bareLookupName,
+        string declRealm)
     {
         if (moduleName != null)
         {
             string qualified = $"{moduleName}.{bareLookupName}";
-            TypeSymbol? realmQualified = _registry.LookupType(name: qualified, realm: declRealm)
-                                         ?? _registry.LookupType(name: qualified);
-            if (realmQualified != null) return realmQualified;
+            TypeSymbol? realmQualified = _registry.LookupType(name: qualified, realm: declRealm) ??
+                                         _registry.LookupType(name: qualified);
+            if (realmQualified != null)
+            {
+                return realmQualified;
+            }
         }
 
         return _registry.LookupType(name: bareLookupName);
@@ -726,17 +941,21 @@ public sealed partial class SemanticVerifier
     private static RoutineInfo? MatchRoutineDeclaration(List<RoutineInfo> candidates,
         RoutineDeclaration decl, string? moduleName)
     {
-        if (decl.Parameters.Any(param => param.Type == null))
+        if (decl.Parameters.Any(predicate: param => param.Type == null))
         {
             return null;
         }
 
         var astParamTypeNames = decl.Parameters
-            .Select(param => NormalizeMatchTypeName(name: GetAstMatchTypeName(typeExpr: param.Type!)))
-            .ToList();
+                                    .Select(selector: param =>
+                                         NormalizeMatchTypeName(
+                                             name: GetAstMatchTypeName(typeExpr: param.Type!)))
+                                    .ToList();
 
-        return candidates.FirstOrDefault(candidate =>
-            CandidateMatchesDeclaration(candidate: candidate, decl: decl, moduleName: moduleName,
+        return candidates.FirstOrDefault(predicate: candidate =>
+            CandidateMatchesDeclaration(candidate: candidate,
+                decl: decl,
+                moduleName: moduleName,
                 astParamTypeNames: astParamTypeNames));
     }
 
@@ -752,7 +971,8 @@ public sealed partial class SemanticVerifier
             return false;
         }
 
-        if (!string.IsNullOrEmpty(moduleName) && candidate.Module != null && candidate.Module != moduleName)
+        if (!string.IsNullOrEmpty(value: moduleName) && candidate.Module != null &&
+            candidate.Module != moduleName)
         {
             return false;
         }
@@ -764,8 +984,9 @@ public sealed partial class SemanticVerifier
 
         for (int i = 0; i < astParamTypeNames.Count; i++)
         {
-            string candidateTypeName = NormalizeMatchTypeName(name: candidate.Parameters[i].Type.Name);
-            if (candidateTypeName != astParamTypeNames[i])
+            string candidateTypeName =
+                NormalizeMatchTypeName(name: candidate.Parameters[index: i].Type.Name);
+            if (candidateTypeName != astParamTypeNames[index: i])
             {
                 return false;
             }
@@ -781,7 +1002,7 @@ public sealed partial class SemanticVerifier
     private static string NormalizeMatchTypeName(string name)
     {
         name = name.Replace(oldValue: " ", newValue: "");
-        var sb = new StringBuilder(name.Length);
+        var sb = new StringBuilder(capacity: name.Length);
         var token = new StringBuilder();
 
         static void FlushToken(StringBuilder source, StringBuilder dest)
@@ -793,13 +1014,15 @@ public sealed partial class SemanticVerifier
 
             string segment = source.ToString();
             int lastDot = segment.LastIndexOf(value: '.');
-            dest.Append(lastDot >= 0 ? segment[(lastDot + 1)..] : segment);
+            dest.Append(value: lastDot >= 0
+                ? segment[(lastDot + 1)..]
+                : segment);
             source.Clear();
         }
 
         foreach (char ch in name)
         {
-            if (char.IsLetterOrDigit(ch) || ch is '_' or '.' or '/')
+            if (char.IsLetterOrDigit(c: ch) || ch is '_' or '.' or '/')
             {
                 token.Append(value: ch);
                 continue;
@@ -838,13 +1061,13 @@ public sealed partial class SemanticVerifier
         {
             TypeExpression paramTupleExpr = typeExpr.GenericArguments[index: 0];
             string paramList;
-            if (paramTupleExpr.Name == "Tuple"
-                && paramTupleExpr.GenericArguments is { Count: > 0 } tupleArgs)
+            if (paramTupleExpr.Name == "Tuple" && paramTupleExpr.GenericArguments is
+                    { Count: > 0 } tupleArgs)
             {
                 paramList = tupleArgs.Count == 1
                     ? "(" + GetAstMatchTypeName(typeExpr: tupleArgs[index: 0]) + ",)"
                     : "(" + string.Join(separator: ", ",
-                        values: tupleArgs.Select(GetAstMatchTypeName)) + ")";
+                        values: tupleArgs.Select(selector: GetAstMatchTypeName)) + ")";
             }
             else
             {
@@ -852,11 +1075,12 @@ public sealed partial class SemanticVerifier
                 paramList = GetAstMatchTypeName(typeExpr: paramTupleExpr);
             }
 
-            return $"Routine[{paramList}, {GetAstMatchTypeName(typeExpr: typeExpr.GenericArguments[index: 1])}]";
+            return
+                $"Routine[{paramList}, {GetAstMatchTypeName(typeExpr: typeExpr.GenericArguments[index: 1])}]";
         }
 
         return $"{typeExpr.Name}[{string.Join(separator: ",",
-            values: typeExpr.GenericArguments.Select(GetAstMatchTypeName))}]";
+            values: typeExpr.GenericArguments.Select(selector: GetAstMatchTypeName))}]";
     }
 
     #endregion

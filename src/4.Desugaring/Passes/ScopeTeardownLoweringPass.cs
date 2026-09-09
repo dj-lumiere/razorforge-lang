@@ -45,19 +45,19 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     {
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration r:
-                    program.Declarations[i] = LowerRoutine(r);
+                    program.Declarations[index: i] = LowerRoutine(r: r);
                     break;
                 case EntityDeclaration e:
-                    LowerMemberList(e.Members);
+                    LowerMemberList(members: e.Members);
                     break;
                 case RecordDeclaration rec:
-                    LowerMemberList(rec.Members);
+                    LowerMemberList(members: rec.Members);
                     break;
                 case CrashableDeclaration cr:
-                    LowerMemberList(cr.Members);
+                    LowerMemberList(members: cr.Members);
                     break;
             }
         }
@@ -70,10 +70,12 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             // Variant/synthesized bodies have no parameter list available here; teardown applies to
             // their block-local owned vars only.
             _movedNames.Clear();
-            CollectMovedNames(ctx.VariantBodies[key]);
+            CollectMovedNames(stmt: ctx.VariantBodies[key: key]);
             var live = new List<Owned>();
-            Statement lowered = LowerStatement(ctx.VariantBodies[key], live, loopBoundary: 0);
-            ctx.VariantBodies[key] = lowered;
+            Statement lowered = LowerStatement(stmt: ctx.VariantBodies[key: key],
+                live: live,
+                loopBoundary: 0);
+            ctx.VariantBodies[key: key] = lowered;
         }
     }
 
@@ -81,8 +83,10 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     {
         for (int j = 0; j < members.Count; j++)
         {
-            if (members[j] is RoutineDeclaration m)
-                members[j] = LowerRoutine(m);
+            if (members[index: j] is RoutineDeclaration m)
+            {
+                members[index: j] = LowerRoutine(r: m);
+            }
         }
     }
 
@@ -91,14 +95,16 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     private RoutineDeclaration LowerRoutine(RoutineDeclaration r)
     {
         _movedNames.Clear();
-        CollectMovedNames(r.Body);
+        CollectMovedNames(stmt: r.Body);
         // Merge SA's authoritative per-routine "stolen / out of scope" record. `steal` takes a
         // binding out of scope (ownership moves to the callee, which destroys the content), but the
         // `steal` AST wrapper is normalized away during arg lowering (e.g. `Text(from_list: steal
         // digits)` → `Text(digits)`), so the AST move pre-scan above can miss it. SA recorded it via
         // deadref tracking; trust that so a stolen binding is never torn down here (double-free).
         if (r.StolenVariableNames is { Count: > 0 } stolen)
+        {
             _movedNames.UnionWith(other: stolen);
+        }
 
         // THREE-RULES param model (Rule 2): passing into a routine param is either 먹튀 (`steal`, move
         // ownership in — a bare ENTITY the caller relinquished) OR handing over a borrow. A RECORD param
@@ -119,19 +125,39 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         var paramLive = new List<Owned>();
         foreach (Parameter p in r.Parameters)
         {
-            if (p.Name == "me") continue;
-            if (_movedNames.Contains(item: p.Name)) continue;
+            if (p.Name == "me")
+            {
+                continue;
+            }
+
+            if (_movedNames.Contains(item: p.Name))
+            {
+                continue;
+            }
+
             TypeInfo? pt = p.Type?.ResolvedType;
             // Only a bare-entity (consuming / steal'd) param is owned by the callee; every record param
             // is a borrow the caller still owns.
-            if (pt is not EntityTypeInfo) continue;
-            if (isSuflae) continue;
-            if (TryResolveDestroy(type: pt, out RoutineInfo? d) && d != null)
+            if (pt is not EntityTypeInfo)
+            {
+                continue;
+            }
+
+            if (isSuflae)
+            {
+                continue;
+            }
+
+            if (TryResolveDestroy(type: pt, destroy: out RoutineInfo? d) && d != null)
+            {
                 paramLive.Add(item: new Owned(Name: p.Name, Type: pt, Destroy: d));
+            }
         }
 
-        Statement newBody = LowerStatement(r.Body, paramLive, loopBoundary: 0);
-        return r.Body == newBody && paramLive.Count == 0 ? r : r with { Body = newBody };
+        Statement newBody = LowerStatement(stmt: r.Body, live: paramLive, loopBoundary: 0);
+        return r.Body == newBody && paramLive.Count == 0
+            ? r
+            : r with { Body = newBody };
     }
 
     /// <summary>
@@ -146,7 +172,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         switch (stmt)
         {
             case BlockStatement b:
-                return LowerBlock(b, live, loopBoundary);
+                return LowerBlock(block: b, outerLive: live, loopBoundary: loopBoundary);
 
             case IfStatement ifs:
                 return LowerIfStatement(ifs: ifs, live: live, loopBoundary: loopBoundary);
@@ -158,12 +184,19 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             {
                 // Locals declared inside the loop body sit at index >= live.Count on entry, so the
                 // new boundary is the current live count.
-                Statement body = LowerStatement(loop.Body, Copy(live), loopBoundary: live.Count);
+                Statement body = LowerStatement(stmt: loop.Body,
+                    live: Copy(live: live),
+                    loopBoundary: live.Count);
                 return loop with { Body = body };
             }
 
             case DangerStatement d:
-                return d with { Body = (BlockStatement)LowerStatement(d.Body, Copy(live), loopBoundary) };
+                return d with
+                {
+                    Body = (BlockStatement)LowerStatement(stmt: d.Body,
+                        live: Copy(live: live),
+                        loopBoundary: loopBoundary)
+                };
 
             // At Phase 7 a user `using` is still a UsingStatement (UsingLoweringPass runs later in
             // Phase 8). Recurse into the body so inner owned locals are torn down, but leave the
@@ -174,10 +207,16 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
                 return LowerUsingStatement(u: u, live: live, loopBoundary: loopBoundary);
 
             case ReturnStatement or AbsentStatement or ThrowStatement or VariantReturnStatement:
-                return PrefixDestroys(stmt, live, from: 0, skip: ReturnedName(stmt));
+                return PrefixDestroys(exit: stmt,
+                    live: live,
+                    from: 0,
+                    skip: ReturnedName(stmt: stmt));
 
             case BreakStatement or ContinueStatement:
-                return PrefixDestroys(stmt, live, from: loopBoundary, skip: null);
+                return PrefixDestroys(exit: stmt,
+                    live: live,
+                    from: loopBoundary,
+                    skip: null);
 
             // An owned entity local always holds a valid owned allocation at a reassignment —
             // a `lateinit` binding holds the zeroed placeholder or a prior value, a plain
@@ -192,9 +231,12 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             // are still in operator form here (ExpressionStatement of `=` BinaryExpression —
             // codegen's EmitBinaryAssign); AssignmentStatement appears in synthesized bodies.
             case AssignmentStatement a when a.Target is IdentifierExpression target &&
-                                            FindOwnedEntity(live, target.Name) is { } owned:
-                return LowerEntityReassign(original: a, rhs: a.Value,
-                    rebuild: rhs => a with { Value = rhs }, owned: owned);
+                                            FindOwnedEntity(live: live, name: target.Name) is
+                                                { } owned:
+                return LowerEntityReassign(original: a,
+                    rhs: a.Value,
+                    rebuild: rhs => a with { Value = rhs },
+                    owned: owned);
 
             case ExpressionStatement
             {
@@ -202,8 +244,9 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
                 {
                     Operator: BinaryOperator.Assign, Left: IdentifierExpression target
                 } bin
-            } es when FindOwnedEntity(live, target.Name) is { } owned:
-                return LowerEntityReassign(original: es, rhs: bin.Right,
+            } es when FindOwnedEntity(live: live, name: target.Name) is { } owned:
+                return LowerEntityReassign(original: es,
+                    rhs: bin.Right,
                     rebuild: rhs => es with { Expression = bin with { Right = rhs } },
                     owned: owned);
 
@@ -213,7 +256,9 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             // RcRetainLoweringPass.ReassignRelease; the retain-NEW on the RHS is SF's implicit `.share()`
             // from SuflaeEntityLoweringPass, which runs before this pass, so `rhs` already carries it.)
             case AssignmentStatement a when a.Target is MemberExpression mt:
-                return LowerRoamedFieldReassign(original: a, target: mt, rhs: a.Value,
+                return LowerRoamedFieldReassign(original: a,
+                    target: mt,
+                    rhs: a.Value,
                     rebuild: rhs => a with { Value = rhs });
 
             case ExpressionStatement
@@ -223,7 +268,9 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
                     Operator: BinaryOperator.Assign, Left: MemberExpression mt
                 } bin
             } es:
-                return LowerRoamedFieldReassign(original: es, target: mt, rhs: bin.Right,
+                return LowerRoamedFieldReassign(original: es,
+                    target: mt,
+                    rhs: bin.Right,
                     rebuild: rhs => es with { Expression = bin with { Right = rhs } });
 
             default:
@@ -233,9 +280,13 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
 
     private Statement LowerIfStatement(IfStatement ifs, List<Owned> live, int loopBoundary)
     {
-        Statement then = LowerStatement(ifs.ThenStatement, Copy(live), loopBoundary);
+        Statement then = LowerStatement(stmt: ifs.ThenStatement,
+            live: Copy(live: live),
+            loopBoundary: loopBoundary);
         Statement? elseS = ifs.ElseStatement != null
-            ? LowerStatement(ifs.ElseStatement, Copy(live), loopBoundary)
+            ? LowerStatement(stmt: ifs.ElseStatement,
+                live: Copy(live: live),
+                loopBoundary: loopBoundary)
             : null;
         return ifs with { ThenStatement = then, ElseStatement = elseS };
     }
@@ -243,8 +294,13 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     private Statement LowerWhenStatement(WhenStatement w, List<Owned> live, int loopBoundary)
     {
         var clauses = w.Clauses
-            .Select(selector: c => c with { Body = LowerStatement(c.Body, Copy(live), loopBoundary) })
-            .ToList();
+                       .Select(selector: c => c with
+                        {
+                            Body = LowerStatement(stmt: c.Body,
+                                live: Copy(live: live),
+                                loopBoundary: loopBoundary)
+                        })
+                       .ToList();
         return w with { Clauses = clauses };
     }
 
@@ -252,17 +308,21 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     {
         return u with
         {
-            Body = LowerStatement(u.Body, Copy(live), loopBoundary),
+            Body =
+            LowerStatement(stmt: u.Body, live: Copy(live: live), loopBoundary: loopBoundary),
             FallbackBody = u.FallbackBody != null
-                ? LowerStatement(u.FallbackBody, Copy(live), loopBoundary)
+                ? LowerStatement(stmt: u.FallbackBody,
+                    live: Copy(live: live),
+                    loopBoundary: loopBoundary)
                 : null
         };
     }
 
-    private BlockStatement LowerBlock(BlockStatement block, List<Owned> outerLive, int loopBoundary)
+    private BlockStatement LowerBlock(BlockStatement block, List<Owned> outerLive,
+        int loopBoundary)
     {
         // `live` grows as this block's own declarations are seen; nested scopes get a copy.
-        var live = Copy(outerLive);
+        List<Owned> live = Copy(live: outerLive);
         int blockStart = live.Count;
         var stmts = new List<Statement>(capacity: block.Statements.Count + 2);
 
@@ -275,7 +335,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
                 continue;
             }
 
-            stmts.Add(item: LowerStatement(s, live, loopBoundary));
+            stmts.Add(item: LowerStatement(stmt: s, live: live, loopBoundary: loopBoundary));
         }
 
         // Fall-through end-of-block: destroy this block's own locals in REVERSE declaration order
@@ -286,9 +346,13 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         // is unreachable, and the terminator's own PrefixDestroys already tore these locals down.
         // Emitting them here anyway produced redundant post-terminator `x.destroy()` calls that
         // codegen silently dropped but that polluted the AST (and the dump).
-        if (!(stmts.Count > 0 && AlwaysTerminates(stmts[^1])))
+        if (!(stmts.Count > 0 && AlwaysTerminates(s: stmts[^1])))
+        {
             for (int i = live.Count - 1; i >= blockStart; i--)
-                stmts.Add(item: MakeDestroyStmt(live[index: i], block.Location));
+            {
+                stmts.Add(item: MakeDestroyStmt(owned: live[index: i], loc: block.Location));
+            }
+        }
 
         return block with { Statements = stmts };
     }
@@ -304,18 +368,21 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         // (stdlib + synthesized variant bodies — user programs are lowered later), both would be
         // live and BOTH destroyed → double-free. Treat the move as consuming the temp: drop it
         // from `live` and record it moved so no scope-exit/return teardown frees it.
-        if (v.Initializer is IdentifierExpression { Name: var srcName }
-            && srcName.StartsWith(value: "_lit_", comparisonType: StringComparison.Ordinal))
+        if (v.Initializer is IdentifierExpression { Name: var srcName } &&
+            srcName.StartsWith(value: "_lit_", comparisonType: StringComparison.Ordinal))
         {
             _movedNames.Add(item: srcName);
             int srcIdx = live.FindLastIndex(match: o => o.Name == srcName);
-            if (srcIdx >= 0) live.RemoveAt(index: srcIdx);
+            if (srcIdx >= 0)
+            {
+                live.RemoveAt(index: srcIdx);
+            }
         }
 
         TypeInfo? t = v.Type?.ResolvedType ?? v.Initializer?.ResolvedType;
-        if (t != null && !_movedNames.Contains(item: v.Name) && !IsUsingBinding(v: v)
-            && !IsViewBinding(v: v)
-            && TryResolveDestroy(type: t, out RoutineInfo? d) && d != null)
+        if (t != null && !_movedNames.Contains(item: v.Name) && !IsUsingBinding(v: v) &&
+            !IsViewBinding(v: v) && TryResolveDestroy(type: t, destroy: out RoutineInfo? d) &&
+            d != null)
         {
             live.Add(item: new Owned(Name: v.Name, Type: t, Destroy: d));
         }
@@ -333,20 +400,33 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     /// teardown:
     /// <code>var __td_ret = EXPR ; &lt;destroys&gt; ; return __td_ret</code></para>
     /// </summary>
-    private Statement PrefixDestroys(Statement exit, List<Owned> live, int from, string? skip)
+    private Statement PrefixDestroys(Statement exit, List<Owned> live, int from,
+        string? skip)
     {
         var stmts = new List<Statement>();
-        Statement finalExit = TrySpillReturnValue(exit: exit, live: live, from: from,
-            skip: ref skip, stmts: stmts);
+        Statement finalExit = TrySpillReturnValue(exit: exit,
+            live: live,
+            from: from,
+            skip: ref skip,
+            stmts: stmts);
 
         // Destroy in REVERSE declaration order (LIFO) — the safe RAII order, matching this pass's
         // documented contract and the fall-through end-of-block teardown above.
         for (int i = live.Count - 1; i >= from; i--)
         {
-            if (skip != null && live[index: i].Name == skip) continue;
-            stmts.Add(item: MakeDestroyStmt(live[index: i], exit.Location));
+            if (skip != null && live[index: i].Name == skip)
+            {
+                continue;
+            }
+
+            stmts.Add(item: MakeDestroyStmt(owned: live[index: i], loc: exit.Location));
         }
-        if (stmts.Count == 0) return exit;
+
+        if (stmts.Count == 0)
+        {
+            return exit;
+        }
+
         stmts.Add(item: finalExit);
         return new BlockStatement(Statements: stmts, Location: exit.Location);
     }
@@ -366,8 +446,11 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             VariantReturnStatement vr => vr.Value,
             _ => null
         };
-        if (retVal is null or IdentifierExpression || !WillDestroyAny(live, from, skip))
+        if (retVal is null or IdentifierExpression ||
+            !WillDestroyAny(live: live, from: from, skip: skip))
+        {
             return exit;
+        }
 
         string tmp = $"__td_ret_{_spillCounter++}";
         // Leave the slot type to be inferred from EXPR — codegen emits the spilled value with its
@@ -376,11 +459,16 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         // a return that codegen wraps). The failable-passthrough case (node says S64, emits
         // Maybe[S64]) is handled at the source: ErrorHandlingVariantPass stamps the passthrough
         // call's ResolvedType with the variant carrier, so EXPR inference already sees Maybe[S64].
-        var decl = new VariableDeclaration(Name: tmp, Type: null, Initializer: retVal,
-            Visibility: VisibilityModifier.Secret, Location: exit.Location);
+        var decl = new VariableDeclaration(Name: tmp,
+            Type: null,
+            Initializer: retVal,
+            Visibility: VisibilityModifier.Secret,
+            Location: exit.Location);
         stmts.Add(item: new DeclarationStatement(Declaration: decl, Location: exit.Location));
         var tmpRef = new IdentifierExpression(Name: tmp, Location: exit.Location)
-            { ResolvedType = retVal.ResolvedType };
+        {
+            ResolvedType = retVal.ResolvedType
+        };
         skip = tmp; // the spilled value is moved out — never tear it down
         return exit switch
         {
@@ -399,9 +487,16 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     {
         for (int i = live.Count - 1; i >= 0; i--)
         {
-            if (live[index: i].Name != name) continue;
-            return live[index: i].Type is EntityTypeInfo ? live[index: i] : null;
+            if (live[index: i].Name != name)
+            {
+                continue;
+            }
+
+            return live[index: i].Type is EntityTypeInfo
+                ? live[index: i]
+                : null;
         }
+
         return null;
     }
 
@@ -422,15 +517,21 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         if (rhs is not IdentifierExpression)
         {
             string tmp = $"__li_{_spillCounter++}";
-            var decl = new VariableDeclaration(Name: tmp, Type: null, Initializer: rhs,
-                Visibility: VisibilityModifier.Secret, Location: original.Location);
-            stmts.Add(item: new DeclarationStatement(Declaration: decl, Location: original.Location));
+            var decl = new VariableDeclaration(Name: tmp,
+                Type: null,
+                Initializer: rhs,
+                Visibility: VisibilityModifier.Secret,
+                Location: original.Location);
+            stmts.Add(item: new DeclarationStatement(Declaration: decl,
+                Location: original.Location));
             finalRhs = new IdentifierExpression(Name: tmp, Location: original.Location)
-                { ResolvedType = rhs.ResolvedType };
+            {
+                ResolvedType = rhs.ResolvedType
+            };
         }
 
-        stmts.Add(item: MakeDestroyStmt(owned, original.Location));
-        stmts.Add(item: rebuild(finalRhs));
+        stmts.Add(item: MakeDestroyStmt(owned: owned, loc: original.Location));
+        stmts.Add(item: rebuild(arg: finalRhs));
         return new BlockStatement(Statements: stmts, Location: original.Location);
     }
 
@@ -446,10 +547,13 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         Expression rhs, Func<Expression, Statement> rebuild)
     {
         TypeInfo? fieldType = target.ResolvedType;
-        if (fieldType is null
-            || TypeRegistry.GetRcWrapperBaseName(type: fieldType) != RuntimeContract.Roamed
-            || !TryResolveDestroy(type: fieldType, out RoutineInfo? destroy) || destroy is null)
+        if (fieldType is null ||
+            TypeRegistry.GetRcWrapperBaseName(type: fieldType) != RuntimeContract.Roamed ||
+            !TryResolveDestroy(type: fieldType, destroy: out RoutineInfo? destroy) ||
+            destroy is null)
+        {
             return original;
+        }
 
         var stmts = new List<Statement>();
         Expression finalRhs = rhs;
@@ -458,32 +562,50 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         if (rhs is not IdentifierExpression)
         {
             string tmp = $"__li_{_spillCounter++}";
-            var decl = new VariableDeclaration(Name: tmp, Type: null, Initializer: rhs,
-                Visibility: VisibilityModifier.Secret, Location: original.Location);
-            stmts.Add(item: new DeclarationStatement(Declaration: decl, Location: original.Location));
+            var decl = new VariableDeclaration(Name: tmp,
+                Type: null,
+                Initializer: rhs,
+                Visibility: VisibilityModifier.Secret,
+                Location: original.Location);
+            stmts.Add(item: new DeclarationStatement(Declaration: decl,
+                Location: original.Location));
             finalRhs = new IdentifierExpression(Name: tmp, Location: original.Location)
-                { ResolvedType = rhs.ResolvedType };
+            {
+                ResolvedType = rhs.ResolvedType
+            };
         }
 
-        stmts.Add(item: MakeMemberDestroyStmt(receiver: target, destroy: destroy,
+        stmts.Add(item: MakeMemberDestroyStmt(receiver: target,
+            destroy: destroy,
             loc: original.Location));
-        stmts.Add(item: rebuild(finalRhs));
+        stmts.Add(item: rebuild(arg: finalRhs));
         return new BlockStatement(Statements: stmts, Location: original.Location);
     }
 
     private static bool WillDestroyAny(List<Owned> live, int from, string? skip)
     {
         for (int i = from; i < live.Count; i++)
+        {
             if (skip == null || live[index: i].Name != skip)
+            {
                 return true;
+            }
+        }
+
         return false;
     }
 
     private ExpressionStatement MakeDestroyStmt(Owned owned, SourceLocation loc)
     {
-        var ident = new IdentifierExpression(Name: owned.Name, Location: loc) { ResolvedType = owned.Type };
+        var ident =
+            new IdentifierExpression(Name: owned.Name, Location: loc)
+            {
+                ResolvedType = owned.Type
+            };
         var callee = new MemberExpression(Object: ident, MemberName: "destroy", Location: loc)
-            { ResolvedType = _blankType };
+        {
+            ResolvedType = _blankType
+        };
         var call = new CallExpression(Callee: callee, Arguments: [], Location: loc)
         {
             ResolvedRoutine = owned.Destroy,
@@ -505,7 +627,9 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         SourceLocation loc)
     {
         var callee = new MemberExpression(Object: receiver, MemberName: "destroy", Location: loc)
-            { ResolvedType = _blankType };
+        {
+            ResolvedType = _blankType
+        };
         var call = new CallExpression(Callee: callee, Arguments: [], Location: loc)
         {
             ResolvedRoutine = destroy,
@@ -531,7 +655,10 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         TypeRegistry.Lifecycle lc = ctx.Registry.GetLifecycle(type: type);
         destroy = lc.Destroy;
         if (lc.IsBorrow || destroy == null)
+        {
             return false;
+        }
+
         return true;
     }
 
@@ -555,28 +682,37 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     /// <see cref="PrefixDestroys"/> into a trailing-return block, or an if/else where both arms exit).
     /// Conservative: anything not provably terminating returns false (fall-through teardown kept).
     /// </summary>
-    private static bool AlwaysTerminates(Statement s) => s switch
+    private static bool AlwaysTerminates(Statement s)
     {
-        ReturnStatement or AbsentStatement or ThrowStatement or VariantReturnStatement
-            or BreakStatement or ContinueStatement => true,
-        BlockStatement b => b.Statements.Count > 0 && AlwaysTerminates(b.Statements[^1]),
-        IfStatement { ElseStatement: { } elseS } ifs =>
-            AlwaysTerminates(ifs.ThenStatement) && AlwaysTerminates(elseS),
-        // `danger` is a scope-transparent wrapper (an unsafe marker, no control flow of its own): it
-        // terminates exactly when its body does. A `danger { … return }` at a block's end therefore
-        // makes the fall-through unreachable, so the outer scope must not append dead teardown after it.
-        DangerStatement d => AlwaysTerminates(d.Body),
-        _ => false
-    };
+        return s switch
+        {
+            ReturnStatement or AbsentStatement or ThrowStatement or VariantReturnStatement
+                or BreakStatement or ContinueStatement => true,
+            BlockStatement b => b.Statements.Count > 0 && AlwaysTerminates(s: b.Statements[^1]),
+            IfStatement { ElseStatement: { } elseS } ifs =>
+                AlwaysTerminates(s: ifs.ThenStatement) && AlwaysTerminates(s: elseS),
+            // `danger` is a scope-transparent wrapper (an unsafe marker, no control flow of its own): it
+            // terminates exactly when its body does. A `danger { … return }` at a block's end therefore
+            // makes the fall-through unreachable, so the outer scope must not append dead teardown after it.
+            DangerStatement d => AlwaysTerminates(s: d.Body),
+            _ => false
+        };
+    }
 
-    private static string? ReturnedName(Statement stmt) => stmt switch
+    private static string? ReturnedName(Statement stmt)
     {
-        ReturnStatement { Value: IdentifierExpression id } => id.Name,
-        VariantReturnStatement { Value: IdentifierExpression id } => id.Name,
-        _ => null
-    };
+        return stmt switch
+        {
+            ReturnStatement { Value: IdentifierExpression id } => id.Name,
+            VariantReturnStatement { Value: IdentifierExpression id } => id.Name,
+            _ => null
+        };
+    }
 
-    private static List<Owned> Copy(List<Owned> live) => [.. live];
+    private static List<Owned> Copy(List<Owned> live)
+    {
+        return [.. live];
+    }
 
     /// <summary>
     /// True for the synthetic bindings UsingLoweringPass emits (`var __uf_N = resource` and the
@@ -586,7 +722,11 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     /// </summary>
     private static bool IsUsingBinding(VariableDeclaration v)
     {
-        if (v.Name.StartsWith(value: "__uf_")) return true;
+        if (v.Name.StartsWith(value: "__uf_"))
+        {
+            return true;
+        }
+
         return v.Initializer switch
         {
             IdentifierExpression id => id.Name.StartsWith(value: "__uf_"),
@@ -611,15 +751,17 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     /// the referent's real <c>destroy</c> and free a value owned elsewhere — hence we key on the
     /// initializer VERB (a reference primitive), per the four-routine governance model, not the type.
     /// </summary>
-    private static bool IsViewBinding(VariableDeclaration v) =>
-        (v.Initializer is CallExpression { Callee: MemberExpression m } &&
-         ViewVerbs.Contains(item: m.MemberName))
-        // A variant when-pattern payload binding (`when me is Arm as v: …`, lowered by
-        // PatternLoweringPass to `var v = <CarrierPayloadExpression on me>`) is a BORROW/view into the
-        // matched variant's payload — the variant still owns it. Tearing `v` down frees the variant's
-        // payload out from under it: a read-only `represent` would then corrupt `me`, and the
-        // auto-synthesized variant `destroy` (explicit `v.destroy()`) would double-free. So exclude it.
-        || v.Initializer is CarrierPayloadExpression;
+    private static bool IsViewBinding(VariableDeclaration v)
+    {
+        return (v.Initializer is CallExpression { Callee: MemberExpression m } &&
+                ViewVerbs.Contains(item: m.MemberName))
+               // A variant when-pattern payload binding (`when me is Arm as v: …`, lowered by
+               // PatternLoweringPass to `var v = <CarrierPayloadExpression on me>`) is a BORROW/view into the
+               // matched variant's payload — the variant still owns it. Tearing `v` down frees the variant's
+               // payload out from under it: a read-only `represent` would then corrupt `me`, and the
+               // auto-synthesized variant `destroy` (explicit `v.destroy()`) would double-free. So exclude it.
+               || v.Initializer is CarrierPayloadExpression;
+    }
 
     // -----------------------------------------------------------------------------
     // Move pre-scan: a binding whose ownership leaves the routine is never torn down here.
@@ -650,23 +792,24 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             // an RC wrapper. `Retained.assign()` / `.observe()` mint a handle from an existing WRAPPER
             // receiver (not a bare entity), so they are correctly excluded and still released.
             case CallExpression
-            {
-                Callee: MemberExpression
                 {
-                    Object: IdentifierExpression { ResolvedType: EntityTypeInfo } recv
-                }
-            } rcCtorCall
-                when rcCtorCall.ResolvedType is { } rcRes
-                     && TypeRegistry.GetRcWrapperBaseName(type: rcRes) is not null:
+                    Callee: MemberExpression
+                    {
+                        Object: IdentifierExpression { ResolvedType: EntityTypeInfo } recv
+                    }
+                } rcCtorCall when rcCtorCall.ResolvedType is { } rcRes &&
+                                  TypeRegistry.GetRcWrapperBaseName(type: rcRes) is not null:
                 _movedNames.Add(item: recv.Name);
                 break;
             // Store primitives write their argument(s) into memory/storage — the source binding
             // is moved into the container, not dropped at scope exit.
-            case CallExpression call when CalleeName(call.Callee) is { } n && StorePrimitives.Contains(item: n):
+            case CallExpression call when CalleeName(callee: call.Callee) is { } n &&
+                                          StorePrimitives.Contains(item: n):
                 HandleStorePrimitiveMove(call: call);
                 break;
             // `target = source` / `me.field = source` moves `source` into the target.
-            case AssignmentStatement assign when Unwrap(assign.Value) is IdentifierExpression rhs:
+            case AssignmentStatement assign
+                when Unwrap(e: assign.Value) is IdentifierExpression rhs:
                 _movedNames.Add(item: rhs.Name);
                 break;
             // The move in operator-expression form `target = __rv` (an ExpressionStatement wrapping a
@@ -721,7 +864,8 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             // field teardown → double free (e.g. BuilderQuery `protocol_info`/`routine_info` nested
             // `List[Text]` fields).
             case CreatorExpression entityCreator
-                when (entityCreator.ConstructedType ?? entityCreator.ResolvedType) is EntityTypeInfo ent:
+                when (entityCreator.ConstructedType ?? entityCreator.ResolvedType) is
+                EntityTypeInfo ent:
                 HandleEntityConstructionMove(entityCreator: entityCreator, ent: ent);
                 break;
         }
@@ -730,25 +874,39 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     private void HandleStorePrimitiveMove(CallExpression call)
     {
         foreach (Expression arg in call.Arguments)
-            if (Unwrap(arg) is IdentifierExpression a)
+        {
+            if (Unwrap(e: arg) is IdentifierExpression a)
+            {
                 _movedNames.Add(item: a.Name);
+            }
+        }
     }
 
     private void HandleVariantBoxingMove(CreatorExpression creator)
     {
         foreach ((_, Expression val) in creator.MemberVariables)
-            if (Unwrap(val) is IdentifierExpression a)
+        {
+            if (Unwrap(e: val) is IdentifierExpression a)
+            {
                 _movedNames.Add(item: a.Name);
+            }
+        }
     }
 
     private void HandleEntityConstructionMove(CreatorExpression entityCreator, EntityTypeInfo ent)
     {
         foreach ((string memberName, Expression val) in entityCreator.MemberVariables)
-            if (Unwrap(val) is IdentifierExpression a)
+        {
+            if (Unwrap(e: val) is IdentifierExpression a)
             {
                 TypeInfo? fieldType = ent.MemberVariables
-                    .FirstOrDefault(m => m.Name == memberName)?.Type;
-                if (fieldType == null) continue;
+                                         .FirstOrDefault(predicate: m => m.Name == memberName)
+                                        ?.Type;
+                if (fieldType == null)
+                {
+                    continue;
+                }
+
                 // Mirror RecordCopyLoweringPass.NeedsRetainingCopy EXACTLY (both keyed on the
                 // unified GetLifecycle): a field whose type needs a retaining copy (hand-written
                 // `store`, e.g. Text) receives an INJECTED copy — the source stays owned and must
@@ -758,17 +916,27 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
                 TypeRegistry.Lifecycle lc = ctx.Registry.GetLifecycle(type: fieldType);
                 bool needsRetainingCopy = !lc.IsBorrow && lc.Store != null;
                 if (!needsRetainingCopy)
+                {
                     _movedNames.Add(item: a.Name);
+                }
             }
+        }
     }
 
-    private static Expression Unwrap(Expression e) =>
-        e is NamedArgumentExpression n ? n.Value : e;
-
-    private static string? CalleeName(Expression callee) => callee switch
+    private static Expression Unwrap(Expression e)
     {
-        MemberExpression m => m.MemberName,
-        IdentifierExpression id => id.Name,
-        _ => null
-    };
+        return e is NamedArgumentExpression n
+            ? n.Value
+            : e;
+    }
+
+    private static string? CalleeName(Expression callee)
+    {
+        return callee switch
+        {
+            MemberExpression m => m.MemberName,
+            IdentifierExpression id => id.Name,
+            _ => null
+        };
+    }
 }

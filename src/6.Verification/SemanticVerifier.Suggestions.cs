@@ -20,7 +20,9 @@ public sealed partial class SemanticVerifier
     private static string DidYouMean(string target, IEnumerable<string> candidates)
     {
         string? best = SuggestSimilarName(target: target, candidates: candidates);
-        return best == null ? string.Empty : $" Did you mean '{best}'?";
+        return best == null
+            ? string.Empty
+            : $" Did you mean '{best}'?";
     }
 
     /// <summary>
@@ -57,16 +59,17 @@ public sealed partial class SemanticVerifier
             }
 
             int distance = BoundedEditDistance(a: target, b: candidate, cap: maxDistance);
-            if (distance < bestDistance ||
-                (distance == bestDistance && best != null &&
-                 string.CompareOrdinal(strA: candidate, strB: best) < 0))
+            if (distance < bestDistance || distance == bestDistance && best != null &&
+                string.CompareOrdinal(strA: candidate, strB: best) < 0)
             {
                 bestDistance = distance;
                 best = candidate;
             }
         }
 
-        return bestDistance <= maxDistance ? best : null;
+        return bestDistance <= maxDistance
+            ? best
+            : null;
     }
 
     /// <summary>Holds the three rolling DP row arrays (previous-previous, previous, current) used by
@@ -83,7 +86,9 @@ public sealed partial class SemanticVerifier
     {
         int n = a.Length;
         int m = b.Length;
-        var rows = new EditDpRows(PrevPrev: new int[m + 1], Prev: new int[m + 1], Curr: new int[m + 1]);
+        var rows = new EditDpRows(PrevPrev: new int[m + 1],
+            Prev: new int[m + 1],
+            Curr: new int[m + 1]);
         for (int j = 0; j <= m; j++)
         {
             rows.Prev[j] = j;
@@ -92,8 +97,13 @@ public sealed partial class SemanticVerifier
         for (int i = 1; i <= n; i++)
         {
             rows.Curr[0] = i;
-            char ca = char.ToLowerInvariant(c: a[i - 1]);
-            int rowMin = FillEditRow(a: a, b: b, i: i, ca: ca, m: m, rows: rows);
+            char ca = char.ToLowerInvariant(c: a[index: i - 1]);
+            int rowMin = FillEditRow(a: a,
+                b: b,
+                i: i,
+                ca: ca,
+                m: m,
+                rows: rows);
 
             if (rowMin > cap)
             {
@@ -107,18 +117,21 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>Fills one row of the edit-distance DP table and returns the row minimum.</summary>
-    private static int FillEditRow(string a, string b, int i, char ca, int m, EditDpRows rows)
+    private static int FillEditRow(string a, string b, int i,
+        char ca, int m, EditDpRows rows)
     {
         int rowMin = rows.Curr[0];
         for (int j = 1; j <= m; j++)
         {
-            char cb = char.ToLowerInvariant(c: b[j - 1]);
-            int cost = ca == cb ? 0 : 1;
-            rows.Curr[j] = Math.Min(val1: Math.Min(val1: rows.Curr[j - 1] + 1, val2: rows.Prev[j] + 1),
-                val2: rows.Prev[j - 1] + cost);
-            if (i > 1 && j > 1 &&
-                ca == char.ToLowerInvariant(c: b[j - 2]) &&
-                char.ToLowerInvariant(c: a[i - 2]) == cb)
+            char cb = char.ToLowerInvariant(c: b[index: j - 1]);
+            int cost = ca == cb
+                ? 0
+                : 1;
+            rows.Curr[j] =
+                Math.Min(val1: Math.Min(val1: rows.Curr[j - 1] + 1, val2: rows.Prev[j] + 1),
+                    val2: rows.Prev[j - 1] + cost);
+            if (i > 1 && j > 1 && ca == char.ToLowerInvariant(c: b[index: j - 2]) &&
+                char.ToLowerInvariant(c: a[index: i - 2]) == cb)
             {
                 rows.Curr[j] = Math.Min(val1: rows.Curr[j], val2: rows.PrevPrev[j - 2] + 1);
             }
@@ -128,6 +141,7 @@ public sealed partial class SemanticVerifier
                 rowMin = rows.Curr[j];
             }
         }
+
         return rowMin;
     }
 
@@ -179,8 +193,10 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>Suggestion suffix for an unknown type name (also used by TypeResolver's S100 sites).</summary>
-    internal string UnknownTypeSuggestion(string typeName) =>
-        DidYouMean(target: typeName, candidates: TypeSuggestionCandidates());
+    internal string UnknownTypeSuggestion(string typeName)
+    {
+        return DidYouMean(target: typeName, candidates: TypeSuggestionCandidates());
+    }
 
     /// <summary>
     /// Member names (non-wired memberRoutines + member variables) of the receiver type for
@@ -206,16 +222,22 @@ public sealed partial class SemanticVerifier
         // Per-type memberRoutine tables hold the type's own declared memberRoutines (GetAllRoutines does
         // not include them all); query both the resolution and its generic definition.
         foreach (string name in YieldMemberRoutineNames(type: type, seen: seen))
+        {
             yield return name;
+        }
 
         if (genericDef != null)
         {
             foreach (string name in YieldMemberRoutineNames(type: genericDef, seen: seen))
+            {
                 yield return name;
+            }
         }
 
-        foreach (string name in YieldOwnerMatchedRoutineNames(
-                     type: type, genericDef: genericDef, baseName: baseName, seen: seen))
+        foreach (string name in YieldOwnerMatchedRoutineNames(type: type,
+                     genericDef: genericDef,
+                     baseName: baseName,
+                     seen: seen))
         {
             yield return name;
         }
@@ -228,10 +250,14 @@ public sealed partial class SemanticVerifier
         };
 
         if (fields == null)
+        {
             yield break;
+        }
 
         foreach (MemberVariableInfo field in fields.Where(predicate: f => seen.Add(item: f.Name)))
+        {
             yield return field.Name;
+        }
     }
 
     /// <summary>
@@ -241,10 +267,16 @@ public sealed partial class SemanticVerifier
     {
         foreach (RoutineInfo memberRoutine in _registry.GetMemberRoutinesForType(type: type))
         {
-            if (memberRoutine.IsWiredMemberRoutine) continue;
+            if (memberRoutine.IsWiredMemberRoutine)
+            {
+                continue;
+            }
+
             string memberRoutineName = memberRoutine.Name;
             if (memberRoutineName.Length > 0 && seen.Add(item: memberRoutineName))
+            {
                 yield return memberRoutineName;
+            }
         }
     }
 
@@ -252,25 +284,33 @@ public sealed partial class SemanticVerifier
     /// Yields routine names from all registered routines whose owner matches <paramref name="type"/>
     /// (by reference or base name), skipping already-seen names.
     /// </summary>
-    private IEnumerable<string> YieldOwnerMatchedRoutineNames(TypeSymbol type, TypeSymbol? genericDef,
-        string baseName, HashSet<string> seen)
+    private IEnumerable<string> YieldOwnerMatchedRoutineNames(TypeSymbol type,
+        TypeSymbol? genericDef, string baseName, HashSet<string> seen)
     {
         foreach (RoutineInfo routine in _registry.GetAllRoutines())
         {
             TypeSymbol? owner = routine.OwnerType;
-            if (owner == null) continue;
+            if (owner == null)
+            {
+                continue;
+            }
 
             // Owners are registered under bracketed generic-def names ("List[T]"),
             // receivers arrive as resolutions ("List[Core.S64]") — compare base names.
             bool ownerMatches = ReferenceEquals(objA: owner, objB: type) ||
-                                (genericDef != null &&
-                                 ReferenceEquals(objA: owner, objB: genericDef)) ||
+                                genericDef != null &&
+                                ReferenceEquals(objA: owner, objB: genericDef) ||
                                 owner.BareName == baseName;
-            if (!ownerMatches) continue;
+            if (!ownerMatches)
+            {
+                continue;
+            }
 
             string name = routine.Name;
             if (name.Length > 0 && seen.Add(item: name))
+            {
                 yield return name;
+            }
         }
     }
 }

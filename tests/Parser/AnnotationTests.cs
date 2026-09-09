@@ -10,10 +10,10 @@ using static TestHelpers;
 public class AttributeTests
 {
     #region Simple Annotation Tests
+
     /// <summary>
     /// Verifies that the parser accepts readonly attribute.
     /// </summary>
-
     [Fact]
     public void Parse_ReadonlyAttribute()
     {
@@ -31,7 +31,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts crash only attribute.
     /// </summary>
-
     [Fact]
     public void Parse_CrashOnlyAttribute()
     {
@@ -51,7 +50,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts prelude attribute.
     /// </summary>
-
     [Fact]
     public void Parse_PreludeAttribute()
     {
@@ -70,7 +68,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts static attribute.
     /// </summary>
-
     [Fact]
     public void Parse_StaticAttribute()
     {
@@ -85,7 +82,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts inline attribute.
     /// </summary>
-
     [Fact]
     public void Parse_InlineAttribute()
     {
@@ -101,10 +97,10 @@ public class AttributeTests
     #endregion
 
     #region Parameterized Annotation Tests
+
     /// <summary>
     /// Verifies that the parser accepts deprecated attribute with message.
     /// </summary>
-
     [Fact]
     public void Parse_DeprecatedAttributeWithMessage()
     {
@@ -121,10 +117,10 @@ public class AttributeTests
     #endregion
 
     #region Compound Annotation Tests
+
     /// <summary>
     /// Verifies that the parser accepts compound attributes.
     /// </summary>
-
     [Fact]
     public void Parse_CompoundAttributes()
     {
@@ -141,7 +137,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts compound attributes multiple.
     /// </summary>
-
     [Fact]
     public void Parse_CompoundAttributesMultiple()
     {
@@ -156,7 +151,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts compound protocol annotations.
     /// </summary>
-
     [Fact]
     public void Parse_CompoundProtocolAnnotations()
     {
@@ -175,10 +169,10 @@ public class AttributeTests
     #endregion
 
     #region Type Annotation Tests
+
     /// <summary>
     /// Verifies that the parser accepts attribute on protocol.
     /// </summary>
-
     [Fact]
     public void Parse_AttributeOnProtocol()
     {
@@ -192,14 +186,13 @@ public class AttributeTests
         AssertParses(source: source);
     }
 
-
     #endregion
 
     #region Member Variable Annotation Tests
+
     /// <summary>
     /// Verifies that the parser accepts attribute on field.
     /// </summary>
-
     [Fact]
     public void Parse_AttributeOnField()
     {
@@ -217,7 +210,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts attribute on entity member variable.
     /// </summary>
-
     [Fact]
     public void Parse_AttributeOnEntityMemberVariable()
     {
@@ -236,10 +228,10 @@ public class AttributeTests
     #endregion
 
     #region Multiple Annotation Lines Tests
+
     /// <summary>
     /// Verifies that the parser accepts multiple attribute lines.
     /// </summary>
-
     [Fact]
     public void Parse_MultipleAttributeLines()
     {
@@ -256,7 +248,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts attributes on type and memberRoutines.
     /// </summary>
-
     [Fact]
     public void Parse_AttributesOnTypeAndMemberRoutines()
     {
@@ -280,10 +271,10 @@ public class AttributeTests
     #endregion
 
     #region Visibility with Annotation Tests
+
     /// <summary>
     /// Verifies that the parser accepts visibility and attribute.
     /// </summary>
-
     [Fact]
     public void Parse_VisibilityAndAttribute()
     {
@@ -299,7 +290,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts private with attribute.
     /// </summary>
-
     [Fact]
     public void Parse_PrivateWithAttribute()
     {
@@ -314,7 +304,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts internal with attribute.
     /// </summary>
-
     [Fact]
     public void Parse_InternalWithAttribute()
     {
@@ -330,10 +319,10 @@ public class AttributeTests
     #endregion
 
     #region Protocol Member Routine Annotations
+
     /// <summary>
     /// Verifies that the parser accepts protocol memberRoutine attributes.
     /// </summary>
-
     [Fact]
     public void Parse_ProtocolMemberRoutineAttributes()
     {
@@ -354,10 +343,10 @@ public class AttributeTests
     #endregion
 
     #region Test Annotation Tests
+
     /// <summary>
     /// Verifies that the parser accepts test attribute.
     /// </summary>
-
     [Fact]
     public void Parse_TestAttribute()
     {
@@ -373,7 +362,6 @@ public class AttributeTests
     /// <summary>
     /// Verifies that the parser accepts bench attribute.
     /// </summary>
-
     [Fact]
     public void Parse_BenchAttribute()
     {

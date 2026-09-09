@@ -26,6 +26,6 @@ public sealed record BackendRepr(
 {
     /// <summary>True when <see cref="Kind"/> is one of the pointer-shaped backend reprs.</summary>
     public bool IsPointerLike =>
-        Kind is BackendReprKind.EntityRef or BackendReprKind.ProtocolRef or
-            BackendReprKind.WrapperRef or BackendReprKind.RoutineRef or BackendReprKind.RawPtr;
+        Kind is BackendReprKind.EntityRef or BackendReprKind.ProtocolRef
+            or BackendReprKind.WrapperRef or BackendReprKind.RoutineRef or BackendReprKind.RawPtr;
 }

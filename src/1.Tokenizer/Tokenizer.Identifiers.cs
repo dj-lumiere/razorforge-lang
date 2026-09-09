@@ -95,7 +95,9 @@ public partial class Tokenizer
         }
 
         // Check for special float/decimal literals: inf_fNN, nan_fNN, inf_dNN, nan_dNN
-        if (TryMatchSpecialFloatLiteral(text: text, out TokenType specialType, out string specialBody))
+        if (TryMatchSpecialFloatLiteral(text: text,
+                type: out TokenType specialType,
+                body: out string specialBody))
         {
             AddToken(type: specialType, text: specialBody);
             return;
@@ -135,8 +137,12 @@ public partial class Tokenizer
             return false;
         }
 
-        _tokens.Add(item: new Token(Type: TokenType.Dollar, FileName: _fileName, Text: "$",
-            Line: _tokenStartLine, Column: _tokenStartColumn, Position: _tokenStart));
+        _tokens.Add(item: new Token(Type: TokenType.Dollar,
+            FileName: _fileName,
+            Text: "$",
+            Line: _tokenStartLine,
+            Column: _tokenStartColumn,
+            Position: _tokenStart));
         _tokenStart += 1;
         _tokenStartColumn += 1;
         // A lone '$' with no identifier body — nothing more to emit.
@@ -151,39 +157,42 @@ public partial class Tokenizer
         AddToken(type: type, text: text);
 
         // Track definition keywords for script mode detection
-        if (type is TokenType.Routine or TokenType.Entity or TokenType.Record
-            or TokenType.Choice or TokenType.Variant or TokenType.Flags or TokenType.Protocol)
+        if (type is TokenType.Routine or TokenType.Entity or TokenType.Record or TokenType.Choice
+            or TokenType.Variant or TokenType.Flags or TokenType.Protocol)
         {
             _hasDefinitions = true;
         }
     }
 
-    private static readonly Dictionary<string, TokenType> _specialFloatLiterals =
-        new()
-        {
-            ["inf_f16"] = TokenType.F16Literal,
-            ["nan_f16"] = TokenType.F16Literal,
-            ["inf_f32"] = TokenType.F32Literal,
-            ["nan_f32"] = TokenType.F32Literal,
-            ["inf_f64"] = TokenType.F64Literal,
-            ["nan_f64"] = TokenType.F64Literal,
-            ["inf_f128"] = TokenType.F128Literal,
-            ["nan_f128"] = TokenType.F128Literal,
-            ["inf_d32"] = TokenType.D32Literal,
-            ["nan_d32"] = TokenType.D32Literal,
-            ["inf_d64"] = TokenType.D64Literal,
-            ["nan_d64"] = TokenType.D64Literal,
-            ["inf_d128"] = TokenType.D128Literal,
-            ["nan_d128"] = TokenType.D128Literal,
-        };
+    private static readonly Dictionary<string, TokenType> _specialFloatLiterals = new()
+    {
+        [key: "inf_f16"] = TokenType.F16Literal,
+        [key: "nan_f16"] = TokenType.F16Literal,
+        [key: "inf_f32"] = TokenType.F32Literal,
+        [key: "nan_f32"] = TokenType.F32Literal,
+        [key: "inf_f64"] = TokenType.F64Literal,
+        [key: "nan_f64"] = TokenType.F64Literal,
+        [key: "inf_f128"] = TokenType.F128Literal,
+        [key: "nan_f128"] = TokenType.F128Literal,
+        [key: "inf_d32"] = TokenType.D32Literal,
+        [key: "nan_d32"] = TokenType.D32Literal,
+        [key: "inf_d64"] = TokenType.D64Literal,
+        [key: "nan_d64"] = TokenType.D64Literal,
+        [key: "inf_d128"] = TokenType.D128Literal,
+        [key: "nan_d128"] = TokenType.D128Literal
+    };
 
-    private static bool TryMatchSpecialFloatLiteral(string text, out TokenType type, out string body)
+    private static bool TryMatchSpecialFloatLiteral(string text, out TokenType type,
+        out string body)
     {
         if (_specialFloatLiterals.TryGetValue(key: text, value: out type))
         {
-            body = text.StartsWith(value: "inf") ? "inf" : "nan";
+            body = text.StartsWith(value: "inf")
+                ? "inf"
+                : "nan";
             return true;
         }
+
         type = default;
         body = string.Empty;
         return false;

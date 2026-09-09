@@ -3,6 +3,7 @@ using TypeModel.Symbols;
 using TypeModel.Types;
 using Compiler.Verification.Enums;
 using Compiler.Verification.Scopes;
+using SyntaxTree;
 
 namespace Compiler.Declaration;
 
@@ -20,35 +21,48 @@ partial class TypeRegistry
         // Type storage
         /// <summary>All registered types keyed by full name.</summary>
         public Dictionary<string, TypeInfo> Types { get; init; } = null!;
+
         /// <summary>Generic-resolution cache keyed by instantiated full name.</summary>
         public Dictionary<string, TypeInfo> Resolutions { get; init; } = null!;
+
         /// <summary>Wrapper-type resolution cache (Owned/Retained/etc.) keyed by full name.</summary>
         public Dictionary<string, WrapperTypeInfo> WrapperResolutions { get; init; } = null!;
+
         /// <summary>Entity specializations keyed by full name.</summary>
         public Dictionary<string, TypeInfo> EntitySpecializations { get; init; } = null!;
+
         /// <summary>Types indexed by short (unqualified) name for import resolution.</summary>
         public Dictionary<string, TypeInfo> TypesByShortName { get; init; } = null!;
 
         // Routine storage — list-valued dicts need copied lists (not shared) so tests can extend them
         /// <summary>All routines keyed by RegistryKey.</summary>
         public Dictionary<string, RoutineInfo> Routines { get; init; } = null!;
+
         /// <summary>Routines keyed by qualified name.</summary>
         public Dictionary<string, RoutineInfo> RoutinesByQualifiedName { get; init; } = null!;
+
         /// <summary>Routines grouped by owner type full name, then by memberRoutine name → overloads (a bare
         /// generic-param owner is stored under the canonical GenericOwnerKey).</summary>
-        public Dictionary<string, Dictionary<string, List<RoutineInfo>>> RoutinesByOwner { get; init; } = null!;
+        public Dictionary<string, Dictionary<string, List<RoutineInfo>>> RoutinesByOwner
+        {
+            get;
+            init;
+        } = null!;
+
         /// <summary>Resolved routine instances (concrete-owner substitutions) keyed by RegistryKey.</summary>
         public Dictionary<string, RoutineInfo> RoutineResolutions { get; init; } = null!;
 
         // Preset storage
         /// <summary>Preset variables keyed by short name.</summary>
         public Dictionary<string, VariableInfo> Presets { get; init; } = null!;
+
         /// <summary>Preset variables keyed by qualified name.</summary>
         public Dictionary<string, VariableInfo> PresetsByQualifiedName { get; init; } = null!;
 
         // Module tracking
         /// <summary>Set of module paths already loaded into the registry.</summary>
         public HashSet<string> LoadedModules { get; init; } = null!;
+
         /// <summary>Module alias → qualified module name map.</summary>
         public Dictionary<string, string> ModuleNames { get; init; } = null!;
 
@@ -59,16 +73,16 @@ partial class TypeRegistry
         /// memberRoutine name. Restored so a warm full-analyze can still CLONE a per-type derive body
         /// (e.g. <c>CLong.destroy()</c>) for a stdlib type whose synthesized body was not pre-captured —
         /// without them <see cref="GetDeriveTemplate"/> returns null and WiredRoutinePass throws.</summary>
-        public Dictionary<string,
-            List<(string OwnerParam, int Arity, List<SyntaxTree.GenericConstraintDeclaration> Gates,
-                SyntaxTree.Statement Body)>> DeriveTemplates { get; init; } = null!;
+        public Dictionary<string, List<(string OwnerParam, int Arity,
+                List<SyntaxTree.GenericConstraintDeclaration> Gates, SyntaxTree.Statement Body)>>
+            DeriveTemplates { get; init; } = null!;
 
         /// <summary>Deferred failable-variant bases (base RegistryKey → base routine, AST body, pessimistic)
         /// captured so a snapshot-restored build — which skips variant pre-registration — can still
         /// synthesize stdlib <c>try_</c>/<c>check_</c>/<c>lookup_</c> variants on demand. See
         /// <see cref="DeferredVariantBases"/>.</summary>
-        public Dictionary<string, (RoutineInfo baseRoutine, SyntaxTree.Statement body, bool pessimistic)>
-            DeferredVariantBases { get; init; } = null!;
+        public Dictionary<string, (RoutineInfo baseRoutine, SyntaxTree.Statement body, bool
+            pessimistic)> DeferredVariantBases { get; init; } = null!;
     }
 
     /// <summary>
@@ -80,45 +94,56 @@ partial class TypeRegistry
     /// variant calls would fail to resolve. AST bodies in a snapshot are already precedented by
     /// <see cref="StdlibSnapshot.DeriveTemplates"/>.
     /// </summary>
-    internal Dictionary<string, (RoutineInfo baseRoutine, SyntaxTree.Statement body, bool pessimistic)>
-        DeferredVariantBases { get; private set; } = new();
+    internal Dictionary<string, (RoutineInfo baseRoutine, SyntaxTree.Statement body, bool
+        pessimistic)> DeferredVariantBases { get; private set; } = new();
 
     /// <summary>
     /// Captures a snapshot of the current registry state.
     /// Call after stdlib loading and body analysis is complete.
     /// List-valued dictionaries are deep-copied so tests can extend them without poisoning the snapshot.
     /// </summary>
-    public StdlibSnapshot CaptureSnapshot() =>
-        new()
+    public StdlibSnapshot CaptureSnapshot()
+    {
+        return new StdlibSnapshot
         {
             Language = Language,
-            Types = new Dictionary<string, TypeInfo>(_types),
-            Resolutions = new Dictionary<string, TypeInfo>(_resolutions),
-            WrapperResolutions = new Dictionary<string, WrapperTypeInfo>(_wrapperResolutions),
-            EntitySpecializations = new Dictionary<string, TypeInfo>(_entitySpecializations),
-            TypesByShortName = new Dictionary<string, TypeInfo>(_typesByShortName),
-            Routines = new Dictionary<string, RoutineInfo>(_routines),
-            RoutinesByQualifiedName = new Dictionary<string, RoutineInfo>(_routinesByQualifiedName),
-            RoutinesByOwner = _routinesByOwner.ToDictionary(
-                keySelector: kv => kv.Key,
-                elementSelector: kv => kv.Value.ToDictionary(
-                    keySelector: m => m.Key,
-                    elementSelector: m => new List<RoutineInfo>(m.Value))),
-            RoutineResolutions = new Dictionary<string, RoutineInfo>(_routineResolutions),
-            Presets = new Dictionary<string, VariableInfo>(_presets),
-            PresetsByQualifiedName = new Dictionary<string, VariableInfo>(_presetsByQualifiedName),
-            LoadedModules = new HashSet<string>(_loadedModules, StringComparer.OrdinalIgnoreCase),
-            ModuleNames = new Dictionary<string, string>(_moduleNames, StringComparer.OrdinalIgnoreCase),
+            Types = new Dictionary<string, TypeInfo>(dictionary: _types),
+            Resolutions = new Dictionary<string, TypeInfo>(dictionary: _resolutions),
+            WrapperResolutions =
+                new Dictionary<string, WrapperTypeInfo>(dictionary: _wrapperResolutions),
+            EntitySpecializations =
+                new Dictionary<string, TypeInfo>(dictionary: _entitySpecializations),
+            TypesByShortName = new Dictionary<string, TypeInfo>(dictionary: _typesByShortName),
+            Routines = new Dictionary<string, RoutineInfo>(dictionary: _routines),
+            RoutinesByQualifiedName =
+                new Dictionary<string, RoutineInfo>(dictionary: _routinesByQualifiedName),
+            RoutinesByOwner =
+                _routinesByOwner.ToDictionary(keySelector: kv => kv.Key,
+                    elementSelector:
+                    kv => kv.Value.ToDictionary(keySelector: m => m.Key,
+                        elementSelector: m => new List<RoutineInfo>(collection: m.Value))),
+            RoutineResolutions =
+                new Dictionary<string, RoutineInfo>(dictionary: _routineResolutions),
+            Presets = new Dictionary<string, VariableInfo>(dictionary: _presets),
+            PresetsByQualifiedName =
+                new Dictionary<string, VariableInfo>(dictionary: _presetsByQualifiedName),
+            LoadedModules =
+                new HashSet<string>(collection: _loadedModules,
+                    comparer: StringComparer.OrdinalIgnoreCase),
+            ModuleNames =
+                new Dictionary<string, string>(dictionary: _moduleNames,
+                    comparer: StringComparer.OrdinalIgnoreCase),
             StdlibRootPath = _stdlibPath,
-            DeriveTemplates = _deriveTemplates.ToDictionary(
-                keySelector: kv => kv.Key,
+            DeriveTemplates = _deriveTemplates.ToDictionary(keySelector: kv => kv.Key,
                 elementSelector: kv => kv.Value
-                    .Select(selector: e => (e.OwnerParam, e.Arity, e.Gates, e.Body))
-                    .ToList()),
+                                         .Select(selector: e =>
+                                              (e.OwnerParam, e.Arity, e.Gates, e.Body))
+                                         .ToList()),
             DeferredVariantBases =
-                new Dictionary<string, (RoutineInfo baseRoutine, SyntaxTree.Statement body, bool pessimistic)>(
-                    DeferredVariantBases),
+                new Dictionary<string, (RoutineInfo baseRoutine, SyntaxTree.Statement body, bool
+                    pessimistic)>(dictionary: DeferredVariantBases)
         };
+    }
 
     /// <summary>
     /// Restores registry state from a stdlib snapshot.
@@ -138,9 +163,11 @@ partial class TypeRegistry
         RestoreDeriveTemplates(snapshot: snapshot);
         // Restore the deferred variant index so on-demand synthesis works without re-running pre-registration.
         if (snapshot.DeferredVariantBases != null)
+        {
             DeferredVariantBases =
-                new Dictionary<string, (RoutineInfo baseRoutine, SyntaxTree.Statement body, bool pessimistic)>(
-                    snapshot.DeferredVariantBases);
+                new Dictionary<string, (RoutineInfo baseRoutine, SyntaxTree.Statement body, bool
+                    pessimistic)>(dictionary: snapshot.DeferredVariantBases);
+        }
 
         // Fresh loader per test — shares no mutable state with other test instances.
         // The snapshot's loader is only used to capture the registry state; on-demand module
@@ -155,37 +182,85 @@ partial class TypeRegistry
     /// short-name index) from a snapshot.</summary>
     private void RestoreTypeStorage(StdlibSnapshot snapshot)
     {
-        foreach (var kv in snapshot.Types) _types[kv.Key] = kv.Value;
-        foreach (var kv in snapshot.Resolutions) _resolutions[kv.Key] = kv.Value;
-        foreach (var kv in snapshot.WrapperResolutions) _wrapperResolutions[kv.Key] = kv.Value;
-        foreach (var kv in snapshot.EntitySpecializations) _entitySpecializations[kv.Key] = kv.Value;
-        foreach (var kv in snapshot.TypesByShortName) _typesByShortName[kv.Key] = kv.Value;
+        foreach (KeyValuePair<string, TypeInfo> kv in snapshot.Types)
+        {
+            _types[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, TypeInfo> kv in snapshot.Resolutions)
+        {
+            _resolutions[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, WrapperTypeInfo> kv in snapshot.WrapperResolutions)
+        {
+            _wrapperResolutions[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, TypeInfo> kv in snapshot.EntitySpecializations)
+        {
+            _entitySpecializations[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, TypeInfo> kv in snapshot.TypesByShortName)
+        {
+            _typesByShortName[key: kv.Key] = kv.Value;
+        }
     }
 
     /// <summary>Restores the routine-storage dictionaries. List-valued dicts get NEW lists so test
     /// mutations don't leak back into the shared snapshot.</summary>
     private void RestoreRoutineStorage(StdlibSnapshot snapshot)
     {
-        foreach (var kv in snapshot.Routines) _routines[kv.Key] = kv.Value;
-        foreach (var kv in snapshot.RoutinesByQualifiedName) _routinesByQualifiedName[kv.Key] = kv.Value;
-        foreach (var kv in snapshot.RoutinesByOwner)
-            _routinesByOwner[kv.Key] = kv.Value.ToDictionary(
-                keySelector: m => m.Key, elementSelector: m => new List<RoutineInfo>(m.Value));
-        foreach (var kv in snapshot.RoutineResolutions) _routineResolutions[kv.Key] = kv.Value;
+        foreach (KeyValuePair<string, RoutineInfo> kv in snapshot.Routines)
+        {
+            _routines[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, RoutineInfo> kv in snapshot.RoutinesByQualifiedName)
+        {
+            _routinesByQualifiedName[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, Dictionary<string, List<RoutineInfo>>> kv in snapshot
+                    .RoutinesByOwner)
+        {
+            _routinesByOwner[key: kv.Key] = kv.Value.ToDictionary(keySelector: m => m.Key,
+                elementSelector: m => new List<RoutineInfo>(collection: m.Value));
+        }
+
+        foreach (KeyValuePair<string, RoutineInfo> kv in snapshot.RoutineResolutions)
+        {
+            _routineResolutions[key: kv.Key] = kv.Value;
+        }
     }
 
     /// <summary>Restores the preset dictionaries from a snapshot.</summary>
     private void RestorePresetStorage(StdlibSnapshot snapshot)
     {
-        foreach (var kv in snapshot.Presets) _presets[kv.Key] = kv.Value;
-        foreach (var kv in snapshot.PresetsByQualifiedName) _presetsByQualifiedName[kv.Key] = kv.Value;
+        foreach (KeyValuePair<string, VariableInfo> kv in snapshot.Presets)
+        {
+            _presets[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, VariableInfo> kv in snapshot.PresetsByQualifiedName)
+        {
+            _presetsByQualifiedName[key: kv.Key] = kv.Value;
+        }
     }
 
     /// <summary>Restores the loaded-module set and module-name aliases from a snapshot.</summary>
     private void RestoreModuleTracking(StdlibSnapshot snapshot)
     {
-        foreach (var m in snapshot.LoadedModules) _loadedModules.Add(m);
-        foreach (var kv in snapshot.ModuleNames) _moduleNames[kv.Key] = kv.Value;
+        foreach (string m in snapshot.LoadedModules)
+        {
+            _loadedModules.Add(item: m);
+        }
+
+        foreach (KeyValuePair<string, string> kv in snapshot.ModuleNames)
+        {
+            _moduleNames[key: kv.Key] = kv.Value;
+        }
     }
 
     /// <summary>
@@ -195,10 +270,17 @@ partial class TypeRegistry
     private void RestoreDeriveTemplates(StdlibSnapshot snapshot)
     {
         if (snapshot.DeriveTemplates != null)
-            foreach (var kv in snapshot.DeriveTemplates)
-                _deriveTemplates[kv.Key] = kv.Value
-                    .Select(selector: e => (e.OwnerParam, e.Arity, e.Gates, e.Body))
-                    .ToList();
+        {
+            foreach (KeyValuePair<string, List<(string OwnerParam, int Arity,
+                         List<GenericConstraintDeclaration> Gates, Statement Body)>> kv in snapshot
+                        .DeriveTemplates)
+            {
+                _deriveTemplates[key: kv.Key] = kv.Value
+                                                  .Select(selector: e =>
+                                                       (e.OwnerParam, e.Arity, e.Gates, e.Body))
+                                                  .ToList();
+            }
+        }
     }
 
     /// <summary>
@@ -209,13 +291,17 @@ partial class TypeRegistry
     private void InitializeRestoredLoader(StdlibSnapshot snapshot, Language language)
     {
         if (snapshot.StdlibRootPath != null)
-            _stdlibLoader = new StdlibLoader(stdlibRoot: snapshot.StdlibRootPath, language: language)
-            {
-                // Core is restored (already lowered) — an on-demand import re-scans stdlib and re-parses
-                // every Core file into the loader's _corePrograms; flag it so those stale unanalyzed copies
-                // are NOT reported as freshly-loaded (they'd be re-lowered and crash — the D128 ternary bug).
-                CoreResident = true
-            };
+        {
+            _stdlibLoader =
+                new StdlibLoader(stdlibRoot: snapshot.StdlibRootPath, language: language)
+                {
+                    // Core is restored (already lowered) — an on-demand import re-scans stdlib and re-parses
+                    // every Core file into the loader's _corePrograms; flag it so those stale unanalyzed copies
+                    // are NOT reported as freshly-loaded (they'd be re-lowered and crash — the D128 ternary bug).
+                    CoreResident = true
+                };
+        }
+
         _coreModuleLoaded = true;
     }
 }

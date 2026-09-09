@@ -31,11 +31,10 @@ public sealed partial class SemanticVerifier
                 if (seenNonImport)
                 {
                     ReportError(code: SemanticDiagnosticCode.ImportPositionViolation,
-                        message:
-                        $"Import '{import.ModulePath}' is misplaced. " +
-                        "Move all 'import' statements to the top of the file, " +
-                        "immediately after the 'module' declaration and before any other declaration. " +
-                        "RazorForge enforces top-of-file imports for uniform structure across modules.",
+                        message: $"Import '{import.ModulePath}' is misplaced. " +
+                                 "Move all 'import' statements to the top of the file, " +
+                                 "immediately after the 'module' declaration and before any other declaration. " +
+                                 "RazorForge enforces top-of-file imports for uniform structure across modules.",
                         location: import.Location);
                 }
             }
@@ -199,7 +198,8 @@ public sealed partial class SemanticVerifier
         // with cross-module name clashes disambiguated by a longer namespace prefix (RF-S513). When the
         // prefix is a leaf module (no submodules), this list is empty and we fall through to the plain
         // single-module load below.
-        IReadOnlyList<string> submodules = _registry.EnumerateSubmodules(prefix: import.ModulePath);
+        IReadOnlyList<string> submodules =
+            _registry.EnumerateSubmodules(prefix: import.ModulePath);
         if (submodules.Count > 0)
         {
             ProcessPrefixImport(import: import, submodules: submodules);
@@ -224,7 +224,8 @@ public sealed partial class SemanticVerifier
         // #105: Check for import name collisions with specific imports
         if (import.SpecificImports != null)
         {
-            foreach (string symbolName in import.SpecificImports.Where(s => !_importedSymbolNames.Add(s)))
+            foreach (string symbolName in import.SpecificImports.Where(predicate: s =>
+                         !_importedSymbolNames.Add(item: s)))
             {
                 ReportError(code: SemanticDiagnosticCode.ImportNameCollision,
                     message: $"Symbol '{symbolName}' is already imported from another module.",
@@ -259,7 +260,8 @@ public sealed partial class SemanticVerifier
         bool anyLoaded = false;
         // Load the prefix module itself too if it happens to be a real module (a namespace-only
         // prefix just fails silently here — the submodules are what matter).
-        foreach (string modulePath in submodules.Prepend(element: import.ModulePath).Distinct())
+        foreach (string modulePath in submodules.Prepend(element: import.ModulePath)
+                                                .Distinct())
         {
             if (_registry.LoadModule(importPath: modulePath,
                     currentFile: _currentFilePath,
@@ -267,7 +269,10 @@ public sealed partial class SemanticVerifier
                     effectiveModule: out string? subEffective))
             {
                 anyLoaded = true;
-                if (subEffective != null) _importedModules.Add(item: subEffective);
+                if (subEffective != null)
+                {
+                    _importedModules.Add(item: subEffective);
+                }
             }
         }
 
@@ -289,7 +294,8 @@ public sealed partial class SemanticVerifier
         // - private: read/write within file
 
         // Check for duplicate member variable names within the same type
-        if (_currentTypeMemberVariableNames != null && !_currentTypeMemberVariableNames.Add(item: memberVariable.Name))
+        if (_currentTypeMemberVariableNames != null &&
+            !_currentTypeMemberVariableNames.Add(item: memberVariable.Name))
         {
             ReportError(code: SemanticDiagnosticCode.DuplicateMemberVariableDefinition,
                 message:
@@ -424,10 +430,11 @@ public sealed partial class SemanticVerifier
     internal bool ValidateNoRecursiveValueRecords()
     {
         bool found = false;
-        foreach (TypeInfo t in _registry.GetAllTypes().ToList())
+        foreach (TypeInfo t in _registry.GetAllTypes()
+                                        .ToList())
         {
-            if (t is not RecordTypeInfo { BackendType: null, IsGenericDefinition: false } rec
-                || rec is TupleTypeInfo)
+            if (t is not RecordTypeInfo { BackendType: null, IsGenericDefinition: false } rec ||
+                rec is TupleTypeInfo)
             {
                 continue;
             }
@@ -439,16 +446,21 @@ public sealed partial class SemanticVerifier
                 {
                     continue;
                 }
+
                 ReportError(code: SemanticDiagnosticCode.RecursiveValueRecord,
                     message:
                     $"Record '{rec.Name}' contains itself by value (directly or transitively), " +
                     "which would require infinite storage. Store it behind an entity or a " +
                     "pointer-like wrapper (e.g. Retained[...]) instead.",
-                    location: rec.Location ?? new SourceLocation(FileName: "", Line: 0, Column: 0, Position: 0));
+                    location: rec.Location ?? new SourceLocation(FileName: "",
+                        Line: 0,
+                        Column: 0,
+                        Position: 0));
                 found = true;
                 break;
             }
         }
+
         return found;
     }
 
@@ -465,14 +477,19 @@ public sealed partial class SemanticVerifier
         {
             return false;
         }
-        if (string.Equals(a: rec.FullName, b: target.FullName, comparisonType: StringComparison.Ordinal))
+
+        if (string.Equals(a: rec.FullName,
+                b: target.FullName,
+                comparisonType: StringComparison.Ordinal))
         {
             return true;
         }
+
         if (!seen.Add(item: rec.FullName))
         {
             return false; // already explored from here, no cycle back to target through it
         }
+
         return rec.MemberVariables.Any(predicate: mv =>
             ValueAggregateReaches(target: target, current: mv.Type, seen: seen));
     }
@@ -493,7 +510,9 @@ public sealed partial class SemanticVerifier
         // @llvm("typename") IS the layout — fields would be silently discarded by codegen.
         // Permit `pass` bodies and bodies with only non-field declarations (e.g. comments / nested
         // routines via inline blocks). Reject any VariableDeclaration in Members.
-        if (typeInfo.BackendType != null && record.Members.OfType<VariableDeclaration>().Any())
+        if (typeInfo.BackendType != null && record.Members
+                                                  .OfType<VariableDeclaration>()
+                                                  .Any())
         {
             ReportError(code: SemanticDiagnosticCode.LlvmAnnotatedRecordMustHavePassBody,
                 message:
@@ -529,7 +548,8 @@ public sealed partial class SemanticVerifier
                 continue;
             }
 
-            string arg = ann[7..^1].Trim(trimChar: '"');
+            string arg = ann[7..^1]
+               .Trim(trimChar: '"');
             switch (arg)
             {
                 case "C":
@@ -542,7 +562,9 @@ public sealed partial class SemanticVerifier
                 default:
                     if (arg.StartsWith(value: "align="))
                     {
-                        ApplyAlignLayout(typeInfo: typeInfo, spec: arg["align=".Length..], record: record);
+                        ApplyAlignLayout(typeInfo: typeInfo,
+                            spec: arg["align=".Length..],
+                            record: record);
                     }
                     else
                     {
@@ -552,6 +574,7 @@ public sealed partial class SemanticVerifier
                             "\"C\", \"packed\", or \"align=N\".",
                             location: record.Location);
                     }
+
                     break;
             }
         }
@@ -562,14 +585,16 @@ public sealed partial class SemanticVerifier
     /// annotation appears in a non-record context (variable declaration, use-site type, …). Memory layout
     /// is a per-type property fixed at the record's declaration and nowhere else.
     /// </summary>
-    private void RejectLayoutAnnotation(List<string>? annotations, SourceLocation location, string where)
+    private void RejectLayoutAnnotation(List<string>? annotations, SourceLocation location,
+        string where)
     {
         if (annotations is null)
         {
             return;
         }
 
-        foreach (string ann in annotations.Where(a => a.StartsWith("layout(") && a.EndsWith(')')))
+        foreach (string ann in annotations.Where(predicate: a =>
+                     a.StartsWith(value: "layout(") && a.EndsWith(value: ')')))
         {
             ReportError(code: SemanticDiagnosticCode.LayoutAnnotationNotOnRecord,
                 message:
@@ -585,7 +610,7 @@ public sealed partial class SemanticVerifier
     /// 4096. Non-powers-of-two, 1, and huge values are rejected.</summary>
     private void ApplyAlignLayout(RecordTypeInfo typeInfo, string spec, RecordDeclaration record)
     {
-        if (int.TryParse(s: spec, result: out int n) && n >= 2 && n <= 4096 && (n & (n - 1)) == 0)
+        if (int.TryParse(s: spec, result: out int n) && n >= 2 && n <= 4096 && (n & n - 1) == 0)
         {
             typeInfo.ForcedAlignment = n;
             return;
@@ -609,8 +634,10 @@ public sealed partial class SemanticVerifier
             return null;
         }
 
-        string? match = annotations.FirstOrDefault(ann => ann.StartsWith(value: "llvm(") && ann.EndsWith(value: ')'));
-        return match?[5..^1].Trim(trimChar: '"');
+        string? match = annotations.FirstOrDefault(predicate: ann =>
+            ann.StartsWith(value: "llvm(") && ann.EndsWith(value: ')'));
+        return match?[5..^1]
+           .Trim(trimChar: '"');
     }
 
     private void CollectEntityDeclaration(EntityDeclaration entity)
@@ -705,39 +732,44 @@ public sealed partial class SemanticVerifier
     /// build-time invariant <c>AssertNoBareEntityInSignature</c> still guards the OTHER bare-entity case
     /// (an SF entity that slipped roaming — a compiler bug, no <c>RF::</c> tag).
     /// </summary>
-    private void CheckSuflaeSignatureHasNoBareRfEntity(RoutineDeclaration routine, RoutineKind kind)
+    private void CheckSuflaeSignatureHasNoBareRfEntity(RoutineDeclaration routine,
+        RoutineKind kind)
     {
         string? file = routine.Location.FileName;
-        if (_registry.Language != Language.Suflae || file == null
-            || !file.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase)
-            || IsStdlibFile(filePath: file))
+        if (_registry.Language != Language.Suflae || file == null ||
+            !file.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase) ||
+            IsStdlibFile(filePath: file))
         {
             return;
         }
 
-        const string advice = " A RazorForge entity has no reference count, so passing it by value "
-            + "across a Suflae routine would let scope-exit teardown free the same object more than once. "
-            + "Hold it as a field of a Suflae entity, or hand it across as 'Retained[T]' (to keep it) or "
-            + "'Consulting[T]'/'Amending[T]' (to read/write it during the call).";
+        const string advice =
+            " A RazorForge entity has no reference count, so passing it by value " +
+            "across a Suflae routine would let scope-exit teardown free the same object more than once. " +
+            "Hold it as a field of a Suflae entity, or hand it across as 'Retained[T]' (to keep it) or " +
+            "'Consulting[T]'/'Amending[T]' (to read/write it during the call).";
 
         foreach (Parameter p in routine.Parameters)
         {
-            if (p.Type is { Realm: "RF" } pType && ResolveType(typeExpr: pType) is EntityTypeInfo pe)
+            if (p.Type is { Realm: "RF" } pType &&
+                ResolveType(typeExpr: pType) is EntityTypeInfo pe)
             {
                 ReportError(code: SemanticDiagnosticCode.SuflaeBareRfEntityInSignature,
-                    message: $"Parameter '{p.Name}' is a bare RazorForge entity '{pe.Name}' (via 'RF::')."
-                             + advice,
+                    message:
+                    $"Parameter '{p.Name}' is a bare RazorForge entity '{pe.Name}' (via 'RF::')." +
+                    advice,
                     location: pType.Location);
             }
         }
 
         // A constructor's return is the freshly-built entity the CALLER takes ownership of, not a
         // by-value hand-off of an already-live object, so it is exempt (mirrors the invariant's carve-out).
-        if (kind != RoutineKind.Creator && routine.ReturnType is { Realm: "RF" } rType
-            && ResolveType(typeExpr: rType) is EntityTypeInfo re)
+        if (kind != RoutineKind.Creator && routine.ReturnType is { Realm: "RF" } rType &&
+            ResolveType(typeExpr: rType) is EntityTypeInfo re)
         {
             ReportError(code: SemanticDiagnosticCode.SuflaeBareRfEntityInSignature,
-                message: $"The return type is a bare RazorForge entity '{re.Name}' (via 'RF::')." + advice,
+                message: $"The return type is a bare RazorForge entity '{re.Name}' (via 'RF::')." +
+                         advice,
                 location: rType.Location);
         }
     }
@@ -752,7 +784,9 @@ public sealed partial class SemanticVerifier
 
         // Validate declaration-level constraints (operator/kind restrictions, wired names, annotations,
         // mutation-category conflicts, varargs placement) before deferring registration.
-        ValidateRoutineDeclarationConstraints(routine: routine, kind: kind, ownerType: ownerType,
+        ValidateRoutineDeclarationConstraints(routine: routine,
+            kind: kind,
+            ownerType: ownerType,
             routineName: routineName);
 
         // Store for deferred resolution and registration in Phase 4.1
@@ -785,8 +819,13 @@ public sealed partial class SemanticVerifier
             // member name (RoutineInfo.CreatorName). The internal "create" name is gone; only the surface
             // token is read here.
             if (routine.Name == "create")
+            {
                 return (RoutineKind.Creator, ownerType, RoutineInfo.CreatorName);
-            RoutineKind inBodyKind = isCommon ? RoutineKind.CommonRoutine : RoutineKind.MemberRoutine;
+            }
+
+            RoutineKind inBodyKind = isCommon
+                ? RoutineKind.CommonRoutine
+                : RoutineKind.MemberRoutine;
             return (inBodyKind, ownerType, routineName);
         }
 
@@ -805,9 +844,13 @@ public sealed partial class SemanticVerifier
             // `routine Type(...)` sugar: Creator kind, NO member name (RoutineInfo.CreatorName). The
             // surface "create" token is read only here; nothing downstream keys off the name.
             if (declaredMember == "create")
+            {
                 return (RoutineKind.Creator, ownerType, RoutineInfo.CreatorName);
+            }
 
-            RoutineKind memberKind = isCommon ? RoutineKind.CommonRoutine : RoutineKind.MemberRoutine;
+            RoutineKind memberKind = isCommon
+                ? RoutineKind.CommonRoutine
+                : RoutineKind.MemberRoutine;
             return (memberKind, ownerType, routineName);
         }
 
@@ -823,8 +866,8 @@ public sealed partial class SemanticVerifier
         // structured GenericParameters, never into Name for a non-member routine), so it is looked up
         // directly with no generic-suffix strip.
         TypeSymbol? ctorOwner = LookupTypeWithImports(name: routine.Name);
-        if (ctorOwner is EntityTypeInfo or RecordTypeInfo or ChoiceTypeInfo
-            or FlagsTypeInfo or VariantTypeInfo or CrashableTypeInfo)
+        if (ctorOwner is EntityTypeInfo or RecordTypeInfo or ChoiceTypeInfo or FlagsTypeInfo
+            or VariantTypeInfo or CrashableTypeInfo)
         {
             return (RoutineKind.Creator, ctorOwner, RoutineInfo.CreatorName);
         }
@@ -837,8 +880,8 @@ public sealed partial class SemanticVerifier
     /// restrictions, unknown wired names, misplaced annotations, conflicting mutation categories, and
     /// varargs placement. Pure reporting — no registration side effects.
     /// </summary>
-    private void ValidateRoutineDeclarationConstraints(RoutineDeclaration routine, RoutineKind kind,
-        TypeSymbol? ownerType, string routineName)
+    private void ValidateRoutineDeclarationConstraints(RoutineDeclaration routine,
+        RoutineKind kind, TypeSymbol? ownerType, string routineName)
     {
         // Validate that choice types cannot define any operator wired member routines
         if (ownerType is ChoiceTypeInfo && kind == RoutineKind.MemberRoutine &&
@@ -1049,23 +1092,33 @@ public sealed partial class SemanticVerifier
     /// <c>Accessing[T]</c>/<c>Controlling[T]</c> is recorded in <c>_implicitProtocolConformances</c>
     /// and never reaches this list-based check.
     /// </remarks>
-    private static readonly HashSet<string> _markerProtocolBlessedWrappers = new(comparer: StringComparer.Ordinal)
-    {
-        Declaration.RuntimeContract.Retained, Declaration.RuntimeContract.Viewing, Declaration.RuntimeContract.Modifying, Declaration.RuntimeContract.Hijacked, Declaration.RuntimeContract.Tracked,
-        // Deferred concurrency wrappers (planned for v0.2+):
-        Declaration.RuntimeContract.Guarded, Declaration.RuntimeContract.Witnessed, Declaration.RuntimeContract.Consulting, Declaration.RuntimeContract.Amending,
-    };
+    private static readonly HashSet<string> _markerProtocolBlessedWrappers =
+        new(comparer: StringComparer.Ordinal)
+        {
+            Declaration.RuntimeContract.Retained,
+            Declaration.RuntimeContract.Viewing,
+            Declaration.RuntimeContract.Modifying,
+            Declaration.RuntimeContract.Hijacked,
+            Declaration.RuntimeContract.Tracked,
+            // Deferred concurrency wrappers (planned for v0.2+):
+            Declaration.RuntimeContract.Guarded,
+            Declaration.RuntimeContract.Witnessed,
+            Declaration.RuntimeContract.Consulting,
+            Declaration.RuntimeContract.Amending
+        };
 
-    private static readonly HashSet<string> _markerProtocolNames = new(comparer: StringComparer.Ordinal)
-    {
-        Declaration.RuntimeContract.Accessing, Declaration.RuntimeContract.Controlling,
-    };
+    private static readonly HashSet<string> _markerProtocolNames =
+        new(comparer: StringComparer.Ordinal)
+        {
+            Declaration.RuntimeContract.Accessing, Declaration.RuntimeContract.Controlling
+        };
 
     /// <summary>
     /// Enforces the closed allowlist for marker-protocol (<c>Accessing</c>/<c>Controlling</c>)
     /// obeyance. See <see cref="_markerProtocolBlessedWrappers"/> for rationale.
     /// </summary>
-    private void ValidateMarkerProtocolMembership(TypeSymbol type, List<TypeSymbol> implementedProtocols)
+    private void ValidateMarkerProtocolMembership(TypeSymbol type,
+        List<TypeSymbol> implementedProtocols)
     {
         // Resolve the base name of the obeyer for membership lookup. Generic instances carry
         // names like "T" / "Owned[S64]"; the allowlist keys on the generic-def name.
@@ -1085,15 +1138,21 @@ public sealed partial class SemanticVerifier
         foreach (TypeSymbol protocol in implementedProtocols)
         {
             if (protocol is not ProtocolTypeInfo protoInfo)
+            {
                 continue;
+            }
 
             // Implicit conformances (entity-T auto for Accessing/Controlling) bypass —
             // those are SA-synthesized, not user-written, and are sound by construction.
             if (_implicitProtocolConformances.Contains(item: (type.FullName, protoInfo.Name)))
+            {
                 continue;
+            }
 
-            if (!IsMarkerProtocolTransitive(protoInfo))
+            if (!IsMarkerProtocolTransitive(protoInfo: protoInfo))
+            {
                 continue;
+            }
 
             ReportError(code: SemanticDiagnosticCode.MarkerProtocolLayoutViolation,
                 message:
@@ -1113,11 +1172,14 @@ public sealed partial class SemanticVerifier
     {
         string baseName = (protoInfo.GenericDefinition ?? protoInfo).BareName;
         if (_markerProtocolNames.Contains(item: baseName))
+        {
             return true;
+        }
 
         // Check parents (Controlling[T] obeys Accessing[T] — flagging a type declaring obeys
         // Controlling[T] also catches the transitive Accessing case).
-        return _markerProtocolNames.Any(marker => CheckParentProtocols(proto: protoInfo, targetName: marker));
+        return _markerProtocolNames.Any(predicate: marker =>
+            CheckParentProtocols(proto: protoInfo, targetName: marker));
     }
 
     /// <summary>
@@ -1127,7 +1189,8 @@ public sealed partial class SemanticVerifier
     {
         foreach (ProtocolMemberRoutineInfo requiredMemberRoutine in protocol.MemberRoutines)
         {
-            ValidateRequiredProtocolMemberRoutine(type: type, protocol: protocol,
+            ValidateRequiredProtocolMemberRoutine(type: type,
+                protocol: protocol,
                 requiredMemberRoutine: requiredMemberRoutine);
         }
 
@@ -1166,14 +1229,14 @@ public sealed partial class SemanticVerifier
         // Look for the member routine on the type (not on its protocols — that would find the protocol's own declaration)
         // Routine names are bare; the failable `!` is a structured flag. CheckAndAdvance the bare name,
         // then (for a failable requirement) fall back to a same-named failable implementation.
-        IEnumerable<RoutineInfo> ownMemberRoutines = _registry.GetMemberRoutinesForType(type: type);
+        IEnumerable<RoutineInfo> ownMemberRoutines =
+            _registry.GetMemberRoutinesForType(type: type);
         RoutineInfo? typeMemberRoutine =
             ownMemberRoutines.FirstOrDefault(predicate: m => m.Name == requiredMemberRoutine.Name);
         if (typeMemberRoutine == null && requiredMemberRoutine.IsFailable)
         {
-            typeMemberRoutine =
-                ownMemberRoutines.FirstOrDefault(predicate: m =>
-                    m.Name == requiredMemberRoutine.Name && m.IsFailable);
+            typeMemberRoutine = ownMemberRoutines.FirstOrDefault(predicate: m =>
+                m.Name == requiredMemberRoutine.Name && m.IsFailable);
         }
 
         if (typeMemberRoutine == null)
@@ -1193,7 +1256,11 @@ public sealed partial class SemanticVerifier
                 message:
                 $"Cannot override innate routine '{protocol.Name}.{requiredMemberRoutine.Name}'. " +
                 "Innate routines are compiler-provided and cannot be overridden.",
-                location: typeMemberRoutine.Location ?? new SourceLocation("", 0, 0, 0));
+                location: typeMemberRoutine.Location ??
+                          new SourceLocation(FileName: "",
+                              Line: 0,
+                              Column: 0,
+                              Position: 0));
         }
         else if (typeMemberRoutine.MutationCategory > requiredMemberRoutine.Mutation)
         {
@@ -1208,7 +1275,11 @@ public sealed partial class SemanticVerifier
                 $"Protocol '{protocol.Name}' requires '{requiredMemberRoutine.Name}' to be " +
                 $"@{requiredMemberRoutine.Mutation.ToString().ToLowerInvariant()} (or less mutating), " +
                 $"but implementation on '{type.Name}' is @{typeMemberRoutine.MutationCategory.ToString().ToLowerInvariant()}.",
-                location: typeMemberRoutine.Location ?? new SourceLocation("", 0, 0, 0));
+                location: typeMemberRoutine.Location ??
+                          new SourceLocation(FileName: "",
+                              Line: 0,
+                              Column: 0,
+                              Position: 0));
         }
     }
 
@@ -1222,8 +1293,7 @@ public sealed partial class SemanticVerifier
     /// <param name="constraints">The constraints to validate.</param>
     /// <param name="typeParameters">The declared type parameters.</param>
     /// <param name="location">Source location for error reporting.</param>
-    internal void ValidateConstraintTypeParameters(
-        List<GenericConstraintDeclaration>? constraints,
+    internal void ValidateConstraintTypeParameters(List<GenericConstraintDeclaration>? constraints,
         List<string>? typeParameters, SourceLocation? location)
     {
         if (constraints == null || constraints.Count == 0)
@@ -1232,16 +1302,21 @@ public sealed partial class SemanticVerifier
         }
 
         HashSet<string> validParams = typeParameters != null
-            ? [..typeParameters]
+            ? [.. typeParameters]
             : [];
 
-        foreach (GenericConstraintDeclaration constraint in constraints.Where(c => !validParams.Contains(c.ParameterName)))
+        foreach (GenericConstraintDeclaration constraint in constraints.Where(predicate: c =>
+                     !validParams.Contains(item: c.ParameterName)))
         {
             ReportError(code: SemanticDiagnosticCode.UnknownTypeParameterInConstraint,
                 message:
                 $"Type parameter '{constraint.ParameterName}' in constraint is not declared. " +
                 $"Declared type parameters: {(typeParameters?.Count > 0 ? string.Join(separator: ", ", values: typeParameters) : "none")}.",
-                location: constraint.Location ?? location ?? new SourceLocation("", 0, 0, 0));
+                location: constraint.Location ?? location ??
+                new SourceLocation(FileName: "",
+                    Line: 0,
+                    Column: 0,
+                    Position: 0));
         }
     }
 

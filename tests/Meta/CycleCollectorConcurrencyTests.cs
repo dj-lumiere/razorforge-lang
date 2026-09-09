@@ -24,10 +24,12 @@ public sealed partial class CycleCollectorConcurrencyTests
     private static readonly string RepoRoot = LocateRepoRoot();
 
     private static readonly string CompilerDll =
-        Path.Combine(AppContext.BaseDirectory, "RazorForge.dll");
+        Path.Combine(path1: AppContext.BaseDirectory, path2: "RazorForge.dll");
 
-    private static readonly string FixturesDir =
-        Path.Combine(RepoRoot, "tests", "Fixtures", "CycleCollector");
+    private static readonly string FixturesDir = Path.Combine(path1: RepoRoot,
+        path2: "tests",
+        path3: "Fixtures",
+        path4: "CycleCollector");
 
     [Fact]
     public void MultithreadedCollection_NoUseAfterFree()
@@ -35,11 +37,13 @@ public sealed partial class CycleCollectorConcurrencyTests
         (int exit, string stdout, string stderr, bool timedOut) =
             RunFixture(fixture: "mt_uaf_stress.rf", timeoutMs: 180_000);
 
-        Assert.False(timedOut,
+        Assert.False(condition: timedOut,
+            userMessage:
             $"mt_uaf_stress hung — a stop-the-world deadlock?\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}");
-        Assert.True(exit == 0,
+        Assert.True(condition: exit == 0,
+            userMessage:
             $"mt_uaf_stress exited {exit} — a concurrent use-after-free?\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}");
-        Assert.Contains("DONE - no UAF", stdout);
+        Assert.Contains(expectedSubstring: "DONE - no UAF", actualString: stdout);
         AssertCleanStderr(stderr: stderr);
     }
 
@@ -49,35 +53,39 @@ public sealed partial class CycleCollectorConcurrencyTests
         (int exit, string stdout, string stderr, bool timedOut) =
             RunFixture(fixture: "deep_cycle.rf", timeoutMs: 120_000);
 
-        Assert.False(timedOut,
-            $"deep_cycle hung.\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}");
-        Assert.True(exit == 0,
+        Assert.False(condition: timedOut,
+            userMessage: $"deep_cycle hung.\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}");
+        Assert.True(condition: exit == 0,
+            userMessage:
             $"deep_cycle exited {exit} — a collector stack overflow at depth?\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}");
-        Assert.Contains("reclaimed=200000", stdout);
-        Assert.Contains("DONE", stdout);
+        Assert.Contains(expectedSubstring: "reclaimed=200000", actualString: stdout);
+        Assert.Contains(expectedSubstring: "DONE", actualString: stdout);
         AssertCleanStderr(stderr: stderr);
     }
 
     /// <summary>Fails on any compiler diagnostic or runtime fault on stderr (mirrors StdlibApiTests' gate),
     /// so a fault that somehow left a zero exit is still caught.</summary>
-    [GeneratedRegex(@"error\[RF-|Codegen bug|Synthesized body codegen failed|Unresolved generic|undefined symbol|never defined|Unhandled exception|Segmentation|AccessViolation")]
+    [GeneratedRegex(
+        pattern:
+        @"error\[RF-|Codegen bug|Synthesized body codegen failed|Unresolved generic|undefined symbol|never defined|Unhandled exception|Segmentation|AccessViolation")]
     private static partial Regex StderrFaultPattern();
 
     private static void AssertCleanStderr(string stderr)
     {
-        string[] offending = stderr
-            .Split('\n')
-            .Select(selector: l => l.TrimEnd('\r'))
-            .Where(predicate: l => StderrFaultPattern().IsMatch(l))
-            .ToArray();
-        Assert.True(offending.Length == 0,
-            "Fixture stderr was not clean:\n" + string.Join("\n", offending.Take(40)));
+        string[] offending = stderr.Split(separator: '\n')
+                                   .Select(selector: l => l.TrimEnd(trimChar: '\r'))
+                                   .Where(predicate: l => StderrFaultPattern()
+                                       .IsMatch(input: l))
+                                   .ToArray();
+        Assert.True(condition: offending.Length == 0,
+            userMessage: "Fixture stderr was not clean:\n" +
+                         string.Join(separator: "\n", values: offending.Take(count: 40)));
     }
 
-    private static (int Exit, string Stdout, string Stderr, bool TimedOut) RunFixture(string fixture,
-        int timeoutMs)
+    private static (int Exit, string Stdout, string Stderr, bool TimedOut) RunFixture(
+        string fixture, int timeoutMs)
     {
-        string rfPath = Path.Combine(FixturesDir, fixture);
+        string rfPath = Path.Combine(path1: FixturesDir, path2: fixture);
         var psi = new ProcessStartInfo
         {
             FileName = "dotnet",
@@ -90,7 +98,10 @@ public sealed partial class CycleCollectorConcurrencyTests
             WorkingDirectory = RepoRoot,
             // Workstation GC + memory conservation, matching StdlibApiTests — each child compiles the whole
             // stdlib and opt-O2s a large module, the heaviest memory user in the suite.
-            Environment = { ["DOTNET_gcServer"] = "0", ["DOTNET_GCConserveMemory"] = "9" }
+            Environment =
+            {
+                [key: "DOTNET_gcServer"] = "0", [key: "DOTNET_GCConserveMemory"] = "9"
+            }
         };
         using var p = Process.Start(startInfo: psi)!;
         Task<string> outTask = p.StandardOutput.ReadToEndAsync();
@@ -98,7 +109,11 @@ public sealed partial class CycleCollectorConcurrencyTests
         if (!p.WaitForExit(milliseconds: timeoutMs))
         {
             try { p.Kill(entireProcessTree: true); }
-            catch { /* best effort */ }
+            catch
+            {
+                /* best effort */
+            }
+
             return (-1, outTask.Result, errTask.Result, true);
         }
 
@@ -108,15 +123,24 @@ public sealed partial class CycleCollectorConcurrencyTests
     private static string LocateRepoRoot()
     {
         string dir = AppContext.BaseDirectory;
-        while (!string.IsNullOrEmpty(dir))
+        while (!string.IsNullOrEmpty(value: dir))
         {
-            if (File.Exists(Path.Combine(dir, "RazorForge.csproj"))) return dir;
-            string? parent = Path.GetDirectoryName(dir);
-            if (parent == null || parent == dir) break;
+            if (File.Exists(path: Path.Combine(path1: dir, path2: "RazorForge.csproj")))
+            {
+                return dir;
+            }
+
+            string? parent = Path.GetDirectoryName(path: dir);
+            if (parent == null || parent == dir)
+            {
+                break;
+            }
+
             dir = parent;
         }
 
         throw new InvalidOperationException(
+            message:
             "Could not locate RazorForge.csproj walking up from test assembly directory.");
     }
 }

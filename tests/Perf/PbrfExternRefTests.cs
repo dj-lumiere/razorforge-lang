@@ -24,8 +24,12 @@ public sealed class PbrfExternRefTests
         public List<string> Tags = new();
     }
 
-    private static PbrfSerializer.SymbolIdentity IdOracle(Dictionary<object, (string, string)> map) =>
-        o => map.TryGetValue(o, out var id) ? id : ((string, string)?)null;
+    private static PbrfSerializer.SymbolIdentity IdOracle(Dictionary<object, (string, string)> map)
+    {
+        return o => map.TryGetValue(key: o, value: out (string, string) id)
+            ? id
+            : ((string, string)?)null;
+    }
 
     [Fact]
     public void ModularArtifacts_ShellLoad_ResolvesCrossModuleCycle()
@@ -36,47 +40,86 @@ public sealed class PbrfExternRefTests
         a.Ref = b;
         b.Ref = a;
 
-        var map = new Dictionary<object, (string, string)>(ReferenceEqualityComparer.Instance)
-        {
-            [a] = ("M1", "A"),
-            [b] = ("M2", "B"),
-        };
-        PbrfSerializer.SymbolIdentity idOf = IdOracle(map);
+        var map =
+            new Dictionary<object, (string, string)>(comparer: ReferenceEqualityComparer.Instance)
+            {
+                [key: a] = ("M1", "A"), [key: b] = ("M2", "B")
+            };
+        PbrfSerializer.SymbolIdentity idOf = IdOracle(map: map);
 
         byte[] m1, m2;
-        using (var ms = new MemoryStream()) { PbrfSerializer.SerializeModule(ms, new object[] { a }, idOf); m1 = ms.ToArray(); }
-        using (var ms = new MemoryStream()) { PbrfSerializer.SerializeModule(ms, new object[] { b }, idOf); m2 = ms.ToArray(); }
+        using (var ms = new MemoryStream())
+        {
+            PbrfSerializer.SerializeModule(stream: ms,
+                ownedSymbols: new object[]
+                {
+                    a
+                },
+                idOf: idOf);
+            m1 = ms.ToArray();
+        }
+
+        using (var ms = new MemoryStream())
+        {
+            PbrfSerializer.SerializeModule(stream: ms,
+                ownedSymbols: new object[]
+                {
+                    b
+                },
+                idOf: idOf);
+            m2 = ms.ToArray();
+        }
 
         // Phase A: read both manifests, create a shell per exported symbol, register in the global table.
         var shells = new Dictionary<(string, string), object>();
         var m1Shells = new List<object>();
         var m2Shells = new List<object>();
-        using (var ms = new MemoryStream(m1))
-            foreach (var (key, type) in PbrfSerializer.ReadModuleManifest(ms))
-            { var shell = RuntimeHelpers.GetUninitializedObject(type); shells[("M1", key)] = shell; m1Shells.Add(shell); }
-        using (var ms = new MemoryStream(m2))
-            foreach (var (key, type) in PbrfSerializer.ReadModuleManifest(ms))
-            { var shell = RuntimeHelpers.GetUninitializedObject(type); shells[("M2", key)] = shell; m2Shells.Add(shell); }
+        using (var ms = new MemoryStream(buffer: m1))
+        {
+            foreach ((string key, Type type) in PbrfSerializer.ReadModuleManifest(stream: ms))
+            {
+                object shell = RuntimeHelpers.GetUninitializedObject(type: type);
+                shells[key: ("M1", key)] = shell;
+                m1Shells.Add(item: shell);
+            }
+        }
 
-        PbrfSerializer.ExternResolver resolver = (mod, key) => shells[(mod, key)];
+        using (var ms = new MemoryStream(buffer: m2))
+        {
+            foreach ((string key, Type type) in PbrfSerializer.ReadModuleManifest(stream: ms))
+            {
+                object shell = RuntimeHelpers.GetUninitializedObject(type: type);
+                shells[key: ("M2", key)] = shell;
+                m2Shells.Add(item: shell);
+            }
+        }
+
+        PbrfSerializer.ExternResolver resolver = (mod, key) => shells[key: (mod, key)];
 
         // Phase B: fill each module's shells from its graph (either order — shells all exist).
-        using (var ms = new MemoryStream(m2)) PbrfSerializer.FillModuleGraph(ms, m2Shells, resolver);
-        using (var ms = new MemoryStream(m1)) PbrfSerializer.FillModuleGraph(ms, m1Shells, resolver);
+        using (var ms = new MemoryStream(buffer: m2))
+        {
+            PbrfSerializer.FillModuleGraph(stream: ms, shells: m2Shells, externResolver: resolver);
+        }
 
-        var liveA = (Node)shells[("M1", "A")];
-        var liveB = (Node)shells[("M2", "B")];
+        using (var ms = new MemoryStream(buffer: m1))
+        {
+            PbrfSerializer.FillModuleGraph(stream: ms, shells: m1Shells, externResolver: resolver);
+        }
+
+        var liveA = (Node)shells[key: ("M1", "A")];
+        var liveB = (Node)shells[key: ("M2", "B")];
 
         // Bodies filled.
-        Assert.Equal("A", liveA.Name);
-        Assert.Equal(1, liveA.Payload);
-        Assert.Equal(TagsA, liveA.Tags);
-        Assert.Equal("B", liveB.Name);
-        Assert.Equal(TagsB, liveB.Tags);
+        Assert.Equal(expected: "A", actual: liveA.Name);
+        Assert.Equal(expected: 1, actual: liveA.Payload);
+        Assert.Equal(expected: TagsA, actual: liveA.Tags);
+        Assert.Equal(expected: "B", actual: liveB.Name);
+        Assert.Equal(expected: TagsB, actual: liveB.Tags);
 
         // The cross-module cycle resolved to the SAME shells — reference identity across artifacts.
-        Assert.Same(liveB, liveA.Ref);
-        Assert.Same(liveA, liveB.Ref);
+        Assert.Same(expected: liveB, actual: liveA.Ref);
+        Assert.Same(expected: liveA, actual: liveB.Ref);
     }
 
     [Fact]
@@ -86,13 +129,20 @@ public sealed class PbrfExternRefTests
         var a = new Node { Name = "A", Payload = 1, Ref = b };
 
         byte[] bytes;
-        using (var ms = new MemoryStream()) { PbrfSerializer.Serialize(ms, a); bytes = ms.ToArray(); }
+        using (var ms = new MemoryStream())
+        {
+            PbrfSerializer.Serialize(stream: ms, root: a);
+            bytes = ms.ToArray();
+        }
 
         Node restored;
-        using (var ms = new MemoryStream(bytes)) restored = PbrfSerializer.Deserialize<Node>(ms);
+        using (var ms = new MemoryStream(buffer: bytes))
+        {
+            restored = PbrfSerializer.Deserialize<Node>(stream: ms);
+        }
 
-        Assert.Equal("A", restored.Name);
-        Assert.Equal("B", restored.Ref!.Name);
-        Assert.Equal(2, restored.Ref.Payload);
+        Assert.Equal(expected: "A", actual: restored.Name);
+        Assert.Equal(expected: "B", actual: restored.Ref!.Name);
+        Assert.Equal(expected: 2, actual: restored.Ref.Payload);
     }
 }

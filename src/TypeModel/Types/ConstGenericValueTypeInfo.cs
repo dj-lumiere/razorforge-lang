@@ -21,10 +21,10 @@ public sealed class ConstGenericValueTypeInfo : TypeInfo
     /// or null for untyped integer literals (e.g., "4").
     /// </summary>
     public string? ExplicitTypeName { get; }
+
     /// <summary>
     /// Initializes a new instance representing a const generic literal argument.
     /// </summary>
-
     public ConstGenericValueTypeInfo(string literalText, long value, string? explicitTypeName) :
         base(name: literalText)
     {
@@ -40,5 +40,8 @@ public sealed class ConstGenericValueTypeInfo : TypeInfo
     }
 
     /// <inheritdoc/>
-    public override int SizeBytes(int pointerSize) => 8;
+    public override int SizeBytes(int pointerSize)
+    {
+        return 8;
+    }
 }

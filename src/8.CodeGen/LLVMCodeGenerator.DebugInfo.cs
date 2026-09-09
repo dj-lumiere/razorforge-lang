@@ -21,7 +21,8 @@ public partial class LlvmCodeGenerator
     /// Captured at define-emission time where the routine's <see cref="SourceLocation"/> — including the
     /// real source file — is available; the post-process can only recover line/col from the trace calls,
     /// not the filename (a cstring global by then).</summary>
-    private readonly Dictionary<string, DebugSubprogram> _debugSubprograms = new(comparer: StringComparer.Ordinal);
+    private readonly Dictionary<string, DebugSubprogram> _debugSubprograms =
+        new(comparer: StringComparer.Ordinal);
 
     /// <summary>A recorded DISubprogram: source file/dir (forward-slashed) plus the routine's start line.</summary>
     private readonly record struct DebugSubprogram(string File, string Directory, int Line);
@@ -41,8 +42,11 @@ public partial class LlvmCodeGenerator
         if (ShouldEmitDebugInfo && loc is not null &&
             (loc.Line != prev?.Line || loc.Column != prev?.Column))
         {
-            sb.Append(value: "  ; !diloc ").Append(value: loc.Line).Append(value: ' ')
-              .Append(value: loc.Column).Append(value: '\n');
+            sb.Append(value: "  ; !diloc ")
+              .Append(value: loc.Line)
+              .Append(value: ' ')
+              .Append(value: loc.Column)
+              .Append(value: '\n');
             _currentDbgLoc = loc;
         }
 
@@ -53,11 +57,14 @@ public partial class LlvmCodeGenerator
     /// parent node emits *after* a child get the parent's location. No-op unless debug mode.</summary>
     private void PopDebugLoc(StringBuilder sb, SourceLocation? prev)
     {
-        if (ShouldEmitDebugInfo && prev is not null &&
-            (prev.Line != _currentDbgLoc?.Line || prev.Column != _currentDbgLoc?.Column))
+        if (ShouldEmitDebugInfo && prev is not null && (prev.Line != _currentDbgLoc?.Line ||
+                                                        prev.Column != _currentDbgLoc?.Column))
         {
-            sb.Append(value: "  ; !diloc ").Append(value: prev.Line).Append(value: ' ')
-              .Append(value: prev.Column).Append(value: '\n');
+            sb.Append(value: "  ; !diloc ")
+              .Append(value: prev.Line)
+              .Append(value: ' ')
+              .Append(value: prev.Column)
+              .Append(value: '\n');
         }
 
         _currentDbgLoc = prev;
@@ -67,12 +74,22 @@ public partial class LlvmCodeGenerator
     private void RecordDebugSubprogram(string funcName, SourceLocation? location)
     {
         if (!ShouldEmitDebugInfo || location is null)
+        {
             return;
+        }
+
         string full = (location.FileName ?? "").Replace(oldChar: '\\', newChar: '/');
-        string dir = full.Contains(value: '/') ? full[..full.LastIndexOf(value: '/')] : "";
-        string file = full.Contains(value: '/') ? full[(full.LastIndexOf(value: '/') + 1)..] : full;
+        string dir = full.Contains(value: '/')
+            ? full[..full.LastIndexOf(value: '/')]
+            : "";
+        string file = full.Contains(value: '/')
+            ? full[(full.LastIndexOf(value: '/') + 1)..]
+            : full;
         if (string.IsNullOrEmpty(value: file))
+        {
             file = "unknown.rf";
+        }
+
         _debugSubprograms[key: StripQuotes(sym: funcName)] =
             new DebugSubprogram(File: file, Directory: dir, Line: location.Line);
     }
@@ -86,10 +103,11 @@ public partial class LlvmCodeGenerator
     private string ApplyDebugInfo(string ir)
     {
         if (!ShouldEmitDebugInfo || _debugSubprograms.Count == 0)
+        {
             return ir;
+        }
 
-        var registry = new DebugMetaRegistry(
-            startId: MaxMetadataId(ir: ir) + 1,
+        var registry = new DebugMetaRegistry(startId: MaxMetadataId(ir: ir) + 1,
             subprograms: _debugSubprograms);
 
         var outSb = new StringBuilder(capacity: ir.Length + 8192);
@@ -97,13 +115,20 @@ public partial class LlvmCodeGenerator
 
         foreach (string line in ir.Split(separator: '\n'))
         {
-            ProcessDebugInfoLine(line: line, registry: registry, outSb: outSb,
-                curSub: ref curSub, curLine: ref curLine, curCol: ref curCol);
+            ProcessDebugInfoLine(line: line,
+                registry: registry,
+                outSb: outSb,
+                curSub: ref curSub,
+                curLine: ref curLine,
+                curCol: ref curCol);
         }
 
         int flagsId = registry.AllocId();
-        AppendDebugMetadataTrailer(outSb: outSb, meta: registry.Meta, cuId: registry.CuId,
-            cuFileId: registry.CuFileId, flagsId: flagsId);
+        AppendDebugMetadataTrailer(outSb: outSb,
+            meta: registry.Meta,
+            cuId: registry.CuId,
+            cuFileId: registry.CuFileId,
+            flagsId: flagsId);
         return outSb.ToString();
     }
 
@@ -117,7 +142,8 @@ public partial class LlvmCodeGenerator
     {
         outSb.Append(value: $"\n!llvm.dbg.cu = !{{!{cuId}}}\n");
         outSb.Append(value: $"!llvm.module.flags = !{{!{flagsId}}}\n");
-        outSb.Append(value:
+        outSb.Append(
+            value:
             $"!{cuId} = distinct !DICompileUnit(language: DW_LANG_C99, file: !{cuFileId}, " +
             "producer: \"RazorForge\", isOptimized: false, runtimeVersion: 0, emissionKind: LineTablesOnly)\n");
         outSb.Append(value: $"!{flagsId} = !{{i32 2, !\"Debug Info Version\", i32 3}}\n");
@@ -126,16 +152,22 @@ public partial class LlvmCodeGenerator
 
     // ---- helpers -------------------------------------------------------------------------------
 
-    [GeneratedRegex(@"!(\d+)\b")]
+    [GeneratedRegex(pattern: @"!(\d+)\b")]
     private static partial Regex MetadataIdPattern();
 
     /// <summary>Largest existing <c>!N</c> metadata id in the IR (defs or refs); -1 if none.</summary>
     private static int MaxMetadataId(string ir)
     {
         int max = -1;
-        foreach (Match m in MetadataIdPattern().Matches(input: ir))
-            if (int.TryParse(s: m.Groups[1].Value, result: out int v) && v > max)
+        foreach (Match m in MetadataIdPattern()
+                    .Matches(input: ir))
+        {
+            if (int.TryParse(s: m.Groups[groupnum: 1].Value, result: out int v) && v > max)
+            {
                 max = v;
+            }
+        }
+
         return max;
     }
 
@@ -144,16 +176,23 @@ public partial class LlvmCodeGenerator
     {
         int at = line.IndexOf(value: '@');
         if (at < 0 || at + 1 >= line.Length)
+        {
             return null;
+        }
+
         int i = at + 1;
-        if (line[i] == '"')
+        if (line[index: i] == '"')
         {
             int close = line.IndexOf(value: '"', startIndex: i + 1);
-            return close < 0 ? null : line[(i + 1)..close];
+            return close < 0
+                ? null
+                : line[(i + 1)..close];
         }
 
         int paren = line.IndexOf(value: '(', startIndex: i);
-        return paren < 0 ? null : line[i..paren];
+        return paren < 0
+            ? null
+            : line[i..paren];
     }
 
     /// <summary>Inserts <c>!dbg !sub</c> before the trailing <c>{</c> of a define header.</summary>
@@ -170,17 +209,21 @@ public partial class LlvmCodeGenerator
     {
         line2 = 0;
         col = 0;
-        ReadOnlySpan<char> t = line.AsSpan().TrimStart();
+        ReadOnlySpan<char> t = line.AsSpan()
+                                   .TrimStart();
         if (!t.StartsWith(value: "; !diloc "))
+        {
             return false;
-        string[] parts = t[("; !diloc ".Length)..].ToString()
-            .Split(separator: ' ', options: StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length >= 2 &&
-               int.TryParse(s: parts[0], result: out line2) &&
+        }
+
+        string[] parts = t["; !diloc ".Length..]
+                        .ToString()
+                        .Split(separator: ' ', options: StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 && int.TryParse(s: parts[0], result: out line2) &&
                int.TryParse(s: parts[1], result: out col);
     }
 
-    [GeneratedRegex(@"i32 (-?\d+), i32 (-?\d+)\)")]
+    [GeneratedRegex(pattern: @"i32 (-?\d+), i32 (-?\d+)\)")]
     private static partial Regex TraceLocPattern();
 
     /// <summary>Reads the current source (line, col) from an <c>@_rf_trace_push</c>/<c>update_loc</c> call.</summary>
@@ -189,12 +232,19 @@ public partial class LlvmCodeGenerator
         line2 = 0;
         col = 0;
         if (!line.Contains(value: "@_rf_trace_"))
+        {
             return false;
-        Match m = TraceLocPattern().Match(input: line);
+        }
+
+        Match m = TraceLocPattern()
+           .Match(input: line);
         if (!m.Success)
+        {
             return false;
-        line2 = int.Parse(s: m.Groups[1].Value);
-        col = int.Parse(s: m.Groups[2].Value);
+        }
+
+        line2 = int.Parse(s: m.Groups[groupnum: 1].Value);
+        col = int.Parse(s: m.Groups[groupnum: 2].Value);
         return true;
     }
 
@@ -206,16 +256,29 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static bool IsInstructionLine(string line)
     {
-        if (line.Length == 0 || (line[0] != ' ' && line[0] != '\t'))
+        if (line.Length == 0 || line[index: 0] != ' ' && line[index: 0] != '\t')
+        {
             return false; // labels / define / module-level all sit at column 0
+        }
+
         string t = line.TrimStart();
-        if (t.Length == 0 || t[0] is ';' or '{' or '}' or '[' or ']')
+        if (t.Length == 0 || t[index: 0] is ';' or '{' or '}' or '[' or ']')
+        {
             return false;
+        }
+
         if (t.EndsWith(value: '[') || t.Contains(value: "!dbg"))
+        {
             return false; // '[' opens a multi-line switch
-        if (t[0] == '%')
+        }
+
+        if (t[index: 0] == '%')
+        {
             return t.Contains(value: " = "); // "%x = <op> ..."
-        return InstructionOpcodes.Any(kw => t.StartsWith(value: kw, comparisonType: StringComparison.Ordinal));
+        }
+
+        return InstructionOpcodes.Any(predicate: kw =>
+            t.StartsWith(value: kw, comparisonType: StringComparison.Ordinal));
         // notably excludes "switch " (multi-line) and switch case rows ("i64 …")
     }
 
@@ -230,7 +293,8 @@ public partial class LlvmCodeGenerator
     /// and appending the (possibly annotated) line to <paramref name="outSb"/>.
     /// </summary>
     private static void ProcessDebugInfoLine(string line, DebugMetaRegistry registry,
-        StringBuilder outSb, ref int curSub, ref int curLine, ref int curCol)
+        StringBuilder outSb, ref int curSub, ref int curLine,
+        ref int curCol)
     {
         // Layer-2 fine-grained location markers: update the cursor and strip them from output.
         if (TryParseLocMarker(line: line, line2: out int ml, col: out int mc))
@@ -240,20 +304,26 @@ public partial class LlvmCodeGenerator
                 curLine = ml;
                 curCol = mc;
             }
+
             return;
         }
 
         if (line.StartsWith(value: "define ", comparisonType: StringComparison.Ordinal))
         {
-            ProcessDefineLine(line: line, registry: registry, outSb: outSb,
-                curSub: ref curSub, curLine: ref curLine, curCol: ref curCol);
+            ProcessDefineLine(line: line,
+                registry: registry,
+                outSb: outSb,
+                curSub: ref curSub,
+                curLine: ref curLine,
+                curCol: ref curCol);
             return;
         }
 
         if (curSub >= 0 && line.StartsWith(value: '}'))
         {
             curSub = -1;
-            outSb.Append(value: line).Append(value: '\n');
+            outSb.Append(value: line)
+                 .Append(value: '\n');
             return;
         }
 
@@ -268,38 +338,51 @@ public partial class LlvmCodeGenerator
             if (IsInstructionLine(line: line))
             {
                 int loc = registry.GetLoc(scope: curSub, line: curLine, col: curCol);
-                outSb.Append(value: line).Append(value: $", !dbg !{loc}").Append(value: '\n');
+                outSb.Append(value: line)
+                     .Append(value: $", !dbg !{loc}")
+                     .Append(value: '\n');
                 return;
             }
         }
 
-        outSb.Append(value: line).Append(value: '\n');
+        outSb.Append(value: line)
+             .Append(value: '\n');
     }
 
     /// <summary>Handles a <c>define</c> header line: looks up the DISubprogram and attaches <c>!dbg</c>.</summary>
     private static void ProcessDefineLine(string line, DebugMetaRegistry registry,
-        StringBuilder outSb, ref int curSub, ref int curLine, ref int curCol)
+        StringBuilder outSb, ref int curSub, ref int curLine,
+        ref int curCol)
     {
         string? sym = ExtractDefineSymbol(line: line);
-        if (sym != null && registry.TryGetSubprogram(funcName: sym, out DebugSubprogram sp))
+        if (sym != null && registry.TryGetSubprogram(funcName: sym, sp: out DebugSubprogram sp))
         {
             curSub = registry.GetSub(funcName: sym);
             curLine = sp.Line;
             curCol = 1;
-            outSb.Append(value: AttachDbgToDefine(line: line, sub: curSub)).Append(value: '\n');
+            outSb.Append(value: AttachDbgToDefine(line: line, sub: curSub))
+                 .Append(value: '\n');
         }
         else
         {
             curSub = -1;
-            outSb.Append(value: line).Append(value: '\n');
+            outSb.Append(value: line)
+                 .Append(value: '\n');
         }
     }
 
-    private static string StripQuotes(string sym) =>
-        sym.Length >= 2 && sym[0] == '"' && sym[^1] == '"' ? sym[1..^1] : sym;
+    private static string StripQuotes(string sym)
+    {
+        return sym.Length >= 2 && sym[index: 0] == '"' && sym[^1] == '"'
+            ? sym[1..^1]
+            : sym;
+    }
 
-    private static string EscapeDi(string s) =>
-        s.Replace(oldValue: "\\", newValue: "/").Replace(oldValue: "\"", newValue: "\\22");
+    private static string EscapeDi(string s)
+    {
+        return s.Replace(oldValue: "\\", newValue: "/")
+                .Replace(oldValue: "\"", newValue: "\\22");
+    }
 
     /// <summary>
     /// Accumulates DWARF metadata descriptors (DIFile, DISubprogram, DILocation) during debug-info
@@ -332,32 +415,45 @@ public partial class LlvmCodeGenerator
             _cuId = _nextId++;
         }
 
-        internal int AllocId() => _nextId++;
+        internal int AllocId()
+        {
+            return _nextId++;
+        }
 
-        internal bool TryGetSubprogram(string funcName, out DebugSubprogram sp) =>
-            _subprograms.TryGetValue(key: funcName, out sp);
+        internal bool TryGetSubprogram(string funcName, out DebugSubprogram sp)
+        {
+            return _subprograms.TryGetValue(key: funcName, value: out sp);
+        }
 
         internal int GetFile(string file, string dir)
         {
             string key = dir + "|" + file;
-            if (_fileIds.TryGetValue(key: key, out int id))
+            if (_fileIds.TryGetValue(key: key, value: out int id))
+            {
                 return id;
+            }
+
             id = _nextId++;
             _fileIds[key: key] = id;
             Meta.Append(
-                value: $"!{id} = !DIFile(filename: \"{EscapeDi(s: file)}\", directory: \"{EscapeDi(s: dir)}\")\n");
+                value:
+                $"!{id} = !DIFile(filename: \"{EscapeDi(s: file)}\", directory: \"{EscapeDi(s: dir)}\")\n");
             return id;
         }
 
         internal int GetSub(string funcName)
         {
-            if (_subIds.TryGetValue(key: funcName, out int id))
+            if (_subIds.TryGetValue(key: funcName, value: out int id))
+            {
                 return id;
+            }
+
             DebugSubprogram d = _subprograms[key: funcName];
             int fileId = GetFile(file: d.File, dir: d.Directory);
             id = _nextId++;
             _subIds[key: funcName] = id;
-            Meta.Append(value:
+            Meta.Append(
+                value:
                 $"!{id} = distinct !DISubprogram(name: \"{EscapeDi(s: funcName)}\", scope: !{fileId}, " +
                 $"file: !{fileId}, line: {d.Line}, type: !{_subroutineTypeId}, scopeLine: {d.Line}, " +
                 $"spFlags: DISPFlagDefinition, unit: !{_cuId})\n");
@@ -367,11 +463,15 @@ public partial class LlvmCodeGenerator
         internal int GetLoc(int scope, int line, int col)
         {
             (int, int, int) key = (scope, line, col);
-            if (_locIds.TryGetValue(key: key, out int id))
+            if (_locIds.TryGetValue(key: key, value: out int id))
+            {
                 return id;
+            }
+
             id = _nextId++;
             _locIds[key: key] = id;
-            Meta.Append(value: $"!{id} = !DILocation(line: {line}, column: {col}, scope: !{scope})\n");
+            Meta.Append(
+                value: $"!{id} = !DILocation(line: {line}, column: {col}, scope: !{scope})\n");
             return id;
         }
     }

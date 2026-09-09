@@ -13,7 +13,6 @@ public partial class LlvmCodeGenerator
 {
     #region Type Mapping
 
-
     /// <summary>
     /// Gets the LLVM type needed by this compiler phase.
     /// </summary>
@@ -49,11 +48,18 @@ public partial class LlvmCodeGenerator
     /// boundary — exactly how clang lowers C++ <c>bool</c> — removes the <c>i1</c> from the aggregate.
     /// The struct size is unchanged (an <c>i1</c> already occupied a byte), so field offsets are stable.
     /// </summary>
-    private string GetFieldStorageLlvmType(TypeInfo type) =>
-        FieldNeedsBoolStorage(type: type) ? "i8" : GetValueLlvmType(type: type);
+    private string GetFieldStorageLlvmType(TypeInfo type)
+    {
+        return FieldNeedsBoolStorage(type: type)
+            ? "i8"
+            : GetValueLlvmType(type: type);
+    }
 
     /// <summary>True when a record field's register type is <c>i1</c> (Bool) and needs <c>i8</c> storage.</summary>
-    private bool FieldNeedsBoolStorage(TypeInfo type) => GetLlvmType(type: type) is "i1";
+    private bool FieldNeedsBoolStorage(TypeInfo type)
+    {
+        return GetLlvmType(type: type) is "i1";
+    }
 
     /// <summary>
     /// The LLVM type for STORING a value of <paramref name="type"/> (an alloca, a struct field, a
@@ -66,22 +72,34 @@ public partial class LlvmCodeGenerator
     private string GetValueLlvmType(TypeInfo type)
     {
         string t = GetLlvmType(type: type);
-        return t == "void" ? "{}" : t;
+        return t == "void"
+            ? "{}"
+            : t;
     }
 
     /// <summary>zext an <c>i1</c> Bool value to its <c>i8</c> storage form before writing an aggregate field.</summary>
-    private string CoerceBoolToStorage(System.Text.StringBuilder sb, string value, TypeInfo fieldType)
+    private string CoerceBoolToStorage(System.Text.StringBuilder sb, string value,
+        TypeInfo fieldType)
     {
-        if (!FieldNeedsBoolStorage(type: fieldType)) return value;
+        if (!FieldNeedsBoolStorage(type: fieldType))
+        {
+            return value;
+        }
+
         string t = NextTemp();
         EmitLine(sb: sb, line: $"  {t} = zext i1 {value} to i8");
         return t;
     }
 
     /// <summary>trunc an <c>i8</c> storage Bool back to <c>i1</c> after reading an aggregate field.</summary>
-    private string CoerceStorageToBool(System.Text.StringBuilder sb, string storageValue, TypeInfo fieldType)
+    private string CoerceStorageToBool(System.Text.StringBuilder sb, string storageValue,
+        TypeInfo fieldType)
     {
-        if (!FieldNeedsBoolStorage(type: fieldType)) return storageValue;
+        if (!FieldNeedsBoolStorage(type: fieldType))
+        {
+            return storageValue;
+        }
+
         string t = NextTemp();
         EmitLine(sb: sb, line: $"  {t} = trunc i8 {storageValue} to i1");
         return t;
@@ -100,8 +118,7 @@ public partial class LlvmCodeGenerator
             {
                 IsGenericResolution: true,
                 TypeArguments: [RecordTypeInfo or VariantTypeInfo, ConstGenericValueTypeInfo]
-            } arrayType
-            && GetGenericBaseName(type: arrayType) == "Array")
+            } arrayType && GetGenericBaseName(type: arrayType) == "Array")
         {
             TypeInfo elem = arrayType.TypeArguments![index: 0];
             long count = ((ConstGenericValueTypeInfo)arrayType.TypeArguments![index: 1]).Value;
@@ -119,10 +136,12 @@ public partial class LlvmCodeGenerator
             // Generic-definition record (unresolved) -> HARD ERROR. codegen never fails silently: a
             // generic-def type reaching the backend is an upstream monomorphization bug, not a `ptr` to
             // paper over. It must be a concrete instance (GenericMonomorphizationPass) before codegen.
-            RecordTypeInfo { IsGenericDefinition: true } genDefRecord => throw new InvalidOperationException(
-                $"Generic-definition record '{genDefRecord.Name}' reached GetLlvmType " +
-                $"[inRoutine={_currentEmittingRoutine?.FullName}] — it must be monomorphized to a concrete " +
-                "instance before codegen. codegen is a never-fail translator; this leak is an upstream bug."),
+            RecordTypeInfo { IsGenericDefinition: true } genDefRecord => throw new
+                InvalidOperationException(
+                    message:
+                    $"Generic-definition record '{genDefRecord.Name}' reached GetLlvmType " +
+                    $"[inRoutine={_currentEmittingRoutine?.FullName}] — it must be monomorphized to a concrete " +
+                    "instance before codegen. codegen is a never-fail translator; this leak is an upstream bug."),
 
             // Records with no fields -> look up the registered definition (may have @llvm annotation)
             RecordTypeInfo { MemberVariables.Count: 0 } record when _registry.LookupType(
@@ -158,16 +177,17 @@ public partial class LlvmCodeGenerator
             // inner X (an entity → ptr, a value → the value's own layout). Monomorphization collapses most
             // markers to X before codegen, but the residual (non-monomorphized paths) still arrives here, so
             // fold it to the inner's backend form rather than emitting a wrong `ptr` for a value inner.
-            ProtocolTypeInfo { TypeArguments: [{ } markerInner] } markerProto
-                when Declaration.RuntimeContract.IsMarkerProtocol(
-                    baseName: (markerProto.GenericDefinition ?? markerProto).BareName)
-                => GetLlvmType(type: markerInner),
+            ProtocolTypeInfo { TypeArguments: [{ } markerInner] } markerProto when
+                Declaration.RuntimeContract.IsMarkerProtocol(
+                    baseName: (markerProto.GenericDefinition ?? markerProto).BareName) =>
+                GetLlvmType(type: markerInner),
 
             // Any OTHER protocol -> HARD ERROR. A non-marker protocol reaching the backend (an iterator's
             // `Emittable[T]` return, a generic-def body, an unsubstituted protocol-typed slot) is an upstream
             // monomorphization gap. codegen never fails silently: surface it loudly so the leak is fixed
             // upstream, not masked by a type-erased `ptr`. (Marker protocols are unwrapped in the arm above.)
             ProtocolTypeInfo proto => throw new InvalidOperationException(
+                message:
                 $"Protocol type '{proto.Name}' reached GetLlvmType [inRoutine={_currentEmittingRoutine?.FullName}] — " +
                 "a non-marker protocol must be substituted/monomorphized before codegen. codegen is a never-fail " +
                 "translator; this leak is an upstream bug."),
@@ -182,15 +202,16 @@ public partial class LlvmCodeGenerator
             // not a blanket `i64`). ResolveConstGenericUnderlyingType maps it to the underlying primitive
             // (defaulting to U64 for an untyped literal); guard the degenerate case where that lookup fails
             // and returns the const itself, which would otherwise recurse into this same arm.
-            ConstGenericValueTypeInfo constGen
-                => ResolveConstGenericUnderlyingType(constVal: constGen) is { } underlying
-                   && underlying is not ConstGenericValueTypeInfo
+            ConstGenericValueTypeInfo constGen =>
+                ResolveConstGenericUnderlyingType(constVal: constGen) is { } underlying &&
+                underlying is not ConstGenericValueTypeInfo
                     ? GetLlvmType(type: underlying)
                     : "i64",
 
             // Unresolved generic parameter -> illegal in codegen. All type parameters must be
             // substituted by GenericMonomorphizationPass before the backend is entered.
             GenericParameterTypeInfo gp => throw new InvalidOperationException(
+                message:
                 $"GenericParameterTypeInfo '{gp.Name}' reached GetLlvmType [inRoutine={_currentEmittingRoutine?.FullName}] " +
                 "all generic parameters must be substituted before codegen entry. " +
                 "Check that GenericMonomorphizationPass ran and GenericAstRewriter " +
@@ -217,7 +238,10 @@ public partial class LlvmCodeGenerator
         // Proactively declare if not yet emitted -> covers types created on-demand
         // that are never visited by the registry iteration in GenerateTypes().
         if (!_generatedTypes.Contains(item: name))
+        {
             GenerateRecordType(record: record);
+        }
+
         return name;
     }
 
@@ -231,7 +255,11 @@ public partial class LlvmCodeGenerator
     /// FullName (ambient/bare) — only the owner's own realm is marked.
     /// </summary>
     private static string RealmMangleBase(TypeInfo t)
-        => t.Realm == "RF" ? t.FullName : $"{t.Realm}::{t.FullName}";
+    {
+        return t.Realm == "RF"
+            ? t.FullName
+            : $"{t.Realm}::{t.FullName}";
+    }
 
     /// <summary>
     /// Gets the LLVM struct type name for a record.
@@ -249,11 +277,15 @@ public partial class LlvmCodeGenerator
     /// <c>Entity.Core.List[Core.S64]</c>) so same-named entities in different modules never collide
     /// into one LLVM struct name (which LLVM would silently rename to <c>.0</c> and miscompile).</summary>
     private static string RawEntityTypeName(EntityTypeInfo entity)
-        => $"%{Q(name: $"Entity.{RealmMangleBase(t: entity)}")}";
+    {
+        return $"%{Q(name: $"Entity.{RealmMangleBase(t: entity)}")}";
+    }
 
     /// <summary>The bare LLVM struct name for a crashable — no generation side effect.</summary>
     private static string RawCrashableTypeName(CrashableTypeInfo crashable)
-        => $"%{Q(name: $"Crashable.{RealmMangleBase(t: crashable)}")}";
+    {
+        return $"%{Q(name: $"Crashable.{RealmMangleBase(t: crashable)}")}";
+    }
 
     /// <summary>
     /// Gets the LLVM struct type name for an entity, ensuring its struct definition is emitted on
@@ -264,12 +296,13 @@ public partial class LlvmCodeGenerator
     private string GetEntityTypeName(EntityTypeInfo entity)
     {
         string name = RawEntityTypeName(entity: entity);
-        if (!_generatedTypes.Contains(item: name)
-            && !entity.IsGenericDefinition
-            && !(entity.TypeArguments is { Count: > 0 } a && a.Any(predicate: ContainsGenericParameter)))
+        if (!_generatedTypes.Contains(item: name) && !entity.IsGenericDefinition &&
+            !(entity.TypeArguments is { Count: > 0 } a &&
+              a.Any(predicate: ContainsGenericParameter)))
         {
             GenerateEntityType(entity: entity);
         }
+
         return name;
     }
 
@@ -280,18 +313,21 @@ public partial class LlvmCodeGenerator
     private string GetCrashableTypeName(CrashableTypeInfo crashable)
     {
         string name = RawCrashableTypeName(crashable: crashable);
-        if (!_generatedTypes.Contains(item: name)
-            && !crashable.IsGenericDefinition
-            && !(crashable.TypeArguments is { Count: > 0 } a && a.Any(predicate: ContainsGenericParameter)))
+        if (!_generatedTypes.Contains(item: name) && !crashable.IsGenericDefinition &&
+            !(crashable.TypeArguments is { Count: > 0 } a &&
+              a.Any(predicate: ContainsGenericParameter)))
         {
             GenerateCrashableType(crashable: crashable);
         }
+
         return name;
     }
 
     /// <summary>The bare LLVM struct name for a variant — no generation side effect.</summary>
     private static string RawVariantTypeName(VariantTypeInfo variant)
-        => $"%{Q(name: $"Variant.{variant.FullName}")}";
+    {
+        return $"%{Q(name: $"Variant.{variant.FullName}")}";
+    }
 
     /// <summary>
     /// Gets the LLVM struct type name for a variant, ensuring its struct (tag + payload) is emitted
@@ -300,12 +336,13 @@ public partial class LlvmCodeGenerator
     private string GetVariantTypeName(VariantTypeInfo variant)
     {
         string name = RawVariantTypeName(variant: variant);
-        if (!_generatedTypes.Contains(item: name)
-            && !variant.IsGenericDefinition
-            && !(variant.TypeArguments is { Count: > 0 } a && a.Any(predicate: ContainsGenericParameter)))
+        if (!_generatedTypes.Contains(item: name) && !variant.IsGenericDefinition &&
+            !(variant.TypeArguments is { Count: > 0 } a &&
+              a.Any(predicate: ContainsGenericParameter)))
         {
             GenerateVariantType(variant: variant);
         }
+
         return name;
     }
 
@@ -313,7 +350,10 @@ public partial class LlvmCodeGenerator
     /// Returns the named LLVM type for an error-handling carrier (Maybe[T], Result[T], Lookup[T]).
     /// Delegates to GetLLVMType -> carrier layouts come from their Standard library definitions.
     /// </summary>
-    private string GetCarrierLlvmType(TypeInfo type) => GetLlvmType(type: type);
+    private string GetCarrierLlvmType(TypeInfo type)
+    {
+        return GetLlvmType(type: type);
+    }
 
     /// <summary>
     /// Returns the named LLVM type for a Lookup[T] carrier given the inner value type T.
@@ -323,10 +363,14 @@ public partial class LlvmCodeGenerator
         TypeInfo? def = _registry.LookupType(name: "Lookup");
         if (def != null)
         {
-            TypeInfo? resolved = _registry.TryGetResolution(genericDef: def, typeArguments: [valueType]);
+            TypeInfo? resolved =
+                _registry.TryGetResolution(genericDef: def, typeArguments: [valueType]);
             if (resolved != null)
+            {
                 return GetLlvmType(type: resolved);
+            }
         }
+
         // Carriers live in `module Core`; match the module-qualified canonical name (GetRecordTypeName).
         return $"%{Q(name: $"Record.Core.Lookup[{valueType.FullName}]")}";
     }
@@ -339,21 +383,29 @@ public partial class LlvmCodeGenerator
         TypeInfo? def = _registry.LookupType(name: "Result");
         if (def != null)
         {
-            TypeInfo? resolved = _registry.TryGetResolution(genericDef: def, typeArguments: [valueType]);
+            TypeInfo? resolved =
+                _registry.TryGetResolution(genericDef: def, typeArguments: [valueType]);
             if (resolved != null)
+            {
                 return GetLlvmType(type: resolved);
+            }
         }
+
         // Carriers live in `module Core`; match the module-qualified canonical name (GetRecordTypeName).
         return $"%{Q(name: $"Record.Core.Result[{valueType.FullName}]")}";
     }
 
     /// <summary>Returns true if <paramref name="type"/> is a Maybe[T], Result[T], or Lookup[T] carrier.</summary>
-    private static bool IsCarrierType(TypeInfo type) =>
-        type is RecordTypeInfo { CarrierKind: not CarrierKind.None };
+    private static bool IsCarrierType(TypeInfo type)
+    {
+        return type is RecordTypeInfo { CarrierKind: not CarrierKind.None };
+    }
 
     /// <summary>Returns true if <paramref name="type"/> is a Maybe[T] carrier.</summary>
-    private static bool IsMaybeType(TypeInfo type) =>
-        type is RecordTypeInfo { CarrierKind: CarrierKind.Maybe };
+    private static bool IsMaybeType(TypeInfo type)
+    {
+        return type is RecordTypeInfo { CarrierKind: CarrierKind.Maybe };
+    }
 
     /// <summary>
     /// Quotes an LLVM identifier if it contains characters that require quoting.
@@ -362,8 +414,11 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static string Q(string name)
     {
-        bool needsQuoting = name.Any(c => !char.IsLetterOrDigit(c) && c != '$' && c != '.' && c != '_' && c != '-');
-        return needsQuoting ? $"\"{name}\"" : name;
+        bool needsQuoting = name.Any(predicate: c =>
+            !char.IsLetterOrDigit(c: c) && c != '$' && c != '.' && c != '_' && c != '-');
+        return needsQuoting
+            ? $"\"{name}\""
+            : name;
     }
 
     /// <summary>
@@ -387,7 +442,10 @@ public partial class LlvmCodeGenerator
     /// Gets the size in bytes for a type. Delegates to <see cref="TypeInfo.SizeBytes"/>
     /// so each type kind owns its own size rule.
     /// </summary>
-    private int GetTypeSize(TypeInfo type) => type.SizeBytes(pointerSize: _pointerSizeBytes);
+    private int GetTypeSize(TypeInfo type)
+    {
+        return type.SizeBytes(pointerSize: _pointerSizeBytes);
+    }
 
     /// <summary>
     /// Aligns a size to a given alignment.
@@ -404,7 +462,7 @@ public partial class LlvmCodeGenerator
     private static bool IsUnsignedIntegerType(TypeInfo? type)
     {
         return type is RecordTypeInfo record &&
-               record.ImplementedProtocols.Any(p => p.Name == "UnsignedIntegral");
+               record.ImplementedProtocols.Any(predicate: p => p.Name == "UnsignedIntegral");
     }
 
     #endregion
@@ -421,45 +479,44 @@ public partial class LlvmCodeGenerator
     /// <summary>
     /// Stores the TBAA metadata section state used by this compiler phase.
     /// </summary>
-    private static readonly string TbaaMetadataSection =
-        "; TBAA metadata\n" +
-        "!0 = !{!\"RF TBAA Root\"}\n" +
-        "!1 = !{!\"i1\", !0}\n" +
-        "!2 = !{!\"i8\", !0}\n" +
-        "!3 = !{!\"i16\", !0}\n" +
-        "!4 = !{!\"i32\", !0}\n" +
-        "!5 = !{!\"i64\", !0}\n" +
-        "!6 = !{!\"float\", !0}\n" +
-        "!7 = !{!\"double\", !0}\n" +
-        "!8 = !{!\"ptr\", !0}\n" +
-        "!9 = !{!\"half\", !0}\n" +
-        "!10 = !{!\"fp128\", !0}\n" +
-        "!11 = !{!\"i128\", !0}\n" +
-        "!12 = !{!1,  !1,  i64 0}\n" +
-        "!13 = !{!2,  !2,  i64 0}\n" +
-        "!14 = !{!3,  !3,  i64 0}\n" +
-        "!15 = !{!4,  !4,  i64 0}\n" +
-        "!16 = !{!5,  !5,  i64 0}\n" +
-        "!17 = !{!6,  !6,  i64 0}\n" +
-        "!18 = !{!7,  !7,  i64 0}\n" +
-        "!19 = !{!8,  !8,  i64 0}\n" +
-        "!20 = !{!9,  !9,  i64 0}\n" +
-        "!21 = !{!10, !10, i64 0}\n" +
-        "!22 = !{!11, !11, i64 0}\n";
+    private static readonly string TbaaMetadataSection = "; TBAA metadata\n" +
+                                                         "!0 = !{!\"RF TBAA Root\"}\n" +
+                                                         "!1 = !{!\"i1\", !0}\n" +
+                                                         "!2 = !{!\"i8\", !0}\n" +
+                                                         "!3 = !{!\"i16\", !0}\n" +
+                                                         "!4 = !{!\"i32\", !0}\n" +
+                                                         "!5 = !{!\"i64\", !0}\n" +
+                                                         "!6 = !{!\"float\", !0}\n" +
+                                                         "!7 = !{!\"double\", !0}\n" +
+                                                         "!8 = !{!\"ptr\", !0}\n" +
+                                                         "!9 = !{!\"half\", !0}\n" +
+                                                         "!10 = !{!\"fp128\", !0}\n" +
+                                                         "!11 = !{!\"i128\", !0}\n" +
+                                                         "!12 = !{!1,  !1,  i64 0}\n" +
+                                                         "!13 = !{!2,  !2,  i64 0}\n" +
+                                                         "!14 = !{!3,  !3,  i64 0}\n" +
+                                                         "!15 = !{!4,  !4,  i64 0}\n" +
+                                                         "!16 = !{!5,  !5,  i64 0}\n" +
+                                                         "!17 = !{!6,  !6,  i64 0}\n" +
+                                                         "!18 = !{!7,  !7,  i64 0}\n" +
+                                                         "!19 = !{!8,  !8,  i64 0}\n" +
+                                                         "!20 = !{!9,  !9,  i64 0}\n" +
+                                                         "!21 = !{!10, !10, i64 0}\n" +
+                                                         "!22 = !{!11, !11, i64 0}\n";
 
     private static readonly Dictionary<string, string> TbaaTagByLlvmType = new()
     {
-        ["i1"]     = ", !tbaa !12",
-        ["i8"]     = ", !tbaa !13",
-        ["i16"]    = ", !tbaa !14",
-        ["i32"]    = ", !tbaa !15",
-        ["i64"]    = ", !tbaa !16",
-        ["float"]  = ", !tbaa !17",
-        ["double"] = ", !tbaa !18",
-        ["ptr"]    = ", !tbaa !19",
-        ["half"]   = ", !tbaa !20",
-        ["fp128"]  = ", !tbaa !21",
-        ["i128"]   = ", !tbaa !22",
+        [key: "i1"] = ", !tbaa !12",
+        [key: "i8"] = ", !tbaa !13",
+        [key: "i16"] = ", !tbaa !14",
+        [key: "i32"] = ", !tbaa !15",
+        [key: "i64"] = ", !tbaa !16",
+        [key: "float"] = ", !tbaa !17",
+        [key: "double"] = ", !tbaa !18",
+        [key: "ptr"] = ", !tbaa !19",
+        [key: "half"] = ", !tbaa !20",
+        [key: "fp128"] = ", !tbaa !21",
+        [key: "i128"] = ", !tbaa !22"
     };
 
     /// <summary>
@@ -467,11 +524,15 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static string ApplyTbaa(string ir)
     {
-        var lines = ir.Split('\n');
+        string[] lines = ir.Split(separator: '\n');
         var sb = new System.Text.StringBuilder(capacity: ir.Length + 2048);
-        foreach (var line in lines)
-            sb.Append(TagLine(line)).Append('\n');
-        sb.Append(TbaaMetadataSection);
+        foreach (string line in lines)
+        {
+            sb.Append(value: TagLine(line: line))
+              .Append(value: '\n');
+        }
+
+        sb.Append(value: TbaaMetadataSection);
         return sb.ToString();
     }
 
@@ -480,35 +541,48 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static string TagLine(string line)
     {
-        if (line.Contains("!tbaa")) return line;
+        if (line.Contains(value: "!tbaa"))
+        {
+            return line;
+        }
 
-        var t = line.AsSpan().TrimStart();
+        ReadOnlySpan<char> t = line.AsSpan()
+                                   .TrimStart();
 
         // load: " %x = load TYPE, ptr ..."
-        int loadIdx = line.IndexOf(" = load ", StringComparison.Ordinal);
+        int loadIdx = line.IndexOf(value: " = load ", comparisonType: StringComparison.Ordinal);
         if (loadIdx >= 0)
         {
             int typeStart = loadIdx + " = load ".Length;
-            int comma = line.IndexOf(',', typeStart);
+            int comma = line.IndexOf(value: ',', startIndex: typeStart);
             if (comma > typeStart)
             {
-                var llvmType = line[typeStart..comma].Trim();
-                if (TbaaTagByLlvmType.TryGetValue(llvmType, out var tag))
+                string llvmType = line[typeStart..comma]
+                   .Trim();
+                if (TbaaTagByLlvmType.TryGetValue(key: llvmType, value: out string? tag))
+                {
                     return line + tag;
+                }
             }
+
             return line;
         }
 
         // store: " store TYPE VALUE, ptr ..."
-        if (t.StartsWith("store ", StringComparison.Ordinal))
+        if (t.StartsWith(value: "store ", comparisonType: StringComparison.Ordinal))
         {
-            int storeStart = line.IndexOf("store ", StringComparison.Ordinal) + "store ".Length;
-            int space = line.IndexOf(' ', storeStart);
+            int storeStart =
+                line.IndexOf(value: "store ", comparisonType: StringComparison.Ordinal) +
+                "store ".Length;
+            int space = line.IndexOf(value: ' ', startIndex: storeStart);
             if (space > storeStart)
             {
-                var llvmType = line[storeStart..space].Trim();
-                if (TbaaTagByLlvmType.TryGetValue(llvmType, out var tag))
+                string llvmType = line[storeStart..space]
+                   .Trim();
+                if (TbaaTagByLlvmType.TryGetValue(key: llvmType, value: out string? tag))
+                {
                     return line + tag;
+                }
             }
         }
 
@@ -525,21 +599,19 @@ public partial class LlvmCodeGenerator
         List<string>? ModulePath,
         string MangledName,
         bool IsMonomorphized,
-        Dictionary<string, TypeInfo>? memberRoutineTypeArgs
-    );
+        Dictionary<string, TypeInfo>? memberRoutineTypeArgs);
 
     /// <summary>
     /// Looks up a memberRoutine on a type and returns a fully-resolved bundle for codegen.
     /// Generic instantiation must already be complete before this runs.
     /// </summary>
-    private ResolvedMemberRoutine? ResolveMemberRoutine(TypeInfo receiverType, string memberRoutineName,
-        List<TypeInfo>? memberRoutineTypeArgs = null,
+    private ResolvedMemberRoutine? ResolveMemberRoutine(TypeInfo receiverType,
+        string memberRoutineName, List<TypeInfo>? memberRoutineTypeArgs = null,
         List<TypeInfo>? argTypes = null)
     {
         receiverType = ApplyTypeSubstitutions(type: receiverType);
-        List<TypeInfo>? resolvedArgTypes = argTypes?
-            .Select(selector: ApplyTypeSubstitutions)
-            .ToList();
+        var resolvedArgTypes = argTypes?.Select(selector: ApplyTypeSubstitutions)
+                                        .ToList();
 
         // Signature-only: resolve by (name, argTypes) always — empty argTypes matches the 0-param overload.
         // Failability is structural (same name); the overload's own IsFailable flag carries it.
@@ -552,37 +624,42 @@ public partial class LlvmCodeGenerator
             return null;
         }
 
-        if (memberRoutineTypeArgs is { Count: > 0 } ||
-            resolvedArgTypes is { Count: > 0 } && memberRoutine.IsGenericDefinition)
+        if (memberRoutineTypeArgs is { Count: > 0 } || resolvedArgTypes is { Count: > 0 } &&
+            memberRoutine.IsGenericDefinition)
         {
             throw new InvalidOperationException(
+                message:
                 $"member routine-level generic instantiation for '{receiverType.FullName}.{memberRoutineName}' reached LLVM codegen. " +
                 "Instantiate it before codegen.");
         }
 
-        if (memberRoutine.IsGenericDefinition || memberRoutine.OwnerType is GenericParameterTypeInfo)
+        if (memberRoutine.IsGenericDefinition ||
+            memberRoutine.OwnerType is GenericParameterTypeInfo)
         {
             // Synthesized wrapper forwarder: the raw generic-def-anchored version was returned
             // instead of the concrete instance. The concrete body will be emitted by Phase C;
             // return null so the caller falls back to a placeholder mangled name and the
             // define-vs-declare conflict is resolved at the final IR assembly step.
-            if (memberRoutine is { IsSynthesized: true, WrapperForwarderInnerMemberRoutine: not null })
+            if (memberRoutine is
+                { IsSynthesized: true, WrapperForwarderInnerMemberRoutine: not null })
+            {
                 return null;
+            }
+
             throw new InvalidOperationException(
+                message:
                 $"Unresolved generic member routine '{receiverType.FullName}.{memberRoutineName}' reached LLVM codegen.");
         }
 
         string mangledName = MangleRoutineName(routine: memberRoutine);
 
-        return new ResolvedMemberRoutine(
-            Routine: memberRoutine,
+        return new ResolvedMemberRoutine(Routine: memberRoutine,
             OwnerType: receiverType,
             IsFailable: memberRoutine.IsFailable,
             ModulePath: memberRoutine.ModulePath,
             MangledName: mangledName,
             IsMonomorphized: false,
-            memberRoutineTypeArgs: null
-        );
+            memberRoutineTypeArgs: null);
     }
 
     /// <summary>
@@ -607,7 +684,8 @@ public partial class LlvmCodeGenerator
         foreach (TypeInfo arg in type.TypeArguments)
         {
             TypeInfo substituted = SubstituteGenericParamInType(type: arg,
-                paramName: paramName, concreteType: concreteType);
+                paramName: paramName,
+                concreteType: concreteType);
             substitutedArgs.Add(item: substituted);
             anyChanged |= !ReferenceEquals(objA: substituted, objB: arg);
         }
@@ -630,12 +708,13 @@ public partial class LlvmCodeGenerator
                 typeArguments: substitutedArgs);
         }
 
-        if (type is WrapperTypeInfo &&
-            _registry.LookupType(name: type.Name) is { IsGenericDefinition: true } wrapperRecordDef)
+        if (type is WrapperTypeInfo && _registry.LookupType(name: type.Name) is
+                { IsGenericDefinition: true } wrapperRecordDef)
         {
             return _registry.GetOrCreateResolution(genericDef: wrapperRecordDef,
                 typeArguments: substitutedArgs);
         }
+
         return null;
     }
 
@@ -653,20 +732,21 @@ public partial class LlvmCodeGenerator
 
         receiverType = NormalizeRoutineLookupType(type: receiverType);
         returnType = NormalizeRoutineLookupType(type: returnType);
-        string lookupMemberRoutineName = GetMemberRoutineLookupName(routine);
+        string lookupMemberRoutineName = GetMemberRoutineLookupName(routine: routine);
 
         bool ownerMismatch = receiverType != null &&
                              routine.OwnerType is { } ownerType and not ProtocolTypeInfo &&
-                             NormalizeRoutineLookupType(type: ownerType)?.FullName != receiverType.FullName;
+                             NormalizeRoutineLookupType(type: ownerType)
+                               ?.FullName != receiverType.FullName;
 
-        if (receiverType != null &&
-            (ownerMismatch ||
-             routine.OwnerType is { IsGenericDefinition: true } ||
-             routine.IsGenericDefinition ||
-             RoutineHasUnresolvedTypeArguments(routine: routine)))
+        if (receiverType != null && (ownerMismatch ||
+                                     routine.OwnerType is { IsGenericDefinition: true } ||
+                                     routine.IsGenericDefinition ||
+                                     RoutineHasUnresolvedTypeArguments(routine: routine)))
         {
             // Signature-only rebind by (name, argTypes); no name-only fallback.
-            RoutineInfo? reboundMemberRoutine = _registry.LookupMemberRoutineOverload(type: receiverType,
+            RoutineInfo? reboundMemberRoutine = _registry.LookupMemberRoutineOverload(
+                type: receiverType,
                 memberRoutineName: lookupMemberRoutineName,
                 argTypes: argTypes);
             if (reboundMemberRoutine != null)
@@ -707,13 +787,15 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static bool RoutineHasUnresolvedTypeArguments(RoutineInfo routine)
     {
-        if (routine.TypeArguments is { Count: > 0 } routineArgs && HasUnresolvedParam(routineArgs))
+        if (routine.TypeArguments is { Count: > 0 } routineArgs &&
+            HasUnresolvedParam(types: routineArgs))
         {
             return true;
         }
 
         TypeInfo? owner = routine.OwnerType;
-        return owner?.TypeArguments is { Count: > 0 } ownerArgs && HasUnresolvedParam(ownerArgs);
+        return owner?.TypeArguments is { Count: > 0 } ownerArgs &&
+               HasUnresolvedParam(types: ownerArgs);
 
         static bool HasUnresolvedParam(List<TypeInfo> types)
         {
@@ -724,7 +806,7 @@ public partial class LlvmCodeGenerator
                     return true;
                 }
 
-                if (t.TypeArguments is { Count: > 0 } inner && HasUnresolvedParam(inner))
+                if (t.TypeArguments is { Count: > 0 } inner && HasUnresolvedParam(types: inner))
                 {
                     return true;
                 }
@@ -740,7 +822,8 @@ public partial class LlvmCodeGenerator
     private TypeInfo? NormalizeRoutineLookupType(TypeInfo? type)
     {
         if (type is WrapperTypeInfo wrapperType &&
-            _registry.LookupType(name: wrapperType.Name) is { IsGenericDefinition: true } wrapperDef &&
+            _registry.LookupType(name: wrapperType.Name) is
+                { IsGenericDefinition: true } wrapperDef &&
             wrapperType.TypeArguments is { Count: > 0 })
         {
             return _registry.GetOrCreateResolution(genericDef: wrapperDef,

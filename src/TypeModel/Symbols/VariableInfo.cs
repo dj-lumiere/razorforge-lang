@@ -64,10 +64,8 @@ public sealed class VariableInfo
     /// <c>@preset.*</c> constant and indexes into it. Scalar <c>@llvm</c> presets stay inlined.
     /// </summary>
     public bool IsPresettableAggregate =>
-        IsPreset
-        && PresetValue is ListLiteralExpression
-        && Type is RecordTypeInfo record
-        && (record.GenericDefinition ?? record).BareName is "Array" or "BitArray";
+        IsPreset && PresetValue is ListLiteralExpression && Type is RecordTypeInfo record &&
+        (record.GenericDefinition ?? record).BareName is "Array" or "BitArray";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="VariableInfo"/> class.

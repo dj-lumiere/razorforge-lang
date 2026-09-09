@@ -18,8 +18,12 @@ internal sealed class DerivedOperatorPass
 {
     private readonly TypeRegistry _registry;
     private readonly Dictionary<string, (RoutineInfo Routine, Statement Body)> _synthesizedBodies;
+
     /// <summary>Synthetic source location used for compiler-generated AST nodes.</summary>
-    private static readonly SourceLocation _synthLoc = new(FileName: "", Line: 0, Column: 0, Position: 0);
+    private static readonly SourceLocation _synthLoc = new(FileName: "",
+        Line: 0,
+        Column: 0,
+        Position: 0);
 
     public DerivedOperatorPass(TypeRegistry registry,
         Dictionary<string, (RoutineInfo Routine, Statement Body)> synthesizedBodies,
@@ -43,18 +47,21 @@ internal sealed class DerivedOperatorPass
         foreach (TypeSymbol type in _registry.GetTypesByCategory(category: TypeCategory.Crashable))
         {
             RoutineInfo? titleMemberRoutine = _registry.GetMemberRoutinesForType(type: type)
-                                               .FirstOrDefault(predicate: m => m.Name == "crash_title");
+                                                       .FirstOrDefault(predicate: m =>
+                                                            m.Name == "crash_title");
             if (titleMemberRoutine == null || !titleMemberRoutine.IsSynthesized)
+            {
                 continue;
+            }
 
             string title = CrashableTypeInfo.SynthesizeCrashTitle(typeName: type.Name);
-            var titleBody = new ReturnStatement(
-                Value: new LiteralExpression(Value: title,
+            var titleBody = new ReturnStatement(Value: new LiteralExpression(Value: title,
                     LiteralType: TokenType.TextLiteral,
                     Location: _synthLoc),
                 Location: _synthLoc);
 
-            _synthesizedBodies[key: titleMemberRoutine.RegistryKey] = (titleMemberRoutine, titleBody);
+            _synthesizedBodies[key: titleMemberRoutine.RegistryKey] =
+                (titleMemberRoutine, titleBody);
         }
     }
 
@@ -67,10 +74,13 @@ internal sealed class DerivedOperatorPass
         var memberRoutineList = memberRoutines.ToList();
 
         // Look for eq memberRoutine
-        RoutineInfo? eqMemberRoutine = memberRoutineList.FirstOrDefault(predicate: m => m.Name == "eq");
+        RoutineInfo? eqMemberRoutine =
+            memberRoutineList.FirstOrDefault(predicate: m => m.Name == "eq");
         if (eqMemberRoutine != null)
         {
-            GenerateNeFromEq(type: type, eqMemberRoutine: eqMemberRoutine, existingMemberRoutines: memberRoutineList);
+            GenerateNeFromEq(type: type,
+                eqMemberRoutine: eqMemberRoutine,
+                existingMemberRoutines: memberRoutineList);
         }
 
         // lt/le/gt/ge are NOT generated here: they are registered by the everywhere-derive pass and their
@@ -98,7 +108,8 @@ internal sealed class DerivedOperatorPass
     private void GenerateNeFromEq(TypeSymbol type, RoutineInfo eqMemberRoutine,
         List<RoutineInfo> existingMemberRoutines)
     {
-        RoutineInfo? existingNe = existingMemberRoutines.FirstOrDefault(predicate: m => m.Name == "ne");
+        RoutineInfo? existingNe =
+            existingMemberRoutines.FirstOrDefault(predicate: m => m.Name == "ne");
 
         if (existingNe != null)
         {
@@ -142,8 +153,7 @@ internal sealed class DerivedOperatorPass
         string paramName = eqMemberRoutine.Parameters.Count > 0
             ? eqMemberRoutine.Parameters[index: 0].Name
             : "you";
-        var neBody = BuildNegatedDelegateBody(
-            ownerType: type,
+        BlockStatement neBody = BuildNegatedDelegateBody(ownerType: type,
             delegateMemberRoutine: eqMemberRoutine,
             boolType: boolType,
             paramName: paramName);
@@ -154,8 +164,8 @@ internal sealed class DerivedOperatorPass
     /// Generates notcontains from contains.
     /// notcontains(item) = not me.contains(item: item)
     /// </summary>
-    private void GenerateNotContainsFromContains(TypeSymbol type, RoutineInfo containsMemberRoutine,
-        List<RoutineInfo> existingMemberRoutines)
+    private void GenerateNotContainsFromContains(TypeSymbol type,
+        RoutineInfo containsMemberRoutine, List<RoutineInfo> existingMemberRoutines)
     {
         RoutineInfo? existingNotContains =
             existingMemberRoutines.FirstOrDefault(predicate: m => m.Name == "notcontains");
@@ -197,51 +207,54 @@ internal sealed class DerivedOperatorPass
         string paramName = containsMemberRoutine.Parameters.Count > 0
             ? containsMemberRoutine.Parameters[index: 0].Name
             : "item";
-        var notContainsBody = BuildNegatedDelegateBody(
-            ownerType: type,
+        BlockStatement notContainsBody = BuildNegatedDelegateBody(ownerType: type,
             delegateMemberRoutine: containsMemberRoutine,
             boolType: boolType,
             paramName: paramName);
-        _synthesizedBodies[key: notContainsMemberRoutine.RegistryKey] = (notContainsMemberRoutine, notContainsBody);
+        _synthesizedBodies[key: notContainsMemberRoutine.RegistryKey] =
+            (notContainsMemberRoutine, notContainsBody);
     }
 
     /// <summary>
     /// Builds: return not me.{memberRoutineName}({paramName}: {paramName})
     /// </summary>
-    private static BlockStatement BuildNegatedDelegateBody(TypeSymbol ownerType, RoutineInfo delegateMemberRoutine,
-        TypeSymbol boolType, string paramName)
+    private static BlockStatement BuildNegatedDelegateBody(TypeSymbol ownerType,
+        RoutineInfo delegateMemberRoutine, TypeSymbol boolType, string paramName)
     {
         var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
-            { ResolvedType = ownerType };
+        {
+            ResolvedType = ownerType
+        };
         var call = new CallExpression(
-            Callee: new MemberExpression(
-                Object: meRef,
+            Callee: new MemberExpression(Object: meRef,
                 MemberName: delegateMemberRoutine.Name,
                 Location: _synthLoc),
             Arguments:
             [
-                new NamedArgumentExpression(
-                    Name: paramName,
+                new NamedArgumentExpression(Name: paramName,
                     Value: new IdentifierExpression(Name: paramName, Location: _synthLoc),
                     Location: _synthLoc)
             ],
             Location: _synthLoc)
         {
-            ResolvedRoutine = delegateMemberRoutine,
-            ResolvedType = boolType
+            ResolvedRoutine = delegateMemberRoutine, ResolvedType = boolType
         };
 
-        var falseVal = new LiteralExpression(Value: false, LiteralType: TokenType.False,
-            Location: _synthLoc) { ResolvedType = boolType };
-        var trueVal = new LiteralExpression(Value: true, LiteralType: TokenType.True,
-            Location: _synthLoc) { ResolvedType = boolType };
+        var falseVal =
+            new LiteralExpression(Value: false, LiteralType: TokenType.False, Location: _synthLoc)
+            {
+                ResolvedType = boolType
+            };
+        var trueVal =
+            new LiteralExpression(Value: true, LiteralType: TokenType.True, Location: _synthLoc)
+            {
+                ResolvedType = boolType
+            };
         // Codegen can't handle ConditionalExpression or UnaryNot on synthesized bodies
         // (ExpressionLoweringPass only runs on source AST). Use if-return instead.
-        return new BlockStatement(
-            Statements:
+        return new BlockStatement(Statements:
             [
-                new IfStatement(
-                    Condition: call,
+                new IfStatement(Condition: call,
                     ThenStatement: new ReturnStatement(Value: falseVal, Location: _synthLoc),
                     ElseStatement: null,
                     Location: _synthLoc),
@@ -249,5 +262,4 @@ internal sealed class DerivedOperatorPass
             ],
             Location: _synthLoc);
     }
-
 }

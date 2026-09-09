@@ -1,6 +1,7 @@
 using Compiler.Instantiation;
 using Compiler.Declaration;
 using Compiler.Targeting;
+using Compiler.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
@@ -20,16 +21,34 @@ public partial class SemanticVerifier
     {
         /// <summary>The language mode (RF or SF) the stdlib was compiled under.</summary>
         public required Language Language { get; init; }
+
         /// <summary>The post-SA type registry snapshot (all stdlib types and routines).</summary>
         public required TypeRegistry.StdlibSnapshot Registry { get; init; }
+
         /// <summary>The fully-lowered stdlib program ASTs, shared read-only across warm compiles.</summary>
-        public required List<(Program Program, string FilePath, string Module)> StdlibPrograms { get; init; }
+        public required List<(Program Program, string FilePath, string Module)> StdlibPrograms
+        {
+            get;
+            init;
+        }
+
         /// <summary>Synthesized (wired/builder-generated) routine bodies keyed by registry key.</summary>
-        public required Dictionary<string, (RoutineInfo Routine, Statement Body)> SynthesizedBodies { get; init; }
+        public required Dictionary<string, (RoutineInfo Routine, Statement Body)> SynthesizedBodies
+        {
+            get;
+            init;
+        }
+
         /// <summary>Variant-generated routine bodies keyed by registry key.</summary>
         public required Dictionary<string, Statement> VariantBodies { get; init; }
+
         /// <summary>Monomorphized generic instantiation bodies keyed by instantiation key.</summary>
-        public required Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies { get; init; }
+        public required Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies
+        {
+            get;
+            init;
+        }
+
         /// <summary>All other stdlib routine bodies keyed by registry key.</summary>
         public required Dictionary<string, Statement> RoutineBodies { get; init; }
 
@@ -40,8 +59,8 @@ public partial class SemanticVerifier
         /// as successive user programs reach more stdlib bodies and lets <c>RoutineReachabilityPass</c>
         /// skip re-walking them. Starts empty; safe because stdlib decls are stable across warm compiles.
         /// </summary>
-        public Dictionary<RoutineDeclaration, RoutineBodyScan> BodyScanCache { get; init; }
-            = new();
+        public Dictionary<RoutineDeclaration, RoutineBodyScan> BodyScanCache { get; init; } =
+            new();
     }
 
     /// <summary>
@@ -64,37 +83,47 @@ public partial class SemanticVerifier
         var probe = new StdlibLoader(stdlibRoot: stdlibPath, language: language);
         var source = new System.Text.StringBuilder(value: "module __snapshot__\n");
         foreach (string moduleName in probe.ScanModuleNames())
+        {
             source.Append(value: "import ")
                   .Append(value: moduleName.Replace(oldChar: '.', newChar: '/'))
                   .Append(value: '\n');
+        }
 
         var sa = new SemanticVerifier(language: language);
-        var tokens = new Compiler.Tokenizer.Tokenizer(source: source.ToString(),
-            fileName: "__snapshot__", language: language).Tokenize();
-        var parser = new Compiler.Parser.Parser(tokens: tokens, language: language,
+        List<Token> tokens = new Compiler.Tokenizer.Tokenizer(source: source.ToString(),
+            fileName: "__snapshot__",
+            language: language).Tokenize();
+        var parser = new Compiler.Parser.Parser(tokens: tokens,
+            language: language,
             fileName: "__snapshot__");
         sa.Analyze(program: parser.Parse());
         return sa.CaptureCompiledState();
     }
 
-    private CompiledStdlibState CaptureCompiledState() => new()
+    private CompiledStdlibState CaptureCompiledState()
     {
-        Language = _registry.Language,
-        Registry = _registry.CaptureSnapshot(),
-        StdlibPrograms = new List<(Program, string, string)>(_registry.StdlibPrograms),
-        SynthesizedBodies = new Dictionary<string, (RoutineInfo, Statement)>(_synthesizedBodies),
-        VariantBodies = new Dictionary<string, Statement>(_variantBodies),
-        // Capture an EMPTY instantiation set. The snapshot is analyzed from a throwaway `import EVERY module`
-        // program, so its demand collector materializes that program's monomorphizations (Maybe[X].assign,
-        // Atomic[X].destroy, …) — which are NOT what any real warm build reaches. Carrying them pollutes every
-        // warm build: codegen (a dumb translator) emits the whole InstantiatedGenericBodies set, so a warm
-        // build of `show("hi")` would emit hundreds of unrelated derives that the equivalent cold build prunes
-        // (the cold/warm define-set divergence). The daemon's value is the cached ANALYZED stdlib (parsed
-        // programs + resolved types/routines, captured above); monomorphization is per-build and the collector
-        // demand-rebuilds it deterministically from that cache — identical to a cold build.
-        InstantiatedGenericBodies = new Dictionary<string, MonomorphizedBody>(comparer: StringComparer.Ordinal),
-        RoutineBodies = new Dictionary<string, Statement>(_routineBodies),
-    };
+        return new CompiledStdlibState
+        {
+            Language = _registry.Language,
+            Registry = _registry.CaptureSnapshot(),
+            StdlibPrograms =
+                new List<(Program, string, string)>(collection: _registry.StdlibPrograms),
+            SynthesizedBodies =
+                new Dictionary<string, (RoutineInfo, Statement)>(dictionary: _synthesizedBodies),
+            VariantBodies = new Dictionary<string, Statement>(dictionary: _variantBodies),
+            // Capture an EMPTY instantiation set. The snapshot is analyzed from a throwaway `import EVERY module`
+            // program, so its demand collector materializes that program's monomorphizations (Maybe[X].assign,
+            // Atomic[X].destroy, …) — which are NOT what any real warm build reaches. Carrying them pollutes every
+            // warm build: codegen (a dumb translator) emits the whole InstantiatedGenericBodies set, so a warm
+            // build of `show("hi")` would emit hundreds of unrelated derives that the equivalent cold build prunes
+            // (the cold/warm define-set divergence). The daemon's value is the cached ANALYZED stdlib (parsed
+            // programs + resolved types/routines, captured above); monomorphization is per-build and the collector
+            // demand-rebuilds it deterministically from that cache — identical to a cold build.
+            InstantiatedGenericBodies =
+                new Dictionary<string, MonomorphizedBody>(comparer: StringComparer.Ordinal),
+            RoutineBodies = new Dictionary<string, Statement>(dictionary: _routineBodies)
+        };
+    }
 
     /// <summary>
     /// Constructs a verifier pre-warmed from a full compiled-stdlib snapshot. Restores the lowered
@@ -113,7 +142,11 @@ public partial class SemanticVerifier
         // reaches ~378, codegen keeps ~122). User-reachability un-lazies via MaterializeIfLazy.
         int _relazied = _registry.RelazyStdlibConcreteInstances();
         if (Diagnostics.DiagnosticFlags.PhaseTiming)
-            Console.Error.WriteLine(value: $"[warm-restore] re-lazied {_relazied} primed concrete instances");
+        {
+            Console.Error.WriteLine(
+                value: $"[warm-restore] re-lazied {_relazied} primed concrete instances");
+        }
+
         _typeResolver = new TypeResolver(sa: this);
         _typeBodyResolver = new TypeBodyResolver(sa: this, typeResolver: _typeResolver);
         _signatureResolver = new SignatureResolver(sa: this, typeResolver: _typeResolver);
@@ -134,9 +167,15 @@ public partial class SemanticVerifier
         // recognize + clone them per implementer; without this a warm compile can't specialize them and
         // the generic-def reaches codegen unresolved ("Unresolved generic member routine …join").
         _warmStdlibRoutineBodies = warm.RoutineBodies;
-        foreach (var kv in warm.SynthesizedBodies) _synthesizedBodies[kv.Key] = kv.Value;
-        _variantBodies = new Dictionary<string, Statement>(warm.VariantBodies);
-        _restoredVariantKeys = new HashSet<string>(warm.VariantBodies.Keys, StringComparer.Ordinal);
+        foreach (KeyValuePair<string, (RoutineInfo Routine, Statement Body)> kv in warm
+                    .SynthesizedBodies)
+        {
+            _synthesizedBodies[key: kv.Key] = kv.Value;
+        }
+
+        _variantBodies = new Dictionary<string, Statement>(dictionary: warm.VariantBodies);
+        _restoredVariantKeys = new HashSet<string>(collection: warm.VariantBodies.Keys,
+            comparer: StringComparer.Ordinal);
         // Skip restoring EMPTY synthesized sentinels that have NO matching variant body. The stdlib
         // snapshot captures a placeholder body for a resolved routine whose owner was not live in the
         // stdlib-only snapshot program (e.g. `DictEmittable[Text,SerialValue].try_emit` — no stdlib code
@@ -149,34 +188,40 @@ public partial class SemanticVerifier
         // exactly as a cold compile does. A sentinel WITH a matching variant body is real (Phase C emits
         // it) and is kept.
         var restoredInst = new Dictionary<string, MonomorphizedBody>();
-        foreach (var kv in warm.InstantiatedGenericBodies)
+        foreach (KeyValuePair<string, MonomorphizedBody> kv in warm.InstantiatedGenericBodies)
         {
-            bool emptySentinel = kv.Value is { IsSynthesized: true, Ast.Body: BlockStatement { Statements.Count: 0 } };
-            if (emptySentinel && !warm.VariantBodies.ContainsKey(kv.Key))
+            bool emptySentinel = kv.Value is
+                { IsSynthesized: true, Ast.Body: BlockStatement { Statements.Count: 0 } };
+            if (emptySentinel && !warm.VariantBodies.ContainsKey(key: kv.Key))
+            {
                 continue; // broken placeholder — let the warm build rebuild it
-            restoredInst[kv.Key] = kv.Value;
+            }
+
+            restoredInst[key: kv.Key] = kv.Value;
         }
+
         _instantiatedGenericBodies = restoredInst;
-        _restoredInstantiationKeys =
-            new HashSet<string>(restoredInst.Keys, StringComparer.Ordinal);
+        _restoredInstantiationKeys = new HashSet<string>(collection: restoredInst.Keys,
+            comparer: StringComparer.Ordinal);
         // Share the daemon-lifetime reachability body-scan cache by reference so it persists (and grows)
         // across every warm compile restored from this snapshot. Cold compiles leave it null → RRP walks.
         _bodyScanCache = warm.BodyScanCache;
         if (Diagnostics.DiagnosticFlags.PhaseTiming)
         {
             Console.Error.WriteLine(
-                value: $"[warm-restore] seeded instantiations={_instantiatedGenericBodies.Count} variants={_variantBodies.Count} synth={_synthesizedBodies.Count}");
+                value:
+                $"[warm-restore] seeded instantiations={_instantiatedGenericBodies.Count} variants={_variantBodies.Count} synth={_synthesizedBodies.Count}");
         }
     }
 
     /// <summary>Variant-body keys restored from a warm snapshot — already analyzed at capture time, so
     /// <see cref="AnalyzeVariantBodies"/> skips them instead of re-analyzing (the ~3.6 s warm cost).</summary>
-    private HashSet<string> _restoredVariantKeys = new(StringComparer.Ordinal);
+    private HashSet<string> _restoredVariantKeys = new(comparer: StringComparer.Ordinal);
 
     /// <summary>Monomorphized-instantiation keys restored from a warm snapshot — already lowered to
     /// backend representation + validated at capture time, so <see cref="RunPhase9PostDesugarChecks"/>
     /// skips re-running <c>BackendRepresentationPass</c>/validation on them (redundant warm cost).</summary>
-    private HashSet<string> _restoredInstantiationKeys = new(StringComparer.Ordinal);
+    private HashSet<string> _restoredInstantiationKeys = new(comparer: StringComparer.Ordinal);
 
     /// <summary>Daemon-lifetime reachability body-scan cache (see <see cref="CompiledStdlibState.BodyScanCache"/>);
     /// non-null only on a warm compile. Threaded into <c>InstantiationContext</c> so

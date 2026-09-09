@@ -48,7 +48,8 @@ public sealed class BackendRepresentationPass
     /// </summary>
     private void Walk(ISyntaxTreeNode node)
     {
-        if (node is Expression { ResolvedType: { } resolvedType and not ErrorTypeInfo } expression and not TypeExpression)
+        if (node is Expression { ResolvedType: { } resolvedType and not ErrorTypeInfo } expression
+            and not TypeExpression)
         {
             expression.ResolvedRepr = BackendReprResolver.Resolve(type: resolvedType,
                 registry: _registry,
@@ -72,14 +73,17 @@ public sealed class BackendRepresentationPass
     /// </remarks>
     private static IEnumerable<ISyntaxTreeNode> EnumerateChildren(ISyntaxTreeNode node)
     {
-        PropertyInfo[] properties = ChildPropertyCache.GetOrAdd(node.GetType(), static type =>
-            type.GetProperties(BindingFlags.Instance | BindingFlags.Public)
-                .Where(predicate: property =>
-                    property.Name != nameof(ISyntaxTreeNode.Location) &&
-                    property.CanRead &&
-                    property.GetIndexParameters().Length == 0 &&
-                    !IsAstAliasProperty(ownerType: type, propertyName: property.Name))
-                .ToArray());
+        PropertyInfo[] properties = ChildPropertyCache.GetOrAdd(key: node.GetType(),
+            valueFactory: static type => type
+                                        .GetProperties(bindingAttr: BindingFlags.Instance |
+                                             BindingFlags.Public)
+                                        .Where(predicate: property =>
+                                             property.Name != nameof(ISyntaxTreeNode.Location) &&
+                                             property.CanRead && property.GetIndexParameters()
+                                                .Length == 0 && !IsAstAliasProperty(
+                                                 ownerType: type,
+                                                 propertyName: property.Name))
+                                        .ToArray());
 
         foreach (PropertyInfo property in properties)
         {
@@ -108,7 +112,8 @@ public sealed class BackendRepresentationPass
 
     private static bool IsAstAliasProperty(Type ownerType, string propertyName)
     {
-        return (ownerType.Name == "IfStatement" && (propertyName == "ThenBranch" || propertyName == "ElseBranch"))
-            || (ownerType.Name == "ReturnStatement" && propertyName == "Expression");
+        return ownerType.Name == "IfStatement" &&
+               (propertyName == "ThenBranch" || propertyName == "ElseBranch") ||
+               ownerType.Name == "ReturnStatement" && propertyName == "Expression";
     }
 }

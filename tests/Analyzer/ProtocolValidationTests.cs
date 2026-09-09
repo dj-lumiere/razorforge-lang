@@ -11,10 +11,10 @@ using static TestHelpers;
 public class ProtocolValidationTests
 {
     #region #61: Protocol mutation contract violation
+
     /// <summary>
     /// Verifies semantic analysis behavior for protocol readonly impl readonly without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ProtocolReadonlyImplReadonly_NoError()
     {
@@ -36,7 +36,6 @@ public class ProtocolValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for protocol readonly impl writable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ProtocolReadonlyImplWritable_ReportsError()
     {
@@ -57,7 +56,6 @@ public class ProtocolValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for protocol writable impl readonly without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ProtocolWritableImplReadonly_NoError()
     {
@@ -78,7 +76,6 @@ public class ProtocolValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for protocol writable impl reshaping and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ProtocolWritableImplReshaping_ReportsError()
     {

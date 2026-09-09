@@ -28,20 +28,20 @@ namespace Compiler.Desugaring.Passes;
 /// </summary>
 #pragma warning disable CS9113
 internal sealed class StructuralLoweringPass(PostprocessingContext _)
-#pragma warning restore CS9113
+    #pragma warning restore CS9113
 {
     public static void Run(Program program)
     {
         List<ISyntaxTreeNode> decls = program.Declarations;
         for (int i = 0; i < decls.Count; i++)
         {
-            decls[i] = decls[i] switch
+            decls[index: i] = decls[index: i] switch
             {
-                ChoiceDeclaration choice => LowerChoice(choice),
-                FlagsDeclaration flags => LowerFlags(flags),
-                VariantDeclaration variant => LowerVariant(variant),
-                CrashableDeclaration crashable => LowerCrashable(crashable),
-                _ => decls[i]
+                ChoiceDeclaration choice => LowerChoice(choice: choice),
+                FlagsDeclaration flags => LowerFlags(flags: flags),
+                VariantDeclaration variant => LowerVariant(variant: variant),
+                CrashableDeclaration crashable => LowerCrashable(crashable: crashable),
+                _ => decls[index: i]
             };
         }
     }
@@ -52,21 +52,22 @@ internal sealed class StructuralLoweringPass(PostprocessingContext _)
     /// </summary>
     private static RecordDeclaration LowerChoice(ChoiceDeclaration choice)
     {
-        var underlyingField = new VariableDeclaration(
-            Name: "_underlying",
-            Type: new TypeExpression(
-                Name: "S64",
+        var underlyingField = new VariableDeclaration(Name: "_underlying",
+            Type: new TypeExpression(Name: "S64",
                 GenericArguments: null,
                 Location: choice.Location),
             Initializer: null,
             Visibility: VisibilityModifier.Secret,
             Location: choice.Location);
 
-        var members = new List<SyntaxTree.Declaration>(capacity: 1 + choice.MemberRoutines.Count) { underlyingField };
-        members.AddRange(choice.MemberRoutines);
+        var members =
+            new List<SyntaxTree.Declaration>(capacity: 1 + choice.MemberRoutines.Count)
+            {
+                underlyingField
+            };
+        members.AddRange(collection: choice.MemberRoutines);
 
-        return new RecordDeclaration(
-            Name: choice.Name,
+        return new RecordDeclaration(Name: choice.Name,
             GenericParameters: null,
             Protocols: [],
             Members: members,
@@ -79,18 +80,15 @@ internal sealed class StructuralLoweringPass(PostprocessingContext _)
     /// </summary>
     private static RecordDeclaration LowerFlags(FlagsDeclaration flags)
     {
-        var bitsField = new VariableDeclaration(
-            Name: "_bits",
-            Type: new TypeExpression(
-                Name: "U64",
+        var bitsField = new VariableDeclaration(Name: "_bits",
+            Type: new TypeExpression(Name: "U64",
                 GenericArguments: null,
                 Location: flags.Location),
             Initializer: null,
             Visibility: VisibilityModifier.Secret,
             Location: flags.Location);
 
-        return new RecordDeclaration(
-            Name: flags.Name,
+        return new RecordDeclaration(Name: flags.Name,
             GenericParameters: null,
             Protocols: [],
             Members: [bitsField],
@@ -104,28 +102,23 @@ internal sealed class StructuralLoweringPass(PostprocessingContext _)
     /// </summary>
     private static RecordDeclaration LowerVariant(VariantDeclaration variant)
     {
-        var typeIdField = new VariableDeclaration(
-            Name: "_type_id",
-            Type: new TypeExpression(
-                Name: "U64",
+        var typeIdField = new VariableDeclaration(Name: "_type_id",
+            Type: new TypeExpression(Name: "U64",
                 GenericArguments: null,
                 Location: variant.Location),
             Initializer: null,
             Visibility: VisibilityModifier.Secret,
             Location: variant.Location);
 
-        var payloadField = new VariableDeclaration(
-            Name: "_payload",
-            Type: new TypeExpression(
-                Name: "Address",
+        var payloadField = new VariableDeclaration(Name: "_payload",
+            Type: new TypeExpression(Name: "Address",
                 GenericArguments: null,
                 Location: variant.Location),
             Initializer: null,
             Visibility: VisibilityModifier.Secret,
             Location: variant.Location);
 
-        return new RecordDeclaration(
-            Name: variant.Name,
+        return new RecordDeclaration(Name: variant.Name,
             GenericParameters: variant.GenericParameters,
             Protocols: [],
             Members: [typeIdField, payloadField],
@@ -140,13 +133,11 @@ internal sealed class StructuralLoweringPass(PostprocessingContext _)
     /// </summary>
     private static EntityDeclaration LowerCrashable(CrashableDeclaration crashable)
     {
-        var crashableProtocol = new TypeExpression(
-            Name: "Crashable",
+        var crashableProtocol = new TypeExpression(Name: "Crashable",
             GenericArguments: null,
             Location: crashable.Location);
 
-        return new EntityDeclaration(
-            Name: crashable.Name,
+        return new EntityDeclaration(Name: crashable.Name,
             GenericParameters: null,
             Protocols: [crashableProtocol],
             Members: crashable.Members,

@@ -40,7 +40,7 @@ internal partial class Program
 
         private sealed class DaemonRequest
         {
-            public string Verb { get; set; } = "";       // "build" | "ir" | "shutdown" | "ping"
+            public string Verb { get; set; } = ""; // "build" | "ir" | "shutdown" | "ping"
             public string EntryFile { get; set; } = "";
             public string? ProjectRoot { get; set; }
             public int BuildMode { get; set; }
@@ -59,6 +59,7 @@ internal partial class Program
             public string Output { get; set; } = "";
             public string? ExePath { get; set; }
             public string? Ir { get; set; }
+
             /// <summary>Server-side wall-clock ms of the warm compile itself (excludes IPC/transfer), so a
             /// client can report where dev-loop latency goes: round-trip − CompileMs = transfer.</summary>
             public long CompileMs { get; set; }
@@ -70,7 +71,8 @@ internal partial class Program
         /// <c>RAZORFORGE_DAEMON_PIPE</c> (e.g. to run more than one daemon).</summary>
         private static string PipeName()
         {
-            string? overridden = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_DAEMON_PIPE");
+            string? overridden =
+                Environment.GetEnvironmentVariable(variable: "RAZORFORGE_DAEMON_PIPE");
             if (!string.IsNullOrWhiteSpace(value: overridden))
             {
                 return overridden!;
@@ -90,17 +92,22 @@ internal partial class Program
 
         /// <summary><c>[debug] timing</c> gates the per-phase <c>[timing]</c> diagnostics used while profiling
         /// the dev loop; off by default so normal runs are quiet.</summary>
-        private static bool PhaseTiming() => Compiler.Diagnostics.DiagnosticFlags.PhaseTiming;
+        private static bool PhaseTiming()
+        {
+            return Compiler.Diagnostics.DiagnosticFlags.PhaseTiming;
+        }
 
         // ---- server --------------------------------------------------------------------------------
 
-        private static readonly Dictionary<Language, SemanticVerifier.CompiledStdlibState> WarmCache = new();
+        private static readonly Dictionary<Language, SemanticVerifier.CompiledStdlibState>
+            WarmCache = new();
 
         /// <summary>Lazily captures (and caches) the fully-processed stdlib for a language. The first
         /// request per language pays the ~5 s capture; every request after is warm.</summary>
         private static SemanticVerifier.CompiledStdlibState GetWarm(Language language)
         {
-            if (WarmCache.TryGetValue(key: language, value: out SemanticVerifier.CompiledStdlibState? cached))
+            if (WarmCache.TryGetValue(key: language,
+                    value: out SemanticVerifier.CompiledStdlibState? cached))
             {
                 return cached;
             }
@@ -121,19 +128,27 @@ internal partial class Program
         /// <summary>Daemon-lifetime cache of the stdlib import index per (language, library-roots). The index
         /// is invariant across warm requests (stdlib source + host target are fixed), so building it once and
         /// re-seeding it replaces the ~0.8 s per-request stdlib re-parse the BuildDriver otherwise repeats.</summary>
-        private static readonly Dictionary<string, IReadOnlyDictionary<string, string>> StdlibIndexCache = new();
+        private static readonly Dictionary<string, IReadOnlyDictionary<string, string>>
+            StdlibIndexCache = new();
 
         private static IReadOnlyDictionary<string, string>? GetStdlibIndex(Language language,
             IReadOnlyList<string> libraryRoots)
         {
             // Key on language + the ordered library-root set: distinct [target] library sets index different
             // module surfaces. (Library roots are re-registered per request on top of the seeded stdlib index.)
-            string key = language + "\u0001" + string.Join(separator: "\u0001", values: libraryRoots);
-            if (StdlibIndexCache.TryGetValue(key: key, value: out IReadOnlyDictionary<string, string>? cached))
+            string key = language + "\u0001" +
+                         string.Join(separator: "\u0001", values: libraryRoots);
+            if (StdlibIndexCache.TryGetValue(key: key,
+                    value: out IReadOnlyDictionary<string, string>? cached))
+            {
                 return cached;
-            IReadOnlyDictionary<string, string> index = Compiler.Declaration.BuildDriver.BuildStdlibIndex(
-                stdlibRoot: Compiler.Declaration.StdlibLoader.GetDefaultStdlibPath(),
-                language: language, libraryRoots: libraryRoots);
+            }
+
+            IReadOnlyDictionary<string, string> index =
+                Compiler.Declaration.BuildDriver.BuildStdlibIndex(
+                    stdlibRoot: Compiler.Declaration.StdlibLoader.GetDefaultStdlibPath(),
+                    language: language,
+                    libraryRoots: libraryRoots);
             StdlibIndexCache[key: key] = index;
             return index;
         }
@@ -159,13 +174,18 @@ internal partial class Program
             // differ, so the client knows this daemon is running stale code (old lowering/warm snapshot →
             // e.g. an unlowered GMCE at codegen) and restarts it instead of reusing it.
             string daemonStamp = CompilerVersionStamp();
-            Console.Error.WriteLine(value: $"[daemon] razorforge warm-compile daemon on pipe '{pipe}'");
-            Console.Error.WriteLine(value: "[daemon] routed builds arrive from clients with [target] use-daemon = true.");
+            Console.Error.WriteLine(
+                value: $"[daemon] razorforge warm-compile daemon on pipe '{pipe}'");
+            Console.Error.WriteLine(
+                value:
+                "[daemon] routed builds arrive from clients with [target] use-daemon = true.");
 
             // Pre-warm the primary language so the first real build is already warm.
             try
             {
-                _ = GetWarm(language: InvokedAsSuflae ? Language.Suflae : Language.RazorForge);
+                _ = GetWarm(language: InvokedAsSuflae
+                    ? Language.Suflae
+                    : Language.RazorForge);
             }
             catch (Exception ex)
             {
@@ -188,8 +208,10 @@ internal partial class Program
             {
                 try
                 {
-                    using var server = new NamedPipeServerStream(pipeName: pipe, direction: PipeDirection.InOut,
-                        maxNumberOfServerInstances: 1, transmissionMode: PipeTransmissionMode.Byte,
+                    using var server = new NamedPipeServerStream(pipeName: pipe,
+                        direction: PipeDirection.InOut,
+                        maxNumberOfServerInstances: 1,
+                        transmissionMode: PipeTransmissionMode.Byte,
                         options: PipeOptions.None);
                     server.WaitForConnection();
                     ServeConnection(server: server, daemonStamp: daemonStamp);
@@ -213,7 +235,8 @@ internal partial class Program
         {
             try
             {
-                var logWriter = new StreamWriter(path: logPath, append: false) { AutoFlush = true };
+                var logWriter =
+                    new StreamWriter(path: logPath, append: false) { AutoFlush = true };
                 Console.SetOut(newOut: logWriter);
                 Console.SetError(newError: logWriter);
             }
@@ -225,7 +248,10 @@ internal partial class Program
             if (OperatingSystem.IsWindows())
             {
                 try { FreeConsole(); }
-                catch { /* best-effort: worst case, the pre-fix console-shared behavior */ }
+                catch
+                {
+                    /* best-effort: worst case, the pre-fix console-shared behavior */
+                }
             }
         }
 
@@ -241,7 +267,8 @@ internal partial class Program
 
             if (req.Verb == "shutdown")
             {
-                WriteMessage(stream: server, value: new DaemonResponse { ExitCode = 0, Output = "" });
+                WriteMessage(stream: server,
+                    value: new DaemonResponse { ExitCode = 0, Output = "" });
                 _shutdownRequested = true;
                 return;
             }
@@ -253,7 +280,9 @@ internal partial class Program
                 return;
             }
 
-            DaemonResponse resp = req.Verb == "ir" ? HandleIr(req: req) : HandleBuild(req: req);
+            DaemonResponse resp = req.Verb == "ir"
+                ? HandleIr(req: req)
+                : HandleBuild(req: req);
             WriteMessage(stream: server, value: resp);
         }
 
@@ -305,12 +334,15 @@ internal partial class Program
 
             sw.Stop();
             Console.Error.WriteLine(
-                value: $"[daemon] {Path.GetFileName(path: req.EntryFile)} -> exit {exit} ({sw.ElapsedMilliseconds} ms)");
+                value:
+                $"[daemon] {Path.GetFileName(path: req.EntryFile)} -> exit {exit} ({sw.ElapsedMilliseconds} ms)");
             return new DaemonResponse
             {
                 ExitCode = exit,
                 Output = captured.ToString(),
-                ExePath = exit == 0 ? exePath : null,
+                ExePath = exit == 0
+                    ? exePath
+                    : null,
                 CompileMs = sw.ElapsedMilliseconds
             };
         }
@@ -340,7 +372,9 @@ internal partial class Program
                         RequireStartRoutine = req.RequireStart,
                         LibraryRoots = req.LibraryRoots
                     },
-                    warm: new WarmProviders(GetWarm, null, GetStdlibIndex));
+                    warm: new WarmProviders(WarmProvider: GetWarm,
+                        IrCallback: null,
+                        StdlibIndexProvider: GetStdlibIndex));
             }
             catch (Exception ex)
             {
@@ -356,13 +390,16 @@ internal partial class Program
 
             sw.Stop();
             Console.Error.WriteLine(
-                value: $"[daemon] ir {Path.GetFileName(path: req.EntryFile)} -> exit {exit} ({ir.Length} chars, {sw.ElapsedMilliseconds} ms)");
+                value:
+                $"[daemon] ir {Path.GetFileName(path: req.EntryFile)} -> exit {exit} ({ir.Length} chars, {sw.ElapsedMilliseconds} ms)");
             return new DaemonResponse
             {
                 ExitCode = exit,
                 Output = captured.ToString(),
                 CompileMs = sw.ElapsedMilliseconds,
-                Ir = exit == 0 ? ir : null
+                Ir = exit == 0
+                    ? ir
+                    : null
             };
         }
 
@@ -371,7 +408,8 @@ internal partial class Program
         {
             try
             {
-                DaemonResponse? _ = SendRequest(request: new DaemonRequest { Verb = "shutdown" }, timeoutMs: 2000);
+                DaemonResponse? _ = SendRequest(request: new DaemonRequest { Verb = "shutdown" },
+                    timeoutMs: 2000);
                 Console.WriteLine(value: "Daemon stop requested.");
                 return 0;
             }
@@ -397,10 +435,15 @@ internal partial class Program
 
             Console.Write(value: resp!.Output);
             if (PhaseTiming())
-                Console.Error.WriteLine(value: $"[timing] daemon warm compile: {resp.CompileMs} ms");
+            {
+                Console.Error.WriteLine(
+                    value: $"[timing] daemon warm compile: {resp.CompileMs} ms");
+            }
+
             if (resp.ExitCode == 0 && resp.ExePath != null)
             {
-                Console.WriteLine(value: $"Executable written to: {Path.GetFullPath(path: resp.ExePath)}");
+                Console.WriteLine(
+                    value: $"Executable written to: {Path.GetFullPath(path: resp.ExePath)}");
             }
 
             exitCode = resp.ExitCode;
@@ -419,14 +462,19 @@ internal partial class Program
 
             Console.Write(value: resp!.Output);
             if (PhaseTiming())
-                Console.Error.WriteLine(value: $"[timing] daemon warm compile: {resp.CompileMs} ms");
+            {
+                Console.Error.WriteLine(
+                    value: $"[timing] daemon warm compile: {resp.CompileMs} ms");
+            }
+
             if (resp.ExitCode != 0 || resp.ExePath == null)
             {
                 exitCode = resp.ExitCode;
                 return true;
             }
 
-            exitCode = RunExecutable(exeFile: resp.ExePath, showBuildStages: resolved.ShowBuildStages);
+            exitCode = RunExecutable(exeFile: resp.ExePath,
+                showBuildStages: resolved.ShowBuildStages);
             return true;
         }
 
@@ -453,7 +501,8 @@ internal partial class Program
 
             if (!OrcJitExecutor.TryInitialize(error: out string? initErr))
             {
-                Console.Error.WriteLine(value: $"[jit] unavailable ({initErr}); falling back to AOT build.");
+                Console.Error.WriteLine(
+                    value: $"[jit] unavailable ({initErr}); falling back to AOT build.");
                 return false;
             }
 
@@ -461,7 +510,7 @@ internal partial class Program
             string ir = "";
             int rc = 0;
             bool haveIr = resolved.UseDaemon &&
-                TryGetWarmDaemonIr(resolved: resolved, ir: out ir, exitCode: out rc);
+                          TryGetWarmDaemonIr(resolved: resolved, ir: out ir, exitCode: out rc);
             if (!haveIr)
             {
                 rc = BuildToIr(entryFile: Path.GetFullPath(path: resolved.EntryFile),
@@ -471,7 +520,9 @@ internal partial class Program
 
             if (rc != 0 || string.IsNullOrEmpty(value: ir))
             {
-                exitCode = rc != 0 ? rc : 1;
+                exitCode = rc != 0
+                    ? rc
+                    : 1;
                 return true;
             }
 
@@ -483,7 +534,11 @@ internal partial class Program
                     programArgs: []);
                 _swJit.Stop();
                 if (PhaseTiming())
-                    Console.Error.WriteLine(value: $"[timing] JIT compile + run: {_swJit.ElapsedMilliseconds} ms");
+                {
+                    Console.Error.WriteLine(
+                        value: $"[timing] JIT compile + run: {_swJit.ElapsedMilliseconds} ms");
+                }
+
                 return true;
             }
             catch (Exception ex)
@@ -497,7 +552,8 @@ internal partial class Program
         /// <summary>Ensures a warm daemon is up, then fetches the module IR from it, reporting the one-time
         /// spawn+warm wait and the IPC-transfer timing separately. Returns false (cold fallback) when the
         /// daemon can't be reached or the fetch fails.</summary>
-        private static bool TryGetWarmDaemonIr(ResolvedEntry resolved, out string ir, out int exitCode)
+        private static bool TryGetWarmDaemonIr(ResolvedEntry resolved, out string ir,
+            out int exitCode)
         {
             ir = "";
             exitCode = 0;
@@ -509,11 +565,16 @@ internal partial class Program
             // The one-time spawn+warm wait (~5 s on first run) is NOT transfer — report it separately so
             // it doesn't inflate the `transfer` figure below.
             if (PhaseTiming() && spawned)
+            {
                 Console.Error.WriteLine(value: $"[timing] daemon spawn+warm: {warmWaitMs} ms");
+            }
+
             // Start the transfer clock only NOW (daemon confirmed warm), so `transfer` = round-trip −
             // server compile, the real IPC cost, not the spawn+warm wait.
             var _swIr = System.Diagnostics.Stopwatch.StartNew();
-            if (!TryDaemonIr(resolved: resolved, ir: out ir, exitCode: out exitCode,
+            if (!TryDaemonIr(resolved: resolved,
+                    ir: out ir,
+                    exitCode: out exitCode,
                     serverCompileMs: out long serverCompileMs))
             {
                 return false;
@@ -521,7 +582,12 @@ internal partial class Program
 
             _swIr.Stop();
             if (PhaseTiming())
-                Console.Error.WriteLine(value: $"[timing] daemon IR fetch: {_swIr.ElapsedMilliseconds} ms (server compile {serverCompileMs} ms, transfer {_swIr.ElapsedMilliseconds - serverCompileMs} ms, {ir.Length} chars)");
+            {
+                Console.Error.WriteLine(
+                    value:
+                    $"[timing] daemon IR fetch: {_swIr.ElapsedMilliseconds} ms (server compile {serverCompileMs} ms, transfer {_swIr.ElapsedMilliseconds - serverCompileMs} ms, {ir.Length} chars)");
+            }
+
             return true;
         }
 
@@ -542,7 +608,7 @@ internal partial class Program
                 BuildMode = (int)resolved.BuildMode,
                 RequireStart = resolved.RequireStartRoutine,
                 SaTiming = resolved.SaTiming,
-                LibraryRoots = [..resolved.LibraryRoots]
+                LibraryRoots = [.. resolved.LibraryRoots]
             };
             try
             {
@@ -585,10 +651,13 @@ internal partial class Program
             {
                 return false;
             }
+
             // Report the one-time spawn+warm wait on its own line (the build path's `daemon warm compile` is
             // server-measured and already excludes it, but without this the ~5 s first-run cost is invisible).
             if (PhaseTiming() && spawned)
+            {
                 Console.Error.WriteLine(value: $"[timing] daemon spawn+warm: {warmWaitMs} ms");
+            }
 
             var req = new DaemonRequest
             {
@@ -600,9 +669,9 @@ internal partial class Program
                 SaTiming = resolved.SaTiming,
                 RequireStart = resolved.RequireStartRoutine,
                 ShowBuildStages = resolved.ShowBuildStages,
-                LibraryRoots = [..resolved.LibraryRoots],
-                CLibraries = [..resolved.CLibraries],
-                LibraryPaths = [..resolved.LibraryPaths]
+                LibraryRoots = [.. resolved.LibraryRoots],
+                CLibraries = [.. resolved.CLibraries],
+                LibraryPaths = [.. resolved.LibraryPaths]
             };
 
             try
@@ -619,7 +688,8 @@ internal partial class Program
 
         private static DaemonResponse? SendRequest(DaemonRequest request, int timeoutMs)
         {
-            using var client = new NamedPipeClientStream(serverName: ".", pipeName: PipeName(),
+            using var client = new NamedPipeClientStream(serverName: ".",
+                pipeName: PipeName(),
                 direction: PipeDirection.InOut);
             client.Connect(timeout: timeoutMs);
             WriteMessage(stream: client, value: request);
@@ -635,11 +705,18 @@ internal partial class Program
         {
             try
             {
-                string? loc = System.Reflection.Assembly.GetEntryAssembly()?.Location;
+                string? loc = System.Reflection.Assembly.GetEntryAssembly()
+                                   ?.Location;
                 if (!string.IsNullOrEmpty(value: loc) && File.Exists(path: loc))
+                {
                     return new FileInfo(fileName: loc).LastWriteTimeUtc.Ticks.ToString();
+                }
             }
-            catch { /* best-effort */ }
+            catch
+            {
+                /* best-effort */
+            }
+
             return "0";
         }
 
@@ -651,9 +728,15 @@ internal partial class Program
             {
                 DaemonResponse? resp = SendRequest(request: new DaemonRequest { Verb = "ping" },
                     timeoutMs: timeoutMs);
-                if (resp?.Output is not { } output) return null;
+                if (resp?.Output is not { } output)
+                {
+                    return null;
+                }
+
                 int sp = output.IndexOf(value: ' ');
-                return sp >= 0 ? output[(sp + 1)..] : ""; // "pong <stamp>" → stamp; bare "pong" → "" (old daemon)
+                return sp >= 0
+                    ? output[(sp + 1)..]
+                    : ""; // "pong <stamp>" → stamp; bare "pong" → "" (old daemon)
             }
             catch
             {
@@ -677,14 +760,23 @@ internal partial class Program
         {
             string? stamp = PingStamp(timeoutMs: 300);
             if (stamp == null || stamp == CompilerVersionStamp())
+            {
                 return; // no daemon, or already fresh
+            }
+
             Console.Error.WriteLine(
                 value: "[daemon] running daemon is stale (compiler was rebuilt) — restarting it.");
             try { SendRequest(request: new DaemonRequest { Verb = "shutdown" }, timeoutMs: 2000); }
-            catch { /* best-effort */ }
+            catch
+            {
+                /* best-effort */
+            }
+
             // Poll until the stale daemon stops answering (pipe freed), up to ~5 s.
             for (int i = 0; i < 50 && PingStamp(timeoutMs: 100) != null; i++)
+            {
                 Thread.Sleep(millisecondsTimeout: 100);
+            }
         }
 
         /// <summary>
@@ -754,7 +846,8 @@ internal partial class Program
         /// launched. Returns null when the host/DLL paths can't be resolved or the process fails to start.</summary>
         private static System.Diagnostics.Process? SpawnDaemonProcess()
         {
-            string? dll = System.Reflection.Assembly.GetEntryAssembly()?.Location;
+            string? dll = System.Reflection.Assembly.GetEntryAssembly()
+                               ?.Location;
             string? host = Environment.ProcessPath;
             if (string.IsNullOrEmpty(value: dll) || string.IsNullOrEmpty(value: host))
             {
@@ -765,9 +858,7 @@ internal partial class Program
                 path2: $"razorforge-daemon-{Environment.UserName}.log");
             var psi = new System.Diagnostics.ProcessStartInfo
             {
-                FileName = host,
-                UseShellExecute = false,
-                CreateNoWindow = true,
+                FileName = host, UseShellExecute = false, CreateNoWindow = true
             };
             // Command line depends on HOW this client was launched:
             //   • via the apphost `RazorForge.exe`  → ProcessPath IS RazorForge.exe → spawn `RazorForge.exe
@@ -777,22 +868,27 @@ internal partial class Program
             //   • via the muxer `dotnet RazorForge.dll` → ProcessPath is dotnet(.exe) → spawn `dotnet
             //     RazorForge.dll daemon`.
             bool hostIsApphost = Path.GetFileNameWithoutExtension(path: host)
-                .Equals(value: Path.GetFileNameWithoutExtension(path: dll),
-                    comparisonType: StringComparison.OrdinalIgnoreCase);
-            if (!hostIsApphost) psi.ArgumentList.Add(item: dll);
+                                     .Equals(value: Path.GetFileNameWithoutExtension(path: dll),
+                                          comparisonType: StringComparison.OrdinalIgnoreCase);
+            if (!hostIsApphost)
+            {
+                psi.ArgumentList.Add(item: dll);
+            }
+
             psi.ArgumentList.Add(item: "daemon");
             // The spawned daemon redirects its own console to this file (see RunServer), so it is fully
             // detached from this short-lived client's console and survives the client exiting.
             psi.Environment[key: DaemonLogEnvVar] = logPath;
 
-            System.Diagnostics.Process? proc = System.Diagnostics.Process.Start(startInfo: psi);
+            var proc = System.Diagnostics.Process.Start(startInfo: psi);
             if (proc == null)
             {
                 return null;
             }
 
             Console.Error.WriteLine(
-                value: $"[daemon] no daemon running — started one (pid {proc.Id}, log: {logPath}); warming…");
+                value:
+                $"[daemon] no daemon running — started one (pid {proc.Id}, log: {logPath}); warming…");
             return proc;
         }
 
@@ -829,7 +925,8 @@ internal partial class Program
         {
             byte[] payload = JsonSerializer.SerializeToUtf8Bytes(value: value);
             Span<byte> len = stackalloc byte[4];
-            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(destination: len, value: payload.Length);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(destination: len,
+                value: payload.Length);
             stream.Write(buffer: len);
             stream.Write(buffer: payload, offset: 0, count: payload.Length);
             stream.Flush();

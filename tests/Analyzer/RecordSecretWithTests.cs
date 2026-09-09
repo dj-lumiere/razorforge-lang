@@ -11,10 +11,10 @@ using static TestHelpers;
 public class RecordSecretWithTests
 {
     #region #45: With secret member prohibition
+
     /// <summary>
     /// Verifies semantic analysis behavior for with open member variable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WithOpenMemberVariable_NoError()
     {
@@ -34,7 +34,6 @@ public class RecordSecretWithTests
     /// <summary>
     /// Verifies semantic analysis behavior for with secret member variable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_WithSecretMemberVariable_ReportsError()
     {
@@ -54,7 +53,6 @@ public class RecordSecretWithTests
     /// <summary>
     /// Verifies semantic analysis behavior for with posted member variable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WithPostedMemberVariable_NoError()
     {

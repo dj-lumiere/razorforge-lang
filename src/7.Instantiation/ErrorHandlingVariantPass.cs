@@ -6,7 +6,6 @@ using TypeModel.Types;
 
 namespace Compiler.Instantiation;
 
-
 /// <summary>
 /// Generates try_/check_/lookup_ routine variants for all failable routines.
 /// Runs once globally after Phase 4 body analysis.
@@ -18,8 +17,8 @@ namespace Compiler.Instantiation;
 /// </summary>
 internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
 {
-    private const string PrefixTry    = "try";
-    private const string PrefixCheck  = "check";
+    private const string PrefixTry = "try";
+    private const string PrefixCheck = "check";
     private const string PrefixLookup = "lookup";
 
     /// <summary>
@@ -40,13 +39,16 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         var generator = new ErrorHandlingGenerator(registry: ctx.Registry);
 
         // Snapshot before iteration -> registering variants adds new routines to the registry
-        var routines = ctx.Registry.GetAllRoutines().ToList();
+        var routines = ctx.Registry
+                          .GetAllRoutines()
+                          .ToList();
 
         PopulateDirectFailability(routines: routines);
         MarkPessimisticStdlibFailability(routines: routines);
         PropagateFailabilityFixpoint(routines: routines);
 
-        var pending = RegisterVariants(routines: routines, generator: generator);
+        List<(RoutineInfo routine, Statement body, List<GeneratedVariant> variants)> pending =
+            RegisterVariants(routines: routines, generator: generator);
         TransformPendingBodies(pending: pending);
     }
 
@@ -57,16 +59,25 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// </summary>
     private void PopulateDirectFailability(List<RoutineInfo> routines)
     {
-        foreach (RoutineInfo routine in routines.Where(r => r.IsFailable
-            && ctx.RoutineBodies.ContainsKey(r.RegistryKey)))
+        foreach (RoutineInfo routine in routines.Where(predicate: r =>
+                     r.IsFailable && ctx.RoutineBodies.ContainsKey(key: r.RegistryKey)))
         {
-            Statement body = ctx.RoutineBodies[routine.RegistryKey];
-            ErrorHandlingAnalysis analysis = ErrorHandlingGenerator.AnalyzeBody(body);
-            if (analysis.HasThrow) routine.HasThrow = true;
-            if (analysis.HasAbsent) routine.HasAbsent = true;
-            foreach (TypeInfo t in analysis.ThrownTypes.Where(t => !routine.ThrowableTypes.Contains(t)))
+            Statement body = ctx.RoutineBodies[key: routine.RegistryKey];
+            ErrorHandlingAnalysis analysis = ErrorHandlingGenerator.AnalyzeBody(body: body);
+            if (analysis.HasThrow)
             {
-                routine.ThrowableTypes.Add(t);
+                routine.HasThrow = true;
+            }
+
+            if (analysis.HasAbsent)
+            {
+                routine.HasAbsent = true;
+            }
+
+            foreach (TypeInfo t in analysis.ThrownTypes.Where(predicate: t =>
+                         !routine.ThrowableTypes.Contains(item: t)))
+            {
+                routine.ThrowableTypes.Add(item: t);
             }
         }
     }
@@ -81,10 +92,9 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// </summary>
     private void MarkPessimisticStdlibFailability(List<RoutineInfo> routines)
     {
-        foreach (RoutineInfo routine in routines.Where(r => r.IsFailable
-            && !r.HasThrow && !r.HasAbsent
-            && r.FailableCallees.Count == 0
-            && ctx.RoutineBodies.ContainsKey(r.RegistryKey)))
+        foreach (RoutineInfo routine in routines.Where(predicate: r =>
+                     r.IsFailable && !r.HasThrow && !r.HasAbsent && r.FailableCallees.Count == 0 &&
+                     ctx.RoutineBodies.ContainsKey(key: r.RegistryKey)))
         {
             routine.HasThrow = true;
             routine.HasAbsent = true;
@@ -103,10 +113,12 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         while (changed)
         {
             changed = false;
-            foreach (RoutineInfo routine in routines.Where(r => r.IsFailable))
+            foreach (RoutineInfo routine in routines.Where(predicate: r => r.IsFailable))
             {
                 foreach (RoutineInfo callee in routine.FailableCallees)
+                {
                     changed |= PropagateCalleeFailability(routine: routine, callee: callee);
+                }
             }
         }
     }
@@ -131,10 +143,12 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
             changed = true;
         }
 
-        var newTypes = callee.ThrowableTypes.Where(t => !routine.ThrowableTypes.Contains(t)).ToList();
+        var newTypes = callee.ThrowableTypes
+                             .Where(predicate: t => !routine.ThrowableTypes.Contains(item: t))
+                             .ToList();
         if (newTypes.Count > 0)
         {
-            routine.ThrowableTypes.AddRange(newTypes);
+            routine.ThrowableTypes.AddRange(collection: newTypes);
             changed = true;
         }
 
@@ -146,10 +160,11 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// rewriter in Phase D can find variants of callees regardless of iteration order.
     /// Returns the per-routine work items to transform in Phase D.
     /// </summary>
-    private List<(RoutineInfo routine, Statement body, List<GeneratedVariant> variants)> RegisterVariants(
-        List<RoutineInfo> routines, ErrorHandlingGenerator generator)
+    private List<(RoutineInfo routine, Statement body, List<GeneratedVariant> variants)>
+        RegisterVariants(List<RoutineInfo> routines, ErrorHandlingGenerator generator)
     {
-        var pending = new List<(RoutineInfo routine, Statement body, List<GeneratedVariant> variants)>();
+        var pending =
+            new List<(RoutineInfo routine, Statement body, List<GeneratedVariant> variants)>();
 
         // DEMAND-DRIVEN: only the iterator `emit` variants are generated eagerly here (their generic-def
         // bodies must exist before Phase-8 monomorphization of composed emitters). EVERY OTHER failable's
@@ -157,13 +172,21 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         // site reaches it (SemanticVerifier's TrySynthesizeVariantOnDemand → GenerateVariantBody, drained
         // before AnalyzeVariantBodies). This is what stops ~3600 stdlib variant bodies from being built +
         // analyzed every run when a program uses only a handful.
-        foreach (RoutineInfo routine in routines.Where(r => r.IsFailable && r.Name == "emit"))
+        foreach (RoutineInfo routine in routines.Where(predicate: r =>
+                     r.IsFailable && r.Name == "emit"))
         {
-            if (!ctx.RoutineBodies.TryGetValue(key: routine.RegistryKey, value: out Statement? body))
+            if (!ctx.RoutineBodies.TryGetValue(key: routine.RegistryKey,
+                    value: out Statement? body))
+            {
                 continue;
+            }
 
-            RegisterVariantsForEmitRoutine(routine: routine, body: body, generator: generator, pending: pending);
+            RegisterVariantsForEmitRoutine(routine: routine,
+                body: body,
+                generator: generator,
+                pending: pending);
         }
+
         return pending;
     }
 
@@ -177,7 +200,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         List<(RoutineInfo routine, Statement body, List<GeneratedVariant> variants)> pending)
     {
         // @crash_only: still analyze throw/absent but suppress safe variant generation
-        if (routine.Annotations.Contains("crash_only"))
+        if (routine.Annotations.Contains(item: "crash_only"))
         {
             ErrorHandlingResult crashOnlyResult =
                 generator.GenerateVariants(routine: routine, body: body);
@@ -187,19 +210,22 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         }
 
         ErrorHandlingResult result = generator.GenerateVariants(routine: routine, body: body);
-        if (result.Error != null) return;
+        if (result.Error != null)
+        {
+            return;
+        }
 
         routine.HasThrow = result.HasThrow;
         routine.HasAbsent = result.HasAbsent;
         routine.ThrowableTypes = result.ThrownTypes;
 
-        foreach (RoutineInfo variantRoutine in result.Variants.Select(v => v.Routine))
+        foreach (RoutineInfo variantRoutine in result.Variants.Select(selector: v => v.Routine))
         {
             ctx.Registry.RegisterRoutine(routine: variantRoutine);
             variantRoutine.ThrowableTypes = result.ThrownTypes;
         }
 
-        pending.Add((routine, body, result.Variants));
+        pending.Add(item: (routine, body, result.Variants));
     }
 
     /// <summary>
@@ -217,14 +243,19 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
                 Statement variantSourceBody = GenericAstRewriter.RewriteStatement(
                     stmt: body,
                     subs: new Dictionary<string, string>());
-                Statement variantBody = TransformBody(body: variantSourceBody, kind: kind,
-                    rewriter: TryRewriteToVariantCall, registry: ctx.Registry);
+                Statement variantBody = TransformBody(body: variantSourceBody,
+                    kind: kind,
+                    rewriter: TryRewriteToVariantCall,
+                    registry: ctx.Registry);
                 // Warm-restore: a variant body pre-seeded from the captured stdlib is already lowered +
                 // analyzed — keep it instead of overwriting with a fresh un-analyzed regeneration (the
                 // seeded ones are what AnalyzeVariantBodies skips; overwriting would leave them unanalyzed).
-                if (ctx.Registry.SkipStdlibReprocessing
-                    && ctx.VariantBodies.ContainsKey(key: variant.Routine.RegistryKey))
+                if (ctx.Registry.SkipStdlibReprocessing &&
+                    ctx.VariantBodies.ContainsKey(key: variant.Routine.RegistryKey))
+                {
                     continue;
+                }
+
                 ctx.VariantBodies[key: variant.Routine.RegistryKey] = variantBody;
             }
         }
@@ -238,8 +269,9 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     {
         return variant.Kind switch
         {
-            ErrorHandlingVariantKind.Try when variant.Routine.FailableVariant == FailableVariant.TryBool
-                => ErrorHandlingVariantKind.TryBool,
+            ErrorHandlingVariantKind.Try when variant.Routine.FailableVariant ==
+                                              FailableVariant.TryBool => ErrorHandlingVariantKind
+               .TryBool,
             _ => variant.Kind
         };
     }
@@ -256,9 +288,12 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     {
         ErrorHandlingVariantKind kind = DetermineVariantKind(variant: variant);
         Statement variantSourceBody = GenericAstRewriter.RewriteStatement(
-            stmt: baseBody, subs: new Dictionary<string, string>());
-        return TransformBody(body: variantSourceBody, kind: kind,
-            rewriter: MakeOnDemandVariantRewriter(registry: registry), registry: registry,
+            stmt: baseBody,
+            subs: new Dictionary<string, string>());
+        return TransformBody(body: variantSourceBody,
+            kind: kind,
+            rewriter: MakeOnDemandVariantRewriter(registry: registry),
+            registry: registry,
             nextOnlyPropagation: false);
     }
 
@@ -278,28 +313,41 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         // Eager-owned (emit) or wired variants: the hook returns null, falling back to FindVariant — an
         // EXACT scan-match (name + OriginalName + owner + param types), never a lossy by-name lookup.
         RoutineInfo? FindOrSynth(RoutineInfo original, string prefix)
-            => registry.OnDemandVariantForBase?.Invoke(arg1: original, arg2: prefix)
-               ?? FindVariant(registry: registry, original: original, prefix: prefix);
+        {
+            return registry.OnDemandVariantForBase?.Invoke(arg1: original, arg2: prefix) ??
+                   FindVariant(registry: registry, original: original, prefix: prefix);
+        }
 
         return (Expression? value, ErrorHandlingVariantKind kind, out Expression? rewritten) =>
         {
             rewritten = null;
             string? prefix = kind switch
             {
-                ErrorHandlingVariantKind.Try    => PrefixTry,
-                ErrorHandlingVariantKind.Check  => PrefixCheck,
+                ErrorHandlingVariantKind.Try => PrefixTry,
+                ErrorHandlingVariantKind.Check => PrefixCheck,
                 ErrorHandlingVariantKind.Lookup => PrefixLookup,
                 _ => null
             };
-            if (prefix == null) return false;
+            if (prefix == null)
+            {
+                return false;
+            }
 
-            if (TryRewriteCallToVariant(value: value, prefix: prefix,
-                    findOrSynth: FindOrSynth, rewritten: out rewritten))
+            if (TryRewriteCallToVariant(value: value,
+                    prefix: prefix,
+                    findOrSynth: FindOrSynth,
+                    rewritten: out rewritten))
+            {
                 return true;
+            }
 
-            if (TryRewriteCreatorToVariant(value: value, prefix: prefix,
-                    findOrSynth: FindOrSynth, rewritten: out rewritten))
+            if (TryRewriteCreatorToVariant(value: value,
+                    prefix: prefix,
+                    findOrSynth: FindOrSynth,
+                    rewritten: out rewritten))
+            {
                 return true;
+            }
 
             return false;
         };
@@ -315,19 +363,28 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     {
         rewritten = null;
         if (value is not CallExpression { ResolvedRoutine: { IsFailable: true } callee } call)
+        {
             return false;
+        }
 
-        RoutineInfo? variant = findOrSynth(callee, prefix);
-        if (variant == null) return false;
+        RoutineInfo? variant = findOrSynth(arg1: callee, arg2: prefix);
+        if (variant == null)
+        {
+            return false;
+        }
 
-        CallExpression newCall = call with { ResolvedRoutine = variant, ResolvedType = variant.ReturnType };
+        CallExpression newCall = call with
+        {
+            ResolvedRoutine = variant, ResolvedType = variant.ReturnType
+        };
         newCall = newCall.Callee switch
         {
             MemberExpression m => newCall with
             {
                 Callee = m with
                 {
-                    MemberName = VariantSurfaceMember(surfaceMember: m.MemberName, original: callee,
+                    MemberName = VariantSurfaceMember(surfaceMember: m.MemberName,
+                        original: callee,
                         variant: variant),
                     IsFailable = false
                 }
@@ -348,23 +405,33 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         Func<RoutineInfo, string, RoutineInfo?> findOrSynth, out Expression? rewritten)
     {
         rewritten = null;
-        if (value is not CreatorExpression { ResolvedCreatorRoutine: { IsFailable: true } cCallee } creator)
+        if (value is not CreatorExpression
+            {
+                ResolvedCreatorRoutine: { IsFailable: true } cCallee
+            } creator)
+        {
             return false;
+        }
 
-        RoutineInfo? variant = findOrSynth(cCallee, prefix);
-        if (variant == null) return false;
+        RoutineInfo? variant = findOrSynth(arg1: cCallee, arg2: prefix);
+        if (variant == null)
+        {
+            return false;
+        }
 
         var typeId = new IdentifierExpression(Name: creator.TypeName, Location: creator.Location);
-        var member = new MemberExpression(Object: typeId, MemberName: variant.Name,
+        var member = new MemberExpression(Object: typeId,
+            MemberName: variant.Name,
             Location: creator.Location);
         var args = creator.MemberVariables
-            .Select(selector: mv => (Expression)new NamedArgumentExpression(
-                Name: mv.Name, Value: mv.Value, Location: creator.Location))
-            .ToList();
+                          .Select(selector: mv => (Expression)new NamedArgumentExpression(
+                               Name: mv.Name,
+                               Value: mv.Value,
+                               Location: creator.Location))
+                          .ToList();
         rewritten = new CallExpression(Callee: member, Arguments: args, Location: creator.Location)
         {
-            ResolvedRoutine = variant,
-            ResolvedType = variant.ReturnType
+            ResolvedRoutine = variant, ResolvedType = variant.ReturnType
         };
         return true;
     }
@@ -373,7 +440,8 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// Signature for an optional rewriter that may convert a tail-return value into a passthrough
     /// call against the corresponding try_/check_/lookup_ variant of an inner failable callee.
     /// </summary>
-    public delegate bool VariantCallRewriter(Expression? value, ErrorHandlingVariantKind kind, out Expression? rewritten);
+    public delegate bool VariantCallRewriter(Expression? value, ErrorHandlingVariantKind kind,
+        out Expression? rewritten);
 
     /// <summary>
     /// Recursively walks a routine body and replaces throw/absent/return statements with
@@ -402,9 +470,13 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         VariantCallRewriter? rewriter = null, TypeRegistry? registry = null,
         bool nextOnlyPropagation = false)
     {
-        TypeRegistry? propRegistry =
-            registry != null && kind == ErrorHandlingVariantKind.Try ? registry : null;
-        return TransformBodyCore(body: body, kind: kind, rewriter: rewriter, registry: propRegistry,
+        TypeRegistry? propRegistry = registry != null && kind == ErrorHandlingVariantKind.Try
+            ? registry
+            : null;
+        return TransformBodyCore(body: body,
+            kind: kind,
+            rewriter: rewriter,
+            registry: propRegistry,
             nextOnly: nextOnlyPropagation);
     }
 
@@ -417,48 +489,90 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
             // recovery surface, so it is NOT rewritten into a recoverable return.
             ThrowStatement { IsFatal: true } => body,
 
-            ThrowStatement ts =>
-                new VariantReturnStatement(kind, VariantSiteKind.FromThrow, ts.Error, ts.Location),
+            ThrowStatement ts => new VariantReturnStatement(VariantKind: kind,
+                SiteKind: VariantSiteKind.FromThrow,
+                Value: ts.Error,
+                Location: ts.Location),
 
-            AbsentStatement abs =>
-                new VariantReturnStatement(kind, VariantSiteKind.FromAbsent, null, abs.Location),
+            AbsentStatement abs => new VariantReturnStatement(VariantKind: kind,
+                SiteKind: VariantSiteKind.FromAbsent,
+                Value: null,
+                Location: abs.Location),
 
-            ReturnStatement ret when rewriter != null && rewriter(ret.Value, kind, out Expression? vcall) =>
-                new VariantReturnStatement(kind, VariantSiteKind.FromVariantPassthrough, vcall, ret.Location),
+            ReturnStatement ret when rewriter != null && rewriter(value: ret.Value,
+                kind: kind,
+                rewritten: out Expression? vcall) => new VariantReturnStatement(VariantKind: kind,
+                SiteKind: VariantSiteKind.FromVariantPassthrough,
+                Value: vcall,
+                Location: ret.Location),
 
-            ReturnStatement ret =>
-                new VariantReturnStatement(kind, VariantSiteKind.FromReturn, ret.Value, ret.Location),
+            ReturnStatement ret => new VariantReturnStatement(VariantKind: kind,
+                SiteKind: VariantSiteKind.FromReturn,
+                Value: ret.Value,
+                Location: ret.Location),
 
             BlockStatement block => block with
             {
-                Statements = TransformBlockStatements(stmts: block.Statements, start: 0, kind: kind,
-                    rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                Statements = TransformBlockStatements(stmts: block.Statements,
+                    start: 0,
+                    kind: kind,
+                    rewriter: rewriter,
+                    registry: registry,
+                    nextOnly: nextOnly)
             },
 
-            IfStatement ifs => TransformIf(ifs: ifs, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
-            WhileStatement ws => TransformWhile(ws: ws, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
-            EachStatement fs => TransformEach(fs: fs, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            IfStatement ifs => TransformIf(ifs: ifs,
+                kind: kind,
+                rewriter: rewriter,
+                registry: registry,
+                nextOnly: nextOnly),
+            WhileStatement ws => TransformWhile(ws: ws,
+                kind: kind,
+                rewriter: rewriter,
+                registry: registry,
+                nextOnly: nextOnly),
+            EachStatement fs => TransformEach(fs: fs,
+                kind: kind,
+                rewriter: rewriter,
+                registry: registry,
+                nextOnly: nextOnly),
 
             WhenStatement ws => ws with
             {
                 Clauses = ws.Clauses
                             .Select(selector: c => c with
                              {
-                                 Body = TransformBodyCore(body: c.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                                 Body = TransformBodyCore(body: c.Body,
+                                     kind: kind,
+                                     rewriter: rewriter,
+                                     registry: registry,
+                                     nextOnly: nextOnly)
                              })
                             .ToList()
             },
 
-            UsingStatement us => TransformUsing(us: us, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            UsingStatement us => TransformUsing(us: us,
+                kind: kind,
+                rewriter: rewriter,
+                registry: registry,
+                nextOnly: nextOnly),
 
             DangerStatement danger => danger with
             {
-                Body = (BlockStatement)TransformBodyCore(body: danger.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                Body = (BlockStatement)TransformBodyCore(body: danger.Body,
+                    kind: kind,
+                    rewriter: rewriter,
+                    registry: registry,
+                    nextOnly: nextOnly)
             },
 
             LoopStatement loop => loop with
             {
-                Body = TransformBodyCore(body: loop.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                Body = TransformBodyCore(body: loop.Body,
+                    kind: kind,
+                    rewriter: rewriter,
+                    registry: registry,
+                    nextOnly: nextOnly)
             },
 
             _ => body // All other statements pass through unchanged
@@ -467,43 +581,84 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
 
     private static IfStatement TransformIf(IfStatement ifs, ErrorHandlingVariantKind kind,
         VariantCallRewriter? rewriter, TypeRegistry? registry, bool nextOnly)
-        => ifs with
+    {
+        return ifs with
         {
-            ThenStatement = TransformBodyCore(body: ifs.ThenStatement, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            ThenStatement =
+            TransformBodyCore(body: ifs.ThenStatement,
+                kind: kind,
+                rewriter: rewriter,
+                registry: registry,
+                nextOnly: nextOnly),
             ElseStatement = ifs.ElseStatement != null
-                ? TransformBodyCore(body: ifs.ElseStatement, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                ? TransformBodyCore(body: ifs.ElseStatement,
+                    kind: kind,
+                    rewriter: rewriter,
+                    registry: registry,
+                    nextOnly: nextOnly)
                 : null
         };
+    }
 
     private static WhileStatement TransformWhile(WhileStatement ws, ErrorHandlingVariantKind kind,
         VariantCallRewriter? rewriter, TypeRegistry? registry, bool nextOnly)
-        => ws with
+    {
+        return ws with
         {
-            Body = TransformBodyCore(body: ws.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            Body = TransformBodyCore(body: ws.Body,
+                kind: kind,
+                rewriter: rewriter,
+                registry: registry,
+                nextOnly: nextOnly),
             ElseBranch = ws.ElseBranch != null
-                ? TransformBodyCore(body: ws.ElseBranch, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                ? TransformBodyCore(body: ws.ElseBranch,
+                    kind: kind,
+                    rewriter: rewriter,
+                    registry: registry,
+                    nextOnly: nextOnly)
                 : null
         };
+    }
 
     private static EachStatement TransformEach(EachStatement fs, ErrorHandlingVariantKind kind,
         VariantCallRewriter? rewriter, TypeRegistry? registry, bool nextOnly)
-        => fs with
+    {
+        return fs with
         {
-            Body = TransformBodyCore(body: fs.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            Body = TransformBodyCore(body: fs.Body,
+                kind: kind,
+                rewriter: rewriter,
+                registry: registry,
+                nextOnly: nextOnly),
             ElseBranch = fs.ElseBranch != null
-                ? TransformBodyCore(body: fs.ElseBranch, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                ? TransformBodyCore(body: fs.ElseBranch,
+                    kind: kind,
+                    rewriter: rewriter,
+                    registry: registry,
+                    nextOnly: nextOnly)
                 : null
         };
+    }
 
     private static UsingStatement TransformUsing(UsingStatement us, ErrorHandlingVariantKind kind,
         VariantCallRewriter? rewriter, TypeRegistry? registry, bool nextOnly)
-        => us with
+    {
+        return us with
         {
-            Body = TransformBodyCore(body: us.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            Body = TransformBodyCore(body: us.Body,
+                kind: kind,
+                rewriter: rewriter,
+                registry: registry,
+                nextOnly: nextOnly),
             FallbackBody = us.FallbackBody != null
-                ? TransformBodyCore(body: us.FallbackBody, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                ? TransformBodyCore(body: us.FallbackBody,
+                    kind: kind,
+                    rewriter: rewriter,
+                    registry: registry,
+                    nextOnly: nextOnly)
                 : null
         };
+    }
 
     private static int _propTemp;
 
@@ -522,18 +677,32 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         string prefix, RoutineInfo original)
     {
         RoutineInfo? synth = registry.OnDemandVariantForBase?.Invoke(arg1: original, arg2: prefix);
-        if (synth != null) return synth;
+        if (synth != null)
+        {
+            return synth;
+        }
 
         string variantName = $"{prefix}_{original.OriginalName ?? original.Name}";
         var argTypes = new List<TypeInfo>();
         foreach (ParameterInfo p in original.Parameters)
         {
-            if (p.Type is TypeInfo ti) argTypes.Add(item: ti);
-            else return registry.LookupMemberRoutine(type: owner, memberRoutineName: variantName, isFailable: false);
+            if (p.Type is TypeInfo ti)
+            {
+                argTypes.Add(item: ti);
+            }
+            else
+            {
+                return registry.LookupMemberRoutine(type: owner,
+                    memberRoutineName: variantName,
+                    isFailable: false);
+            }
         }
 
-        return registry.LookupMemberRoutineOverload(type: owner, memberRoutineName: variantName, argTypes: argTypes)
-            ?? registry.LookupMemberRoutine(type: owner, memberRoutineName: variantName, isFailable: false);
+        return registry.LookupMemberRoutineOverload(type: owner,
+            memberRoutineName: variantName,
+            argTypes: argTypes) ?? registry.LookupMemberRoutine(type: owner,
+            memberRoutineName: variantName,
+            isFailable: false);
     }
 
     /// <summary>
@@ -561,30 +730,44 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// unwrap relies on; Check/Lookup carriers keep the existing tail-position behavior.
     /// </summary>
     private static List<Statement> TransformBlockStatements(List<Statement> stmts, int start,
-        ErrorHandlingVariantKind kind, VariantCallRewriter? rewriter, TypeRegistry? registry, bool nextOnly)
+        ErrorHandlingVariantKind kind, VariantCallRewriter? rewriter, TypeRegistry? registry,
+        bool nextOnly)
     {
         var result = new List<Statement>();
         for (int i = start; i < stmts.Count; i++)
         {
-            Statement s = stmts[i];
+            Statement s = stmts[index: i];
 
-            if (kind == ErrorHandlingVariantKind.Try && registry != null
-                && TryBuildTryPropagation(stmt: s, registry: registry, nextOnly: nextOnly,
-                    tempDecl: out Statement? tempDecl, presentCondition: out Expression? presentCondition,
+            if (kind == ErrorHandlingVariantKind.Try && registry != null && TryBuildTryPropagation(
+                    stmt: s,
+                    registry: registry,
+                    nextOnly: nextOnly,
+                    tempDecl: out Statement? tempDecl,
+                    presentCondition: out Expression? presentCondition,
                     bindStmt: out Statement? bindStmt))
             {
-                List<Statement> remainder = TransformBlockStatements(stmts: stmts, start: i + 1,
-                    kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly);
+                List<Statement> remainder = TransformBlockStatements(stmts: stmts,
+                    start: i + 1,
+                    kind: kind,
+                    rewriter: rewriter,
+                    registry: registry,
+                    nextOnly: nextOnly);
 
                 var thenStmts = new List<Statement>();
-                if (bindStmt != null) thenStmts.Add(item: bindStmt);
+                if (bindStmt != null)
+                {
+                    thenStmts.Add(item: bindStmt);
+                }
+
                 thenStmts.AddRange(collection: remainder);
 
                 result.Add(item: tempDecl!);
-                result.Add(item: new IfStatement(
-                    Condition: presentCondition!,
+                result.Add(item: new IfStatement(Condition: presentCondition!,
                     ThenStatement: new BlockStatement(Statements: thenStmts, Location: s.Location),
-                    ElseStatement: new VariantReturnStatement(kind, VariantSiteKind.FromAbsent, null, s.Location),
+                    ElseStatement: new VariantReturnStatement(VariantKind: kind,
+                        SiteKind: VariantSiteKind.FromAbsent,
+                        Value: null,
+                        Location: s.Location),
                     Location: s.Location));
                 return result; // remainder consumed into the if's then-branch
             }
@@ -594,21 +777,36 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
             // same-kind variant. Only in the global path-1 (`!nextOnly`): the synthesized `when`
             // (incl. `is Crashable`) is lowered by CrashableExpansionPass + PatternLoweringPass which
             // run on path-1 variant bodies but NOT on path-2 monomorphized bodies.
-            if (kind is ErrorHandlingVariantKind.Check or ErrorHandlingVariantKind.Lookup
-                && registry != null && !nextOnly
-                && TryBuildCarrierSafeCall(stmt: s, registry: registry, kind: kind,
-                    safeCall: out Expression? carrierCall, bindName: out string? carrierBind,
-                    innerCanNone: out bool innerCanNone, innerCanError: out bool innerCanError))
+            if (kind is ErrorHandlingVariantKind.Check or ErrorHandlingVariantKind.Lookup &&
+                registry != null && !nextOnly && TryBuildCarrierSafeCall(stmt: s,
+                    registry: registry,
+                    kind: kind,
+                    safeCall: out Expression? carrierCall,
+                    bindName: out string? carrierBind,
+                    innerCanNone: out bool innerCanNone,
+                    innerCanError: out bool innerCanError))
             {
-                List<Statement> remainder = TransformBlockStatements(stmts: stmts, start: i + 1,
-                    kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly);
-                result.Add(item: BuildCarrierPropagationWhen(subject: carrierCall!, bindName: carrierBind,
-                    kind: kind, innerCanNone: innerCanNone, innerCanError: innerCanError,
-                    remainder: remainder, loc: s.Location));
+                List<Statement> remainder = TransformBlockStatements(stmts: stmts,
+                    start: i + 1,
+                    kind: kind,
+                    rewriter: rewriter,
+                    registry: registry,
+                    nextOnly: nextOnly);
+                result.Add(item: BuildCarrierPropagationWhen(subject: carrierCall!,
+                    bindName: carrierBind,
+                    kind: kind,
+                    innerCanNone: innerCanNone,
+                    innerCanError: innerCanError,
+                    remainder: remainder,
+                    loc: s.Location));
                 return result; // remainder consumed into the when's success arm
             }
 
-            result.Add(item: TransformBodyCore(body: s, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly));
+            result.Add(item: TransformBodyCore(body: s,
+                kind: kind,
+                rewriter: rewriter,
+                registry: registry,
+                nextOnly: nextOnly));
         }
 
         return result;
@@ -626,8 +824,9 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// Returns false — leaving the original crash-on-absence statement untouched — when no matching
     /// Maybe-returning <c>try_</c> variant resolves.
     /// </summary>
-    private static bool TryBuildTryPropagation(Statement stmt, TypeRegistry registry, bool nextOnly,
-        out Statement? tempDecl, out Expression? presentCondition, out Statement? bindStmt)
+    private static bool TryBuildTryPropagation(Statement stmt, TypeRegistry registry,
+        bool nextOnly, out Statement? tempDecl, out Expression? presentCondition,
+        out Statement? bindStmt)
     {
         tempDecl = null;
         presentCondition = null;
@@ -637,12 +836,15 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         string? bindName;
         switch (stmt)
         {
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: CallExpression ce } vd }
-                when ce.ResolvedRoutine is { IsFailable: true }:
+            case DeclarationStatement
+            {
+                Declaration: VariableDeclaration { Initializer: CallExpression ce } vd
+            } when ce.ResolvedRoutine is { IsFailable: true }:
                 failCall = ce;
                 bindName = vd.Name;
                 break;
-            case ExpressionStatement { Expression: CallExpression ce2 } when ce2.ResolvedRoutine is { IsFailable: true }:
+            case ExpressionStatement { Expression: CallExpression ce2 }
+                when ce2.ResolvedRoutine is { IsFailable: true }:
                 failCall = ce2;
                 bindName = null;
                 break;
@@ -651,7 +853,10 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         }
 
         RoutineInfo failRoutine = failCall.ResolvedRoutine!;
-        if (failRoutine.OwnerType is not { } owner) return false;
+        if (failRoutine.OwnerType is not { } owner)
+        {
+            return false;
+        }
 
         string baseName = failRoutine.OriginalName ?? failRoutine.Name;
 
@@ -661,47 +866,80 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         // marked live and would LINKERR (e.g. a bounds-guarded `getitem!` in SortedSetIterator, which
         // also can't actually fail). The global (path-1) caller runs BEFORE reachability, so it
         // propagates ALL non-tail failable calls and reachability then emits the introduced variants.
-        if (nextOnly && baseName != "emit") return false;
+        if (nextOnly && baseName != "emit")
+        {
+            return false;
+        }
 
-        RoutineInfo? variant = LookupVariantForOverload(registry: registry, owner: owner,
-            prefix: PrefixTry, original: failRoutine);
+        RoutineInfo? variant = LookupVariantForOverload(registry: registry,
+            owner: owner,
+            prefix: PrefixTry,
+            original: failRoutine);
 
         // Need a Maybe carrier (flat {present,value}) to unwrap with field access. The TryBool
         // variant returns Bool (no type args) and is rejected here.
-        if (variant?.ReturnType is not { TypeArguments.Count: > 0 } carrier) return false;
+        if (variant?.ReturnType is not { TypeArguments.Count: > 0 } carrier)
+        {
+            return false;
+        }
 
         SourceLocation loc = stmt.Location;
         string tempName = $"__rf_prop_{Interlocked.Increment(location: ref _propTemp)}";
 
         // Retarget the failable call to its try_ variant and re-type it as the carrier.
-        CallExpression safeCall = failCall with { ResolvedRoutine = variant, ResolvedType = carrier };
+        CallExpression safeCall =
+            failCall with { ResolvedRoutine = variant, ResolvedType = carrier };
         safeCall = safeCall.Callee switch
         {
-            MemberExpression m => safeCall with { Callee = m with { MemberName = VariantSurfaceMember(surfaceMember: m.MemberName, original: failCall.ResolvedRoutine!, variant: variant), IsFailable = false } },
-            IdentifierExpression idc => safeCall with { Callee = idc with { Name = variant.Name } },
+            MemberExpression m => safeCall with
+            {
+                Callee = m with
+                {
+                    MemberName = VariantSurfaceMember(surfaceMember: m.MemberName,
+                        original: failCall.ResolvedRoutine!,
+                        variant: variant),
+                    IsFailable = false
+                }
+            },
+            IdentifierExpression idc => safeCall with
+            {
+                Callee = idc with { Name = variant.Name }
+            },
             _ => safeCall
         };
 
-        tempDecl = new DeclarationStatement(
-            Declaration: new VariableDeclaration(Name: tempName, Type: null, Initializer: safeCall,
-                Visibility: VisibilityModifier.Secret, Location: loc),
+        tempDecl = new DeclarationStatement(Declaration: new VariableDeclaration(Name: tempName,
+                Type: null,
+                Initializer: safeCall,
+                Visibility: VisibilityModifier.Secret,
+                Location: loc),
             Location: loc);
 
         presentCondition = new MemberExpression(
-            Object: new IdentifierExpression(Name: tempName, Location: loc) { ResolvedType = carrier },
-            MemberName: RuntimeContract.Carrier.PresentField, Location: loc);
+            Object: new IdentifierExpression(Name: tempName, Location: loc)
+            {
+                ResolvedType = carrier
+            },
+            MemberName: RuntimeContract.Carrier.PresentField,
+            Location: loc);
 
         if (bindName != null)
         {
             TypeInfo? valueType = carrier.TypeArguments[index: 0];
             Expression valueAccess = new MemberExpression(
-                Object: new IdentifierExpression(Name: tempName, Location: loc) { ResolvedType = carrier },
-                MemberName: RuntimeContract.Carrier.ValueField, Location: loc)
-            { ResolvedType = valueType };
+                Object: new IdentifierExpression(Name: tempName, Location: loc)
+                {
+                    ResolvedType = carrier
+                },
+                MemberName: RuntimeContract.Carrier.ValueField,
+                Location: loc) { ResolvedType = valueType };
 
             bindStmt = new DeclarationStatement(
-                Declaration: new VariableDeclaration(Name: bindName, Type: null, Initializer: valueAccess,
-                    Visibility: VisibilityModifier.Secret, Location: loc),
+                Declaration: new VariableDeclaration(Name: bindName,
+                    Type: null,
+                    Initializer: valueAccess,
+                    Visibility: VisibilityModifier.Secret,
+                    Location: loc),
                 Location: loc);
         }
 
@@ -731,12 +969,15 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         CallExpression failCall;
         switch (stmt)
         {
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: CallExpression ce } vd }
-                when ce.ResolvedRoutine is { IsFailable: true }:
+            case DeclarationStatement
+            {
+                Declaration: VariableDeclaration { Initializer: CallExpression ce } vd
+            } when ce.ResolvedRoutine is { IsFailable: true }:
                 failCall = ce;
                 bindName = vd.Name;
                 break;
-            case ExpressionStatement { Expression: CallExpression ce2 } when ce2.ResolvedRoutine is { IsFailable: true }:
+            case ExpressionStatement { Expression: CallExpression ce2 }
+                when ce2.ResolvedRoutine is { IsFailable: true }:
                 failCall = ce2;
                 bindName = null;
                 break;
@@ -745,7 +986,10 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         }
 
         RoutineInfo failRoutine = failCall.ResolvedRoutine!;
-        if (failRoutine.OwnerType is not { } owner) return false;
+        if (failRoutine.OwnerType is not { } owner)
+        {
+            return false;
+        }
 
         // Prefer the outer kind's variant, then fall back to the most-informative available.
         string[] order = kind == ErrorHandlingVariantKind.Check
@@ -755,8 +999,10 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         string chosen = "";
         foreach (string p in order)
         {
-            RoutineInfo? v = LookupVariantForOverload(registry: registry, owner: owner,
-                prefix: p, original: failRoutine);
+            RoutineInfo? v = LookupVariantForOverload(registry: registry,
+                owner: owner,
+                prefix: p,
+                original: failRoutine);
             if (v?.ReturnType is { TypeArguments.Count: > 0 })
             {
                 variant = v;
@@ -764,7 +1010,11 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
                 break;
             }
         }
-        if (variant?.ReturnType is not { } carrier) return false;
+
+        if (variant?.ReturnType is not { } carrier)
+        {
+            return false;
+        }
 
         innerCanNone = chosen is PrefixTry or PrefixLookup;
         innerCanError = chosen is PrefixCheck or PrefixLookup;
@@ -773,13 +1023,29 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         // error for both Check and Lookup. If neither failure the inner can produce maps onto the
         // outer, propagation is meaningless — leave the call raw.
         bool outerCanNone = kind == ErrorHandlingVariantKind.Lookup;
-        if (!((innerCanNone && outerCanNone) || innerCanError)) return false;
+        if (!(innerCanNone && outerCanNone || innerCanError))
+        {
+            return false;
+        }
 
-        CallExpression retargeted = failCall with { ResolvedRoutine = variant, ResolvedType = carrier };
+        CallExpression retargeted =
+            failCall with { ResolvedRoutine = variant, ResolvedType = carrier };
         retargeted = retargeted.Callee switch
         {
-            MemberExpression m => retargeted with { Callee = m with { MemberName = VariantSurfaceMember(surfaceMember: m.MemberName, original: failCall.ResolvedRoutine!, variant: variant), IsFailable = false } },
-            IdentifierExpression idc => retargeted with { Callee = idc with { Name = variant.Name } },
+            MemberExpression m => retargeted with
+            {
+                Callee = m with
+                {
+                    MemberName = VariantSurfaceMember(surfaceMember: m.MemberName,
+                        original: failCall.ResolvedRoutine!,
+                        variant: variant),
+                    IsFailable = false
+                }
+            },
+            IdentifierExpression idc => retargeted with
+            {
+                Callee = idc with { Name = variant.Name }
+            },
             _ => retargeted
         };
         safeCall = retargeted;
@@ -806,9 +1072,11 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
 
         if (innerCanNone && kind == ErrorHandlingVariantKind.Lookup)
         {
-            clauses.Add(item: new WhenClause(
-                Pattern: new NonePattern(Location: loc),
-                Body: new VariantReturnStatement(kind, VariantSiteKind.FromAbsent, null, loc),
+            clauses.Add(item: new WhenClause(Pattern: new NonePattern(Location: loc),
+                Body: new VariantReturnStatement(VariantKind: kind,
+                    SiteKind: VariantSiteKind.FromAbsent,
+                    Value: null,
+                    Location: loc),
                 Location: loc));
         }
 
@@ -816,9 +1084,13 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         {
             const string errName = "__rf_prop_err";
             clauses.Add(item: new WhenClause(
-                Pattern: new CrashablePattern(ErrorType: null, VariableName: errName, Location: loc),
-                Body: new VariantReturnStatement(kind, VariantSiteKind.FromThrow,
-                    new IdentifierExpression(Name: errName, Location: loc), loc),
+                Pattern: new CrashablePattern(ErrorType: null,
+                    VariableName: errName,
+                    Location: loc),
+                Body: new VariantReturnStatement(VariantKind: kind,
+                    SiteKind: VariantSiteKind.FromThrow,
+                    Value: new IdentifierExpression(Name: errName, Location: loc),
+                    Location: loc),
                 Location: loc));
         }
 
@@ -846,27 +1118,60 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
             rewritten = null;
             string? prefix = kind switch
             {
-                ErrorHandlingVariantKind.Try    => PrefixTry,
-                ErrorHandlingVariantKind.Check  => PrefixCheck,
+                ErrorHandlingVariantKind.Try => PrefixTry,
+                ErrorHandlingVariantKind.Check => PrefixCheck,
                 ErrorHandlingVariantKind.Lookup => PrefixLookup,
                 _ => null
             };
-            if (prefix == null) return false;
-            if (value is not CallExpression { ResolvedRoutine: { IsFailable: true } callee } call) return false;
+            if (prefix == null)
+            {
+                return false;
+            }
+
+            if (value is not CallExpression { ResolvedRoutine: { IsFailable: true } callee } call)
+            {
+                return false;
+            }
 
             string baseName = callee.OriginalName ?? callee.Name;
-            if (baseName != "emit") return false;
-            if (callee.OwnerType is not { } owner) return false;
+            if (baseName != "emit")
+            {
+                return false;
+            }
 
-            RoutineInfo? variant = registry.LookupMemberRoutine(type: owner, memberRoutineName: $"{prefix}_{baseName}",
+            if (callee.OwnerType is not { } owner)
+            {
+                return false;
+            }
+
+            RoutineInfo? variant = registry.LookupMemberRoutine(type: owner,
+                memberRoutineName: $"{prefix}_{baseName}",
                 isFailable: false);
-            if (variant == null) return false;
+            if (variant == null)
+            {
+                return false;
+            }
 
-            CallExpression newCall = call with { ResolvedRoutine = variant, ResolvedType = variant.ReturnType };
+            CallExpression newCall = call with
+            {
+                ResolvedRoutine = variant, ResolvedType = variant.ReturnType
+            };
             newCall = newCall.Callee switch
             {
-                MemberExpression m => newCall with { Callee = m with { MemberName = VariantSurfaceMember(surfaceMember: m.MemberName, original: callee, variant: variant), IsFailable = false } },
-                IdentifierExpression idc => newCall with { Callee = idc with { Name = variant.Name } },
+                MemberExpression m => newCall with
+                {
+                    Callee = m with
+                    {
+                        MemberName = VariantSurfaceMember(surfaceMember: m.MemberName,
+                            original: callee,
+                            variant: variant),
+                        IsFailable = false
+                    }
+                },
+                IdentifierExpression idc => newCall with
+                {
+                    Callee = idc with { Name = variant.Name }
+                },
                 _ => newCall
             };
             rewritten = newCall;
@@ -880,55 +1185,94 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// The rewritten call's resolved routine is the variant (non-failable) so codegen does not
     /// emit a throw-propagating call site.
     /// </summary>
-    private bool TryRewriteToVariantCall(Expression? value, ErrorHandlingVariantKind kind, out Expression? rewritten)
+    private bool TryRewriteToVariantCall(Expression? value, ErrorHandlingVariantKind kind,
+        out Expression? rewritten)
     {
         rewritten = null;
-        if (value == null) return false;
+        if (value == null)
+        {
+            return false;
+        }
 
         string? prefix = kind switch
         {
-            ErrorHandlingVariantKind.Try    => PrefixTry,
-            ErrorHandlingVariantKind.Check  => PrefixCheck,
+            ErrorHandlingVariantKind.Try => PrefixTry,
+            ErrorHandlingVariantKind.Check => PrefixCheck,
             ErrorHandlingVariantKind.Lookup => PrefixLookup,
             _ => null
         };
-        if (prefix == null) return false;
+        if (prefix == null)
+        {
+            return false;
+        }
 
         if (value is CallExpression { ResolvedRoutine: { IsFailable: true } callee } call)
         {
-            RoutineInfo? variant = FindVariant(registry: ctx.Registry, original: callee, prefix: prefix);
-            if (variant == null) return false;
+            RoutineInfo? variant =
+                FindVariant(registry: ctx.Registry, original: callee, prefix: prefix);
+            if (variant == null)
+            {
+                return false;
+            }
 
             // The passthrough value IS the variant's carrier (e.g. Maybe[S64]); record that type so
             // downstream (teardown return-spill, codegen) sizes slots from the carrier, not the
             // original unwrapped payload (S64) — a mismatch otherwise yields `store i64 %maybeVal`.
-            CallExpression newCall = call with { ResolvedRoutine = variant, ResolvedType = variant.ReturnType };
+            CallExpression newCall = call with
+            {
+                ResolvedRoutine = variant, ResolvedType = variant.ReturnType
+            };
             newCall = newCall.Callee switch
             {
-                IdentifierExpression idCallee => newCall with { Callee = idCallee with { Name = variant.Name } },
-                MemberExpression memCallee => newCall with { Callee = memCallee with { MemberName = VariantSurfaceMember(surfaceMember: memCallee.MemberName, original: callee, variant: variant), IsFailable = false } },
+                IdentifierExpression idCallee => newCall with
+                {
+                    Callee = idCallee with { Name = variant.Name }
+                },
+                MemberExpression memCallee => newCall with
+                {
+                    Callee = memCallee with
+                    {
+                        MemberName =
+                        VariantSurfaceMember(surfaceMember: memCallee.MemberName,
+                            original: callee,
+                            variant: variant),
+                        IsFailable = false
+                    }
+                },
                 _ => newCall
             };
             rewritten = newCall;
             return true;
         }
 
-        if (value is CreatorExpression { ResolvedCreatorRoutine: { IsFailable: true } cCallee } creator)
-        {
-            RoutineInfo? variant = FindVariant(registry: ctx.Registry, original: cCallee, prefix: prefix);
-            if (variant == null) return false;
-
-            var typeId = new IdentifierExpression(Name: creator.TypeName, Location: creator.Location);
-            var member = new MemberExpression(Object: typeId, MemberName: variant.Name, Location: creator.Location);
-            var args = creator.MemberVariables
-                .Select(selector: mv => (Expression)new NamedArgumentExpression(
-                    Name: mv.Name, Value: mv.Value, Location: creator.Location))
-                .ToList();
-            var newCall = new CallExpression(Callee: member, Arguments: args, Location: creator.Location)
+        if (value is CreatorExpression
             {
-                ResolvedRoutine = variant,
-                ResolvedType = variant.ReturnType
-            };
+                ResolvedCreatorRoutine: { IsFailable: true } cCallee
+            } creator)
+        {
+            RoutineInfo? variant =
+                FindVariant(registry: ctx.Registry, original: cCallee, prefix: prefix);
+            if (variant == null)
+            {
+                return false;
+            }
+
+            var typeId =
+                new IdentifierExpression(Name: creator.TypeName, Location: creator.Location);
+            var member = new MemberExpression(Object: typeId,
+                MemberName: variant.Name,
+                Location: creator.Location);
+            var args = creator.MemberVariables
+                              .Select(selector: mv => (Expression)new NamedArgumentExpression(
+                                   Name: mv.Name,
+                                   Value: mv.Value,
+                                   Location: creator.Location))
+                              .ToList();
+            var newCall =
+                new CallExpression(Callee: member, Arguments: args, Location: creator.Location)
+                {
+                    ResolvedRoutine = variant, ResolvedType = variant.ReturnType
+                };
             rewritten = newCall;
             return true;
         }
@@ -950,27 +1294,53 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// <c>S64.try_create</c> (the TARGET), whereas bare <c>try_create</c> re-resolves against the RECEIVER
     /// type (<c>F64.try_create</c>) and corrupts the binding. Prefix is recovered from <c>variant.Name</c>.
     /// </summary>
-    private static string VariantSurfaceMember(string surfaceMember, RoutineInfo original, RoutineInfo variant)
+    private static string VariantSurfaceMember(string surfaceMember, RoutineInfo original,
+        RoutineInfo variant)
     {
         string baseName = original.OriginalName ?? original.Name;
-        if (surfaceMember == baseName) return variant.Name;
+        if (surfaceMember == baseName)
+        {
+            return variant.Name;
+        }
+
         if (variant.Name.EndsWith(value: "_" + baseName, comparisonType: StringComparison.Ordinal))
+        {
             return $"{variant.Name[..^(baseName.Length + 1)]}_{surfaceMember}";
+        }
+
         return variant.Name;
     }
 
-    internal static RoutineInfo? FindVariant(TypeRegistry registry, RoutineInfo original, string prefix)
+    internal static RoutineInfo? FindVariant(TypeRegistry registry, RoutineInfo original,
+        string prefix)
     {
         string baseName = original.Name;
         string variantName = $"{prefix}_{baseName}";
         foreach (RoutineInfo r in registry.GetAllRoutines())
         {
-            if (r.Name != variantName) continue;
-            if (r.OriginalName != original.Name) continue;
-            if (!ReferenceEquals(objA: r.OwnerType, objB: original.OwnerType)) continue;
-            if (!ParametersMatch(candidate: r, original: original)) continue;
+            if (r.Name != variantName)
+            {
+                continue;
+            }
+
+            if (r.OriginalName != original.Name)
+            {
+                continue;
+            }
+
+            if (!ReferenceEquals(objA: r.OwnerType, objB: original.OwnerType))
+            {
+                continue;
+            }
+
+            if (!ParametersMatch(candidate: r, original: original))
+            {
+                continue;
+            }
+
             return r;
         }
+
         return null;
     }
 
@@ -980,12 +1350,20 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// </summary>
     private static bool ParametersMatch(RoutineInfo candidate, RoutineInfo original)
     {
-        if (candidate.Parameters.Count != original.Parameters.Count) return false;
+        if (candidate.Parameters.Count != original.Parameters.Count)
+        {
+            return false;
+        }
+
         for (int i = 0; i < candidate.Parameters.Count; i++)
         {
-            if (candidate.Parameters[index: i].Type.FullName != original.Parameters[index: i].Type.FullName)
+            if (candidate.Parameters[index: i].Type.FullName !=
+                original.Parameters[index: i].Type.FullName)
+            {
                 return false;
+            }
         }
+
         return true;
     }
 }

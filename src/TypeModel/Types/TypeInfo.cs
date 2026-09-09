@@ -149,7 +149,9 @@ public abstract class TypeInfo
     public static string StripTypeArgs(string name)
     {
         int idx = name.IndexOf(value: '[');
-        return idx >= 0 ? name[..idx] : name;
+        return idx >= 0
+            ? name[..idx]
+            : name;
     }
 
     /// <summary>
@@ -164,7 +166,10 @@ public abstract class TypeInfo
     {
         int open = name.IndexOf(value: '[');
         int close = name.LastIndexOf(value: ']');
-        return open >= 0 && close > open + 1 ? name[(open + 1)..close].Trim() : null;
+        return open >= 0 && close > open + 1
+            ? name[(open + 1)..close]
+               .Trim()
+            : null;
     }
 
     /// <summary>
@@ -187,7 +192,9 @@ public abstract class TypeInfo
     {
         get
         {
-            string qualified = string.IsNullOrEmpty(value: Module) ? BareName : $"{Module}.{BareName}";
+            string qualified = string.IsNullOrEmpty(value: Module)
+                ? BareName
+                : $"{Module}.{BareName}";
             return TypeArguments is { Count: > 0 } args
                 ? $"{qualified}[{string.Join(separator: ", ",
                     values: args.Select(selector: t => t.QualifiedTypeName))}]"
@@ -215,7 +222,10 @@ public abstract class TypeInfo
     /// crashables, wrappers, protocols, routines). Records/variants/tuples override to sum
     /// their members.
     /// </summary>
-    public virtual int SizeBytes(int pointerSize) => pointerSize;
+    public virtual int SizeBytes(int pointerSize)
+    {
+        return pointerSize;
+    }
 
     /// <summary>
     /// Natural (ABI) alignment in bytes of a value of this type — the C-ABI alignment the emitted LLVM
@@ -226,14 +236,19 @@ public abstract class TypeInfo
     /// a proxy for alignment (the old formula) over-aligns nested aggregates and diverges from the LLVM /
     /// C layout that codegen actually emits.
     /// </summary>
-    public virtual int Alignment(int pointerSize) =>
-        Math.Max(val1: Math.Min(val1: SizeBytes(pointerSize: pointerSize), val2: 16), val2: 1);
+    public virtual int Alignment(int pointerSize)
+    {
+        return Math.Max(val1: Math.Min(val1: SizeBytes(pointerSize: pointerSize), val2: 16),
+            val2: 1);
+    }
 
     /// <summary>
     /// Aligns <paramref name="size"/> up to the next multiple of <paramref name="alignment"/>.
     /// </summary>
-    protected static int AlignTo(int size, int alignment) =>
-        (size + alignment - 1) / alignment * alignment;
+    protected static int AlignTo(int size, int alignment)
+    {
+        return (size + alignment - 1) / alignment * alignment;
+    }
 
     /// <summary>
     /// Computes the size of an LLVM type expressed as a string (e.g. an @llvm("…") backend
@@ -248,11 +263,13 @@ public abstract class TypeInfo
     {
         llvmType = llvmType.Trim();
 
-        if (llvmType.StartsWith('[') && llvmType.EndsWith(']') && llvmType.Contains(" x "))
+        if (llvmType.StartsWith(value: '[') && llvmType.EndsWith(value: ']') &&
+            llvmType.Contains(value: " x "))
         {
             string inner = llvmType[1..^1];
             int sep = inner.IndexOf(value: " x ", comparisonType: StringComparison.Ordinal);
-            int count = int.Parse(s: inner[..sep].Trim());
+            int count = int.Parse(s: inner[..sep]
+               .Trim());
             int elemSize = SizeOfLlvmType(llvmType: inner[(sep + 3)..], pointerSize: pointerSize);
             return count * elemSize;
         }
@@ -260,16 +277,18 @@ public abstract class TypeInfo
         // LLVM vector `<N x T>` (SIMD types, e.g. the stdlib `Vector[T, N]` = `<N x T>`). N contiguous
         // lanes, so the size is N·sizeof(T) like a `[N x T]` array. Without this a record with a
         // `Vector[T, N]` field can't have its size computed.
-        if (llvmType.StartsWith('<') && llvmType.EndsWith('>') && llvmType.Contains(" x "))
+        if (llvmType.StartsWith(value: '<') && llvmType.EndsWith(value: '>') &&
+            llvmType.Contains(value: " x "))
         {
             string inner = llvmType[1..^1];
             int sep = inner.IndexOf(value: " x ", comparisonType: StringComparison.Ordinal);
-            int count = int.Parse(s: inner[..sep].Trim());
+            int count = int.Parse(s: inner[..sep]
+               .Trim());
             int elemSize = SizeOfLlvmType(llvmType: inner[(sep + 3)..], pointerSize: pointerSize);
             return count * elemSize;
         }
 
-        if (llvmType.StartsWith('{') && llvmType.EndsWith('}'))
+        if (llvmType.StartsWith(value: '{') && llvmType.EndsWith(value: '}'))
         {
             return SizeOfLlvmStructLiteral(inner: llvmType[1..^1], pointerSize: pointerSize);
         }
@@ -306,6 +325,7 @@ public abstract class TypeInfo
             size = AlignTo(size: size, alignment: alignment);
             size += fieldSize;
         }
+
         return AlignTo(size: size, alignment: maxAlignment);
     }
 
@@ -320,7 +340,8 @@ public abstract class TypeInfo
     {
         llvmType = llvmType.Trim();
 
-        if (llvmType.StartsWith('[') && llvmType.EndsWith(']') && llvmType.Contains(" x "))
+        if (llvmType.StartsWith(value: '[') && llvmType.EndsWith(value: ']') &&
+            llvmType.Contains(value: " x "))
         {
             string inner = llvmType[1..^1];
             int sep = inner.IndexOf(value: " x ", comparisonType: StringComparison.Ordinal);
@@ -329,15 +350,20 @@ public abstract class TypeInfo
 
         // LLVM vector `<N x T>`: aligned to the next power of two >= its total byte size (LLVM's rule —
         // `<4 x float>` → 16, `<2 x float>` → 8, `<3 x float>` → 16).
-        if (llvmType.StartsWith('<') && llvmType.EndsWith('>') && llvmType.Contains(" x "))
+        if (llvmType.StartsWith(value: '<') && llvmType.EndsWith(value: '>') &&
+            llvmType.Contains(value: " x "))
         {
             int total = SizeOfLlvmType(llvmType: llvmType, pointerSize: pointerSize);
             int a = 1;
-            while (a < total) a *= 2;
+            while (a < total)
+            {
+                a *= 2;
+            }
+
             return a;
         }
 
-        if (llvmType.StartsWith('{') && llvmType.EndsWith('}'))
+        if (llvmType.StartsWith(value: '{') && llvmType.EndsWith(value: '}'))
         {
             return AlignOfLlvmStructLiteral(inner: llvmType[1..^1], pointerSize: pointerSize);
         }
@@ -352,7 +378,8 @@ public abstract class TypeInfo
             "ptr" => pointerSize,
             "void" => 1,
             // Wide integers (i256/i512/…): align to size, capped at 16 (the max useful struct alignment).
-            _ => Math.Max(val1: 1, val2: Math.Min(val1: SizeOfArbitraryInt(llvmType: llvmType), val2: 16))
+            _ => Math.Max(val1: 1,
+                val2: Math.Min(val1: SizeOfArbitraryInt(llvmType: llvmType), val2: 16))
         };
     }
 
@@ -375,8 +402,8 @@ public abstract class TypeInfo
     /// </summary>
     private static int SizeOfArbitraryInt(string llvmType)
     {
-        if (llvmType.Length > 1 && llvmType[index: 0] == 'i'
-            && int.TryParse(s: llvmType[1..], result: out int bits) && bits > 0)
+        if (llvmType.Length > 1 && llvmType[index: 0] == 'i' &&
+            int.TryParse(s: llvmType[1..], result: out int bits) && bits > 0)
         {
             return (bits + 7) / 8;
         }
@@ -396,14 +423,24 @@ public abstract class TypeInfo
         for (int i = 0; i < input.Length; i++)
         {
             char c = input[index: i];
-            if (c is '{' or '[') depth++;
-            else if (c is '}' or ']') depth--;
+            if (c is '{' or '[')
+            {
+                depth++;
+            }
+            else if (c is '}' or ']')
+            {
+                depth--;
+            }
             else if (c == ',' && depth == 0)
             {
                 yield return input[start..i];
                 start = i + 1;
             }
         }
-        if (start < input.Length) yield return input[start..];
+
+        if (start < input.Length)
+        {
+            yield return input[start..];
+        }
     }
 }

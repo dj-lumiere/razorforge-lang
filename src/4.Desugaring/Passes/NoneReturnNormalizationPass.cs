@@ -17,14 +17,16 @@ namespace Compiler.Desugaring.Passes;
 /// </summary>
 #pragma warning disable CS9113
 internal sealed class NoneReturnNormalizationPass(DesugaringContext _)
-#pragma warning restore CS9113
+    #pragma warning restore CS9113
 {
     public void Run(Program program)
     {
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            if (program.Declarations[i] is SyntaxTree.Declaration decl)
-                program.Declarations[i] = NormalizeDeclaration(decl: decl);
+            if (program.Declarations[index: i] is SyntaxTree.Declaration decl)
+            {
+                program.Declarations[index: i] = NormalizeDeclaration(decl: decl);
+            }
         }
     }
 
@@ -56,18 +58,26 @@ internal sealed class NoneReturnNormalizationPass(DesugaringContext _)
     {
         for (int i = 0; i < members.Count; i++)
         {
-            if (members[i] is RoutineDeclaration r)
-                members[i] = NormalizeRoutine(r: r);
+            if (members[index: i] is RoutineDeclaration r)
+            {
+                members[index: i] = NormalizeRoutine(r: r);
+            }
         }
     }
 
     private RoutineDeclaration NormalizeRoutine(RoutineDeclaration r)
     {
-        TypeExpression? returnType = r.ReturnType
-            ?? new TypeExpression(Name: "None", GenericArguments: null, Location: r.Location);
+        TypeExpression? returnType = r.ReturnType ??
+                                     new TypeExpression(Name: "None",
+                                         GenericArguments: null,
+                                         Location: r.Location);
         Statement body = NormalizeStatement(stmt: r.Body);
-        if (ReferenceEquals(returnType, r.ReturnType) && ReferenceEquals(body, r.Body))
+        if (ReferenceEquals(objA: returnType, objB: r.ReturnType) &&
+            ReferenceEquals(objA: body, objB: r.Body))
+        {
             return r;
+        }
+
         return r with { ReturnType = returnType, Body = body };
     }
 
@@ -80,35 +90,37 @@ internal sealed class NoneReturnNormalizationPass(DesugaringContext _)
             IfStatement ifs => NormalizeIf(ifs: ifs),
             LoopStatement loop => NormalizeLoop(loop: loop),
             WhenStatement ws => NormalizeWhen(ws: ws),
-            DeclarationStatement { Declaration: RoutineDeclaration r } ds => NormalizeRoutineDecl(ds: ds, r: r),
+            DeclarationStatement { Declaration: RoutineDeclaration r } ds => NormalizeRoutineDecl(
+                ds: ds,
+                r: r),
             _ => stmt
         };
     }
 
     private static Statement NormalizeBareReturn(ReturnStatement ret)
     {
-        return ret with
-        {
-            Value = new IdentifierExpression(Name: "None", Location: ret.Location)
-        };
+        return ret with { Value = new IdentifierExpression(Name: "None", Location: ret.Location) };
     }
 
     private BlockStatement NormalizeBlock(BlockStatement b)
     {
-        var stmts = b.Statements;
+        List<Statement> stmts = b.Statements;
         List<Statement>? replaced = null;
         for (int i = 0; i < stmts.Count; i++)
         {
-            Statement lowered = NormalizeStatement(stmt: stmts[i]);
-            if (ReferenceEquals(lowered, stmts[i]))
+            Statement lowered = NormalizeStatement(stmt: stmts[index: i]);
+            if (ReferenceEquals(objA: lowered, objB: stmts[index: i]))
             {
                 continue;
             }
 
-            replaced ??= [..stmts];
-            replaced[i] = lowered;
+            replaced ??= [.. stmts];
+            replaced[index: i] = lowered;
         }
-        return replaced != null ? b with { Statements = replaced } : b;
+
+        return replaced != null
+            ? b with { Statements = replaced }
+            : b;
     }
 
     private IfStatement NormalizeIf(IfStatement ifs)
@@ -117,15 +129,23 @@ internal sealed class NoneReturnNormalizationPass(DesugaringContext _)
         Statement? elseN = ifs.ElseStatement != null
             ? NormalizeStatement(stmt: ifs.ElseStatement)
             : null;
-        if (ReferenceEquals(thenN, ifs.ThenStatement) && ReferenceEquals(elseN, ifs.ElseStatement))
+        if (ReferenceEquals(objA: thenN, objB: ifs.ThenStatement) &&
+            ReferenceEquals(objA: elseN, objB: ifs.ElseStatement))
+        {
             return ifs;
+        }
+
         return ifs with { ThenStatement = thenN, ElseStatement = elseN };
     }
 
     private LoopStatement NormalizeLoop(LoopStatement loop)
     {
         Statement bodyN = NormalizeStatement(stmt: loop.Body);
-        if (ReferenceEquals(bodyN, loop.Body)) return loop;
+        if (ReferenceEquals(objA: bodyN, objB: loop.Body))
+        {
+            return loop;
+        }
+
         return loop with { Body = bodyN };
     }
 
@@ -136,16 +156,24 @@ internal sealed class NoneReturnNormalizationPass(DesugaringContext _)
         foreach (WhenClause c in ws.Clauses)
         {
             Statement bodyN = NormalizeStatement(stmt: c.Body);
-            changed |= !ReferenceEquals(bodyN, c.Body);
+            changed |= !ReferenceEquals(objA: bodyN, objB: c.Body);
             clauses.Add(item: c with { Body = bodyN });
         }
-        return changed ? ws with { Clauses = clauses } : ws;
+
+        return changed
+            ? ws with { Clauses = clauses }
+            : ws;
     }
 
-    private DeclarationStatement NormalizeRoutineDecl(DeclarationStatement ds, RoutineDeclaration r)
+    private DeclarationStatement NormalizeRoutineDecl(DeclarationStatement ds,
+        RoutineDeclaration r)
     {
         RoutineDeclaration rN = NormalizeRoutine(r: r);
-        if (ReferenceEquals(rN, r)) return ds;
+        if (ReferenceEquals(objA: rN, objB: r))
+        {
+            return ds;
+        }
+
         return ds with { Declaration = rN };
     }
 }

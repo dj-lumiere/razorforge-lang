@@ -29,7 +29,7 @@ public partial class Tokenizer
     private int _tokenStartColumn;
     private int _tokenStartLine;
     private readonly List<Token> _tokens = [];
-    private readonly Stack<int> _indentStack = new([0]);
+    private readonly Stack<int> _indentStack = new(collection: [0]);
     private bool _hasTokenOnLine;
     private int _bracketDepth;
     private bool _hasDefinitions;
@@ -127,7 +127,8 @@ public partial class Tokenizer
     {
         _fileName = fileName;
         _source = NormalizeAndValidateSource(source: source ??
-            throw new ArgumentNullException(paramName: nameof(source)),
+                                                     throw new ArgumentNullException(
+                                                         paramName: nameof(source)),
             fileName: fileName,
             language: language);
         _language = language;
@@ -230,7 +231,7 @@ public partial class Tokenizer
             // `expand` body) are RF stdlib that SF reuses wholesale; authoring such a template needs
             // `expand` (RF-only), but the gate itself and the built-in structural protocols apply to SF
             // types just as well.
-            [key: "everywhere"] = TokenType.Everywhere,
+            [key: "everywhere"] = TokenType.Everywhere
         };
 
         // RF-only keywords
@@ -303,8 +304,7 @@ public partial class Tokenizer
     /// <summary>
     /// Normalizes source text before scanning and rejects invisible or ambiguous input.
     /// </summary>
-    private static string NormalizeAndValidateSource(string source,
-        string fileName,
+    private static string NormalizeAndValidateSource(string source, string fileName,
         Language language)
     {
         if (source.Length > 0 && source[index: 0] == '\uFEFF')
@@ -330,9 +330,7 @@ public partial class Tokenizer
     /// Rejects a single invisible or ambiguous source character (null byte, tab, unsupported
     /// whitespace, or a Unicode format character) at the given position.
     /// </summary>
-    private static void ValidateSourceCharacter(string source,
-        string fileName,
-        Language language,
+    private static void ValidateSourceCharacter(string source, string fileName, Language language,
         int position)
     {
         char c = source[index: position];
@@ -373,11 +371,8 @@ public partial class Tokenizer
         }
     }
 
-    private static void ThrowInvalidSourceCharacter(string source,
-        string fileName,
-        Language language,
-        int position,
-        string message)
+    private static void ThrowInvalidSourceCharacter(string source, string fileName,
+        Language language, int position, string message)
     {
         int line = 1;
         int column = 1;

@@ -56,7 +56,8 @@ public sealed class WrapperTypeInfo : TypeInfo
         /// <summary>
         /// Read-only single-threaded wrapper. Provides unmodifiable view of the inner value.
         /// </summary>
-        public static readonly WrapperTypeInfo ViewingDefinition = new(wrapperName: Compiler.Declaration.RuntimeContract.Viewing,
+        public static readonly WrapperTypeInfo ViewingDefinition = new(
+            wrapperName: Compiler.Declaration.RuntimeContract.Viewing,
             innerType: ErrorTypeInfo.Instance, // Placeholder, will be resolved with actual type
             isReadOnly: true) { GenericParameters = ["T"], Module = "Core" };
 
@@ -135,7 +136,7 @@ public sealed class WrapperTypeInfo : TypeInfo
             AmendingDefinition,
             SharedDefinition,
             WatchedDefinition,
-            HijackedDefinition,
+            HijackedDefinition
         ];
     }
 }

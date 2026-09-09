@@ -14,10 +14,10 @@ using static TestHelpers;
 public class CompoundAssignmentTests
 {
     #region In-Place Dispatch (type defines $iadd)
+
     /// <summary>
     /// Verifies semantic analysis behavior for record with in place wired without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_RecordWithInPlaceWired_NoError()
     {
@@ -43,7 +43,6 @@ public class CompoundAssignmentTests
     /// <summary>
     /// Verifies semantic analysis behavior for entity with in place wired without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_EntityWithInPlaceWired_NoError()
     {
@@ -70,10 +69,10 @@ public class CompoundAssignmentTests
     #endregion
 
     #region Fallback Dispatch (record with only $add)
+
     /// <summary>
     /// Verifies semantic analysis behavior for record with regular wired falls back.
     /// </summary>
-
     [Fact]
     public void Analyze_RecordWithRegularWired_FallsBack()
     {
@@ -104,10 +103,10 @@ public class CompoundAssignmentTests
     #endregion
 
     #region Entity Without In-Place Wired (no fallback)
+
     /// <summary>
     /// Verifies semantic analysis behavior for entity without in place wired and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_EntityWithoutInPlaceWired_ReportsError()
     {
@@ -137,10 +136,10 @@ public class CompoundAssignmentTests
     #endregion
 
     #region Neither Wired Exists
+
     /// <summary>
     /// Verifies semantic analysis behavior for no wireds defined and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_NoWiredsDefined_ReportsError()
     {
@@ -163,10 +162,10 @@ public class CompoundAssignmentTests
     #endregion
 
     #region Mutability Checks
+
     /// <summary>
     /// Verifies semantic analysis behavior for var compound assignment without immutability errors.
     /// </summary>
-
     [Fact]
     public void Analyze_VarCompoundAssignment_NoImmutableError()
     {
@@ -194,10 +193,10 @@ public class CompoundAssignmentTests
     #endregion
 
     #region Choice Type Prohibition
+
     /// <summary>
     /// Verifies semantic analysis behavior for choice compound assignment reports arithmetic error.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceCompoundAssignment_ReportsArithmeticError()
     {
@@ -221,10 +220,10 @@ public class CompoundAssignmentTests
     #endregion
 
     #region Multiple Compound Operators
+
     /// <summary>
     /// Verifies semantic analysis behavior for subtract compound assignment without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_SubtractCompoundAssignment_NoError()
     {
@@ -250,7 +249,6 @@ public class CompoundAssignmentTests
     /// <summary>
     /// Verifies semantic analysis behavior for bitwise and compound assignment without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_BitwiseAndCompoundAssignment_NoError()
     {
@@ -394,10 +392,10 @@ public class CompoundAssignmentTests
     #endregion
 
     #region Primitive Types (existing behavior preserved)
+
     /// <summary>
     /// Verifies semantic analysis behavior for primitive var compound assignment without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_PrimitiveVarCompoundAssignment_NoError()
     {
@@ -416,7 +414,6 @@ public class CompoundAssignmentTests
     /// <summary>
     /// Verifies semantic analysis behavior for primitive var compound assignment without immutability errors.
     /// </summary>
-
     [Fact]
     public void Analyze_PrimitiveVarCompoundAssignment_NoImmutableError()
     {

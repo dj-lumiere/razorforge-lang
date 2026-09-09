@@ -72,8 +72,10 @@ public partial class Parser
 
     /// <summary>Returns true when <paramref name="type"/> is a keyword token also valid as a memberRoutine name (e.g. <c>none</c>).</summary>
     /// <param name="type">The token type to test.</param>
-    private static bool IsKeywordValidAsMemberRoutineName(TokenType type) =>
-        type == TokenType.NoneValue;
+    private static bool IsKeywordValidAsMemberRoutineName(TokenType type)
+    {
+        return type == TokenType.NoneValue;
+    }
 
     /// <summary>
     /// Set true while parsing a routine-declaration name when a wired marker (`$`) token is consumed
@@ -95,7 +97,8 @@ public partial class Parser
         // Accept keyword tokens that are also valid identifiers as memberRoutine names
         // (e.g. `BitArray[N].none()` — `none` is the absent-value keyword but reads
         // fine as a member-access name in postfix position).
-        if (!Check(type: TokenType.Identifier) && !IsKeywordValidAsMemberRoutineName(CurrentToken.Type))
+        if (!Check(type: TokenType.Identifier) &&
+            !IsKeywordValidAsMemberRoutineName(type: CurrentToken.Type))
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedIdentifier,
                 message: errorMessage);
@@ -182,7 +185,9 @@ public partial class Parser
                 Expression value =
                     MaybeWrapHoleLambda(body: ParseExpression(), location: location);
 
-                return new NamedArgumentExpression(Name: argName, Value: value, Location: location);
+                return new NamedArgumentExpression(Name: argName,
+                    Value: value,
+                    Location: location);
             }
 
             // Regular positional argument
@@ -213,10 +218,17 @@ public partial class Parser
     /// </summary>
     private Expression MaybeWrapHoleLambda(Expression body, SourceLocation location)
     {
-        if (!_sawHole) return body;
+        if (!_sawHole)
+        {
+            return body;
+        }
+
         var parameters = new List<Parameter>
         {
-            new(Name: HoleParamName, Type: null, DefaultValue: null, Location: location)
+            new(Name: HoleParamName,
+                Type: null,
+                DefaultValue: null,
+                Location: location)
         };
         return new LambdaExpression(Parameters: parameters,
             Body: body,
@@ -266,8 +278,6 @@ public partial class Parser
             _inWhenConditionContext = savedConditionContext;
         }
     }
-
-
 
     #endregion
 

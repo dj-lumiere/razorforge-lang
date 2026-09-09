@@ -129,14 +129,16 @@ internal sealed class TypeBodyResolver
         {
             if (member is ExpandMemberDeclaration expandDecl)
             {
-                expandTemplates.AddRange(collection: ResolveExpandTemplates(expandDecl: expandDecl));
+                expandTemplates.AddRange(
+                    collection: ResolveExpandTemplates(expandDecl: expandDecl));
                 continue;
             }
 
             if (member is VariableDeclaration memberVariable)
             {
                 memberVariables.Add(item: ResolveRecordMemberVariable(
-                    memberVariable: memberVariable, memberVariableIndex: memberVariableIndex++));
+                    memberVariable: memberVariable,
+                    memberVariableIndex: memberVariableIndex++));
             }
 
             // Still call CollectDeclaration for validation and other member types
@@ -188,8 +190,10 @@ internal sealed class TypeBodyResolver
         _sa._registry.UpdateRecordProtocols(recordName: _sa._currentType!.FullName,
             protocols: resolvedProtocols);
         if (_sa._currentType is RecordTypeInfo recTi)
+        {
             recTi.ConditionalObeys =
                 StdlibLoader.BuildConditionalObeys(protoExprs: record.Protocols);
+        }
     }
 
     /// <summary>
@@ -209,22 +213,18 @@ internal sealed class TypeBodyResolver
         // pointer-shaped reference types, so the field stores a reference), generic parameters,
         // and Assignable wrappers (Hijacked, Retained, Guarded, Tracked, Witnessed). Scoped access
         // tokens (Viewing, Modifying, Consulting, Amending) are wrappers NOT in the Assignable set.
-        bool isReferenceTyped =
-            memberVariableType?.Category == TypeCategory.Entity ||
-            memberVariableType?.Category == TypeCategory.Crashable;
+        bool isReferenceTyped = memberVariableType?.Category == TypeCategory.Entity ||
+                                memberVariableType?.Category == TypeCategory.Crashable;
         // A Routine-typed field is a callback slot: the routine VALUE is pointer-shaped
         // (a `ptr` to a closure blob = C's `(fnptr[, userdata])`), stored NON-OWNING like a
         // bare C function pointer. So a record may hold one, mirroring how a C struct stores a
         // `(callback, userdata)` pair.
         bool isRoutineTyped = memberVariableType is RoutineTypeInfo;
-        if (memberVariableType != null &&
-            memberVariableType is not ErrorTypeInfo &&
+        if (memberVariableType != null && memberVariableType is not ErrorTypeInfo &&
             memberVariableType is not GenericParameterTypeInfo &&
-            !TypeRegistry.IsValueType(type: memberVariableType) &&
-            !isReferenceTyped &&
-            !isRoutineTyped &&
-            !(memberVariableType is WrapperTypeInfo wrapper &&
-              AssignableWrapperTypes.Contains(item: wrapper.BareName)))
+            !TypeRegistry.IsValueType(type: memberVariableType) && !isReferenceTyped &&
+            !isRoutineTyped && !(memberVariableType is WrapperTypeInfo wrapper &&
+                                 AssignableWrapperTypes.Contains(item: wrapper.BareName)))
         {
             _sa.ReportError(code: SemanticDiagnosticCode.RecordContainsNonValueType,
                 message:
@@ -234,14 +234,16 @@ internal sealed class TypeBodyResolver
         }
 
         // Create member variable info
-        return new MemberVariableInfo(name: memberVariable.Name, type: memberVariableType ?? ErrorTypeInfo.Instance)
-        {
-            Visibility = memberVariable.Visibility,
-            Index = memberVariableIndex,
-            HasDefaultValue = memberVariable.Initializer != null,
-            Location = memberVariable.Location,
-            Owner = _sa._currentType
-        };
+        return new
+            MemberVariableInfo(name: memberVariable.Name,
+                type: memberVariableType ?? ErrorTypeInfo.Instance)
+            {
+                Visibility = memberVariable.Visibility,
+                Index = memberVariableIndex,
+                HasDefaultValue = memberVariable.Initializer != null,
+                Location = memberVariable.Location,
+                Owner = _sa._currentType
+            };
     }
 
     /// <summary>
@@ -250,18 +252,19 @@ internal sealed class TypeBodyResolver
     /// splice standing in for the synthetic per-field placeholder; the registry substitutes the real
     /// field type at instantiation.
     /// </summary>
-    private List<MemberExpandTemplateInfo> ResolveExpandTemplates(ExpandMemberDeclaration expandDecl)
+    private List<MemberExpandTemplateInfo> ResolveExpandTemplates(
+        ExpandMemberDeclaration expandDecl)
     {
         var result = new List<MemberExpandTemplateInfo>();
         foreach (ExpandMemberTemplate template in expandDecl.Templates)
         {
             TypeSymbol columnType = _typeResolver.ResolveType(typeExpr: template.Type);
-            result.Add(item: new MemberExpandTemplateInfo(
-                namePrefix: template.NamePrefix,
+            result.Add(item: new MemberExpandTemplateInfo(namePrefix: template.NamePrefix,
                 sourceParamName: expandDecl.SourceType.Name,
                 columnTypeTemplate: columnType,
                 visibility: template.Visibility));
         }
+
         return result;
     }
 
@@ -295,14 +298,16 @@ internal sealed class TypeBodyResolver
         {
             if (member is ExpandMemberDeclaration expandDecl)
             {
-                expandTemplates.AddRange(collection: ResolveExpandTemplates(expandDecl: expandDecl));
+                expandTemplates.AddRange(
+                    collection: ResolveExpandTemplates(expandDecl: expandDecl));
                 continue;
             }
 
             if (member is VariableDeclaration memberVariable)
             {
                 memberVariables.Add(item: ResolveEntityMemberVariable(
-                    memberVariable: memberVariable, memberVariableIndex: memberVariableIndex++));
+                    memberVariable: memberVariable,
+                    memberVariableIndex: memberVariableIndex++));
             }
 
             _sa.CollectDeclaration(node: member);
@@ -349,8 +354,10 @@ internal sealed class TypeBodyResolver
         _sa._registry.UpdateEntityProtocols(entityName: _sa._currentType!.FullName,
             protocols: resolvedProtocols);
         if (_sa._currentType is EntityTypeInfo entTi)
+        {
             entTi.ConditionalObeys =
                 StdlibLoader.BuildConditionalObeys(protoExprs: entity.Protocols);
+        }
     }
 
     /// <summary>
@@ -371,10 +378,12 @@ internal sealed class TypeBodyResolver
         // entity reference carries its own none via a null handle). We only still record
         // NULLABILITY as a flow fact: it is no longer visible in the resolved type, so detect it
         // from the AST — the field was written `E?`, which desugars to a `Maybe[...]` type expr.
-        bool fieldNullable = _sa._registry.Language == Language.Suflae
-            && memberVariable.Type is { Name: "Maybe" }
-            && memberVariableType is RecordTypeInfo
-                { GenericDefinition.Name: RuntimeContract.Roamed };
+        bool fieldNullable = _sa._registry.Language == Language.Suflae &&
+                             memberVariable.Type is { Name: "Maybe" } &&
+                             memberVariableType is RecordTypeInfo
+                             {
+                                 GenericDefinition.Name: RuntimeContract.Roamed
+                             };
 
         return new MemberVariableInfo(name: memberVariable.Name, type: memberVariableType)
         {
@@ -587,8 +596,11 @@ internal sealed class TypeBodyResolver
 
         foreach (VariantMember member in variant.Members)
         {
-            ResolveVariantMember(variant: variant, member: member, members: members,
-                seenTypeNames: seenTypeNames, hasNone: ref hasNone);
+            ResolveVariantMember(variant: variant,
+                member: member,
+                members: members,
+                seenTypeNames: seenTypeNames,
+                hasNone: ref hasNone);
         }
 
         foreach (VariantMemberInfo m in members)
@@ -694,10 +706,7 @@ internal sealed class TypeBodyResolver
         // pointer), so a variant member of type T owns the bound entity directly.
         // Variant copyability derives from all members being Assignable.
 
-        members.Add(item: new VariantMemberInfo(type: memberType)
-        {
-            Location = member.Location
-        });
+        members.Add(item: new VariantMemberInfo(type: memberType) { Location = member.Location });
     }
 
     /// <summary>
@@ -724,7 +733,8 @@ internal sealed class TypeBodyResolver
 
         foreach (ChoiceCase caseDecl in choice.Cases)
         {
-            cases.Add(item: ResolveChoiceCase(choice: choice, caseDecl: caseDecl,
+            cases.Add(item: ResolveChoiceCase(choice: choice,
+                caseDecl: caseDecl,
                 autoValue: ref autoValue));
         }
 
@@ -768,7 +778,8 @@ internal sealed class TypeBodyResolver
         ref int autoValue)
     {
         int? explicitValue = caseDecl.Value != null
-            ? TryResolveExplicitChoiceCaseValue(choice: choice, caseDecl: caseDecl,
+            ? TryResolveExplicitChoiceCaseValue(choice: choice,
+                caseDecl: caseDecl,
                 autoValue: ref autoValue)
             : null;
 
@@ -780,15 +791,15 @@ internal sealed class TypeBodyResolver
         else
         {
             computedValue = autoValue;
-            AdvanceAutoValue(choice: choice, caseDecl: caseDecl, autoValue: ref autoValue,
+            AdvanceAutoValue(choice: choice,
+                caseDecl: caseDecl,
+                autoValue: ref autoValue,
                 reportOverflow: true);
         }
 
         return new ChoiceCaseInfo(name: caseDecl.Name)
         {
-            Value = explicitValue,
-            ComputedValue = computedValue,
-            Location = caseDecl.Location
+            Value = explicitValue, ComputedValue = computedValue, Location = caseDecl.Location
         };
     }
 
@@ -806,7 +817,9 @@ internal sealed class TypeBodyResolver
             location: caseDecl.Location);
 
         if (!longValue.HasValue)
+        {
             return null;
+        }
 
         if (longValue.Value is < int.MinValue or > int.MaxValue)
         {
@@ -820,7 +833,9 @@ internal sealed class TypeBodyResolver
         int explicitValue = (int)longValue.Value;
         autoValue = explicitValue;
         // Advance by 1 for subsequent auto-increment; if already at max, next case will catch overflow.
-        AdvanceAutoValue(choice: choice, caseDecl: caseDecl, autoValue: ref autoValue,
+        AdvanceAutoValue(choice: choice,
+            caseDecl: caseDecl,
+            autoValue: ref autoValue,
             reportOverflow: false);
         return explicitValue;
     }
@@ -830,8 +845,8 @@ internal sealed class TypeBodyResolver
     /// <paramref name="reportOverflow"/> is true and <paramref name="autoValue"/> is already
     /// at <see cref="int.MaxValue"/> (which would overflow on increment).
     /// </summary>
-    private void AdvanceAutoValue(ChoiceDeclaration choice, ChoiceCase caseDecl,
-        ref int autoValue, bool reportOverflow)
+    private void AdvanceAutoValue(ChoiceDeclaration choice, ChoiceCase caseDecl, ref int autoValue,
+        bool reportOverflow)
     {
         if (autoValue == int.MaxValue)
         {
@@ -981,19 +996,27 @@ internal sealed class TypeBodyResolver
         }
 
         string baseName = r.GenericDefinition?.Name ?? r.Name;
-        return baseName is "Maybe" or "Result" or "Lookup" ? baseName : null;
+        return baseName is "Maybe" or "Result" or "Lookup"
+            ? baseName
+            : null;
     }
 
-    private static bool IsCarrierType(TypeSymbol type) => GetCarrierBaseName(type: type) != null;
+    private static bool IsCarrierType(TypeSymbol type)
+    {
+        return GetCarrierBaseName(type: type) != null;
+    }
 
-    private static bool IsMaybeType(TypeSymbol type) => GetCarrierBaseName(type: type) == "Maybe";
+    private static bool IsMaybeType(TypeSymbol type)
+    {
+        return GetCarrierBaseName(type: type) == "Maybe";
+    }
 
     private static readonly HashSet<string> AssignableWrapperTypes =
     [
         RuntimeContract.Hijacked, // Unmanaged raw pointer handle
         RuntimeContract.Retained, // Reference-counted handle
-        RuntimeContract.Guarded,   // Reference-counted multi-threaded handle
-        RuntimeContract.Tracked,  // Weak reference handle
-        RuntimeContract.Witnessed,  // Weak reference multi-threaded handle
+        RuntimeContract.Guarded, // Reference-counted multi-threaded handle
+        RuntimeContract.Tracked, // Weak reference handle
+        RuntimeContract.Witnessed // Weak reference multi-threaded handle
     ];
 }

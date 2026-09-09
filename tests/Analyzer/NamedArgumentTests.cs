@@ -11,10 +11,10 @@ using static TestHelpers;
 public class NamedArgumentTests
 {
     #region Unknown Named Argument (#152 / S505)
+
     /// <summary>
     /// Verifies semantic analysis behavior for unknown named argument and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_UnknownNamedArgument_ReportsError()
     {
@@ -33,7 +33,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for valid named argument without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ValidNamedArgument_NoError()
     {
@@ -52,7 +51,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for unknown named argument multiple params and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_UnknownNamedArgument_MultipleParams_ReportsError()
     {
@@ -72,10 +70,10 @@ public class NamedArgumentTests
     #endregion
 
     #region Duplicate Named Argument (#153 / S506)
+
     /// <summary>
     /// Verifies semantic analysis behavior for duplicate named argument and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_DuplicateNamedArgument_ReportsError()
     {
@@ -94,7 +92,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for positional then same named and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_PositionalThenSameNamed_ReportsError()
     {
@@ -113,7 +110,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for distinct named arguments without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_DistinctNamedArguments_NoError()
     {
@@ -133,10 +129,10 @@ public class NamedArgumentTests
     #endregion
 
     #region Positional After Named (#154 / S507)
+
     /// <summary>
     /// Verifies semantic analysis behavior for positional after named s510 subsumes s507.
     /// </summary>
-
     [Fact]
     public void Analyze_PositionalAfterNamed_ReportsMixed()
     {
@@ -159,7 +155,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for all named without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_AllNamed_NoError()
     {
@@ -178,7 +173,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for named out of order without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_NamedOutOfOrder_NoError()
     {
@@ -202,10 +196,10 @@ public class NamedArgumentTests
     #endregion
 
     #region Named Argument Enforcement (S510)
+
     /// <summary>
     /// Verifies semantic analysis behavior for two params all positional reports s510.
     /// </summary>
-
     [Fact]
     public void Analyze_TwoParams_AllPositional_WarnsRecommended()
     {
@@ -228,7 +222,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for two params all named no s510.
     /// </summary>
-
     [Fact]
     public void Analyze_TwoParams_AllNamed_NoS510()
     {
@@ -247,7 +240,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for two params mixed positional named reports s510.
     /// </summary>
-
     [Fact]
     public void Analyze_TwoParams_MixedPositionalNamed_ReportsMixed()
     {
@@ -268,7 +260,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for one param positional no s510.
     /// </summary>
-
     [Fact]
     public void Analyze_OneParam_Positional_NoS510()
     {
@@ -287,7 +278,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for zero params no s510.
     /// </summary>
-
     [Fact]
     public void Analyze_ZeroParams_NoS510()
     {
@@ -306,7 +296,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for member routine one non me param positional no s510.
     /// </summary>
-
     [Fact]
     public void Analyze_memberRoutine_OneNonMeParam_Positional_NoS510()
     {
@@ -334,7 +323,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for member routine two non me params positional reports s510.
     /// </summary>
-
     [Fact]
     public void Analyze_memberRoutine_ThreeNonMeParams_Positional_ReportsS510()
     {
@@ -360,7 +348,6 @@ public class NamedArgumentTests
     /// <summary>
     /// Verifies semantic analysis behavior for two params named out of order no s510.
     /// </summary>
-
     [Fact]
     public void Analyze_TwoParams_NamedOutOfOrder_NoS510()
     {
@@ -380,6 +367,7 @@ public class NamedArgumentTests
     #endregion
 
     #region @positional Opt-Out (S512)
+
     /// <summary>
     /// A `@positional` routine accepts all-positional calls even with 3+ params (S510 relaxed).
     /// </summary>

@@ -3,7 +3,6 @@ using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-
 using Compiler.Instantiation;
 
 namespace Compiler.Verification;
@@ -77,7 +76,7 @@ public sealed partial class SemanticVerifier
     {
         foreach (RoutineInfo r in _registry.EnumerateMemberRoutines())
         {
-            r.IsWiredMemberRoutine = InferWired(r);
+            r.IsWiredMemberRoutine = InferWired(r: r);
         }
     }
 
@@ -98,7 +97,8 @@ public sealed partial class SemanticVerifier
 
         // Re-lookup the owner to get the version whose ImplementedProtocols are populated by conformance.
         TypeSymbol? owner = _registry.LookupType(name: r.OwnerType.FullName) ?? r.OwnerType;
-        return protos.Any(predicate: p => ExplicitlyImplementsProtocol(type: owner, protocolName: p));
+        return protos.Any(predicate: p =>
+            ExplicitlyImplementsProtocol(type: owner, protocolName: p));
     }
 
     /// <summary>
@@ -181,7 +181,8 @@ public sealed partial class SemanticVerifier
         // overrides the linked symbol name. Linkage kind (static/dynamic) + calling convention live in the
         // toml [libraries.X] declaration, NOT here — so switching a library static↔dynamic never touches
         // source. The FIRST @link attribute wins.
-        (string? linkLibrary, string? linkSymbol) = ExtractLinkBinding(annotations: external.Annotations);
+        (string? linkLibrary, string? linkSymbol) =
+            ExtractLinkBinding(annotations: external.Annotations);
 
         var routineInfo = new RoutineInfo(name: external.Name)
         {
@@ -250,7 +251,9 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void GenerateDerivedOperators()
     {
-        new DerivedOperatorPass(_registry, _synthesizedBodies, _errors).Run();
+        new DerivedOperatorPass(registry: _registry,
+            synthesizedBodies: _synthesizedBodies,
+            errors: _errors).Run();
     }
 
     #endregion

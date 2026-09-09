@@ -11,10 +11,10 @@ using static TestHelpers;
 public class TypeProhibitionTests
 {
     #region None as Type Argument (rejected)
+
     /// <summary>
     /// Verifies semantic analysis behavior for blank nullable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_NoneNullable_ReportsError()
     {
@@ -32,7 +32,6 @@ public class TypeProhibitionTests
     /// <summary>
     /// Verifies semantic analysis behavior for explicit maybe blank and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ExplicitMaybeNone_ReportsError()
     {
@@ -50,10 +49,10 @@ public class TypeProhibitionTests
     #endregion
 
     #region Normal nullable types (allowed)
+
     /// <summary>
     /// Verifies semantic analysis behavior for normal nullable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_NormalNullable_NoErrors()
     {
@@ -70,7 +69,6 @@ public class TypeProhibitionTests
     /// <summary>
     /// Verifies semantic analysis behavior for blank direct type without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_NoneDirectType_NoErrors()
     {
@@ -88,7 +86,6 @@ public class TypeProhibitionTests
     /// <summary>
     /// Verifies semantic analysis behavior for result blank without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ResultNone_NoErrors()
     {
@@ -106,7 +103,6 @@ public class TypeProhibitionTests
     /// <summary>
     /// Verifies semantic analysis behavior for lookup blank and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_LookupNone_ReportsError()
     {
@@ -125,10 +121,10 @@ public class TypeProhibitionTests
     #endregion
 
     #region Nested Maybe Prohibition
+
     /// <summary>
     /// Verifies semantic analysis behavior for nested maybe and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_NestedMaybe_ReportsError()
     {
@@ -145,7 +141,6 @@ public class TypeProhibitionTests
     /// <summary>
     /// Verifies semantic analysis behavior for single maybe without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_SingleMaybe_NoError()
     {
@@ -202,10 +197,10 @@ public class TypeProhibitionTests
     #endregion
 
     #region Byte Literal ASCII Validation
+
     /// <summary>
     /// Verifies semantic analysis behavior for byte literal non ascii and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ByteLiteralNonAscii_ReportsError()
     {
@@ -216,12 +211,11 @@ public class TypeProhibitionTests
                           return
                         """;
 
-        Assert.ThrowsAny<GrammarException>(() => AnalyzeSa(source: source));
+        Assert.ThrowsAny<GrammarException>(testCode: () => AnalyzeSa(source: source));
     }
     /// <summary>
     /// Verifies semantic analysis behavior for byte literal ascii without grammar diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ByteLiteralAscii_NoGrammarError()
     {

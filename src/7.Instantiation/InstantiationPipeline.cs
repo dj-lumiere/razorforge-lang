@@ -1,5 +1,4 @@
 using Compiler.Instantiation.Passes;
-
 using Compiler.Collection.Passes;
 
 namespace Compiler.Instantiation;
@@ -17,9 +16,9 @@ public sealed class InstantiationPipeline(InstantiationContext ctx)
     /// </summary>
     public void Run()
     {
-        new ReachableGenericCollectionPass(ctx).Run();
-        new RoutineReachabilityPass(ctx).Run();
-        new GenericClosurePass(ctx).Run();
+        new ReachableGenericCollectionPass(ctx: ctx).Run();
+        new RoutineReachabilityPass(ctx: ctx).Run();
+        new GenericClosurePass(ctx: ctx).Run();
         GenericCanonicalizationPass.Run();
     }
 }

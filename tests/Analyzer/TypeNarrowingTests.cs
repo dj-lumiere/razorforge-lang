@@ -11,10 +11,10 @@ using static TestHelpers;
 public class TypeNarrowingTests
 {
     #region Guard Clause Narrowing (unless / if-return)
+
     /// <summary>
     /// Verifies semantic analysis behavior for unless is none narrows maybe to value.
     /// </summary>
-
     [Fact]
     public void Analyze_UnlessIsNone_NarrowsMaybeToValue()
     {
@@ -34,7 +34,6 @@ public class TypeNarrowingTests
     /// <summary>
     /// Verifies semantic analysis behavior for if is none return narrows maybe to value.
     /// </summary>
-
     [Fact]
     public void Analyze_IfIsNoneReturn_NarrowsMaybeToValue()
     {
@@ -53,7 +52,6 @@ public class TypeNarrowingTests
     /// <summary>
     /// Verifies semantic analysis behavior for if is not none narrows in then branch.
     /// </summary>
-
     [Fact]
     public void Analyze_IfIsNotNone_NarrowsInThenBranch()
     {
@@ -72,7 +70,6 @@ public class TypeNarrowingTests
     /// <summary>
     /// Verifies semantic analysis behavior for if is none with else narrows in else branch.
     /// </summary>
-
     [Fact]
     public void Analyze_IfIsNoneWithElse_NarrowsInElseBranch()
     {
@@ -93,7 +90,6 @@ public class TypeNarrowingTests
     /// <summary>
     /// Verifies semantic analysis behavior for if is none without exit does not narrow after if.
     /// </summary>
-
     [Fact]
     public void Analyze_IfIsNoneWithoutExit_DoesNotNarrowAfterIf()
     {
@@ -113,10 +109,10 @@ public class TypeNarrowingTests
     #endregion
 
     #region When Statement Narrowing
+
     /// <summary>
     /// Verifies semantic analysis behavior for when maybe else binds narrowed type.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenMaybe_ElseBindsNarrowedType()
     {
@@ -203,10 +199,10 @@ public class TypeNarrowingTests
     #endregion
 
     #region No Narrowing for Non-Error Types
+
     /// <summary>
     /// Verifies semantic analysis behavior for non error handling type no narrowing crash.
     /// </summary>
-
     [Fact]
     public void Analyze_NonErrorHandlingType_NoNarrowingCrash()
     {

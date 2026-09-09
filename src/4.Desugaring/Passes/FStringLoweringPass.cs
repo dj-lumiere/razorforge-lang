@@ -27,10 +27,15 @@ namespace Compiler.Desugaring.Passes;
 internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewriter
 {
     public void Run(Program program)
-        => BodyDispatch.RunOnProgram(program, lower: r => VisitStatement(r.Body));
+    {
+        BodyDispatch.RunOnProgram(program: program, lower: r => VisitStatement(stmt: r.Body));
+    }
 
     public void RunOnVariantBodies()
-        => BodyDispatch.RunOnVariantBodies(ctx.VariantBodies, lower: (_, body) => VisitStatement(body));
+    {
+        BodyDispatch.RunOnVariantBodies(bodies: ctx.VariantBodies,
+            lower: (_, body) => VisitStatement(stmt: body));
+    }
 
     /// <summary>
     /// Lowers f-strings in instantiated generic routine bodies. Phase 7's
@@ -42,8 +47,10 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// </summary>
     public void RunOnInstantiatedGenericBodies(
         Dictionary<string, MonomorphizedBody> instantiatedGenericBodies)
-        => BodyDispatch.RunOnInstantiatedGenericBodies(
-            instantiatedGenericBodies, lower: (_, entry) => VisitStatement(entry.Ast.Body));
+    {
+        BodyDispatch.RunOnInstantiatedGenericBodies(bodies: instantiatedGenericBodies,
+            lower: (_, entry) => VisitStatement(stmt: entry.Ast.Body));
+    }
 
     //  F-string lowering
 
@@ -52,7 +59,10 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <c>Text.add</c> chain. All structural recursion (statements, other expressions, nested f-strings
     /// inside parts) is supplied by <see cref="AstRewriter"/>.
     /// </summary>
-    protected override Expression VisitInsertedText(InsertedTextExpression e) => LowerFString(ftext: e);
+    protected override Expression VisitInsertedText(InsertedTextExpression e)
+    {
+        return LowerFString(ftext: e);
+    }
 
     /// <summary>
     /// Converts an <see cref="InsertedTextExpression"/> to a left-folded chain of
@@ -70,9 +80,9 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
             switch (part)
             {
                 case TextPart { Text.Length: > 0 } tp:
-                    exprs.Add(new LiteralExpression(
-                        Value: tp.Text, LiteralType: TokenType.TextLiteral, Location: tp.Location)
-                        { ResolvedType = textType });
+                    exprs.Add(item: new LiteralExpression(Value: tp.Text,
+                        LiteralType: TokenType.TextLiteral,
+                        Location: tp.Location) { ResolvedType = textType });
                     break;
 
                 case ExpressionPart ep:
@@ -83,25 +93,21 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
 
         if (exprs.Count == 0)
         {
-            return new LiteralExpression(
-                Value: "", LiteralType: TokenType.TextLiteral, Location: loc)
-                { ResolvedType = textType };
+            return new LiteralExpression(Value: "",
+                LiteralType: TokenType.TextLiteral,
+                Location: loc) { ResolvedType = textType };
         }
 
         // Left-fold: acc = acc.add(other: next)
-        Expression result = exprs[0];
+        Expression result = exprs[index: 0];
         for (int i = 1; i < exprs.Count; i++)
         {
             result = new CallExpression(
-                Callee: new MemberExpression(
-                    Object: result,
-                    MemberName: "add",
-                    Location: loc),
+                Callee: new MemberExpression(Object: result, MemberName: "add", Location: loc),
                 Arguments:
                 [
-                    new NamedArgumentExpression(
-                        Name: "other",
-                        Value: exprs[i],
+                    new NamedArgumentExpression(Name: "other",
+                        Value: exprs[index: i],
                         Location: loc)
                 ],
                 Location: loc) { ResolvedType = textType };
@@ -115,9 +121,10 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// expression(s) to <paramref name="exprs"/>: an optional <c>"name="</c> literal (for the
     /// <c>=</c>/<c>=?</c> format specs) followed by the <c>represent</c>/<c>diagnose</c> render call.
     /// </summary>
-    private void AppendExpressionPart(List<Expression> exprs, ExpressionPart ep, TypeInfo? textType)
+    private void AppendExpressionPart(List<Expression> exprs, ExpressionPart ep,
+        TypeInfo? textType)
     {
-        Expression loweredInner = VisitExpression(ep.Expression);
+        Expression loweredInner = VisitExpression(expr: ep.Expression);
         string memberRoutineName = ep.FormatSpec is "?" or "=?"
             ? Declaration.RuntimeContract.Display.Diagnose
             : Declaration.RuntimeContract.Display.Represent;
@@ -125,19 +132,19 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
         // "=" and "=?" format specs prepend "varName=" as a text literal.
         if (ep.FormatSpec is "=" or "=?")
         {
-            string varName = ep.Expression is IdentifierExpression id ? id.Name : "";
+            string varName = ep.Expression is IdentifierExpression id
+                ? id.Name
+                : "";
             if (varName.Length > 0)
             {
-                exprs.Add(new LiteralExpression(
-                    Value: varName + "=",
+                exprs.Add(item: new LiteralExpression(Value: varName + "=",
                     LiteralType: TokenType.TextLiteral,
                     Location: ep.Location) { ResolvedType = textType });
             }
         }
 
         Expression renderCall = new CallExpression(
-            Callee: new MemberExpression(
-                Object: loweredInner,
+            Callee: new MemberExpression(Object: loweredInner,
                 MemberName: memberRoutineName,
                 Location: ep.Location),
             Arguments: [],
@@ -151,28 +158,29 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
         // `diagnose` / `represent` output.
         if (ep.Expression is { IsInFlight: true, ResolvedType: EntityTypeInfo entityType })
         {
-            renderCall = WrapInFlightEntityMarker(renderCall: renderCall, ep: ep,
-                entityType: entityType, textType: textType);
+            renderCall = WrapInFlightEntityMarker(renderCall: renderCall,
+                ep: ep,
+                entityType: entityType,
+                textType: textType);
         }
 
-        exprs.Add(renderCall);
+        exprs.Add(item: renderCall);
     }
 
     /// <summary>
     /// Post-processes an in-flight entity's rendered text via <c>Text.replace</c>, inserting a
     /// <c>?</c> immediately before the short type name in the compile-time-known type-name prefix.
     /// </summary>
-    private static CallExpression WrapInFlightEntityMarker(Expression renderCall, ExpressionPart ep,
-        EntityTypeInfo entityType, TypeInfo? textType)
+    private static CallExpression WrapInFlightEntityMarker(Expression renderCall,
+        ExpressionPart ep, EntityTypeInfo entityType, TypeInfo? textType)
     {
         string fullName = entityType.FullName;
-        int dot = fullName.LastIndexOf('.');
+        int dot = fullName.LastIndexOf(value: '.');
         string marked = dot < 0
             ? "?" + fullName
             : fullName[..(dot + 1)] + "?" + fullName[(dot + 1)..];
         return new CallExpression(
-            Callee: new MemberExpression(
-                Object: renderCall,
+            Callee: new MemberExpression(Object: renderCall,
                 MemberName: Declaration.RuntimeContract.Collection.Replace,
                 Location: ep.Location) { ResolvedType = textType },
             Arguments:

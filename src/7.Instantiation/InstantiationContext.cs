@@ -15,7 +15,9 @@ namespace Compiler.Instantiation;
 /// daemon-lifetime warm state lets each warm run skip re-walking the ~1641 reachable stdlib bodies (the
 /// dominant reachability cost); per-frame resolution/substitution still runs, so liveness is unchanged.
 /// </summary>
-public sealed record RoutineBodyScan(List<object> Calls, Dictionary<string, TypeInfo> VarDeclTypes);
+public sealed record RoutineBodyScan(
+    List<object> Calls,
+    Dictionary<string, TypeInfo> VarDeclTypes);
 
 /// <summary>
 /// Guarded context for Phase 7 generic instantiation work.
@@ -154,13 +156,13 @@ public sealed class InstantiationContext
     /// <param name="options">Optional tuning values; defaults apply when null.</param>
     public InstantiationContext(TypeRegistry registry,
         List<(Program Program, string FilePath, string Module)> userPrograms,
-        IReadOnlyDictionary<string, Statement> routineBodies,
-        InstantiationOptions? options = null)
+        IReadOnlyDictionary<string, Statement> routineBodies, InstantiationOptions? options = null)
     {
         Registry = registry;
         UserPrograms = userPrograms;
         RoutineBodies = routineBodies;
-        StdlibTemplateBodies = options?.StdlibTemplateBodies ?? new Dictionary<string, Statement>();
+        StdlibTemplateBodies =
+            options?.StdlibTemplateBodies ?? new Dictionary<string, Statement>();
         VariantBodies = options?.VariantBodies ?? [];
         InstantiatedGenericBodies = options?.InstantiatedGenericBodies ?? [];
         Target = options?.Target ?? TargetConfig.ForCurrentHost();

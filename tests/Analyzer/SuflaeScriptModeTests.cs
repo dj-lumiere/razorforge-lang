@@ -12,45 +12,54 @@ using static TestHelpers;
 /// </summary>
 public sealed class SuflaeScriptModeTests
 {
-    private static RoutineDeclaration? SynthesizedStart(Program program) =>
-        program.Declarations.OfType<RoutineDeclaration>().FirstOrDefault(r => r.Name == "start");
+    private static RoutineDeclaration? SynthesizedStart(Program program)
+    {
+        return program.Declarations
+                      .OfType<RoutineDeclaration>()
+                      .FirstOrDefault(predicate: r => r.Name == "start");
+    }
 
     [Fact]
     public void Parse_ScriptStatements_SynthesizesStart()
     {
-        Program program = ParseSuflae("""
-                                      show("a")
-                                      show("b")
-                                      """);
+        Program program = ParseSuflae(source: """
+                                              show("a")
+                                              show("b")
+                                              """);
 
         // No loose top-level statements survive — they went into start().
-        Assert.DoesNotContain(program.Declarations, d => d is Statement);
+        Assert.DoesNotContain(collection: program.Declarations, filter: d => d is Statement);
 
-        RoutineDeclaration? start = SynthesizedStart(program);
-        Assert.NotNull(start);
-        var body = Assert.IsType<BlockStatement>(start!.Body);
+        RoutineDeclaration? start = SynthesizedStart(program: program);
+        Assert.NotNull(@object: start);
+        BlockStatement body = Assert.IsType<BlockStatement>(@object: start!.Body);
         // Two show()s + a synthesized trailing return.
-        Assert.Equal(2, body.Statements.OfType<ExpressionStatement>().Count());
-        Assert.IsType<ReturnStatement>(body.Statements[^1]);
+        Assert.Equal(expected: 2,
+            actual: body.Statements
+                        .OfType<ExpressionStatement>()
+                        .Count());
+        Assert.IsType<ReturnStatement>(@object: body.Statements[^1]);
     }
 
     [Fact]
     public void Parse_ScriptVarDecl_SweptIntoStart()
     {
-        Program program = ParseSuflae("""
-                                      var x = 5
-                                      show(x)
-                                      """);
+        Program program = ParseSuflae(source: """
+                                              var x = 5
+                                              show(x)
+                                              """);
 
         // The top-level `var` must become a start-LOCAL (a DeclarationStatement in the body), not a
         // module-level declaration — otherwise `show(x)` in start could not see it.
-        Assert.DoesNotContain(program.Declarations, d => d is VariableDeclaration);
+        Assert.DoesNotContain(collection: program.Declarations,
+            filter: d => d is VariableDeclaration);
 
-        RoutineDeclaration? start = SynthesizedStart(program);
-        Assert.NotNull(start);
-        var body = Assert.IsType<BlockStatement>(start!.Body);
-        Assert.Contains(body.Statements, s => s is DeclarationStatement { Declaration: VariableDeclaration });
-        Assert.Contains(body.Statements, s => s is ExpressionStatement);
+        RoutineDeclaration? start = SynthesizedStart(program: program);
+        Assert.NotNull(@object: start);
+        BlockStatement body = Assert.IsType<BlockStatement>(@object: start!.Body);
+        Assert.Contains(collection: body.Statements,
+            filter: s => s is DeclarationStatement { Declaration: VariableDeclaration });
+        Assert.Contains(collection: body.Statements, filter: s => s is ExpressionStatement);
     }
 
     [Fact]
@@ -58,31 +67,32 @@ public sealed class SuflaeScriptModeTests
     {
         // A file with an explicit start and NO loose statements is untouched — its start is the one the
         // user wrote, and no statements are swept.
-        Program program = ParseSuflae("""
-                                      module Test/Mod
-                                      routine start()
-                                        show("hi")
-                                        return
-                                      """);
+        Program program = ParseSuflae(source: """
+                                              module Test/Mod
+                                              routine start()
+                                                show("hi")
+                                                return
+                                              """);
 
-        Assert.DoesNotContain(program.Declarations, d => d is Statement);
-        RoutineDeclaration? start = SynthesizedStart(program);
-        Assert.NotNull(start);
+        Assert.DoesNotContain(collection: program.Declarations, filter: d => d is Statement);
+        RoutineDeclaration? start = SynthesizedStart(program: program);
+        Assert.NotNull(@object: start);
         // The body is exactly what the user wrote (a show + a return), not a wrapper.
-        var body = Assert.IsType<BlockStatement>(start!.Body);
-        Assert.Equal(2, body.Statements.Count);
+        BlockStatement body = Assert.IsType<BlockStatement>(@object: start!.Body);
+        Assert.Equal(expected: 2, actual: body.Statements.Count);
     }
 
     [Fact]
     public void Parse_LooseStatementWithExplicitStart_ReportsError()
     {
-        (Program _, Compiler.Parser.Parser parser) = ParseSuflaeWithErrors("""
-                                                                           show("loose")
-                                                                           routine start()
-                                                                             return
-                                                                           """);
+        (Program _, Compiler.Parser.Parser parser) = ParseSuflaeWithErrors(source: """
+            show("loose")
+            routine start()
+              return
+            """);
 
-        Assert.True(parser.HasErrors);
-        Assert.Contains(parser.GetErrors(), e => e.Contains("cannot mix top-level statements"));
+        Assert.True(condition: parser.HasErrors);
+        Assert.Contains(collection: parser.GetErrors(),
+            filter: e => e.Contains(value: "cannot mix top-level statements"));
     }
 }

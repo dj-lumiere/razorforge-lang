@@ -31,8 +31,8 @@ public class MoveOnConsumeTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
             filter: e => e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.UseAfterSteal &&
-                e.Message.Contains(value: "'a'",
-                    comparisonType: StringComparison.OrdinalIgnoreCase));
+                         e.Message.Contains(value: "'a'",
+                             comparisonType: StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>`.retain()` on an `T` source kills the receiver.</summary>
@@ -67,10 +67,12 @@ public class MoveOnConsumeTests
         {
             return; // expected case landed.
         }
+
         // Fall through: if construction itself errored, just assert no false-positive
         // ImplicitWrapperCopy from `b.inner.retain()` — that's a fresh-call result, OK.
         Assert.DoesNotContain(collection: result.Errors,
-            filter: e => e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+            filter: e =>
+                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>`.retain()` twice on the same variable; the second use is a double-consume error.</summary>

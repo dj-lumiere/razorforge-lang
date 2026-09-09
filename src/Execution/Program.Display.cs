@@ -47,7 +47,8 @@ internal partial class Program
 
             case ProtocolDeclaration proto:
                 Console.WriteLine(
-                    value: $"{prefix}protocol {proto.Name} ({proto.MemberRoutines.Count} member routines)");
+                    value:
+                    $"{prefix}protocol {proto.Name} ({proto.MemberRoutines.Count} member routines)");
                 break;
 
             case ImportDeclaration import:

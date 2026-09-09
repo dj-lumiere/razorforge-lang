@@ -182,8 +182,11 @@ public sealed class MutationInference
         node.InferredMutation = MutationCategory.Writable;
 
         // A direct write to a Hijacked[T] field relocates the buffer pointer — reshaping.
-        if (assignment.Target is MemberExpression { Object: IdentifierExpression { Name: "me" } } direct
-            && IsHijackedField(ownerType: node.Routine.OwnerType, fieldName: direct.MemberName))
+        if (assignment.Target is MemberExpression
+            {
+                Object: IdentifierExpression { Name: "me" }
+            } direct && IsHijackedField(ownerType: node.Routine.OwnerType,
+                fieldName: direct.MemberName))
         {
             node.DirectlyMigrates = true;
             node.InferredMutation = MutationCategory.Reshaping;
@@ -203,7 +206,8 @@ public sealed class MutationInference
         };
 
         MemberVariableInfo? field = fields?.FirstOrDefault(predicate: f => f.Name == fieldName);
-        return field?.Type.Name.StartsWith(value: RuntimeContract.Hijacked, comparisonType: StringComparison.Ordinal) == true;
+        return field?.Type.Name.StartsWith(value: RuntimeContract.Hijacked,
+            comparisonType: StringComparison.Ordinal) == true;
     }
 
     /// <summary>

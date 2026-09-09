@@ -266,11 +266,14 @@ public partial class Parser
         // keywords). It reads the source NAME + TYPE syntactically; SemanticVerifier classifies the name
         // into an ExpandSourceKind (`allmemvarof`/`openmemvarof`/`caseof`) and gates it on
         // `import BuilderExpansion`.
-        string sourceName = ConsumeIdentifier(errorMessage:
-            "Expected an expand source (e.g. 'allmemvarof', 'openmemvarof', 'caseof') after 'in'");
+        string sourceName =
+            ConsumeIdentifier(
+                errorMessage:
+                "Expected an expand source (e.g. 'allmemvarof', 'openmemvarof', 'caseof') after 'in'");
         Consume(type: TokenType.LeftParen, errorMessage: $"Expected '(' after '{sourceName}'");
         TypeExpression sourceType = ParseType();
-        Consume(type: TokenType.RightParen, errorMessage: $"Expected ')' after {sourceName}(...) type");
+        Consume(type: TokenType.RightParen,
+            errorMessage: $"Expected ')' after {sourceName}(...) type");
 
         Statement body = ParseBody();
 
@@ -396,7 +399,9 @@ public partial class Parser
                 message: "Expected dedent after when clauses");
         }
 
-        return new WhenStatement(Expression: expression, Clauses: clauses, Location: location,
+        return new WhenStatement(Expression: expression,
+            Clauses: clauses,
+            Location: location,
             ArmExpansion: armExpansion);
     }
 
@@ -405,7 +410,8 @@ public partial class Parser
     /// (<c>when</c>-newline and <c>when true</c>-newline, both yielding a <c>true</c> literal subject)
     /// from a subject-based expression. Reports which form via <paramref name="isConditionBased"/>.
     /// </summary>
-    private Expression ParseWhenStatementSubject(SourceLocation location, out bool isConditionBased)
+    private Expression ParseWhenStatementSubject(SourceLocation location,
+        out bool isConditionBased)
     {
         // Check for condition-based forms:
         // 1. `when true\n` - explicit condition-based
@@ -543,7 +549,8 @@ public partial class Parser
         if (CheckAndAdvance(type: TokenType.FatArrow))
         {
             // After =>, check for block form: => \n INDENT block DEDENT
-            if (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Indent)
+            if (Check(type: TokenType.Newline) && PeekToken(offset: 1)
+                   .Type == TokenType.Indent)
             {
                 Advance(); // consume newline
                 body = ParseIndentedBlock();
@@ -592,7 +599,10 @@ public partial class Parser
         }
 
         ProcessIndentToken();
-        while (CheckAndAdvance(TokenType.Newline, TokenType.DocComment)) { /* skip interleaved blank lines and doc comments */ }
+        while (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
+        {
+            /* skip interleaved blank lines and doc comments */
+        }
 
         SourceLocation clauseLoc = GetLocation();
         Consume(type: TokenType.Is,
@@ -604,7 +614,8 @@ public partial class Parser
         string? binding = Check(type: TokenType.Identifier)
             ? ConsumeIdentifier(errorMessage: "Expected payload binding name")
             : null;
-        var pattern = new SpliceTypePattern(HandleName: handle, VariableName: binding,
+        var pattern = new SpliceTypePattern(HandleName: handle,
+            VariableName: binding,
             Location: clauseLoc);
 
         Statement body = ParseWhenClauseBody();
@@ -616,7 +627,9 @@ public partial class Parser
         }
 
         var template = new WhenClause(Pattern: pattern, Body: body, Location: clauseLoc);
-        return new WhenArmExpansion(HandleName: handle, SourceType: sourceType, Template: template);
+        return new WhenArmExpansion(HandleName: handle,
+            SourceType: sourceType,
+            Template: template);
     }
 
     /// <summary>
@@ -636,7 +649,8 @@ public partial class Parser
                 } || spliceHandleNew.Name != handle)
             {
                 throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                    message: $"An branchof-expand arm pattern must be 'is $typeof({handle}) ...'.");
+                    message:
+                    $"An branchof-expand arm pattern must be 'is $typeof({handle}) ...'.");
             }
         }
         else
@@ -644,11 +658,14 @@ public partial class Parser
             Consume(type: TokenType.SpliceOpen,
                 errorMessage: "Expected '$typeof(m)' type splice after 'is'");
             SpliceExpression splice = ParseSplice(kind: SpliceKind.Value);
-            if (splice.Inner is not MemberExpression { Object: IdentifierExpression spliceHandle, MemberName: "type" }
-                || spliceHandle.Name != handle)
+            if (splice.Inner is not MemberExpression
+                {
+                    Object: IdentifierExpression spliceHandle, MemberName: "type"
+                } || spliceHandle.Name != handle)
             {
                 throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                    message: $"An branchof-expand arm pattern must be 'is $typeof({handle}) ...'.");
+                    message:
+                    $"An branchof-expand arm pattern must be 'is $typeof({handle}) ...'.");
             }
         }
     }
@@ -731,7 +748,8 @@ public partial class Parser
         {
             Advance(); // consume the '_'
             Pattern wildcardPattern = new WildcardPattern(Location: location);
-            return TryParseAndGuard(innerPattern: wildcardPattern, guardAllowed: true,
+            return TryParseAndGuard(innerPattern: wildcardPattern,
+                guardAllowed: true,
                 location: location);
         }
 
@@ -748,7 +766,8 @@ public partial class Parser
             Pattern litPattern = new LiteralPattern(Value: literal.Value,
                 LiteralType: literal.LiteralType,
                 Location: location);
-            return TryParseAndGuard(innerPattern: litPattern, guardAllowed: true,
+            return TryParseAndGuard(innerPattern: litPattern,
+                guardAllowed: true,
                 location: location);
         }
 
@@ -792,7 +811,8 @@ public partial class Parser
             Bindings: bindings,
             Location: location);
         return TryParseAndGuard(innerPattern: typePattern,
-            guardAllowed: variableName != null || bindings != null, location: location);
+            guardAllowed: variableName != null || bindings != null,
+            location: location);
     }
 
     /// <summary>
@@ -801,18 +821,18 @@ public partial class Parser
     /// </summary>
     private string ReadQualifiedPatternName(string head)
     {
-        var nameSb = new System.Text.StringBuilder(head);
+        var nameSb = new System.Text.StringBuilder(value: head);
         while (CheckAndAdvance(type: TokenType.Dot))
         {
             if (CheckAndAdvance(type: TokenType.Identifier))
             {
-                nameSb.Append('.');
-                nameSb.Append(PeekToken(offset: -1).Text);
+                nameSb.Append(value: '.');
+                nameSb.Append(value: PeekToken(offset: -1)
+                   .Text);
             }
             else
             {
-                throw ThrowParseError(
-                    code: GrammarDiagnosticCode.ExpectedDotInQualifiedPattern,
+                throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedDotInQualifiedPattern,
                     message: "Expected identifier after '.' in pattern");
             }
         }
@@ -882,13 +902,16 @@ public partial class Parser
                 ConsumeIdentifier(errorMessage: "Expected variable name for type pattern");
         }
 
-        var type = new TypeExpression(Name: name, GenericArguments: genericArguments, Location: location);
+        var type = new TypeExpression(Name: name,
+            GenericArguments: genericArguments,
+            Location: location);
         Pattern typePattern = new TypePattern(Type: type,
             VariableName: variableName,
             Bindings: bindings,
             Location: location);
         return TryParseAndGuard(innerPattern: typePattern,
-            guardAllowed: variableName != null || bindings != null, location: location);
+            guardAllowed: variableName != null || bindings != null,
+            location: location);
     }
 
     /// <summary>
@@ -902,7 +925,7 @@ public partial class Parser
             new TypeExpression(Name: "None", GenericArguments: null, Location: location);
         // `None` carries no payload, so it binds nothing: reject a binding (`is None x`) or a
         // destructuring (`is None (x, y)`) after it.
-        if ((Check(type: TokenType.Identifier) && !IsKeywordToken(token: CurrentToken)) ||
+        if (Check(type: TokenType.Identifier) && !IsKeywordToken(token: CurrentToken) ||
             Check(type: TokenType.LeftParen))
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
@@ -926,7 +949,8 @@ public partial class Parser
     /// (<c>is FLAG_A and FLAG_B</c>); a bound type pattern, comparison, literal, or wildcard has no
     /// such collision. <c>is None</c> takes no guard.
     /// </summary>
-    private Pattern TryParseAndGuard(Pattern innerPattern, bool guardAllowed, SourceLocation location)
+    private Pattern TryParseAndGuard(Pattern innerPattern, bool guardAllowed,
+        SourceLocation location)
     {
         if (!guardAllowed || !CheckAndAdvance(type: TokenType.And))
         {
@@ -1180,7 +1204,8 @@ public partial class Parser
         // (it's a common variable name — e.g. `unwrap_or(fallback:)`). It is only the block
         // keyword here, recognised as an identifier `fallback` immediately followed by an
         // indented block right after a `using` body.
-        BlockStatement? fallbackBody = ParseOptionalUsingFallbackBlock(resourceCount: resources.Count);
+        BlockStatement? fallbackBody =
+            ParseOptionalUsingFallbackBlock(resourceCount: resources.Count);
 
         // Build nested UsingStatements from inside out (last resource is innermost).
         // `fallback` (single-resource only) attaches to the sole using.
@@ -1191,7 +1216,9 @@ public partial class Parser
                 Name: resources[index: i].Name,
                 Body: result,
                 Location: location,
-                FallbackBody: i == 0 ? fallbackBody : null);
+                FallbackBody: i == 0
+                    ? fallbackBody
+                    : null);
         }
 
         return result;
@@ -1211,9 +1238,12 @@ public partial class Parser
 
         Advance(); // consume the `fallback` identifier
         if (resourceCount > 1)
+        {
             throw ThrowParseError(
                 message: "'fallback' is only allowed on a single-resource 'using' " +
                          "(a fallible acquisition binds exactly one resource).");
+        }
+
         return ParseBody();
     }
 
@@ -1226,11 +1256,15 @@ public partial class Parser
     private bool IsContextualFallbackBlock()
     {
         if (CurrentToken is not { Type: TokenType.Identifier, Text: "fallback" })
+        {
             return false;
+        }
+
         // After `fallback` comes either INDENT directly, or NEWLINE then INDENT.
-        return PeekToken(offset: 1).Type == TokenType.Indent
-               || (PeekToken(offset: 1).Type == TokenType.Newline
-                   && PeekToken(offset: 2).Type == TokenType.Indent);
+        return PeekToken(offset: 1)
+           .Type == TokenType.Indent || PeekToken(offset: 1)
+           .Type == TokenType.Newline && PeekToken(offset: 2)
+           .Type == TokenType.Indent;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════

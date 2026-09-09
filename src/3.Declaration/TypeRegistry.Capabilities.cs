@@ -24,8 +24,7 @@ public sealed partial class TypeRegistry
 {
     private const string ContainsMemberRoutineName = "contains";
 
-    private readonly Dictionary<(string FullName, string Protocol), bool> _capabilityCache =
-        new();
+    private readonly Dictionary<(string FullName, string Protocol), bool> _capabilityCache = new();
 
     /// <summary>
     /// Keys currently being computed by <see cref="HasCapability"/> — used for cycle detection.
@@ -34,8 +33,7 @@ public sealed partial class TypeRegistry
     /// so the recursion terminates. Written ONLY while the computation is in progress, never
     /// while the final result is being cached.
     /// </summary>
-    private readonly HashSet<(string FullName, string Protocol)> _capabilityInProgress =
-        new();
+    private readonly HashSet<(string FullName, string Protocol)> _capabilityInProgress = new();
 
     /// <summary>
     /// Wired routine name -> (protocol it requires the owner to obey, canonical wired-routine name
@@ -53,14 +51,16 @@ public sealed partial class TypeRegistry
     /// from <see cref="_wiredRoutineMap"/>; the protocol's "canonical" routine is the one
     /// whose wired name matches the protocol's primary operator.
     /// </summary>
-    private static readonly Dictionary<string, string> _protocolToWired =
-        BuildProtocolToWired();
+    private static readonly Dictionary<string, string> _protocolToWired = BuildProtocolToWired();
 
     private static Dictionary<string, string> BuildProtocolToWired()
     {
         var result = new Dictionary<string, string>(comparer: StringComparer.Ordinal);
-        foreach (var (_, (proto, wired)) in _wiredRoutineMap)
+        foreach ((string _, (string proto, string wired)) in _wiredRoutineMap)
+        {
             result[key: proto] = wired;
+        }
+
         return result;
     }
 
@@ -72,31 +72,53 @@ public sealed partial class TypeRegistry
     /// </summary>
     public bool TypeHasWiredRoutine(TypeInfo type, string wiredName)
     {
-        if (!_wiredRoutineMap.TryGetValue(key: wiredName, value: out var entry))
+        if (!_wiredRoutineMap.TryGetValue(key: wiredName,
+                value: out (string Protocol, string WiredName) entry))
+        {
             return true;
+        }
+
         return HasCapability(type: type, protocol: entry.Protocol, wiredName: entry.WiredName);
     }
 
     /// <summary>Returns true if the type implements <c>Equatable</c> (eq).</summary>
-    public bool TypeHasEquality(TypeInfo type) => TypeHasWiredRoutine(type: type, wiredName: "eq");
+    public bool TypeHasEquality(TypeInfo type)
+    {
+        return TypeHasWiredRoutine(type: type, wiredName: "eq");
+    }
     /// <summary>Returns true if the type implements <c>Containable</c> (contains).</summary>
-    public bool TypeHasContainment(TypeInfo type) => TypeHasWiredRoutine(type: type, wiredName: ContainsMemberRoutineName);
+    public bool TypeHasContainment(TypeInfo type)
+    {
+        return TypeHasWiredRoutine(type: type, wiredName: ContainsMemberRoutineName);
+    }
     /// <summary>Returns true if the type implements <c>Hashable</c> (hash).</summary>
-    public bool TypeHasHashing(TypeInfo type) => TypeHasWiredRoutine(type: type, wiredName: "hash");
+    public bool TypeHasHashing(TypeInfo type)
+    {
+        return TypeHasWiredRoutine(type: type, wiredName: "hash");
+    }
     /// <summary>Returns true if the type implements <c>Comparable</c> (cmp).</summary>
-    public bool TypeHasComparison(TypeInfo type) => TypeHasWiredRoutine(type: type, wiredName: "cmp");
+    public bool TypeHasComparison(TypeInfo type)
+    {
+        return TypeHasWiredRoutine(type: type, wiredName: "cmp");
+    }
 
     private bool HasCapability(TypeInfo type, string protocol, string wiredName)
     {
-        var cacheKey = (type.FullName, protocol);
+        (string FullName, string protocol) cacheKey = (type.FullName, protocol);
         if (_capabilityCache.TryGetValue(key: cacheKey, value: out bool cached))
+        {
             return cached;
+        }
+
         // Cycle-breaking: if this key is already on the call stack (a self-referential type,
         // e.g. a record containing itself via a wrapper), return `true` conservatively so the
         // recursion terminates. The conservative assumption cannot produce false positives because
         // any step that proves the type LACKS the capability overwrites the cache before returning.
         if (!_capabilityInProgress.Add(item: cacheKey))
+        {
             return true;
+        }
+
         try
         {
             bool result = ComputeCapability(type: type, protocol: protocol, wiredName: wiredName);
@@ -113,7 +135,10 @@ public sealed partial class TypeRegistry
     {
         // Generic parameters, error / blank types pass through — they're either further
         // substituted downstream or already a no-op.
-        if (type is GenericParameterTypeInfo or ErrorTypeInfo || type.IsNone) return true;
+        if (type is GenericParameterTypeInfo or ErrorTypeInfo || type.IsNone)
+        {
+            return true;
+        }
 
         // No backend-type shortcut: scalar primitives still define `eq`/`hash` explicitly
         // (see Core/Numerics/*.rf) and will be picked up by the LookupMemberRoutine fallback below.
@@ -136,10 +161,12 @@ public sealed partial class TypeRegistry
             genericDef.GenericParameters is { Count: > 0 } gParams &&
             gParams.Count == typeArgs.Count)
         {
-            RoutineInfo? defMemberRoutine = LookupMemberRoutine(type: genericDef, memberRoutineName: wiredName);
-            if (defMemberRoutine is { GenericConstraints: { Count: > 0 } constraints }
-                && !GenericArgConstraintsHoldForWired(constraints: constraints,
-                    gParams: gParams, typeArgs: typeArgs))
+            RoutineInfo? defMemberRoutine =
+                LookupMemberRoutine(type: genericDef, memberRoutineName: wiredName);
+            if (defMemberRoutine is { GenericConstraints: { Count: > 0 } constraints } &&
+                !GenericArgConstraintsHoldForWired(constraints: constraints,
+                    gParams: gParams,
+                    typeArgs: typeArgs))
             {
                 return false;
             }
@@ -152,16 +179,26 @@ public sealed partial class TypeRegistry
         // abstract symbol (LINKERR). Genuine conformance is established by the TypeObeysProtocol
         // check below (concrete impl) or by obeying the protocol.
         RoutineInfo? direct = LookupMemberRoutine(type: type, memberRoutineName: wiredName);
-        if (direct != null && direct.OwnerType is not ProtocolTypeInfo) return true;
+        if (direct != null && direct.OwnerType is not ProtocolTypeInfo)
+        {
+            return true;
+        }
+
         // A name-only lookup returns null when >1 overload shares the name (no first-wins). This is an
         // EXISTENCE check ("does the type host a concrete impl?"), not a unique binding — any concrete
         // overload counts. Probe the candidate set directly so an overloaded member (e.g. a container's
         // `getitem(index:)` + `getitem(range:)`) still reports the capability instead of losing it.
-        if (direct == null && HasConcreteMemberOverload(type: type, memberRoutineName: wiredName)) return true;
+        if (direct == null && HasConcreteMemberOverload(type: type, memberRoutineName: wiredName))
+        {
+            return true;
+        }
 
         // Marker conformance: the type obeys the named protocol — we expect a body to
         // appear eventually (via auto-synthesis) or for it to be an abstract marker.
-        if (TypeObeysProtocol(type: type, protocolName: protocol)) return true;
+        if (TypeObeysProtocol(type: type, protocolName: protocol))
+        {
+            return true;
+        }
 
         return false;
     }
@@ -178,13 +215,21 @@ public sealed partial class TypeRegistry
         foreach (GenericConstraintDeclaration c in constraints)
         {
             if (c.ConstraintType != ConstraintKind.Obeys ||
-                c.ConstraintTypes is not { Count: > 0 } protos) continue;
+                c.ConstraintTypes is not { Count: > 0 } protos)
+            {
+                continue;
+            }
 
             int idx = FindParamSlot(gParams: gParams, paramName: c.ParameterName);
-            if (idx < 0) continue;
+            if (idx < 0)
+            {
+                continue;
+            }
 
             if (!ProtocolsHoldForArg(protos: protos, argType: typeArgs[index: idx]))
+            {
                 return false;
+            }
         }
 
         return true;
@@ -197,7 +242,13 @@ public sealed partial class TypeRegistry
     private static int FindParamSlot(List<string> gParams, string paramName)
     {
         for (int i = 0; i < gParams.Count; i++)
-            if (gParams[index: i] == paramName) return i;
+        {
+            if (gParams[index: i] == paramName)
+            {
+                return i;
+            }
+        }
+
         return -1;
     }
 
@@ -208,11 +259,11 @@ public sealed partial class TypeRegistry
     /// </summary>
     private bool ProtocolsHoldForArg(List<TypeExpression> protos, TypeInfo argType)
     {
-        return protos
-            .Select(selector: protoExpr => protoExpr.Name)
-            .Where(predicate: name => _protocolToWired.ContainsKey(key: name))
-            .All(predicate: name => HasCapability(type: argType, protocol: name,
-                wiredName: _protocolToWired[key: name]));
+        return protos.Select(selector: protoExpr => protoExpr.Name)
+                     .Where(predicate: name => _protocolToWired.ContainsKey(key: name))
+                     .All(predicate: name => HasCapability(type: argType,
+                          protocol: name,
+                          wiredName: _protocolToWired[key: name]));
     }
 
     /// <summary>
@@ -242,7 +293,8 @@ public sealed partial class TypeRegistry
             // is a freely-copyable ptr leaf, like a stored C function pointer.
             RoutineTypeInfo => true,
             TupleTypeInfo tuple => tuple.ElementTypes.All(predicate: CanAutoDeriveAssignable),
-            RecordTypeInfo record => !record.IsGenericDefinition && !LayoutContainsPtr(layout: record.LlvmType),
+            RecordTypeInfo record => !record.IsGenericDefinition &&
+                                     !LayoutContainsPtr(layout: record.LlvmType),
             _ => false
         };
     }
@@ -267,34 +319,37 @@ public sealed partial class TypeRegistry
             _ => null
         };
         if (wrapperBase != null && RuntimeContract.WrapperTypes.Contains(item: wrapperBase))
+        {
             return false;
+        }
 
         // NOTE: an RC-handle field makes the containing record NON-Assignable — the RC wrappers no longer
         // obey `Assignable` and are NOT recognised structurally here. This is intended: `var b = rc` is
         // rejected (explicit `.share()` only), so a record HOLDING an RC must likewise not be implicitly
         // copied (that would silently share the handle). Reconstruct it explicitly instead
         // (WithBaseNotAssignable / RF-S420).
-        bool MemberVariableAssignable(TypeInfo f) =>
-            CanAutoDeriveAssignable(type: f)
-            || CanMemberVariableWalkAssignable(type: f)
-            || TypeObeysProtocol(type: f, protocolName: "Assignable");
+        bool MemberVariableAssignable(TypeInfo f)
+        {
+            return CanAutoDeriveAssignable(type: f) || CanMemberVariableWalkAssignable(type: f) ||
+                   TypeObeysProtocol(type: f, protocolName: "Assignable");
+        }
 
         return type switch
         {
             ChoiceTypeInfo or FlagsTypeInfo => true,
             TupleTypeInfo t => t.ElementTypes.All(predicate: MemberVariableAssignable),
-            RecordTypeInfo { IsGenericDefinition: false } r =>
-                r.MemberVariables is { Count: > 0 }
-                    ? r.MemberVariables.All(predicate: m => MemberVariableAssignable(m.Type))
-                    // No AST member variables: an `@llvm` inline-storage record (Array[T,N], Vector[T,N])
-                    // stores its type-KIND generic args INLINE — cascade storability to them so
-                    // Array[Text] is Assignable (Text is) but Array[SomeEntity] is NOT (entity has no
-                    // store). A const-generic VALUE arg (N) stores nothing → filtered out. Wrapper
-                    // records are excluded above. A field-less record with no type args ⇒ vacuously
-                    // Assignable (All over empty).
-                    : (r.TypeArguments ?? [])
-                        .Where(predicate: a => a.Category != TypeModel.Enums.TypeCategory.ConstGenericValue)
-                        .All(predicate: MemberVariableAssignable),
+            RecordTypeInfo { IsGenericDefinition: false } r => r.MemberVariables is { Count: > 0 }
+                ? r.MemberVariables.All(predicate: m => MemberVariableAssignable(f: m.Type))
+                // No AST member variables: an `@llvm` inline-storage record (Array[T,N], Vector[T,N])
+                // stores its type-KIND generic args INLINE — cascade storability to them so
+                // Array[Text] is Assignable (Text is) but Array[SomeEntity] is NOT (entity has no
+                // store). A const-generic VALUE arg (N) stores nothing → filtered out. Wrapper
+                // records are excluded above. A field-less record with no type args ⇒ vacuously
+                // Assignable (All over empty).
+                : (r.TypeArguments ?? []).Where(predicate: a =>
+                                              a.Category != TypeModel.Enums.TypeCategory
+                                                 .ConstGenericValue)
+                                         .All(predicate: MemberVariableAssignable),
             _ => false
         };
     }
@@ -323,10 +378,12 @@ public sealed partial class TypeRegistry
             _ => null
         };
         if (wrapperBase != null && RuntimeContract.WrapperTypes.Contains(item: wrapperBase))
+        {
             return false;
+        }
 
         return MemberProjection(type: type)
-            .All(predicate: m => TypeObeysProtocol(type: m, protocolName: protocol));
+           .All(predicate: m => TypeObeysProtocol(type: m, protocolName: protocol));
     }
 
     /// <summary>
@@ -341,23 +398,27 @@ public sealed partial class TypeRegistry
     // Choice/Flags/Variant derive from RecordTypeInfo, so the more-derived arms MUST precede the record
     // arm (else CS8510 unreachable). Variant → branchof; choice/flags → none; plain record/entity →
     // allmemvarof.
-    private static IEnumerable<TypeInfo> MemberProjection(TypeInfo type) => type switch
+    private static IEnumerable<TypeInfo> MemberProjection(TypeInfo type)
     {
-        ChoiceTypeInfo or FlagsTypeInfo => [],
-        VariantTypeInfo { IsGenericDefinition: false } v =>
-            v.Members.Where(predicate: m => m.Type != null).Select(selector: m => m.Type!),
-        RecordTypeInfo { IsGenericDefinition: false } r =>
-            r.MemberVariables is { Count: > 0 } mv
+        return type switch
+        {
+            ChoiceTypeInfo or FlagsTypeInfo => [],
+            VariantTypeInfo { IsGenericDefinition: false } v => v.Members
+               .Where(predicate: m => m.Type != null)
+               .Select(selector: m => m.Type!),
+            RecordTypeInfo { IsGenericDefinition: false } r => r.MemberVariables is
+                { Count: > 0 } mv
                 ? mv.Select(selector: m => m.Type)
                 // No AST members: an `@llvm` inline-storage record (Array[T,N], Vector[T,N]) stores its
                 // type-KIND generic args INLINE — cascade to them (const-generic N filtered) so Array[Entity]
                 // is NOT vacuously conforming. A truly field-less record with no type args ⇒ [] ⇒ vacuous.
-                : (r.TypeArguments ?? [])
-                    .Where(predicate: a => a.Category != TypeModel.Enums.TypeCategory.ConstGenericValue),
-        EntityTypeInfo { IsGenericDefinition: false } e =>
-            e.MemberVariables.Select(selector: m => m.Type),
-        _ => []
-    };
+                : (r.TypeArguments ?? []).Where(predicate: a =>
+                    a.Category != TypeModel.Enums.TypeCategory.ConstGenericValue),
+            EntityTypeInfo { IsGenericDefinition: false } e => e.MemberVariables.Select(
+                selector: m => m.Type),
+            _ => []
+        };
+    }
 
 
     private static bool LayoutContainsPtr(string layout)
@@ -382,7 +443,10 @@ public sealed partial class TypeRegistry
     /// </summary>
     public bool DoesTypeObeyProtocol(TypeInfo type, string protocolName)
     {
-        if (TypeObeysProtocol(type: type, protocolName: protocolName)) return true;
+        if (TypeObeysProtocol(type: type, protocolName: protocolName))
+        {
+            return true;
+        }
 
         // Structural satisfaction: the type has a concrete impl of every memberRoutine the protocol declares.
         // The required names come from the protocol's OWN declared memberRoutines (plus those it inherits from
@@ -393,10 +457,15 @@ public sealed partial class TypeRegistry
         // (RecordType/EntityType), but broke a type like `List[Text]` that carries a conditionally-
         // available `serialize` without declaring Serializable — its derived `serialize()` field-walk
         // then boxed `represent()` instead of recursing (the json_encode `tags` regression).
-        if (LookupType(name: protocolName) is not ProtocolTypeInfo proto) return false;
+        if (LookupType(name: protocolName) is not ProtocolTypeInfo proto)
+        {
+            return false;
+        }
+
         HashSet<string> requiredNames = CollectProtocolMemberRoutineNames(proto: proto);
         return requiredNames.Count > 0 && requiredNames.All(predicate: name =>
-            LookupMemberRoutine(type: type, memberRoutineName: name) is { OwnerType: not ProtocolTypeInfo });
+            LookupMemberRoutine(type: type, memberRoutineName: name) is
+                { OwnerType: not ProtocolTypeInfo });
     }
 
     /// <summary>
@@ -413,12 +482,22 @@ public sealed partial class TypeRegistry
         while (stack.Count > 0)
         {
             ProtocolTypeInfo current = stack.Pop();
-            if (!seen.Add(item: current.Name)) continue;
+            if (!seen.Add(item: current.Name))
+            {
+                continue;
+            }
+
             foreach (ProtocolMemberRoutineInfo m in current.MemberRoutines)
+            {
                 names.Add(item: m.Name);
+            }
+
             foreach (ProtocolTypeInfo parent in current.ParentProtocols)
+            {
                 stack.Push(item: parent);
+            }
         }
+
         return names;
     }
 
@@ -437,7 +516,9 @@ public sealed partial class TypeRegistry
         // Marker reference protocols (Accessing/Controlling) are obeyed reflexively by any non-entity
         // type — folded here so every caller (constraint gate + ImplementsProtocol) shares the one rule.
         if (SatisfiesMarkerProtocolReflexively(implementer: type, protocolName: protocolName))
+        {
             return true;
+        }
 
         List<TypeInfo>? implemented = type switch
         {
@@ -447,26 +528,50 @@ public sealed partial class TypeRegistry
             EntityTypeInfo e => e.ImplementedProtocols,
             _ => null
         };
-        if (implemented == null) return false;
+        if (implemented == null)
+        {
+            return false;
+        }
+
         // Reduce the target to the registry's ONE canonical protocol object, then match every implemented
         // protocol (+ its parent chain) by reference IDENTITY against it — no name-string equality anywhere.
         // Canonicalizing both sides through the registry (rather than trusting the object a type happened to
         // store at declaration time) is what makes identity reliable despite realm/registration duplication.
-        TypeInfo? targetDef = CanonicalProtocolDef(LookupType(name: protocolName));
-        if (targetDef == null) return false;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        if (!implemented.Any(p => Walk(p, targetDef, seen))) return false;
+        TypeInfo? targetDef = CanonicalProtocolDef(t: LookupType(name: protocolName));
+        if (targetDef == null)
+        {
+            return false;
+        }
+
+        var seen = new HashSet<string>(comparer: StringComparer.Ordinal);
+        if (!implemented.Any(predicate: p => Walk(candidate: p, tgtDef: targetDef, seenSet: seen)))
+        {
+            return false;
+        }
+
         // Conditional-conformance gate: an `obeys P onlyif (…)` protocol is obeyed by a concrete
         // generic INSTANCE only when the clause's conditions hold for its bound type args.
         return ConditionalConformanceHolds(type: type, protocolName: protocolName);
 
         bool Walk(TypeInfo candidate, TypeInfo tgtDef, HashSet<string> seenSet)
         {
-            if (!seenSet.Add(item: candidate.Name)) return false;
-            if (ReferenceEquals(objA: CanonicalProtocolDef(candidate), objB: tgtDef)) return true;
+            if (!seenSet.Add(item: candidate.Name))
+            {
+                return false;
+            }
+
+            if (ReferenceEquals(objA: CanonicalProtocolDef(t: candidate), objB: tgtDef))
+            {
+                return true;
+            }
+
             TypeInfo latest = LookupType(name: candidate.Name) ?? candidate;
             if (latest is ProtocolTypeInfo proto)
-                return proto.ParentProtocols.Any(parent => Walk(parent, tgtDef, seenSet));
+            {
+                return proto.ParentProtocols.Any(predicate: parent =>
+                    Walk(candidate: parent, tgtDef: tgtDef, seenSet: seenSet));
+            }
+
             return false;
         }
     }
@@ -477,7 +582,11 @@ public sealed partial class TypeRegistry
     /// object that reference-identity can compare. Returns the type unchanged when it is not a protocol.</summary>
     private TypeInfo? CanonicalProtocolDef(TypeInfo? t)
     {
-        if (t is not ProtocolTypeInfo p) return t;
+        if (t is not ProtocolTypeInfo p)
+        {
+            return t;
+        }
+
         TypeInfo def = p.GenericDefinition ?? p;
         return LookupType(name: def.Name) ?? def;
     }
@@ -492,7 +601,10 @@ public sealed partial class TypeRegistry
     internal bool ConditionalConformanceHolds(TypeInfo type, string protocolName)
     {
         if (type.TypeArguments is not { Count: > 0 } args)
+        {
             return true;
+        }
+
         TypeInfo? def = LookupType(name: type.BareName);
         Dictionary<string, List<(string ParamName, string ProtocolName)>>? map = def switch
         {
@@ -500,19 +612,32 @@ public sealed partial class TypeRegistry
             RecordTypeInfo r => r.ConditionalObeys,
             _ => null
         };
-        if (map == null || !map.TryGetValue(key: protocolName, value: out List<(string, string)>? conds))
+        if (map == null ||
+            !map.TryGetValue(key: protocolName, value: out List<(string, string)>? conds))
+        {
             return true;
+        }
+
         List<string>? defParams = def!.GenericParameters;
         if (defParams == null)
+        {
             return true;
+        }
+
         foreach ((string param, string proto) in conds)
         {
             int idx = defParams.IndexOf(item: param);
             if (idx < 0 || idx >= args.Count)
+            {
                 continue;
+            }
+
             if (!TypeObeysProtocol(type: args[index: idx], protocolName: proto))
+            {
                 return false;
+            }
         }
+
         return true;
     }
 }

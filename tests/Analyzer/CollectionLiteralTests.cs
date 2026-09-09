@@ -32,7 +32,6 @@ public class CollectionLiteralTests
     /// <summary>
     /// Verifies that the test validates list literal without type annotation and reports the expected error.
     /// </summary>
-
     [Fact]
     public void EmptyListLiteral_WithoutTypeAnnotation_ReportsError()
     {
@@ -49,7 +48,6 @@ public class CollectionLiteralTests
     /// <summary>
     /// Verifies that the test validates set literal with type annotation infers element type.
     /// </summary>
-
     [Fact]
     public void EmptySetLiteral_WithTypeAnnotation_InfersElementType()
     {
@@ -65,7 +63,6 @@ public class CollectionLiteralTests
     /// <summary>
     /// Verifies that the test validates set literal without type annotation and reports the expected error.
     /// </summary>
-
     [Fact]
     public void EmptySetLiteral_WithoutTypeAnnotation_ReportsError()
     {
@@ -82,7 +79,6 @@ public class CollectionLiteralTests
     /// <summary>
     /// Verifies that the test validates dict literal with type annotation infers key value types.
     /// </summary>
-
     [Fact]
     public void EmptyDictLiteral_WithTypeAnnotation_InfersKeyValueTypes()
     {
@@ -98,7 +94,6 @@ public class CollectionLiteralTests
     /// <summary>
     /// Verifies that the test validates dict literal without type annotation and reports the expected error.
     /// </summary>
-
     [Fact]
     public void EmptyDictLiteral_WithoutTypeAnnotation_ReportsError()
     {
@@ -147,7 +142,6 @@ public class CollectionLiteralTests
     /// <summary>
     /// Verifies that the test validates empty set literal infers from elements.
     /// </summary>
-
     [Fact]
     public void NonEmptySetLiteral_InfersFromElements()
     {
@@ -163,7 +157,6 @@ public class CollectionLiteralTests
     /// <summary>
     /// Verifies that the test validates empty dict literal infers from elements.
     /// </summary>
-
     [Fact]
     public void NonEmptyDictLiteral_InfersFromElements()
     {
@@ -312,19 +305,21 @@ public class CollectionLiteralTests
 
         Assert.Empty(collection: result.Errors);
 
-        RoutineDeclaration routine = program.Declarations.OfType<RoutineDeclaration>()
-            .Single(predicate: declaration => declaration.Name == "test");
-        BlockStatement body = Assert.IsType<BlockStatement>(routine.Body);
+        RoutineDeclaration routine = program.Declarations
+                                            .OfType<RoutineDeclaration>()
+                                            .Single(predicate: declaration =>
+                                                 declaration.Name == "test");
+        BlockStatement body = Assert.IsType<BlockStatement>(@object: routine.Body);
         VariableDeclaration variable = body.Statements
-            .OfType<DeclarationStatement>()
-            .Select(selector: statement => statement.Declaration)
-            .OfType<VariableDeclaration>()
-            .Single(predicate: declaration => declaration.Name == "items");
+                                           .OfType<DeclarationStatement>()
+                                           .Select(selector: statement => statement.Declaration)
+                                           .OfType<VariableDeclaration>()
+                                           .Single(predicate: declaration =>
+                                                declaration.Name == "items");
 
         TypeInfo? resolvedType = variable.Initializer?.ResolvedType;
         Assert.NotNull(@object: resolvedType);
-        Assert.Equal(expected: "Core.List[Core.List[Core.S64]]",
-            actual: resolvedType!.FullName);
+        Assert.Equal(expected: "Core.List[Core.List[Core.S64]]", actual: resolvedType!.FullName);
     }
 
     /// <summary>
@@ -345,14 +340,17 @@ public class CollectionLiteralTests
 
         Assert.Empty(collection: result.Errors);
 
-        RoutineDeclaration routine = program.Declarations.OfType<RoutineDeclaration>()
-            .Single(predicate: declaration => declaration.Name == "test");
-        BlockStatement body = Assert.IsType<BlockStatement>(routine.Body);
+        RoutineDeclaration routine = program.Declarations
+                                            .OfType<RoutineDeclaration>()
+                                            .Single(predicate: declaration =>
+                                                 declaration.Name == "test");
+        BlockStatement body = Assert.IsType<BlockStatement>(@object: routine.Body);
         VariableDeclaration variable = body.Statements
-            .OfType<DeclarationStatement>()
-            .Select(selector: statement => statement.Declaration)
-            .OfType<VariableDeclaration>()
-            .Single(predicate: declaration => declaration.Name == "items");
+                                           .OfType<DeclarationStatement>()
+                                           .Select(selector: statement => statement.Declaration)
+                                           .OfType<VariableDeclaration>()
+                                           .Single(predicate: declaration =>
+                                                declaration.Name == "items");
 
         TypeInfo? resolvedType = variable.Initializer?.ResolvedType;
         Assert.NotNull(@object: resolvedType);
@@ -381,14 +379,17 @@ public class CollectionLiteralTests
 
         Assert.Empty(collection: result.Errors);
 
-        RoutineDeclaration routine = program.Declarations.OfType<RoutineDeclaration>()
-            .Single(predicate: declaration => declaration.Name == "test");
-        BlockStatement body = Assert.IsType<BlockStatement>(routine.Body);
+        RoutineDeclaration routine = program.Declarations
+                                            .OfType<RoutineDeclaration>()
+                                            .Single(predicate: declaration =>
+                                                 declaration.Name == "test");
+        BlockStatement body = Assert.IsType<BlockStatement>(@object: routine.Body);
         VariableDeclaration variable = body.Statements
-            .OfType<DeclarationStatement>()
-            .Select(selector: statement => statement.Declaration)
-            .OfType<VariableDeclaration>()
-            .Single(predicate: declaration => declaration.Name == "items");
+                                           .OfType<DeclarationStatement>()
+                                           .Select(selector: statement => statement.Declaration)
+                                           .OfType<VariableDeclaration>()
+                                           .Single(predicate: declaration =>
+                                                declaration.Name == "items");
 
         TypeInfo? resolvedType = variable.Initializer?.ResolvedType;
         Assert.NotNull(@object: resolvedType);

@@ -10,10 +10,10 @@ using static TestHelpers;
 public class PatternMatchingTests
 {
     #region Basic When Statement Tests
+
     /// <summary>
     /// Verifies that the parser accepts simple when.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleWhen()
     {
@@ -38,7 +38,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when with block.
     /// </summary>
-
     [Fact]
     public void Parse_WhenWithBlock()
     {
@@ -57,7 +56,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when as expression.
     /// </summary>
-
     [Fact]
     public void Parse_WhenAsExpression()
     {
@@ -75,7 +73,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when with assignment.
     /// </summary>
-
     [Fact]
     public void Parse_WhenWithAssignment()
     {
@@ -93,10 +90,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Is Type Pattern Tests
+
     /// <summary>
     /// Verifies that the parser accepts when is type.
     /// </summary>
-
     [Fact]
     public void Parse_WhenIsType()
     {
@@ -114,7 +111,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when is type without binding.
     /// </summary>
-
     [Fact]
     public void Parse_WhenIsTypeWithoutBinding()
     {
@@ -132,7 +128,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when is custom type.
     /// </summary>
-
     [Fact]
     public void Parse_WhenIsCustomType()
     {
@@ -151,10 +146,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Choice Pattern Tests
+
     /// <summary>
     /// Verifies that the parser accepts when choice.
     /// </summary>
-
     [Fact]
     public void Parse_WhenChoice()
     {
@@ -173,7 +168,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when choice shorthand.
     /// </summary>
-
     [Fact]
     public void Parse_WhenChoiceShorthand()
     {
@@ -192,7 +186,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when choice is pattern.
     /// </summary>
-
     [Fact]
     public void Parse_WhenChoiceIsPattern()
     {
@@ -211,7 +204,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when choice is pattern qualified.
     /// </summary>
-
     [Fact]
     public void Parse_WhenChoiceIsPatternQualified()
     {
@@ -231,10 +223,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Variant Pattern Tests
+
     /// <summary>
     /// Verifies that the parser accepts when variant.
     /// </summary>
-
     [Fact]
     public void Parse_WhenVariant()
     {
@@ -252,7 +244,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when variant shorthand.
     /// </summary>
-
     [Fact]
     public void Parse_WhenVariantShorthand()
     {
@@ -270,7 +261,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when variant destructuring.
     /// </summary>
-
     [Fact]
     public void Parse_WhenVariantDestructuring()
     {
@@ -289,7 +279,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when variant destructuring with alias.
     /// </summary>
-
     [Fact]
     public void Parse_WhenVariantDestructuringWithAlias()
     {
@@ -307,7 +296,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when nested destructuring.
     /// </summary>
-
     [Fact]
     public void Parse_WhenNestedDestructuring()
     {
@@ -327,10 +315,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Guard Clause Tests
+
     /// <summary>
     /// Verifies that the parser accepts when with guard.
     /// </summary>
-
     [Fact]
     public void Parse_WhenWithGuard()
     {
@@ -349,7 +337,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when literal with guard.
     /// </summary>
-
     [Fact]
     public void Parse_WhenLiteralWithGuard()
     {
@@ -367,7 +354,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when type with complex guard.
     /// </summary>
-
     [Fact]
     public void Parse_WhenTypeWithComplexGuard()
     {
@@ -386,10 +372,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Maybe/Result/Lookup Pattern Tests
+
     /// <summary>
     /// Verifies that the parser accepts when maybe.
     /// </summary>
-
     [Fact]
     public void Parse_WhenMaybe()
     {
@@ -406,7 +392,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when result.
     /// </summary>
-
     [Fact]
     public void Parse_WhenResult()
     {
@@ -423,7 +408,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when result specific error.
     /// </summary>
-
     [Fact]
     public void Parse_WhenResultSpecificError()
     {
@@ -442,7 +426,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when lookup.
     /// </summary>
-
     [Fact]
     public void Parse_WhenLookup()
     {
@@ -460,7 +443,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when lookup specific errors.
     /// </summary>
-
     [Fact]
     public void Parse_WhenLookupSpecificErrors()
     {
@@ -481,10 +463,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Literal Pattern Tests
+
     /// <summary>
     /// Verifies that the parser accepts when literal integer.
     /// </summary>
-
     [Fact]
     public void Parse_WhenLiteralInteger()
     {
@@ -503,7 +485,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when literal text.
     /// </summary>
-
     [Fact]
     public void Parse_WhenLiteralText()
     {
@@ -522,7 +503,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when literal bool.
     /// </summary>
-
     [Fact]
     public void Parse_WhenLiteralBool()
     {
@@ -540,10 +520,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Wildcard Pattern Tests
+
     /// <summary>
     /// Verifies that the parser accepts when wildcard.
     /// </summary>
-
     [Fact]
     public void Parse_WhenWildcard()
     {
@@ -560,7 +540,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when wildcard in destructuring.
     /// </summary>
-
     [Fact]
     public void Parse_WhenWildcardInDestructuring()
     {
@@ -579,10 +558,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Else Binding Tests
+
     /// <summary>
     /// Verifies that the parser accepts when else with binding.
     /// </summary>
-
     [Fact]
     public void Parse_WhenElseWithBinding()
     {
@@ -599,7 +578,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when else with block.
     /// </summary>
-
     [Fact]
     public void Parse_WhenElseWithBlock()
     {
@@ -621,10 +599,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Let Destructuring Tests
+
     /// <summary>
     /// Verifies that the parser accepts let destructuring record.
     /// </summary>
-
     [Fact]
     public void Parse_LetDestructuringRecord()
     {
@@ -639,7 +617,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts let destructuring with alias.
     /// </summary>
-
     [Fact]
     public void Parse_LetDestructuringWithAlias()
     {
@@ -654,7 +631,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts let nested destructuring.
     /// </summary>
-
     [Fact]
     public void Parse_LetNestedDestructuring()
     {
@@ -670,10 +646,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Complex Pattern Tests
+
     /// <summary>
     /// Verifies that the parser accepts complex nested patterns.
     /// </summary>
-
     [Fact]
     public void Parse_ComplexNestedPatterns()
     {
@@ -703,7 +679,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when with multiple statements.
     /// </summary>
-
     [Fact]
     public void Parse_WhenWithMultipleStatements()
     {
@@ -730,10 +705,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Comparison Pattern Tests
+
     /// <summary>
     /// Verifies that the parser accepts when comparison not equal.
     /// </summary>
-
     [Fact]
     public void Parse_WhenComparisonNotEqual()
     {
@@ -750,7 +725,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when comparison less than.
     /// </summary>
-
     [Fact]
     public void Parse_WhenComparisonLessThan()
     {
@@ -768,7 +742,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when comparison greater than.
     /// </summary>
-
     [Fact]
     public void Parse_WhenComparisonGreaterThan()
     {
@@ -786,7 +759,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when comparison less than or equal.
     /// </summary>
-
     [Fact]
     public void Parse_WhenComparisonLessThanOrEqual()
     {
@@ -805,7 +777,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when comparison greater than or equal.
     /// </summary>
-
     [Fact]
     public void Parse_WhenComparisonGreaterThanOrEqual()
     {
@@ -824,7 +795,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when comparison with member access.
     /// </summary>
-
     [Fact]
     public void Parse_WhenComparisonWithMemberAccess()
     {
@@ -843,7 +813,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when comparison with memberRoutine call.
     /// </summary>
-
     [Fact]
     public void Parse_WhenComparisonWithMemberRoutineCall()
     {
@@ -861,7 +830,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when mixed comparison patterns.
     /// </summary>
-
     [Fact]
     public void Parse_WhenMixedComparisonPatterns()
     {
@@ -882,10 +850,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Becomes Statement Tests
+
     /// <summary>
     /// Verifies that the parser accepts when block with becomes.
     /// </summary>
-
     [Fact]
     public void Parse_WhenBlockWithBecomes()
     {
@@ -904,7 +872,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when multiple blocks with becomes.
     /// </summary>
-
     [Fact]
     public void Parse_WhenMultipleBlocksWithBecomes()
     {
@@ -930,7 +897,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when type pattern with block and becomes.
     /// </summary>
-
     [Fact]
     public void Parse_WhenTypePatternWithBlockAndBecomes()
     {
@@ -955,7 +921,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when block with becomes expression.
     /// </summary>
-
     [Fact]
     public void Parse_WhenBlockWithBecomesExpression()
     {
@@ -976,10 +941,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Comparison Patterns with Guards Tests
+
     /// <summary>
     /// Verifies that the parser accepts when comparison with guard.
     /// </summary>
-
     [Fact]
     public void Parse_WhenComparisonWithGuard()
     {
@@ -998,7 +963,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when comparison with complex guard.
     /// </summary>
-
     [Fact]
     public void Parse_WhenComparisonWithComplexGuard()
     {
@@ -1019,10 +983,10 @@ public class PatternMatchingTests
     #endregion
 
     #region Complex Boolean Guard Tests
+
     /// <summary>
     /// Verifies that the parser accepts when guard with and.
     /// </summary>
-
     [Fact]
     public void Parse_WhenGuardWithAnd()
     {
@@ -1039,7 +1003,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when guard with or.
     /// </summary>
-
     [Fact]
     public void Parse_WhenGuardWithOr()
     {
@@ -1056,7 +1019,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when guard with and or.
     /// </summary>
-
     [Fact]
     public void Parse_WhenGuardWithAndOr()
     {
@@ -1075,7 +1037,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when guard with member variable access.
     /// </summary>
-
     [Fact]
     public void Parse_WhenGuardWithMemberVariableAccess()
     {
@@ -1093,7 +1054,6 @@ public class PatternMatchingTests
     /// <summary>
     /// Verifies that the parser accepts when guard with memberRoutine call.
     /// </summary>
-
     [Fact]
     public void Parse_WhenGuardWithMemberRoutineCall()
     {
@@ -1112,11 +1072,11 @@ public class PatternMatchingTests
     #endregion
 
     #region Subjectless When Statement Tests
+
     /// <summary>
     /// Verifies that a subjectless when statement accepts a bare-identifier condition.
     /// Regression test: `flag => show("set")` was previously consumed as a lambda.
     /// </summary>
-
     [Fact]
     public void Parse_SubjectlessWhenStatementBareIdentifierCondition()
     {
@@ -1135,7 +1095,6 @@ public class PatternMatchingTests
     /// Verifies that a subjectless when statement still accepts comparison and
     /// call-shaped conditions alongside boolean operators.
     /// </summary>
-
     [Fact]
     public void Parse_SubjectlessWhenStatementMixedConditions()
     {

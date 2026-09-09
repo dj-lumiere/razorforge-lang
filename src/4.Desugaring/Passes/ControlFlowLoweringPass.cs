@@ -71,13 +71,16 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     {
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration r:
                 {
                     Statement newBody = LowerStatement(stmt: r.Body);
-                    if (!ReferenceEquals(newBody, r.Body))
-                        program.Declarations[i] = r with { Body = newBody };
+                    if (!ReferenceEquals(objA: newBody, objB: r.Body))
+                    {
+                        program.Declarations[index: i] = r with { Body = newBody };
+                    }
+
                     break;
                 }
 
@@ -103,10 +106,16 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     {
         for (int j = 0; j < members.Count; j++)
         {
-            if (members[j] is not RoutineDeclaration m) continue;
+            if (members[index: j] is not RoutineDeclaration m)
+            {
+                continue;
+            }
+
             Statement newBody = LowerStatement(stmt: m.Body);
-            if (!ReferenceEquals(newBody, m.Body))
-                members[j] = m with { Body = newBody };
+            if (!ReferenceEquals(objA: newBody, objB: m.Body))
+            {
+                members[index: j] = m with { Body = newBody };
+            }
         }
     }
 
@@ -150,18 +159,33 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
             // Splice DestructuringStatement's lowered block into the parent scope
             // so its `var a = ...; var b = ...;` bindings are visible to later siblings.
             if (s is DestructuringStatement && n is BlockStatement ds)
+            {
                 stmts.AddRange(collection: ds.Statements);
+            }
             else
+            {
                 stmts.Add(item: n);
-            if (!ReferenceEquals(n, s)) changed = true;
+            }
+
+            if (!ReferenceEquals(objA: n, objB: s))
+            {
+                changed = true;
+            }
         }
-        return changed ? b with { Statements = stmts } : b;
+
+        return changed
+            ? b with { Statements = stmts }
+            : b;
     }
 
     private LoopStatement LowerLoop(LoopStatement loop)
     {
         Statement body = LowerStatement(stmt: loop.Body);
-        if (ReferenceEquals(body, loop.Body)) return loop;
+        if (ReferenceEquals(objA: body, objB: loop.Body))
+        {
+            return loop;
+        }
+
         return loop with { Body = body };
     }
 
@@ -171,16 +195,20 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         // Desugar to a `when` so the whole binding/scope/codegen path is reused from
         // when-clauses (the binding is then-branch-scoped for free). Non-binding `if`s
         // (plain bool, `isnot`, `is T` without a name) fall through unchanged.
-        if (TryLowerIfPatternBinding(ifs: ifs, out Statement? whenStmt))
+        if (TryLowerIfPatternBinding(ifs: ifs, result: out Statement? whenStmt))
+        {
             return whenStmt!;
+        }
 
         Statement then = LowerStatement(stmt: ifs.ThenStatement);
         Statement? elseS = ifs.ElseStatement != null
             ? LowerStatement(stmt: ifs.ElseStatement)
             : null;
-        bool tc = !ReferenceEquals(then, ifs.ThenStatement);
-        bool ec = !ReferenceEquals(elseS, ifs.ElseStatement);
-        return tc || ec ? ifs with { ThenStatement = then, ElseStatement = elseS } : ifs;
+        bool tc = !ReferenceEquals(objA: then, objB: ifs.ThenStatement);
+        bool ec = !ReferenceEquals(objA: elseS, objB: ifs.ElseStatement);
+        return tc || ec
+            ? ifs with { ThenStatement = then, ElseStatement = elseS }
+            : ifs;
     }
 
     private WhenStatement LowerWhen(WhenStatement w)
@@ -190,7 +218,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         foreach (WhenClause c in w.Clauses)
         {
             Statement body = LowerStatement(stmt: c.Body);
-            if (!ReferenceEquals(body, c.Body))
+            if (!ReferenceEquals(objA: body, objB: c.Body))
             {
                 clauses.Add(item: c with { Body = body });
                 changed = true;
@@ -200,14 +228,20 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
                 clauses.Add(item: c);
             }
         }
-        return changed ? w with { Clauses = clauses } : w;
+
+        return changed
+            ? w with { Clauses = clauses }
+            : w;
     }
 
     private UsingStatement LowerUsing(UsingStatement u)
     {
         Statement body = LowerStatement(stmt: u.Body);
-        Statement? fb = u.FallbackBody != null ? LowerStatement(stmt: u.FallbackBody) : null;
-        return !ReferenceEquals(body, u.Body) || !ReferenceEquals(fb, u.FallbackBody)
+        Statement? fb = u.FallbackBody != null
+            ? LowerStatement(stmt: u.FallbackBody)
+            : null;
+        return !ReferenceEquals(objA: body, objB: u.Body) ||
+               !ReferenceEquals(objA: fb, objB: u.FallbackBody)
             ? u with { Body = body, FallbackBody = fb }
             : u;
     }
@@ -217,7 +251,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         // DangerStatement.Body is BlockStatement; LowerStatement on BlockStatement
         // always returns a BlockStatement so the cast is safe.
         Statement lowered = LowerStatement(stmt: d.Body);
-        return !ReferenceEquals(lowered, d.Body)
+        return !ReferenceEquals(objA: lowered, objB: d.Body)
             ? d with { Body = (BlockStatement)lowered }
             : d;
     }
@@ -232,14 +266,12 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         Statement loweredBody = LowerStatement(stmt: whileStmt.Body);
 
         // Build: if !cond { break }
-        Expression negCond = new UnaryExpression(
-            Operator: UnaryOperator.Not,
+        Expression negCond = new UnaryExpression(Operator: UnaryOperator.Not,
             Operand: whileStmt.Condition,
             Location: loc);
-        Statement guardBreak = new IfStatement(
-            Condition: negCond,
-            ThenStatement: new BlockStatement(
-                Statements: [new BreakStatement(Location: loc)],
+        Statement guardBreak = new IfStatement(Condition: negCond,
+            ThenStatement: new BlockStatement(Statements:
+                [new BreakStatement(Location: loc)],
                 Location: loc),
             ElseStatement: null,
             Location: loc);
@@ -284,14 +316,18 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         }
 
         if (head is not IsPatternExpression { IsNegated: false } ipe)
+        {
             return false;
+        }
 
         // Only a name-introducing pattern qualifies: `is T p` or a destructuring `is T (a, b)`.
         // A bare `is T` (no binding) stays a plain boolean condition.
         bool introducesBinding = ipe.Pattern is TypePattern { VariableName: not null }
             or TypeDestructuringPattern;
         if (!introducesBinding)
+        {
             return false;
+        }
 
         SourceLocation loc = ifs.Location;
 
@@ -301,8 +337,9 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
             : null;
         // No else on the original `if` → the fall-through does nothing, but an empty block needs
         // an explicit `pass` (RF-S211).
-        Statement elseBody = elseS ?? new BlockStatement(
-            Statements: [new PassStatement(Location: loc)], Location: loc);
+        Statement elseBody = elseS ?? new BlockStatement(Statements:
+            [new PassStatement(Location: loc)],
+            Location: loc);
 
         // Guarded form `is T p and g1 and g2 ...`: put the guard test INSIDE the matched arm as a
         // nested `if`, so the arm's binding (`p`) is materialised before the guard reads it. A
@@ -316,21 +353,25 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
             Expression guard = guards[index: 0];
             for (int i = 1; i < guards.Count; i++)
             {
-                guard = new BinaryExpression(
-                    Left: guard, Operator: BinaryOperator.And, Right: guards[index: i],
+                guard = new BinaryExpression(Left: guard,
+                    Operator: BinaryOperator.And,
+                    Right: guards[index: i],
                     Location: loc);
             }
-            matchBody = new IfStatement(
-                Condition: guard, ThenStatement: then, ElseStatement: elseBody, Location: loc);
+
+            matchBody = new IfStatement(Condition: guard,
+                ThenStatement: then,
+                ElseStatement: elseBody,
+                Location: loc);
         }
 
         var matchClause = new WhenClause(Pattern: ipe.Pattern, Body: matchBody, Location: loc);
         var elseClause = new WhenClause(
             Pattern: new ElsePattern(VariableName: null, Location: loc),
-            Body: elseBody, Location: loc);
+            Body: elseBody,
+            Location: loc);
 
-        result = new WhenStatement(
-            Expression: ipe.Expression,
+        result = new WhenStatement(Expression: ipe.Expression,
             Clauses: [matchClause, elseClause],
             Location: loc);
         return true;
@@ -354,9 +395,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
 
         var stmts = new List<Statement>(capacity: destruct.Pattern.Bindings.Count + 1)
         {
-            new DeclarationStatement(
-                Declaration: new VariableDeclaration(
-                    Name: tmpName,
+            new DeclarationStatement(Declaration: new VariableDeclaration(Name: tmpName,
                     Type: null,
                     Initializer: destruct.Initializer,
                     Visibility: VisibilityModifier.Secret,
@@ -368,10 +407,12 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         {
             DestructuringBinding binding = destruct.Pattern.Bindings[index: i];
             string bindName = binding.BindingName ?? binding.MemberVariableName ?? $"_ld_b{i}";
-            if (bindName == "_") continue;
+            if (bindName == "_")
+            {
+                continue;
+            }
 
-            stmts.Add(item: new DeclarationStatement(
-                Declaration: new VariableDeclaration(
+            stmts.Add(item: new DeclarationStatement(Declaration: new VariableDeclaration(
                     Name: bindName,
                     Type: null,
                     Initializer: new MemberExpression(
@@ -404,29 +445,28 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
 
         // -----------------------------------------------------------------------------
         var iterCallExpr = new CallExpression(
-            Callee: new MemberExpression(
-                Object: eachStmt.Iterable,
+            Callee: new MemberExpression(Object: eachStmt.Iterable,
                 MemberName: "iter",
                 Location: loc),
             Arguments: [],
             Location: loc) { IsSynthesizedLowering = true };
 
         var tryNextReceiver = new IdentifierExpression(Name: iterName, Location: loc);
-        CallExpression tryNextCallExpr = new CallExpression(
-            Callee: new MemberExpression(
-                Object: tryNextReceiver,
+        var tryNextCallExpr = new CallExpression(
+            Callee: new MemberExpression(Object: tryNextReceiver,
                 MemberName: Declaration.RuntimeContract.TryEmit,
                 Location: loc),
             Arguments: [],
             Location: loc) { IsSynthesizedLowering = true };
 
-        tryNextCallExpr = AnnotateIterAndTryEmit(eachStmt: eachStmt, iterCallExpr: iterCallExpr,
-            tryNextReceiver: tryNextReceiver, tryNextCallExpr: tryNextCallExpr);
+        tryNextCallExpr = AnnotateIterAndTryEmit(eachStmt: eachStmt,
+            iterCallExpr: iterCallExpr,
+            tryNextReceiver: tryNextReceiver,
+            tryNextCallExpr: tryNextCallExpr);
         Expression tryNextCall = tryNextCallExpr;
 
         Statement iterVarStmt = new DeclarationStatement(
-            Declaration: new VariableDeclaration(
-                Name: iterName,
+            Declaration: new VariableDeclaration(Name: iterName,
                 Type: null,
                 Initializer: iterCallExpr,
                 Visibility: VisibilityModifier.Secret,
@@ -437,8 +477,10 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         Statement loweredBody = LowerStatement(stmt: eachStmt.Body);
 
         // -----------------------------------------------------------------------------
-        (Statement elseBody, string? elseVarName) = BuildElseArm(eachStmt: eachStmt, n: n,
-            loweredBody: loweredBody, loc: loc);
+        (Statement elseBody, string? elseVarName) = BuildElseArm(eachStmt: eachStmt,
+            n: n,
+            loweredBody: loweredBody,
+            loc: loc);
 
         // -----------------------------------------------------------------------------
         Statement? elseBranchLowered = eachStmt.ElseBranch != null
@@ -446,11 +488,20 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
             : null;
 
         return elseBranchLowered != null
-            ? BuildForElse(elseBranchLowered: elseBranchLowered, tryNextCall: tryNextCall,
-                elseBody: elseBody, iterVarStmt: iterVarStmt, loc: loc,
-                names: new ForElseNames(elseVarName, $"_lf_exhausted_{n}", iterationSourceName))
-            : BuildPlainFor(tryNextCall: tryNextCall, elseBody: elseBody, elseVarName: elseVarName,
-                iterVarStmt: iterVarStmt, iterationSourceName: iterationSourceName, loc: loc);
+            ? BuildForElse(elseBranchLowered: elseBranchLowered,
+                tryNextCall: tryNextCall,
+                elseBody: elseBody,
+                iterVarStmt: iterVarStmt,
+                loc: loc,
+                names: new ForElseNames(ElseVarName: elseVarName,
+                    ExhaustedName: $"_lf_exhausted_{n}",
+                    IterationSourceName: iterationSourceName))
+            : BuildPlainFor(tryNextCall: tryNextCall,
+                elseBody: elseBody,
+                elseVarName: elseVarName,
+                iterVarStmt: iterVarStmt,
+                iterationSourceName: iterationSourceName,
+                loc: loc);
     }
 
     /// <summary>
@@ -461,12 +512,14 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     /// Skip ErrorTypeInfo: SA suppresses stdlib errors. Returns the (possibly re-annotated)
     /// try_emit call expression.
     /// </summary>
-    private CallExpression AnnotateIterAndTryEmit(EachStatement eachStmt, CallExpression iterCallExpr,
-        IdentifierExpression tryNextReceiver, CallExpression tryNextCallExpr)
+    private CallExpression AnnotateIterAndTryEmit(EachStatement eachStmt,
+        CallExpression iterCallExpr, IdentifierExpression tryNextReceiver,
+        CallExpression tryNextCallExpr)
     {
         if (eachStmt.Iterable.ResolvedType is { } iterType and not ErrorTypeInfo)
         {
-            RoutineInfo? iterMemberRoutine = ctx.Registry.LookupMemberRoutine(type: iterType, memberRoutineName: "iter");
+            RoutineInfo? iterMemberRoutine =
+                ctx.Registry.LookupMemberRoutine(type: iterType, memberRoutineName: "iter");
             if (iterMemberRoutine?.ReturnType is { } rawIteratorType)
             {
                 // LookupMemberRoutine returns the generic-def `iter`, whose ReturnType still carries the
@@ -481,16 +534,21 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
                 // Carry the concrete emitter type onto the receiver so reachability/codegen see it.
                 tryNextReceiver.ResolvedType = iteratorType;
                 RoutineInfo? tryNextMemberRoutine =
-                    ctx.Registry.LookupMemberRoutine(type: iteratorType, memberRoutineName: Declaration.RuntimeContract.TryEmit);
+                    ctx.Registry.LookupMemberRoutine(type: iteratorType,
+                        memberRoutineName: Declaration.RuntimeContract.TryEmit);
                 if (tryNextMemberRoutine != null)
+                {
                     tryNextCallExpr = tryNextCallExpr with
                     {
                         ResolvedRoutine = tryNextMemberRoutine,
                         LoweringKind = CallLoweringKind.DirectMemberRoutine,
-                        ResolvedType = tryNextMemberRoutine.ReturnType ?? tryNextCallExpr.ResolvedType
+                        ResolvedType = tryNextMemberRoutine.ReturnType ??
+                                       tryNextCallExpr.ResolvedType
                     };
+                }
             }
         }
+
         return tryNextCallExpr;
     }
 
@@ -508,15 +566,18 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
             string elemName = $"_lf_elem_{n}";
 
             // Prepend: var a = _lf_elem_M.item0, var b = _lf_elem_M.item1, ??
-            var bindStmts = new List<Statement>(capacity: eachStmt.VariablePattern.Bindings.Count + 1);
+            var bindStmts =
+                new List<Statement>(capacity: eachStmt.VariablePattern.Bindings.Count + 1);
             for (int i = 0; i < eachStmt.VariablePattern.Bindings.Count; i++)
             {
                 DestructuringBinding binding = eachStmt.VariablePattern.Bindings[index: i];
                 string bindName = binding.BindingName ?? binding.MemberVariableName ?? $"_lf_b{i}";
-                if (bindName == "_") continue;
+                if (bindName == "_")
+                {
+                    continue;
+                }
 
-                bindStmts.Add(item: new DeclarationStatement(
-                    Declaration: new VariableDeclaration(
+                bindStmts.Add(item: new DeclarationStatement(Declaration: new VariableDeclaration(
                         Name: bindName,
                         Type: null,
                         Initializer: new MemberExpression(
@@ -539,7 +600,9 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         }
 
         // Simple variable or discard
-        string? elseVarName = eachStmt.Variable == "_" ? null : eachStmt.Variable;
+        string? elseVarName = eachStmt.Variable == "_"
+            ? null
+            : eachStmt.Variable;
         return (loweredBody, elseVarName);
     }
 
@@ -548,45 +611,54 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     /// <c>if _lf_exhausted_N { alt }</c> check after the loop.
     /// </summary>
     private readonly record struct ForElseNames(
-        string? ElseVarName, string ExhaustedName, string? IterationSourceName);
+        string? ElseVarName,
+        string ExhaustedName,
+        string? IterationSourceName);
 
     private static BlockStatement BuildForElse(Statement elseBranchLowered, Expression tryNextCall,
-        Statement elseBody, Statement iterVarStmt, ForElseNames names, SourceLocation loc)
+        Statement elseBody, Statement iterVarStmt, ForElseNames names,
+        SourceLocation loc)
     {
         string? elseVarName = names.ElseVarName;
         string exhaustedName = names.ExhaustedName;
         string? iterationSourceName = names.IterationSourceName;
         // For-else: set exhausted flag, then break
-        Statement noneBody = new BlockStatement(
-            Statements:
+        Statement noneBody = new BlockStatement(Statements:
             [
                 new AssignmentStatement(
                     Target: new IdentifierExpression(Name: exhaustedName, Location: loc),
-                    Value: new LiteralExpression(Value: true, LiteralType: TokenType.True,
+                    Value: new LiteralExpression(Value: true,
+                        LiteralType: TokenType.True,
                         Location: loc),
                     Location: loc),
                 new BreakStatement(Location: loc)
             ],
             Location: loc);
 
-        var noneClause = new WhenClause(Pattern: new NonePattern(Location: loc), Body: noneBody,
+        var noneClause = new WhenClause(Pattern: new NonePattern(Location: loc),
+            Body: noneBody,
             Location: loc);
         var elseClause = new WhenClause(
             Pattern: new ElsePattern(VariableName: elseVarName, Location: loc),
-            Body: elseBody, Location: loc);
+            Body: elseBody,
+            Location: loc);
 
         var whenStmt = new WhenStatement(Expression: tryNextCall,
-            Clauses: [noneClause, elseClause], Location: loc);
-        var loopStmt = new LoopStatement(
-            Body: new BlockStatement(Statements: [whenStmt], Location: loc), Location: loc)
-            { IsIteratorEachLoop = true, IterationSourceName = iterationSourceName };
+            Clauses: [noneClause, elseClause],
+            Location: loc);
+        var loopStmt =
+            new LoopStatement(Body: new BlockStatement(Statements: [whenStmt], Location: loc),
+                Location: loc)
+            {
+                IsIteratorEachLoop = true, IterationSourceName = iterationSourceName
+            };
 
         // var _lf_exhausted_N: Bool = false
-        Statement exhaustedVarStmt = new DeclarationStatement(
-            Declaration: new VariableDeclaration(
+        Statement exhaustedVarStmt = new DeclarationStatement(Declaration: new VariableDeclaration(
                 Name: exhaustedName,
                 Type: new TypeExpression(Name: "Bool", GenericArguments: null, Location: loc),
-                Initializer: new LiteralExpression(Value: false, LiteralType: TokenType.False,
+                Initializer: new LiteralExpression(Value: false,
+                    LiteralType: TokenType.False,
                     Location: loc),
                 Visibility: VisibilityModifier.Secret,
                 Location: loc),
@@ -599,8 +671,8 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
             ElseStatement: null,
             Location: loc);
 
-        return new BlockStatement(
-            Statements: [exhaustedVarStmt, iterVarStmt, loopStmt, exhaustionCheck],
+        return new BlockStatement(Statements:
+            [exhaustedVarStmt, iterVarStmt, loopStmt, exhaustionCheck],
             Location: loc);
     }
 
@@ -608,23 +680,31 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     /// Builds the plain for lowering (no else branch): the <c>None</c> arm breaks directly.
     /// </summary>
     private static BlockStatement BuildPlainFor(Expression tryNextCall, Statement elseBody,
-        string? elseVarName, Statement iterVarStmt, string? iterationSourceName, SourceLocation loc)
+        string? elseVarName, Statement iterVarStmt, string? iterationSourceName,
+        SourceLocation loc)
     {
         // Plain for (no else branch)
-        Statement noneBody = new BlockStatement(
-            Statements: [new BreakStatement(Location: loc)], Location: loc);
+        Statement noneBody = new BlockStatement(Statements:
+            [new BreakStatement(Location: loc)],
+            Location: loc);
 
-        var noneClause = new WhenClause(Pattern: new NonePattern(Location: loc), Body: noneBody,
+        var noneClause = new WhenClause(Pattern: new NonePattern(Location: loc),
+            Body: noneBody,
             Location: loc);
         var elseClause = new WhenClause(
             Pattern: new ElsePattern(VariableName: elseVarName, Location: loc),
-            Body: elseBody, Location: loc);
+            Body: elseBody,
+            Location: loc);
 
         var whenStmt = new WhenStatement(Expression: tryNextCall,
-            Clauses: [noneClause, elseClause], Location: loc);
-        var loopStmt = new LoopStatement(
-            Body: new BlockStatement(Statements: [whenStmt], Location: loc), Location: loc)
-            { IsIteratorEachLoop = true, IterationSourceName = iterationSourceName };
+            Clauses: [noneClause, elseClause],
+            Location: loc);
+        var loopStmt =
+            new LoopStatement(Body: new BlockStatement(Statements: [whenStmt], Location: loc),
+                Location: loc)
+            {
+                IsIteratorEachLoop = true, IterationSourceName = iterationSourceName
+            };
 
         return new BlockStatement(Statements: [iterVarStmt, loopStmt], Location: loc);
     }
@@ -651,8 +731,10 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
             {
                 subs[key: defParams[index: i]] = args[index: i];
             }
+
             return RecordTypeInfo.SubstituteType(type: type, substitution: subs);
         }
+
         return type;
     }
 
@@ -667,11 +749,17 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     {
         foreach (string key in ctx.VariantBodies.Keys.ToList())
         {
-            if (ctx.RestoredVariantKeys.Contains(item: key)) continue; // already lowered at snapshot capture
-            Statement body = ctx.VariantBodies[key];
+            if (ctx.RestoredVariantKeys.Contains(item: key))
+            {
+                continue; // already lowered at snapshot capture
+            }
+
+            Statement body = ctx.VariantBodies[key: key];
             Statement lowered = LowerStatement(stmt: body);
-            if (!ReferenceEquals(lowered, body))
-                ctx.VariantBodies[key] = lowered;
+            if (!ReferenceEquals(objA: lowered, objB: body))
+            {
+                ctx.VariantBodies[key: key] = lowered;
+            }
         }
     }
 
@@ -687,10 +775,12 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     {
         foreach (string key in bodies.Keys.ToList())
         {
-            Instantiation.MonomorphizedBody mb = bodies[key];
+            Instantiation.MonomorphizedBody mb = bodies[key: key];
             Statement lowered = LowerStatement(stmt: mb.Ast.Body);
-            if (!ReferenceEquals(lowered, mb.Ast.Body))
-                bodies[key] = mb with { Ast = mb.Ast with { Body = lowered } };
+            if (!ReferenceEquals(objA: lowered, objB: mb.Ast.Body))
+            {
+                bodies[key: key] = mb with { Ast = mb.Ast with { Body = lowered } };
+            }
         }
     }
 }

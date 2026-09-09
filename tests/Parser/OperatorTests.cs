@@ -8,10 +8,10 @@ using static TestHelpers;
 public class OperatorTests
 {
     #region Standard Arithmetic Operators
+
     /// <summary>
     /// Verifies that the parser accepts addition.
     /// </summary>
-
     [Fact]
     public void Parse_Addition()
     {
@@ -25,7 +25,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts subtraction.
     /// </summary>
-
     [Fact]
     public void Parse_Subtraction()
     {
@@ -39,7 +38,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts multiplication.
     /// </summary>
-
     [Fact]
     public void Parse_Multiplication()
     {
@@ -53,7 +51,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts division.
     /// </summary>
-
     [Fact]
     public void Parse_Division()
     {
@@ -67,7 +64,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts floor division.
     /// </summary>
-
     [Fact]
     public void Parse_FloorDivision()
     {
@@ -81,7 +77,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts remainder.
     /// </summary>
-
     [Fact]
     public void Parse_Remainder()
     {
@@ -95,7 +90,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts power.
     /// </summary>
-
     [Fact]
     public void Parse_Power()
     {
@@ -109,7 +103,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts negation.
     /// </summary>
-
     [Fact]
     public void Parse_Negation()
     {
@@ -123,7 +116,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts chained arithmetic.
     /// </summary>
-
     [Fact]
     public void Parse_ChainedArithmetic()
     {
@@ -137,7 +129,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts parenthesized arithmetic.
     /// </summary>
-
     [Fact]
     public void Parse_ParenthesizedArithmetic()
     {
@@ -152,10 +143,10 @@ public class OperatorTests
     #endregion
 
     #region Wrapping Arithmetic Operators
+
     /// <summary>
     /// Verifies that the parser accepts wrapping add.
     /// </summary>
-
     [Fact]
     public void Parse_WrappingAdd()
     {
@@ -171,7 +162,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts wrapping subtract.
     /// </summary>
-
     [Fact]
     public void Parse_WrappingSubtract()
     {
@@ -187,7 +177,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts wrapping multiply.
     /// </summary>
-
     [Fact]
     public void Parse_WrappingMultiply()
     {
@@ -203,7 +192,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts wrapping power.
     /// </summary>
-
     [Fact]
     public void Parse_WrappingPower()
     {
@@ -220,10 +208,10 @@ public class OperatorTests
     #endregion
 
     #region Clamping Arithmetic Operators
+
     /// <summary>
     /// Verifies that the parser accepts clamping add.
     /// </summary>
-
     [Fact]
     public void Parse_ClampingAdd()
     {
@@ -239,7 +227,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts clamping subtract.
     /// </summary>
-
     [Fact]
     public void Parse_ClampingSubtract()
     {
@@ -255,7 +242,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts clamping multiply.
     /// </summary>
-
     [Fact]
     public void Parse_ClampingMultiply()
     {
@@ -271,7 +257,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts clamping power.
     /// </summary>
-
     [Fact]
     public void Parse_ClampingPower()
     {
@@ -288,10 +273,10 @@ public class OperatorTests
     #endregion
 
     #region Comparison Operators
+
     /// <summary>
     /// Verifies that the parser accepts equal.
     /// </summary>
-
     [Fact]
     public void Parse_Equal()
     {
@@ -305,7 +290,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts not equal.
     /// </summary>
-
     [Fact]
     public void Parse_NotEqual()
     {
@@ -319,7 +303,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts less than.
     /// </summary>
-
     [Fact]
     public void Parse_LessThan()
     {
@@ -333,7 +316,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts less or equal.
     /// </summary>
-
     [Fact]
     public void Parse_LessOrEqual()
     {
@@ -347,7 +329,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts greater than.
     /// </summary>
-
     [Fact]
     public void Parse_GreaterThan()
     {
@@ -361,7 +342,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts greater or equal.
     /// </summary>
-
     [Fact]
     public void Parse_GreaterOrEqual()
     {
@@ -375,7 +355,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts chained comparison.
     /// </summary>
-
     [Fact]
     public void Parse_ChainedComparison()
     {
@@ -389,7 +368,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts chained range comparison.
     /// </summary>
-
     [Fact]
     public void Parse_ChainedRangeComparison()
     {
@@ -404,10 +382,10 @@ public class OperatorTests
     #endregion
 
     #region Logical Operators
+
     /// <summary>
     /// Verifies that the parser accepts logical and.
     /// </summary>
-
     [Fact]
     public void Parse_LogicalAnd()
     {
@@ -421,7 +399,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts logical or.
     /// </summary>
-
     [Fact]
     public void Parse_LogicalOr()
     {
@@ -435,7 +412,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts logical not.
     /// </summary>
-
     [Fact]
     public void Parse_LogicalNot()
     {
@@ -449,7 +425,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts chained logical.
     /// </summary>
-
     [Fact]
     public void Parse_ChainedLogical()
     {
@@ -463,7 +438,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts logical with comparison.
     /// </summary>
-
     [Fact]
     public void Parse_LogicalWithComparison()
     {
@@ -478,10 +452,10 @@ public class OperatorTests
     #endregion
 
     #region Bitwise Operators
+
     /// <summary>
     /// Verifies that the parser accepts bitwise and.
     /// </summary>
-
     [Fact]
     public void Parse_BitwiseAnd()
     {
@@ -495,7 +469,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts bitwise or.
     /// </summary>
-
     [Fact]
     public void Parse_BitwiseOr()
     {
@@ -509,7 +482,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts bitwise xor.
     /// </summary>
-
     [Fact]
     public void Parse_BitwiseXor()
     {
@@ -523,7 +495,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts bitwise not.
     /// </summary>
-
     [Fact]
     public void Parse_BitwiseNot()
     {
@@ -537,7 +508,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts left shift.
     /// </summary>
-
     [Fact]
     public void Parse_LeftShift()
     {
@@ -551,7 +521,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts right shift.
     /// </summary>
-
     [Fact]
     public void Parse_RightShift()
     {
@@ -565,7 +534,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts logical left shift.
     /// </summary>
-
     [Fact]
     public void Parse_LogicalLeftShift()
     {
@@ -579,7 +547,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts logical right shift.
     /// </summary>
-
     [Fact]
     public void Parse_LogicalRightShift()
     {
@@ -594,10 +561,10 @@ public class OperatorTests
     #endregion
 
     #region None Coalescing Operator
+
     /// <summary>
     /// Verifies that the parser accepts none coalescing.
     /// </summary>
-
     [Fact]
     public void Parse_NoneCoalescing()
     {
@@ -612,7 +579,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts chained none coalescing.
     /// </summary>
-
     [Fact]
     public void Parse_ChainedNoneCoalescing()
     {
@@ -629,7 +595,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts none coalescing with memberRoutine call.
     /// </summary>
-
     [Fact]
     public void Parse_NoneCoalescingWithMemberRoutineCall()
     {
@@ -644,10 +609,10 @@ public class OperatorTests
     #endregion
 
     #region Assignment Operators
+
     /// <summary>
     /// Verifies that the parser accepts simple assignment.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleAssignment()
     {
@@ -663,7 +628,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts add assignment.
     /// </summary>
-
     [Fact]
     public void Parse_AddAssignment()
     {
@@ -679,7 +643,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts subtract assignment.
     /// </summary>
-
     [Fact]
     public void Parse_SubtractAssignment()
     {
@@ -695,7 +658,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts multiply assignment.
     /// </summary>
-
     [Fact]
     public void Parse_MultiplyAssignment()
     {
@@ -711,7 +673,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts divide assignment.
     /// </summary>
-
     [Fact]
     public void Parse_DivideAssignment()
     {
@@ -727,7 +688,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts floor divide assignment.
     /// </summary>
-
     [Fact]
     public void Parse_FloorDivideAssignment()
     {
@@ -743,7 +703,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts remainder assignment.
     /// </summary>
-
     [Fact]
     public void Parse_RemainderAssignment()
     {
@@ -759,7 +718,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts bitwise and assignment.
     /// </summary>
-
     [Fact]
     public void Parse_BitwiseAndAssignment()
     {
@@ -775,7 +733,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts bitwise or assignment.
     /// </summary>
-
     [Fact]
     public void Parse_BitwiseOrAssignment()
     {
@@ -791,7 +748,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts bitwise xor assignment.
     /// </summary>
-
     [Fact]
     public void Parse_BitwiseXorAssignment()
     {
@@ -807,7 +763,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts left shift assignment.
     /// </summary>
-
     [Fact]
     public void Parse_LeftShiftAssignment()
     {
@@ -823,7 +778,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts right shift assignment.
     /// </summary>
-
     [Fact]
     public void Parse_RightShiftAssignment()
     {
@@ -840,10 +794,10 @@ public class OperatorTests
     #endregion
 
     #region Text Operators
+
     /// <summary>
     /// Verifies that the parser accepts text concatenation.
     /// </summary>
-
     [Fact]
     public void Parse_TextConcatenation()
     {
@@ -857,7 +811,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts text repetition.
     /// </summary>
-
     [Fact]
     public void Parse_TextRepetition()
     {
@@ -872,10 +825,10 @@ public class OperatorTests
     #endregion
 
     #region Range Operators
+
     /// <summary>
     /// Verifies that the parser accepts inclusive range.
     /// </summary>
-
     [Fact]
     public void Parse_InclusiveRange()
     {
@@ -891,7 +844,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts range with step.
     /// </summary>
-
     [Fact]
     public void Parse_RangeWithStep()
     {
@@ -908,10 +860,10 @@ public class OperatorTests
     #endregion
 
     #region Complex Operator Expressions
+
     /// <summary>
     /// Verifies that the parser accepts complex expression.
     /// </summary>
-
     [Fact]
     public void Parse_ComplexExpression()
     {
@@ -925,7 +877,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts mixed operator precedence.
     /// </summary>
-
     [Fact]
     public void Parse_MixedOperatorPrecedence()
     {
@@ -939,7 +890,6 @@ public class OperatorTests
     /// <summary>
     /// Verifies that the parser accepts bitwise with comparison.
     /// </summary>
-
     [Fact]
     public void Parse_BitwiseWithComparison()
     {

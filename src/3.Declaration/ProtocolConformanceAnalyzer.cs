@@ -95,8 +95,8 @@ internal sealed class ProtocolConformanceAnalyzer
 
         // Add transitive protocols first, then the marker itself
         // Track implicitly-added protocols so validation skips them
-        foreach (TypeSymbol proto in transitiveProtocols.Where(
-            predicate: p => merged.All(predicate: e => e.Name != p.Name)))
+        foreach (TypeSymbol proto in transitiveProtocols.Where(predicate: p =>
+                     merged.All(predicate: e => e.Name != p.Name)))
         {
             merged.Add(item: proto);
             _sa._implicitProtocolConformances.Add(item: (type.FullName, proto.Name));
@@ -143,12 +143,15 @@ internal sealed class ProtocolConformanceAnalyzer
             // constraint but are OPT-IN — conferring them structurally would give a plain value record
             // silent `==`/`<`. Their derives attach only on an explicit `obeys P` (the everywhere-derive
             // loop reads the declared conformance).
-            if (type is ProtocolTypeInfo proto && ProtocolHasEverywhereSelfConstraint(proto: proto) &&
-                _autoConferredEverywhereProtocols.Contains(item: (proto.GenericDefinition ?? proto).BareName))
+            if (type is ProtocolTypeInfo proto &&
+                ProtocolHasEverywhereSelfConstraint(proto: proto) &&
+                _autoConferredEverywhereProtocols.Contains(item: (proto.GenericDefinition ?? proto)
+                   .BareName))
             {
                 everywhereProtocols.Add(item: proto);
             }
         }
+
         if (everywhereProtocols.Count == 0)
         {
             return;
@@ -208,8 +211,8 @@ internal sealed class ProtocolConformanceAnalyzer
     /// </summary>
     private static bool ProtocolHasEverywhereSelfConstraint(ProtocolTypeInfo proto)
     {
-        return proto.GenericConstraints is { } cs &&
-               cs.Any(predicate: c => c.ConstraintType == SyntaxTree.ConstraintKind.Everywhere);
+        return proto.GenericConstraints is { } cs && cs.Any(predicate: c =>
+            c.ConstraintType == SyntaxTree.ConstraintKind.Everywhere);
     }
 
     /// <summary>
@@ -269,8 +272,8 @@ internal sealed class ProtocolConformanceAnalyzer
         // deep `copy` (nothing heap is shared). `Assignable` and `Copyable` are ORTHOGONAL (no hierarchy),
         // so derive BOTH explicitly. Raw-pointer opt-in types (Hijacked/CPtr) have a ptr, so
         // CanAutoDeriveAssignable is false and they keep their hand-written `obeys Assignable` only.
-        if (_sa._registry.LookupType(name: CopyableProtocol) is not ProtocolTypeInfo copyable
-            || _sa._registry.LookupType(name: AssignableProtocol) is not ProtocolTypeInfo Assignable)
+        if (_sa._registry.LookupType(name: CopyableProtocol) is not ProtocolTypeInfo copyable ||
+            _sa._registry.LookupType(name: AssignableProtocol) is not ProtocolTypeInfo Assignable)
         {
             return;
         }
@@ -315,7 +318,7 @@ internal sealed class ProtocolConformanceAnalyzer
     {
         foreach (ProtocolTypeInfo parent in protocol.ParentProtocols)
         {
-            if (result.Any(p => p.Name == parent.Name))
+            if (result.Any(predicate: p => p.Name == parent.Name))
             {
                 continue;
             }
@@ -348,7 +351,9 @@ internal sealed class ProtocolConformanceAnalyzer
         // in an SF compile) — would otherwise both resolve to the ambient (RF) shell by FullName, so analyzing
         // the SF wrapper (which auto-derives only Equatable/EntityType) OVERWROTE the RF shell's declared
         // Iterable/MutableIndexable/Sized → RF-S205 "BitList is not iterable" in its own display body.
-        string key = type is TypeInfo ti ? _sa._registry.RealmRegistryKey(type: ti) : type.FullName;
+        string key = type is TypeInfo ti
+            ? _sa._registry.RealmRegistryKey(type: ti)
+            : type.FullName;
         switch (type)
         {
             case ChoiceTypeInfo:

@@ -23,7 +23,8 @@ public static class TestHelpers
 
     // Captured once per process; each AnalyzeSa call restores in microseconds instead of ~0.5 s.
     private static readonly Lazy<TypeRegistry.StdlibSnapshot> _rfSnapshot =
-        new(valueFactory: () => SemanticVerifier.CaptureStdlibSnapshot(language: Language.RazorForge));
+        new(valueFactory: () =>
+            SemanticVerifier.CaptureStdlibSnapshot(language: Language.RazorForge));
 
     private static readonly Lazy<TypeRegistry.StdlibSnapshot> _suflaeSnapshot =
         new(valueFactory: () => SemanticVerifier.CaptureStdlibSnapshot(language: Language.Suflae));
@@ -37,7 +38,9 @@ public static class TestHelpers
     /// </summary>
     public static List<Token> Tokenize(string source, [CallerMemberName] string? fileName = null)
     {
-        var tokenizer = new Tokenizer(source: source, fileName: fileName ?? "test", language: Language.RazorForge);
+        var tokenizer = new Tokenizer(source: source,
+            fileName: fileName ?? "test",
+            language: Language.RazorForge);
         return tokenizer.Tokenize();
     }
 
@@ -47,17 +50,22 @@ public static class TestHelpers
     public static Program Parse(string source, [CallerMemberName] string? fileName = null)
     {
         List<Token> tokens = Tokenize(source: source, fileName: fileName);
-        var parser = new Compiler.Parser.Parser(tokens: tokens, language: Language.RazorForge, fileName: fileName);
+        var parser = new Compiler.Parser.Parser(tokens: tokens,
+            language: Language.RazorForge,
+            fileName: fileName);
         return parser.Parse();
     }
 
     /// <summary>
     /// Parses RazorForge source and returns the parser for error checking.
     /// </summary>
-    public static (Program Program, Compiler.Parser.Parser Parser) ParseWithErrors(string source, [CallerMemberName] string? fileName = null)
+    public static (Program Program, Compiler.Parser.Parser Parser) ParseWithErrors(string source,
+        [CallerMemberName] string? fileName = null)
     {
         List<Token> tokens = Tokenize(source: source, fileName: fileName);
-        var parser = new Compiler.Parser.Parser(tokens: tokens, language: Language.RazorForge, fileName: fileName);
+        var parser = new Compiler.Parser.Parser(tokens: tokens,
+            language: Language.RazorForge,
+            fileName: fileName);
         Program program = parser.Parse();
         return (program, parser);
     }
@@ -67,8 +75,10 @@ public static class TestHelpers
     /// </summary>
     public static void AssertParseError(string source, [CallerMemberName] string? fileName = null)
     {
-        (Program _, Compiler.Parser.Parser parser) = ParseWithErrors(source: source, fileName: fileName);
-        Assert.True(condition: parser.HasErrors, userMessage: "Expected parse errors but none were found");
+        (Program _, Compiler.Parser.Parser parser) =
+            ParseWithErrors(source: source, fileName: fileName);
+        Assert.True(condition: parser.HasErrors,
+            userMessage: "Expected parse errors but none were found");
     }
 
     /// <summary>
@@ -86,7 +96,8 @@ public static class TestHelpers
     /// </summary>
     public static Program AssertParses(string source, [CallerMemberName] string? fileName = null)
     {
-        (Program program, Compiler.Parser.Parser parser) = ParseWithErrors(source: source, fileName: fileName);
+        (Program program, Compiler.Parser.Parser parser) =
+            ParseWithErrors(source: source, fileName: fileName);
 
         if (parser.HasErrors)
         {
@@ -105,7 +116,8 @@ public static class TestHelpers
     /// <summary>
     /// Asserts that analysis succeeds without errors.
     /// </summary>
-    public static AnalysisResult AssertAnalyzes(string source, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AssertAnalyzes(string source,
+        [CallerMemberName] string? fileName = null)
     {
         AnalysisResult result = Analyze(source: source, fileName: fileName);
         if (result.Errors.Count > 0)
@@ -122,11 +134,11 @@ public static class TestHelpers
     /// <summary>
     /// Asserts that analysis produces specific errors.
     /// </summary>
-    public static AnalysisResult AssertHasError(string source, string expectedErrorSubstring, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AssertHasError(string source, string expectedErrorSubstring,
+        [CallerMemberName] string? fileName = null)
     {
         AnalysisResult result = Analyze(source: source, fileName: fileName);
-        Assert.True(condition: result.Errors.Count > 0,
-            userMessage: ExpectedAtLeastOneError);
+        Assert.True(condition: result.Errors.Count > 0, userMessage: ExpectedAtLeastOneError);
         Assert.Contains(collection: result.Errors,
             filter: e => e.Message.Contains(value: expectedErrorSubstring,
                 comparisonType: StringComparison.OrdinalIgnoreCase));
@@ -140,9 +152,12 @@ public static class TestHelpers
     /// <summary>
     /// Tokenizes Suflae source code.
     /// </summary>
-    public static List<Token> TokenizeSuflae(string source, [CallerMemberName] string? fileName = null)
+    public static List<Token> TokenizeSuflae(string source,
+        [CallerMemberName] string? fileName = null)
     {
-        var tokenizer = new Tokenizer(source: source, fileName: fileName ?? "test", language: Language.Suflae);
+        var tokenizer = new Tokenizer(source: source,
+            fileName: fileName ?? "test",
+            language: Language.Suflae);
         return tokenizer.Tokenize();
     }
 
@@ -152,17 +167,22 @@ public static class TestHelpers
     public static Program ParseSuflae(string source, [CallerMemberName] string? fileName = null)
     {
         List<Token> tokens = TokenizeSuflae(source: source, fileName: fileName);
-        var parser = new Compiler.Parser.Parser(tokens: tokens, language: Language.Suflae, fileName: fileName);
+        var parser = new Compiler.Parser.Parser(tokens: tokens,
+            language: Language.Suflae,
+            fileName: fileName);
         return parser.Parse();
     }
 
     /// <summary>
     /// Parses Suflae source and returns the parser for error checking.
     /// </summary>
-    public static (Program Program, Compiler.Parser.Parser Parser) ParseSuflaeWithErrors(string source, [CallerMemberName] string? fileName = null)
+    public static (Program Program, Compiler.Parser.Parser Parser) ParseSuflaeWithErrors(
+        string source, [CallerMemberName] string? fileName = null)
     {
         List<Token> tokens = TokenizeSuflae(source: source, fileName: fileName);
-        var parser = new Compiler.Parser.Parser(tokens: tokens, language: Language.Suflae, fileName: fileName);
+        var parser = new Compiler.Parser.Parser(tokens: tokens,
+            language: Language.Suflae,
+            fileName: fileName);
         Program program = parser.Parse();
         return (program, parser);
     }
@@ -172,7 +192,8 @@ public static class TestHelpers
     /// Skips monomorphization and lowering — use for tests that only check errors or type annotations.
     /// Uses a pre-analyzed stdlib snapshot so stdlib loading runs once per process, not per test.
     /// </summary>
-    public static AnalysisResult AnalyzeSa(string source, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AnalyzeSa(string source,
+        [CallerMemberName] string? fileName = null)
     {
         Program program = Parse(source: source, fileName: fileName);
         var analyzer = new SemanticVerifier(
@@ -184,7 +205,8 @@ public static class TestHelpers
     /// <summary>
     /// Asserts that SA-only analysis succeeds without errors.
     /// </summary>
-    public static AnalysisResult AssertAnalyzesSa(string source, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AssertAnalyzesSa(string source,
+        [CallerMemberName] string? fileName = null)
     {
         AnalysisResult result = AnalyzeSa(source: source, fileName: fileName);
         if (result.Errors.Count > 0)
@@ -201,11 +223,11 @@ public static class TestHelpers
     /// <summary>
     /// Asserts that SA-only analysis produces the expected error.
     /// </summary>
-    public static AnalysisResult AssertHasErrorSa(string source, string expectedErrorSubstring, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AssertHasErrorSa(string source, string expectedErrorSubstring,
+        [CallerMemberName] string? fileName = null)
     {
         AnalysisResult result = AnalyzeSa(source: source, fileName: fileName);
-        Assert.True(condition: result.Errors.Count > 0,
-            userMessage: ExpectedAtLeastOneError);
+        Assert.True(condition: result.Errors.Count > 0, userMessage: ExpectedAtLeastOneError);
         Assert.Contains(collection: result.Errors,
             filter: e => e.Message.Contains(value: expectedErrorSubstring,
                 comparisonType: StringComparison.OrdinalIgnoreCase));
@@ -215,7 +237,8 @@ public static class TestHelpers
     /// <summary>
     /// Parses and analyzes Suflae source code.
     /// </summary>
-    public static AnalysisResult AnalyzeSuflae(string source, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AnalyzeSuflae(string source,
+        [CallerMemberName] string? fileName = null)
     {
         Program program = ParseSuflae(source: source, fileName: fileName);
         var analyzer = new SemanticVerifier(language: Language.Suflae);
@@ -225,9 +248,11 @@ public static class TestHelpers
     /// <summary>
     /// Asserts that Suflae parsing succeeds without errors.
     /// </summary>
-    public static Program AssertParsesSuflae(string source, [CallerMemberName] string? fileName = null)
+    public static Program AssertParsesSuflae(string source,
+        [CallerMemberName] string? fileName = null)
     {
-        (Program program, Compiler.Parser.Parser parser) = ParseSuflaeWithErrors(source: source, fileName: fileName);
+        (Program program, Compiler.Parser.Parser parser) =
+            ParseSuflaeWithErrors(source: source, fileName: fileName);
 
         if (parser.HasErrors)
         {
@@ -246,7 +271,8 @@ public static class TestHelpers
     /// <summary>
     /// Asserts that Suflae analysis succeeds without errors.
     /// </summary>
-    public static AnalysisResult AssertAnalyzesSuflae(string source, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AssertAnalyzesSuflae(string source,
+        [CallerMemberName] string? fileName = null)
     {
         AnalysisResult result = AnalyzeSuflae(source: source, fileName: fileName);
         if (result.Errors.Count > 0)
@@ -263,11 +289,11 @@ public static class TestHelpers
     /// <summary>
     /// Asserts that Suflae analysis produces specific errors.
     /// </summary>
-    public static AnalysisResult AssertHasErrorSuflae(string source, string expectedErrorSubstring, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AssertHasErrorSuflae(string source, string expectedErrorSubstring,
+        [CallerMemberName] string? fileName = null)
     {
         AnalysisResult result = AnalyzeSuflae(source: source, fileName: fileName);
-        Assert.True(condition: result.Errors.Count > 0,
-            userMessage: ExpectedAtLeastOneError);
+        Assert.True(condition: result.Errors.Count > 0, userMessage: ExpectedAtLeastOneError);
         Assert.Contains(collection: result.Errors,
             filter: e => e.Message.Contains(value: expectedErrorSubstring,
                 comparisonType: StringComparison.OrdinalIgnoreCase));
@@ -278,7 +304,8 @@ public static class TestHelpers
     /// Parses and analyzes Suflae source, stopping after Phase 5 (SA only).
     /// Uses a pre-analyzed stdlib snapshot so stdlib loading runs once per process, not per test.
     /// </summary>
-    public static AnalysisResult AnalyzeSaSuflae(string source, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AnalyzeSaSuflae(string source,
+        [CallerMemberName] string? fileName = null)
     {
         Program program = ParseSuflae(source: source, fileName: fileName);
         var analyzer = new SemanticVerifier(
@@ -290,7 +317,8 @@ public static class TestHelpers
     /// <summary>
     /// Asserts that Suflae SA-only analysis succeeds without errors.
     /// </summary>
-    public static AnalysisResult AssertAnalyzesSaSuflae(string source, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AssertAnalyzesSaSuflae(string source,
+        [CallerMemberName] string? fileName = null)
     {
         AnalysisResult result = AnalyzeSaSuflae(source: source, fileName: fileName);
         if (result.Errors.Count > 0)
@@ -307,11 +335,11 @@ public static class TestHelpers
     /// <summary>
     /// Asserts that Suflae SA-only analysis produces the expected error.
     /// </summary>
-    public static AnalysisResult AssertHasErrorSaSuflae(string source, string expectedErrorSubstring, [CallerMemberName] string? fileName = null)
+    public static AnalysisResult AssertHasErrorSaSuflae(string source,
+        string expectedErrorSubstring, [CallerMemberName] string? fileName = null)
     {
         AnalysisResult result = AnalyzeSaSuflae(source: source, fileName: fileName);
-        Assert.True(condition: result.Errors.Count > 0,
-            userMessage: ExpectedAtLeastOneError);
+        Assert.True(condition: result.Errors.Count > 0, userMessage: ExpectedAtLeastOneError);
         Assert.Contains(collection: result.Errors,
             filter: e => e.Message.Contains(value: expectedErrorSubstring,
                 comparisonType: StringComparison.OrdinalIgnoreCase));

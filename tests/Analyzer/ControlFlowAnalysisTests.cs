@@ -14,10 +14,10 @@ public class ControlFlowAnalysisTests
     private const string NotAllPathsReturnMessage = "not all code paths return";
 
     #region Return Path Analysis
+
     /// <summary>
     /// Verifies semantic analysis behavior for all paths return without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_AllPathsReturn_NoError()
     {
@@ -36,7 +36,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for when expression return without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenExpressionReturn_NoError()
     {
@@ -60,7 +59,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for early return in loop without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_EarlyReturnInLoop_NoError()
     {
@@ -79,7 +77,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for unless else return without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_UnlessElseReturn_NoError()
     {
@@ -97,10 +94,10 @@ public class ControlFlowAnalysisTests
     #endregion
 
     #region Unreachable Code
+
     /// <summary>
     /// Verifies semantic analysis behavior for code after return and reports the expected warning.
     /// </summary>
-
     [Fact]
     public void Analyze_CodeAfterReturn_ReportsWarning()
     {
@@ -118,7 +115,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for code after absent and reports the expected warning.
     /// </summary>
-
     [Fact]
     public void Analyze_CodeAfterAbsent_ReportsWarning()
     {
@@ -135,7 +131,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for code after throw and reports the expected warning.
     /// </summary>
-
     [Fact]
     public void Analyze_CodeAfterThrow_ReportsWarning()
     {
@@ -153,10 +148,10 @@ public class ControlFlowAnalysisTests
     #endregion
 
     #region Break and Continue Analysis
+
     /// <summary>
     /// Verifies semantic analysis behavior for break inside loop without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_BreakInsideLoop_NoError()
     {
@@ -174,7 +169,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for continue inside loop without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ContinueInsideLoop_NoError()
     {
@@ -193,7 +187,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for break outside loop and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_BreakOutsideLoop_ReportsError()
     {
@@ -209,7 +202,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for continue outside loop and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ContinueOutsideLoop_ReportsError()
     {
@@ -226,6 +218,7 @@ public class ControlFlowAnalysisTests
     #endregion
 
     #region Failable Routine Analysis
+
     /// <summary>
     /// Failability is now INFERRED: an <c>absent</c> in a routine NOT declared <c>!</c> no longer emits
     /// AbsentOutsideFailableFunction — the routine is inferred-failable instead.
@@ -246,7 +239,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for throw in non failable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ThrowInNonFailable_ReportsError()
     {
@@ -262,7 +254,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for absent in failable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_AbsentInFailable_NoError()
     {
@@ -280,6 +271,7 @@ public class ControlFlowAnalysisTests
     #endregion
 
     #region Infinite Loop Termination (RF-S305)
+
     // An unconditional `loop` has a fall-through edge ONLY through a `break` that targets it. With no
     // such break the loop can only be left via return/throw/absent, so control never falls past it and
     // the routine always terminates. These lock `StatementAlwaysTerminates`/`LoopBodyCanBreakOut` so the
@@ -389,7 +381,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for throw in failable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ThrowInFailable_NoError()
     {
@@ -502,10 +493,10 @@ public class ControlFlowAnalysisTests
     #endregion
 
     #region Conditional Return Analysis
+
     /// <summary>
     /// Verifies semantic analysis behavior for if without else no return and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_IfWithoutElse_NoReturn_ReportsError()
     {
@@ -522,7 +513,6 @@ public class ControlFlowAnalysisTests
     /// <summary>
     /// Verifies semantic analysis behavior for nested if else all paths return without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_NestedIfElse_AllPathsReturn_NoError()
     {
@@ -544,10 +534,10 @@ public class ControlFlowAnalysisTests
     #endregion
 
     #region Becomes Statement Validation
+
     /// <summary>
     /// Verifies semantic analysis behavior for when expression block with becomes without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenExpressionBlockWithBecomes_NoError()
     {
@@ -564,12 +554,12 @@ public class ControlFlowAnalysisTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
-            filter: e => e.Message.Contains(value: "becomes", comparisonType: StringComparison.OrdinalIgnoreCase));
+            filter: e => e.Message.Contains(value: "becomes",
+                comparisonType: StringComparison.OrdinalIgnoreCase));
     }
     /// <summary>
     /// Verifies semantic analysis behavior for when expression block missing becomes and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenExpressionBlockMissingBecomes_ReportsError()
     {
@@ -586,12 +576,12 @@ public class ControlFlowAnalysisTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Message.Contains(value: "requires 'becomes'", comparisonType: StringComparison.OrdinalIgnoreCase));
+            filter: e => e.Message.Contains(value: "requires 'becomes'",
+                comparisonType: StringComparison.OrdinalIgnoreCase));
     }
     /// <summary>
     /// Verifies semantic analysis behavior for when expression single becomes block and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenExpressionSingleBecomesBlock_ReportsError()
     {
@@ -607,12 +597,12 @@ public class ControlFlowAnalysisTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Message.Contains(value: "'=>' syntax", comparisonType: StringComparison.OrdinalIgnoreCase));
+            filter: e => e.Message.Contains(value: "'=>' syntax",
+                comparisonType: StringComparison.OrdinalIgnoreCase));
     }
     /// <summary>
     /// Verifies semantic analysis behavior for when expression arrow syntax without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenExpressionArrowSyntax_NoError()
     {
@@ -627,12 +617,12 @@ public class ControlFlowAnalysisTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
-            filter: e => e.Message.Contains(value: "becomes", comparisonType: StringComparison.OrdinalIgnoreCase));
+            filter: e => e.Message.Contains(value: "becomes",
+                comparisonType: StringComparison.OrdinalIgnoreCase));
     }
     /// <summary>
     /// Verifies semantic analysis behavior for when statement block without becomes without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenStatementBlockWithoutBecomes_NoError()
     {
@@ -650,7 +640,9 @@ public class ControlFlowAnalysisTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
-            filter: e => e.Message.Contains(value: "becomes", comparisonType: StringComparison.OrdinalIgnoreCase));
+            filter: e => e.Message.Contains(value: "becomes",
+                comparisonType: StringComparison.OrdinalIgnoreCase));
     }
+
     #endregion
 }

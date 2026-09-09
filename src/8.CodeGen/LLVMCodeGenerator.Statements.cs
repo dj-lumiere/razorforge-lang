@@ -24,81 +24,83 @@ public partial class LlvmCodeGenerator
         SourceLocation? savedLoc = PushDebugLoc(sb: sb, loc: stmt.Location);
         try
         {
-        switch (stmt)
-        {
-            case BlockStatement block:
-                return EmitBlock(sb: sb, block: block);
+            switch (stmt)
+            {
+                case BlockStatement block:
+                    return EmitBlock(sb: sb, block: block);
 
-            case ExpressionStatement exprStmt:
-                EmitExpression(sb: sb, expr: exprStmt.Expression);
-                return false;
+                case ExpressionStatement exprStmt:
+                    EmitExpression(sb: sb, expr: exprStmt.Expression);
+                    return false;
 
-            case DeclarationStatement decl:
-                EmitDeclarationStatement(sb: sb, decl: decl);
-                return false;
+                case DeclarationStatement decl:
+                    EmitDeclarationStatement(sb: sb, decl: decl);
+                    return false;
 
-            case AssignmentStatement assign:
-                EmitAssignment(sb: sb, assign: assign);
-                return false;
+                case AssignmentStatement assign:
+                    EmitAssignment(sb: sb, assign: assign);
+                    return false;
 
-            case ReturnStatement ret:
-                EmitReturn(sb: sb, ret: ret);
-                return true; // Return terminates the block
+                case ReturnStatement ret:
+                    EmitReturn(sb: sb, ret: ret);
+                    return true; // Return terminates the block
 
-            case IfStatement ifStmt:
-                return EmitIf(sb: sb, ifStmt: ifStmt);
+                case IfStatement ifStmt:
+                    return EmitIf(sb: sb, ifStmt: ifStmt);
 
-            case LoopStatement loopStmt:
-                EmitLoop(sb: sb, loopStmt: loopStmt);
-                return false;
+                case LoopStatement loopStmt:
+                    EmitLoop(sb: sb, loopStmt: loopStmt);
+                    return false;
 
-            case BreakStatement:
-                EmitBreak(sb: sb);
-                return true; // Break terminates the block
+                case BreakStatement:
+                    EmitBreak(sb: sb);
+                    return true; // Break terminates the block
 
-            case ContinueStatement:
-                EmitContinue(sb: sb);
-                return true; // Continue terminates the block
+                case ContinueStatement:
+                    EmitContinue(sb: sb);
+                    return true; // Continue terminates the block
 
-            case PassStatement:
-                // No-op, nothing to emit
-                return false;
+                case PassStatement:
+                    // No-op, nothing to emit
+                    return false;
 
-            case DangerStatement danger:
-                // danger block - just emit the body
-                return EmitBlock(sb: sb, block: danger.Body);
+                case DangerStatement danger:
+                    // danger block - just emit the body
+                    return EmitBlock(sb: sb, block: danger.Body);
 
-            case WhenStatement whenStmt:
-                return EmitWhen(sb: sb, whenStmt: whenStmt);
+                case WhenStatement whenStmt:
+                    return EmitWhen(sb: sb, whenStmt: whenStmt);
 
-            case DiscardStatement discard:
-                // Note: creator expressions could skip evaluation entirely (creators have no observable
-                // side effects and their result is being discarded, so the allocation is wasted) — not yet implemented.
-                EmitExpression(sb: sb, expr: discard.Expression);
-                return false;
+                case DiscardStatement discard:
+                    // Note: creator expressions could skip evaluation entirely (creators have no observable
+                    // side effects and their result is being discarded, so the allocation is wasted) — not yet implemented.
+                    EmitExpression(sb: sb, expr: discard.Expression);
+                    return false;
 
-            case UsingStatement:
-                throw new InvalidOperationException(
-                    "UsingStatement reached codegen -> UsingLoweringPass must run before codegen.");
+                case UsingStatement:
+                    throw new InvalidOperationException(
+                        message:
+                        "UsingStatement reached codegen -> UsingLoweringPass must run before codegen.");
 
-            case ThrowStatement throwStmt:
-                EmitThrow(sb: sb, throwStmt: throwStmt);
-                return true; // Throw terminates the block
+                case ThrowStatement throwStmt:
+                    EmitThrow(sb: sb, throwStmt: throwStmt);
+                    return true; // Throw terminates the block
 
-            case AbsentStatement absentStmt:
-                EmitAbsent(sb: sb, absentStmt: absentStmt);
-                return true; // Absent terminates the block
+                case AbsentStatement absentStmt:
+                    EmitAbsent(sb: sb, absentStmt: absentStmt);
+                    return true; // Absent terminates the block
 
-            case VariantReturnStatement variantRet:
-                throw new InvalidOperationException(
-                    $"VariantReturnStatement ({variantRet.VariantKind}/{variantRet.SiteKind}) reached codegen " +
-                    $"in routine [{_currentRoutineDiagName}] (ret={_currentRoutineReturnType?.FullName ?? "null"}) " +
-                    "— VariantReturnLoweringPass must lower all carrier returns to record construction.");
+                case VariantReturnStatement variantRet:
+                    throw new InvalidOperationException(
+                        message:
+                        $"VariantReturnStatement ({variantRet.VariantKind}/{variantRet.SiteKind}) reached codegen " +
+                        $"in routine [{_currentRoutineDiagName}] (ret={_currentRoutineReturnType?.FullName ?? "null"}) " +
+                        "— VariantReturnLoweringPass must lower all carrier returns to record construction.");
 
-            default:
-                throw new NotImplementedException(
-                    message: $"Statement type not implemented: {stmt.GetType().Name}");
-        }
+                default:
+                    throw new NotImplementedException(
+                        message: $"Statement type not implemented: {stmt.GetType().Name}");
+            }
         }
         finally
         {
@@ -112,7 +114,7 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private bool EmitBlock(StringBuilder sb, BlockStatement block)
     {
-        return block.Statements.Any(stmt => EmitStatement(sb: sb, stmt: stmt));
+        return block.Statements.Any(predicate: stmt => EmitStatement(sb: sb, stmt: stmt));
     }
 
     #endregion
@@ -139,27 +141,34 @@ public partial class LlvmCodeGenerator
     private void EmitVariableDeclaration(StringBuilder sb, VariableDeclaration varDecl)
     {
         // Determine the type
-        TypeInfo? varType = ResolveVariableDeclType(varDecl: varDecl)
-            ?? throw UndeterminableVariableType(varDecl: varDecl);
+        TypeInfo? varType = ResolveVariableDeclType(varDecl: varDecl) ??
+                            throw UndeterminableVariableType(varDecl: varDecl);
 
         string llvmType = GetValueLlvmType(type: varType);
 
         // Generate unique LLVM name for this variable (handles shadowing/redeclaration)
         string uniqueName = NextUniqueLocalName(name: varDecl.Name);
         string varPtr = $"%{uniqueName}.addr";
-        EmitEntryAlloca(llvmName: varPtr, llvmType: llvmType, align: ForcedAllocaAlignment(type: varType));
+        EmitEntryAlloca(llvmName: varPtr,
+            llvmType: llvmType,
+            align: ForcedAllocaAlignment(type: varType));
 
         // Register local variable for identifier lookup
         _localVariables[key: varDecl.Name] = varType;
         _localVarLlvmNames[key: varDecl.Name] = uniqueName;
 
-        TrackVariableForCleanup(varDecl: varDecl, varType: varType, varPtr: varPtr,
+        TrackVariableForCleanup(varDecl: varDecl,
+            varType: varType,
+            varPtr: varPtr,
             uniqueName: uniqueName);
 
         // Store initial value if present
         if (varDecl.Initializer == null)
         {
-            EmitLateInitPlaceholder(sb: sb, varDecl: varDecl, varType: varType, llvmType: llvmType,
+            EmitLateInitPlaceholder(sb: sb,
+                varDecl: varDecl,
+                varType: varType,
+                llvmType: llvmType,
                 varPtr: varPtr);
             return;
         }
@@ -174,8 +183,11 @@ public partial class LlvmCodeGenerator
             return;
         }
 
-        value = CoerceInitializerToDeclaredType(sb: sb, varDecl: varDecl, varType: varType,
-            llvmType: llvmType, value: value);
+        value = CoerceInitializerToDeclaredType(sb: sb,
+            varDecl: varDecl,
+            varType: varType,
+            llvmType: llvmType,
+            value: value);
         EmitLine(sb: sb, line: $"  store {llvmType} {value}, ptr {varPtr}");
 
         // NOTE: the per-RC-field retain on an initial RC-field-record copy is now an explicit AST call
@@ -194,7 +206,8 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>Builds the diagnostic thrown when a variable's type cannot be determined.</summary>
-    private static InvalidOperationException UndeterminableVariableType(VariableDeclaration varDecl)
+    private static InvalidOperationException UndeterminableVariableType(
+        VariableDeclaration varDecl)
     {
         string typeText = "<null>";
         if (varDecl.Type != null)
@@ -202,10 +215,13 @@ public partial class LlvmCodeGenerator
             typeText = varDecl.Type.Name;
             if (varDecl.Type.GenericArguments is { Count: > 0 } args)
             {
-                typeText += $"[{string.Join(", ", args.Select(a => a.Name))}]";
+                typeText +=
+                    $"[{string.Join(separator: ", ", values: args.Select(selector: a => a.Name))}]";
             }
         }
-        string initializerText = varDecl.Initializer?.GetType().Name ?? "<null>";
+
+        string initializerText = varDecl.Initializer?.GetType()
+                                        .Name ?? "<null>";
         return new InvalidOperationException(
             message:
             $"Cannot determine type for variable '{varDecl.Name}' (declared type: {typeText}, initializer: {initializerText})");
@@ -219,6 +235,7 @@ public partial class LlvmCodeGenerator
             _varNameCounts[key: name] = count + 1;
             return $"{name}.{count + 1}";
         }
+
         _varNameCounts[key: name] = 1;
         return name;
     }
@@ -235,7 +252,7 @@ public partial class LlvmCodeGenerator
             // Track entity variables for automatic cleanup at return points. Tracked when
             // initialized via constructor (heap allocation) or as a lateinit placeholder.
             case EntityTypeInfo when IsEntityConstructorCall(expr: varDecl.Initializer) ||
-                                     (varDecl.IsLateInit && varDecl.Initializer == null):
+                                     varDecl.IsLateInit && varDecl.Initializer == null:
                 _localEntityVars.Add(item: (varDecl.Name, $"%{uniqueName}.addr"));
                 // Zero-init the alloca: a declaration inside a not-taken conditional still has its
                 // alloca walked by function-level cleanup — zero-init makes rf_invalidate a no-op.
@@ -251,7 +268,9 @@ public partial class LlvmCodeGenerator
             GetGenericBaseName(type: rcWrapRecord) is { } rcWrapBase &&
             RcWrapperBaseNames.Contains(item: rcWrapBase))
         {
-            TrackRcWrapperVariable(varDecl: varDecl, rcWrapRecord: rcWrapRecord, varPtr: varPtr,
+            TrackRcWrapperVariable(varDecl: varDecl,
+                rcWrapRecord: rcWrapRecord,
+                varPtr: varPtr,
                 uniqueName: uniqueName);
         }
     }
@@ -281,10 +300,9 @@ public partial class LlvmCodeGenerator
                 {
                     Object: IdentifierExpression { Name: var srcEntityName } srcRecv
                 }
-            } rcCall
-            && srcRecv.ResolvedType is EntityTypeInfo
-            && rcCall.ResolvedType is { } rcResultType
-            && Declaration.TypeRegistry.GetRcWrapperBaseName(type: rcResultType) is not null)
+            } rcCall && srcRecv.ResolvedType is EntityTypeInfo &&
+            rcCall.ResolvedType is { } rcResultType &&
+            Declaration.TypeRegistry.GetRcWrapperBaseName(type: rcResultType) is not null)
         {
             _localEntityVars.RemoveAll(match: e => e.Name == srcEntityName);
         }
@@ -315,6 +333,7 @@ public partial class LlvmCodeGenerator
             EmitLine(sb: sb, line: $"  store ptr {placeholder}, ptr {varPtr}");
             return;
         }
+
         EmitLine(sb: sb, line: $"  store {llvmType} {GetZeroValue(type: varType)}, ptr {varPtr}");
     }
 
@@ -341,7 +360,10 @@ public partial class LlvmCodeGenerator
         bool initIsScalar = initType is RecordTypeInfo { BackendType: not null };
         bool varIsScalar = varType is RecordTypeInfo { BackendType: not null };
         return initLlvm != llvmType && initIsScalar && varIsScalar
-            ? EmitPrimitiveCast(sb: sb, value: value, fromLlvm: initLlvm, toLlvm: llvmType)
+            ? EmitPrimitiveCast(sb: sb,
+                value: value,
+                fromLlvm: initLlvm,
+                toLlvm: llvmType)
             : value;
     }
 
@@ -352,14 +374,19 @@ public partial class LlvmCodeGenerator
     {
         TypeInfo? varType = null;
         if (varDecl.Type != null)
+        {
             varType = ResolveTypeExpression(typeExpr: varDecl.Type);
+        }
+
         // Declared-type resolution failed (a bare cross-module annotation whose TypeExpression lost its
         // SA-stamped ResolvedType during a body-reconstructing pass — e.g. failable-variant expansion of
         // `var abs_val: Integer = …` in `Integer.to_digit_bytes!()`, IO referencing the Numerics `Integer`,
         // which codegen cannot re-resolve by bare name without the short-name scan). Fall back to the
         // initializer's own resolved type (a hoisted temp identifier already carries it).
         if (varType is null or ErrorTypeInfo && varDecl.Initializer != null)
+        {
             varType = GetExpressionType(expr: varDecl.Initializer) ?? varType;
+        }
 
         // Fall back to the call's explicit generic-return-type resolution only when the
         // inferred varType is null or unresolved-generic. The earlier "ptr-typed" heuristic
@@ -370,23 +397,26 @@ public partial class LlvmCodeGenerator
         // `routine.ReturnType` directly and would overwrite our correct varType with the
         // bare form. Only re-resolve when the existing varType is missing or still has
         // unresolved generic parameters.
-        bool varTypeIsUnresolved = varType is null
-            || varType is ErrorTypeInfo
-            || varType is GenericParameterTypeInfo
-            || ContainsGenericParameter(varType);
+        bool varTypeIsUnresolved = varType is null || varType is ErrorTypeInfo ||
+                                   varType is GenericParameterTypeInfo ||
+                                   ContainsGenericParameter(type: varType);
         if (varDecl.Initializer is CallExpression genericCallInit && varTypeIsUnresolved)
         {
             TypeInfo? explicitGenericReturn =
                 TryResolveExplicitGenericCallReturnType(call: genericCallInit);
             if (explicitGenericReturn != null)
+            {
                 varType = explicitGenericReturn;
+            }
         }
 
         if (varType == null && varDecl.Initializer is CallExpression
             {
                 ConstructedType: { } constructedType
             })
+        {
             varType = constructedType;
+        }
 
         // No name-based fuzzy fallback: the type must come structurally (declared type, initializer's
         // ResolvedType, the call's generic-return, or ConstructedType). If none resolved, the caller
@@ -418,10 +448,12 @@ public partial class LlvmCodeGenerator
             // Signature-only: resolve the overload by the call's concrete argument types.
             routine = _registry.LookupRoutineOverload(baseName: id.Name,
                 argTypes: call.Arguments
-                    .Select(selector: a => GetExpressionType(
-                        expr: a is NamedArgumentExpression na ? na.Value : a))
-                    .OfType<TypeInfo>()
-                    .ToList());
+                              .Select(selector: a => GetExpressionType(
+                                   expr: a is NamedArgumentExpression na
+                                       ? na.Value
+                                       : a))
+                              .OfType<TypeInfo>()
+                              .ToList());
         }
 
         if (routine == null || call.TypeArguments is not { Count: > 0 } explicitTypeArgs)
@@ -429,11 +461,13 @@ public partial class LlvmCodeGenerator
             return routine?.ReturnType;
         }
 
-        if (routine is { IsGenericDefinition: true, GenericParameters: { Count: > 0 } genericParams } &&
+        if (routine is
+                { IsGenericDefinition: true, GenericParameters: { Count: > 0 } genericParams } &&
             explicitTypeArgs.Count == genericParams.Count)
         {
             var resolvedTypeArgs = explicitTypeArgs
-                                  .Select(selector => ResolveTypeExpression(typeExpr: selector))
+                                  .Select(selector: selector =>
+                                       ResolveTypeExpression(typeExpr: selector))
                                   .Where(predicate: t => t != null)
                                   .Cast<TypeInfo>()
                                   .ToList();
@@ -486,12 +520,13 @@ public partial class LlvmCodeGenerator
                 // own reference and tears down normally. Consuming it here (move semantics, for the
                 // strict Retained/Tracked wrappers) would drop a ref the field just retained → underflow.
                 TypeInfo? memberType = GetExpressionType(expr: member);
-                if (memberType == null
-                    || GetGenericBaseName(type: memberType) is not { } targetBase
-                    || targetBase != Declaration.RuntimeContract.Roamed)
+                if (memberType == null ||
+                    GetGenericBaseName(type: memberType) is not { } targetBase ||
+                    targetBase != Declaration.RuntimeContract.Roamed)
                 {
                     ConsumeTransferredLocalOwnership(expr: assign.Value);
                 }
+
                 break;
 
             case IndexExpression index:
@@ -512,7 +547,9 @@ public partial class LlvmCodeGenerator
         // Borrowed-reference values reach here as bare identifiers / member accesses or
         // wrapped in a steal expression. Named arguments also wrap their inner value, so
         // peek through the wrapper to reach the underlying identifier.
-        Expression unwrapped = expr is NamedArgumentExpression named ? named.Value : expr;
+        Expression unwrapped = expr is NamedArgumentExpression named
+            ? named.Value
+            : expr;
         string? sourceName = unwrapped switch
         {
             StealExpression
@@ -549,10 +586,13 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private bool TryEmitAtomicGlobalRmw(StringBuilder sb, Expression target, Expression valueExpr)
     {
-        if (!TryMatchAtomicModuleGlobalRmw(target: target, value: valueExpr,
-                fieldMember: out MemberExpression? fieldMember, isFloat: out bool _,
-                atomicOp: out string? atomicOp, delta: out Expression? delta)
-            || fieldMember is null || atomicOp is null || delta is null)
+        if (!TryMatchAtomicModuleGlobalRmw(target: target,
+                value: valueExpr,
+                fieldMember: out MemberExpression? fieldMember,
+                isFloat: out bool _,
+                atomicOp: out string? atomicOp,
+                delta: out Expression? delta) || fieldMember is null || atomicOp is null ||
+            delta is null)
         {
             return false;
         }
@@ -577,18 +617,32 @@ public partial class LlvmCodeGenerator
     /// the two agree exactly on which RMWs are lock-free.
     /// </summary>
     internal static bool TryMatchAtomicModuleGlobalRmw(Expression target, Expression value,
-        out MemberExpression? fieldMember, out bool isFloat, out string? atomicOp, out Expression? delta)
+        out MemberExpression? fieldMember, out bool isFloat, out string? atomicOp,
+        out Expression? delta)
     {
         fieldMember = null;
         isFloat = false;
         atomicOp = null;
         delta = null;
 
-        if (target is not MemberExpression tm) return false;
-        if (ModuleGlobalsInnerEntity(t: tm.Object.ResolvedType) is null) return false;
-        if (!IsAtomicWidthScalar(t: tm.ResolvedType, isFloat: out isFloat)) return false;
+        if (target is not MemberExpression tm)
+        {
+            return false;
+        }
 
-        Expression v = value is NamedArgumentExpression nav ? nav.Value : value;
+        if (ModuleGlobalsInnerEntity(t: tm.Object.ResolvedType) is null)
+        {
+            return false;
+        }
+
+        if (!IsAtomicWidthScalar(t: tm.ResolvedType, isFloat: out isFloat))
+        {
+            return false;
+        }
+
+        Expression v = value is NamedArgumentExpression nav
+            ? nav.Value
+            : value;
         if (v is not CallExpression
             {
                 Callee: MemberExpression { Object: MemberExpression vm, MemberName: var op },
@@ -597,19 +651,36 @@ public partial class LlvmCodeGenerator
         {
             return false;
         }
-        if (op is not ("add" or "sub")) return false;
-        if (!IsSameSingletonField(tm: tm, vm: vm)) return false;
 
-        Expression d = deltaArg is NamedArgumentExpression nad ? nad.Value : deltaArg;
+        if (op is not ("add" or "sub"))
+        {
+            return false;
+        }
+
+        if (!IsSameSingletonField(tm: tm, vm: vm))
+        {
+            return false;
+        }
+
+        Expression d = deltaArg is NamedArgumentExpression nad
+            ? nad.Value
+            : deltaArg;
         // A field-free delta is a literal / local / atomic snapshot — safe to read unlocked. If it read a
         // heavy (non-atomic) field, the unlocked read could tear, so those fall back to the locked path.
-        if (ReferencesModuleGlobalField(e: d)) return false;
+        if (ReferencesModuleGlobalField(e: d))
+        {
+            return false;
+        }
 
         fieldMember = tm;
         atomicOp = isFloat switch
         {
-            true  => op == "add" ? "fadd" : "fsub",
-            false => op == "add" ? "add"  : "sub"
+            true => op == "add"
+                ? "fadd"
+                : "fsub",
+            false => op == "add"
+                ? "add"
+                : "sub"
         };
         delta = d;
         return true;
@@ -619,10 +690,8 @@ public partial class LlvmCodeGenerator
     /// member expressions both name the same field on the same <c>__globals__</c> singleton identifier.</summary>
     private static bool IsSameSingletonField(MemberExpression tm, MemberExpression vm)
     {
-        return tm.MemberName == vm.MemberName
-            && tm.Object is IdentifierExpression ti
-            && vm.Object is IdentifierExpression vi
-            && ti.Name == vi.Name;
+        return tm.MemberName == vm.MemberName && tm.Object is IdentifierExpression ti &&
+               vm.Object is IdentifierExpression vi && ti.Name == vi.Name;
     }
 
     /// <summary>The <c>__ModuleGlobals</c> entity inside a <c>Roamed[__ModuleGlobals]</c> handle type,
@@ -631,14 +700,20 @@ public partial class LlvmCodeGenerator
     {
         EntityTypeInfo? inner = t switch
         {
-            WrapperTypeInfo { Name: Declaration.RuntimeContract.Roamed, InnerType: EntityTypeInfo e } => e,
+            WrapperTypeInfo
+            {
+                Name: Declaration.RuntimeContract.Roamed, InnerType: EntityTypeInfo e
+            } => e,
             RecordTypeInfo
             {
-                GenericDefinition.Name: Declaration.RuntimeContract.Roamed, TypeArguments: [EntityTypeInfo e]
+                GenericDefinition.Name: Declaration.RuntimeContract.Roamed,
+                TypeArguments: [EntityTypeInfo e]
             } => e,
             _ => null
         };
-        return inner?.BareName == Builder.Program.ModuleGlobalsEntityName ? inner : null;
+        return inner?.BareName == Builder.Program.ModuleGlobalsEntityName
+            ? inner
+            : null;
     }
 
     private static bool IsAtomicWidthScalar(TypeInfo? t, out bool isFloat)
@@ -658,12 +733,16 @@ public partial class LlvmCodeGenerator
 
     private static bool ReferencesModuleGlobalField(Expression e)
     {
-        var found = false;
-        AstWalker.WalkExpressions(root: e, visit: n =>
-        {
-            if (n is MemberExpression m && ModuleGlobalsInnerEntity(t: m.Object.ResolvedType) is not null)
-                found = true;
-        });
+        bool found = false;
+        AstWalker.WalkExpressions(root: e,
+            visit: n =>
+            {
+                if (n is MemberExpression m &&
+                    ModuleGlobalsInnerEntity(t: m.Object.ResolvedType) is not null)
+                {
+                    found = true;
+                }
+            });
         return found;
     }
 
@@ -673,13 +752,18 @@ public partial class LlvmCodeGenerator
     {
         EntityTypeInfo entity = ModuleGlobalsInnerEntity(t: fieldMember.Object.ResolvedType)!;
         string handle = EmitExpression(sb: sb, expr: fieldMember.Object);
-        TypeInfo? controllerType = _registry.LookupType(name: $"RoamController[{entity.FullName}]")
-            ?? _registry.LookupType(name: $"Core.RoamController[{entity.FullName}]");
+        TypeInfo? controllerType =
+            _registry.LookupType(name: $"RoamController[{entity.FullName}]") ??
+            _registry.LookupType(name: $"Core.RoamController[{entity.FullName}]");
         string entityPtr = controllerType is EntityTypeInfo controllerEntity
-            ? EmitEntityMemberVariableRead(sb: sb, entityPtr: handle, entity: controllerEntity,
+            ? EmitEntityMemberVariableRead(sb: sb,
+                entityPtr: handle,
+                entity: controllerEntity,
                 memberVariableName: "data")
             : handle;
-        return EmitEntityMemberVariableFieldPointer(sb: sb, entityPtr: entityPtr, entity: entity,
+        return EmitEntityMemberVariableFieldPointer(sb: sb,
+            entityPtr: entityPtr,
+            entity: entity,
             memberVariableName: fieldMember.MemberName);
     }
 
@@ -688,18 +772,25 @@ public partial class LlvmCodeGenerator
     private string EmitEntityMemberVariableFieldPointer(StringBuilder sb, string entityPtr,
         EntityTypeInfo entity, string memberVariableName)
     {
-        entity = RefreshEntityMemberVariables(entity: entity, memberVariableName: memberVariableName);
+        entity = RefreshEntityMemberVariables(entity: entity,
+            memberVariableName: memberVariableName);
         GenerateEntityType(entity: entity);
 
         int idx = -1;
         for (int i = 0; i < entity.MemberVariables.Count; i++)
         {
-            if (entity.MemberVariables[index: i].Name == memberVariableName) { idx = i; break; }
+            if (entity.MemberVariables[index: i].Name == memberVariableName)
+            {
+                idx = i;
+                break;
+            }
         }
+
         if (idx < 0)
         {
             throw new InvalidOperationException(
-                message: $"Member variable '{memberVariableName}' not found on entity '{entity.FullName}'");
+                message:
+                $"Member variable '{memberVariableName}' not found on entity '{entity.FullName}'");
         }
 
         string typeName = GetEntityTypeName(entity: entity);
@@ -718,10 +809,12 @@ public partial class LlvmCodeGenerator
         if (!_localVariables.TryGetValue(key: varName, value: out TypeInfo? varType))
         {
             // Suflae module-level `global`: store to its `@global` symbol.
-            if (_moduleGlobals.TryGetValue(key: varName, value: out (TypeInfo Type, string Symbol) gslot))
+            if (_moduleGlobals.TryGetValue(key: varName,
+                    value: out (TypeInfo Type, string Symbol) gslot))
             {
                 EmitLine(sb: sb,
-                    line: $"  store {GetValueLlvmType(type: gslot.Type)} {value}, ptr {gslot.Symbol}");
+                    line:
+                    $"  store {GetValueLlvmType(type: gslot.Type)} {value}, ptr {gslot.Symbol}");
                 return;
             }
 
@@ -780,7 +873,9 @@ public partial class LlvmCodeGenerator
             !(GetGenericBaseName(type: structRecord) is { } srBase &&
               WrapperTypeNames.Contains(item: srBase)))
         {
-            EmitStructRecordMemberVariableWrite(sb: sb, member: member, value: value,
+            EmitStructRecordMemberVariableWrite(sb: sb,
+                member: member,
+                value: value,
                 structRecord: structRecord);
             return;
         }
@@ -806,10 +901,14 @@ public partial class LlvmCodeGenerator
                  WrapperTypeNames.Contains(item: wrapRecBaseName) &&
                  wrapperRecOfRec is { BackendType: not null, TypeArguments.Count: > 0 } &&
                  wrapperRecOfRec.TypeArguments[index: 0] is RecordTypeInfo innerRecord &&
-                 !wrapperRecOfRec.MemberVariables.Any(predicate: mv => mv.Name == member.MemberName))
+                 !wrapperRecOfRec.MemberVariables.Any(
+                     predicate: mv => mv.Name == member.MemberName))
         {
-            EmitWrapperOfRecordMemberVariableWrite(sb: sb, member: member, value: value,
-                target: target, innerRecord: innerRecord);
+            EmitWrapperOfRecordMemberVariableWrite(sb: sb,
+                member: member,
+                value: value,
+                target: target,
+                innerRecord: innerRecord);
         }
         // Wrapper type forwarding: Modifying[T], Amending[T], etc. -> write through to inner entity
         else if (targetType is RecordTypeInfo wrapperRecord &&
@@ -818,8 +917,14 @@ public partial class LlvmCodeGenerator
                  wrapperRecord.TypeArguments is { Count: > 0 } &&
                  wrapperRecord.TypeArguments[index: 0] is EntityTypeInfo innerEntity)
         {
-            EmitWrapperForwardingMemberVariableWrite(sb: sb, member: member, value: value,
-                valueType: valueType, ctx: new WrapperWriteContext(target, wrapperRecord, wrapBaseName, innerEntity));
+            EmitWrapperForwardingMemberVariableWrite(sb: sb,
+                member: member,
+                value: value,
+                valueType: valueType,
+                ctx: new WrapperWriteContext(Target: target,
+                    WrapperRecord: wrapperRecord,
+                    WrapBaseName: wrapBaseName,
+                    InnerEntity: innerEntity));
         }
         else
         {
@@ -888,23 +993,29 @@ public partial class LlvmCodeGenerator
         string innerRecordTypeName = GetRecordTypeName(record: innerRecord);
         string fieldPtr = NextTemp();
         EmitLine(sb: sb,
-            line: $"  {fieldPtr} = getelementptr {innerRecordTypeName}, ptr {target}, i32 0, i32 {fieldIndex}");
+            line:
+            $"  {fieldPtr} = getelementptr {innerRecordTypeName}, ptr {target}, i32 0, i32 {fieldIndex}");
         EmitLine(sb: sb,
             line: $"  store {GetLlvmType(type: fieldInfo.Type)} {value}, ptr {fieldPtr}");
     }
 
     /// <summary>Forwards a field write through a wrapper (Modifying[T], Retained[T], Roamed[T], …) to
     /// the inner entity, projecting through the controller's <c>data</c> where needed.</summary>
-    private void EmitWrapperForwardingMemberVariableWrite(StringBuilder sb, MemberExpression member,
-        string value, TypeInfo? valueType, WrapperWriteContext ctx)
+    private void EmitWrapperForwardingMemberVariableWrite(StringBuilder sb,
+        MemberExpression member, string value, TypeInfo? valueType,
+        WrapperWriteContext ctx)
     {
         // Roamed[T] projects through RoamController.data and writes directly — handled separately
         // because the access-lock bracket is already inserted around the whole statement by
         // RoamedLockBracketLoweringPass; codegen just projects + stores here.
-        if (ctx.WrapperRecord.BackendType != null && ctx.WrapBaseName == Declaration.RuntimeContract.Roamed)
+        if (ctx.WrapperRecord.BackendType != null &&
+            ctx.WrapBaseName == Declaration.RuntimeContract.Roamed)
         {
-            EmitRoamedWrapperMemberVariableWrite(sb: sb, member: member, value: value,
-                valueType: valueType, ctx: ctx);
+            EmitRoamedWrapperMemberVariableWrite(sb: sb,
+                member: member,
+                value: value,
+                valueType: valueType,
+                ctx: ctx);
             return;
         }
 
@@ -921,14 +1032,21 @@ public partial class LlvmCodeGenerator
     private void EmitRoamedWrapperMemberVariableWrite(StringBuilder sb, MemberExpression member,
         string value, TypeInfo? valueType, WrapperWriteContext ctx)
     {
-        TypeInfo? controllerType = _registry.LookupType(
-            name: $"RoamController[{ctx.InnerEntity.FullName}]")
-            ?? _registry.LookupType(name: $"Core.RoamController[{ctx.InnerEntity.FullName}]");
+        TypeInfo? controllerType =
+            _registry.LookupType(name: $"RoamController[{ctx.InnerEntity.FullName}]") ??
+            _registry.LookupType(name: $"Core.RoamController[{ctx.InnerEntity.FullName}]");
         string roamEntPtr = controllerType is EntityTypeInfo controllerEntity
-            ? EmitEntityMemberVariableRead(sb: sb, entityPtr: ctx.Target, entity: controllerEntity, memberVariableName: "data")
+            ? EmitEntityMemberVariableRead(sb: sb,
+                entityPtr: ctx.Target,
+                entity: controllerEntity,
+                memberVariableName: "data")
             : ctx.Target;
-        EmitEntityMemberVariableWrite(sb: sb, entityPtr: roamEntPtr, entity: ctx.InnerEntity,
-            memberVariableName: member.MemberName, value: value, valueType: valueType);
+        EmitEntityMemberVariableWrite(sb: sb,
+            entityPtr: roamEntPtr,
+            entity: ctx.InnerEntity,
+            memberVariableName: member.MemberName,
+            value: value,
+            valueType: valueType);
     }
 
     /// <summary>
@@ -944,13 +1062,17 @@ public partial class LlvmCodeGenerator
         // Retained[T] / Tracked[T]: pointer targets a RetainController[T]; the entity lives in
         // its `data` field. Without this, writes would store into the controller's strong_count.
         if (wrapperRecord.BackendType != null &&
-            (ctx.WrapBaseName == Declaration.RuntimeContract.Retained || ctx.WrapBaseName == Declaration.RuntimeContract.Tracked))
+            (ctx.WrapBaseName == Declaration.RuntimeContract.Retained ||
+             ctx.WrapBaseName == Declaration.RuntimeContract.Tracked))
         {
-            TypeInfo? controllerType = _registry.LookupType(
-                name: $"RetainController[{innerEntity.FullName}]")
-                ?? _registry.LookupType(name: $"Core.RetainController[{innerEntity.FullName}]");
+            TypeInfo? controllerType =
+                _registry.LookupType(name: $"RetainController[{innerEntity.FullName}]") ??
+                _registry.LookupType(name: $"Core.RetainController[{innerEntity.FullName}]");
             return controllerType is EntityTypeInfo controllerEntity
-                ? EmitEntityMemberVariableRead(sb: sb, entityPtr: target, entity: controllerEntity, memberVariableName: "data")
+                ? EmitEntityMemberVariableRead(sb: sb,
+                    entityPtr: target,
+                    entity: controllerEntity,
+                    memberVariableName: "data")
                 : target;
         }
 
@@ -963,8 +1085,10 @@ public partial class LlvmCodeGenerator
         // Struct wrapper: extract the Hijacked[T] field that holds the inner entity pointer.
         string recordTypeName = GetRecordTypeName(record: wrapperRecord);
         string innerPtr = NextTemp();
-        int dataFieldIndex = FindHijackedFieldIndex(wrapperRecord: wrapperRecord, innerEntity: innerEntity);
-        EmitLine(sb: sb, line: $"  {innerPtr} = extractvalue {recordTypeName} {target}, {dataFieldIndex}");
+        int dataFieldIndex =
+            FindHijackedFieldIndex(wrapperRecord: wrapperRecord, innerEntity: innerEntity);
+        EmitLine(sb: sb,
+            line: $"  {innerPtr} = extractvalue {recordTypeName} {target}, {dataFieldIndex}");
         return innerPtr;
     }
 
@@ -987,7 +1111,10 @@ public partial class LlvmCodeGenerator
         // discard writes -> so keep the pointer-based dispatch inline for this case.
         if (IsInlineRecordSetItem(setItem: setItem, targetType: targetType))
         {
-            EmitInlineRecordSetItem(sb: sb, index: index, rhs: rhs, setItem: setItem!,
+            EmitInlineRecordSetItem(sb: sb,
+                index: index,
+                rhs: rhs,
+                setItem: setItem!,
                 targetType: targetType!);
             return;
         }
@@ -1012,7 +1139,10 @@ public partial class LlvmCodeGenerator
             return;
         }
 
-        EmitRawIndexStore(sb: sb, index: index, rhs: rhs, targetType: targetType);
+        EmitRawIndexStore(sb: sb,
+            index: index,
+            rhs: rhs,
+            targetType: targetType);
     }
 
     /// <summary>
@@ -1023,7 +1153,7 @@ public partial class LlvmCodeGenerator
     {
         if (setItem == null || targetType is not RecordTypeInfo ||
             !setItem.Name.Contains(value: "setitem") ||
-            (setItem.IsGenericDefinition && !targetType.IsGenericResolution))
+            setItem.IsGenericDefinition && !targetType.IsGenericResolution)
         {
             return false;
         }
@@ -1033,10 +1163,11 @@ public partial class LlvmCodeGenerator
         // Owned[List[S64]] -> inner List[S64].setitem!(i64)) — that symbol doesn't exist inline, so
         // escape to the standard memberRoutine-dispatch path. Skipped for const-generic owners (never
         // wrapper forwarders).
-        bool isWrapperForwardingSetItem =
-            setItem.Parameters.Count >= 2 &&
-            targetType.TypeArguments is [not ConstGenericValueTypeInfo] &&
-            setItem.Parameters[^1].Type.FullName != targetType.TypeArguments[^1].FullName;
+        bool isWrapperForwardingSetItem = setItem.Parameters.Count >= 2 &&
+                                          targetType.TypeArguments is
+                                              [not ConstGenericValueTypeInfo] &&
+                                          setItem.Parameters[^1].Type.FullName !=
+                                          targetType.TypeArguments[^1].FullName;
         return !isWrapperForwardingSetItem;
     }
 
@@ -1054,7 +1185,9 @@ public partial class LlvmCodeGenerator
         string mangledName = MangleRoutineName(routine: setItem);
         GenerateRoutineDeclaration(routine: setItem);
 
-        string indexLlvm = indexType != null ? GetLlvmType(type: indexType) : "i64";
+        string indexLlvm = indexType != null
+            ? GetLlvmType(type: indexType)
+            : "i64";
         string valueLlvm = ResolveSetItemValueLlvm(setItem: setItem, targetType: targetType);
         // ABI-Indirect value: a record value param (e.g. `value: Point`) is passed as `ptr byval(%T)`
         // on the callee side (Win64 passes a >8-byte record indirectly). This inline path emits the
@@ -1062,14 +1195,20 @@ public partial class LlvmCodeGenerator
         // the raw struct SSA value lands where the callee expects a pointer and the callee dereferences
         // garbage (AV). Scalar value params (i64, …) fall through unchanged.
         TypeInfo? rhsType = GetExpressionType(expr: rhs);
-        if (rhsType != null && setItem.Parameters is [.., { Type: not GenericParameterTypeInfo } valueParam]
-            && TryCoerceArgToByval(sb: sb, argValue: value, actualType: rhsType,
-                parameterType: valueParam.Type, callee: setItem,
-                newValue: out string byvalValue, newType: out string byvalType))
+        if (rhsType != null &&
+            setItem.Parameters is [.., { Type: not GenericParameterTypeInfo } valueParam] &&
+            TryCoerceArgToByval(sb: sb,
+                argValue: value,
+                actualType: rhsType,
+                parameterType: valueParam.Type,
+                callee: setItem,
+                newValue: out string byvalValue,
+                newType: out string byvalType))
         {
             value = byvalValue;
             valueLlvm = byvalType;
         }
+
         EmitLine(sb: sb,
             line:
             $"  call void @{mangledName}(ptr {receiver}, {indexLlvm} {indexValue}, {valueLlvm} {value})");
@@ -1086,12 +1225,14 @@ public partial class LlvmCodeGenerator
         {
             return GetLlvmType(type: setItem.Parameters[^1].Type);
         }
+
         // Wrong for single-arg wrappers like Owned[List[S64]] (last type-arg is List[S64], not S64),
         // but those take the wrapper-forwarding path — this only fires for unresolved generic params.
         if (targetType.TypeArguments is { Count: > 0 })
         {
             return GetLlvmType(type: targetType.TypeArguments[^1]);
         }
+
         return "i64";
     }
 
@@ -1170,14 +1311,16 @@ public partial class LlvmCodeGenerator
         string? skipLabel = null;
         if (IsMaybeType(type: recordType))
         {
-            MemberVariableInfo? presentField = recordType.MemberVariables
-                .FirstOrDefault(f => f.Name == Declaration.RuntimeContract.Carrier.PresentField);
+            MemberVariableInfo? presentField =
+                recordType.MemberVariables.FirstOrDefault(predicate: f =>
+                    f.Name == Declaration.RuntimeContract.Carrier.PresentField);
             if (presentField != null)
             {
                 // Maybe `present` is a Bool stored as i8 — trunc to i1 for the branch.
                 string presentByte = NextTemp();
                 EmitLine(sb: sb,
-                    line: $"  {presentByte} = extractvalue {llvmType} {loaded}, {presentField.Index}");
+                    line:
+                    $"  {presentByte} = extractvalue {llvmType} {loaded}, {presentField.Index}");
                 string presentVal = NextTemp();
                 EmitLine(sb: sb, line: $"  {presentVal} = trunc i8 {presentByte} to i1");
                 string doLabel = NextLabel(prefix: "rcrel_do");
@@ -1202,7 +1345,8 @@ public partial class LlvmCodeGenerator
             // Unified teardown: tear the RC-wrapper field down via its `destroy` (which forwards
             // to `release`→controller), not `release` directly — keeps every teardown on one verb.
             RoutineInfo? destroyMemberRoutine = _registry.LookupMemberRoutineOverload(type: w,
-                memberRoutineName: "destroy", argTypes: new List<TypeInfo>());
+                memberRoutineName: "destroy",
+                argTypes: new List<TypeInfo>());
             if (destroyMemberRoutine == null)
             {
                 continue;
@@ -1251,9 +1395,9 @@ public partial class LlvmCodeGenerator
             return;
         }
 
-        RoutineInfo? releaseMemberRoutine =
-            _registry.LookupMemberRoutineOverload(type: recordType, memberRoutineName: "destroy",
-                argTypes: new List<TypeInfo>());
+        RoutineInfo? releaseMemberRoutine = _registry.LookupMemberRoutineOverload(type: recordType,
+            memberRoutineName: "destroy",
+            argTypes: new List<TypeInfo>());
         if (releaseMemberRoutine == null)
         {
             return;
@@ -1297,9 +1441,15 @@ public partial class LlvmCodeGenerator
         string endLabel = NextLabel(prefix: "if_end");
 
         return ifStmt.ElseBranch != null
-            ? EmitIfElse(sb: sb, ifStmt: ifStmt, condition: condition, thenLabel: thenLabel,
+            ? EmitIfElse(sb: sb,
+                ifStmt: ifStmt,
+                condition: condition,
+                thenLabel: thenLabel,
                 endLabel: endLabel)
-            : EmitIfNoElse(sb: sb, ifStmt: ifStmt, condition: condition, thenLabel: thenLabel,
+            : EmitIfNoElse(sb: sb,
+                ifStmt: ifStmt,
+                condition: condition,
+                thenLabel: thenLabel,
                 endLabel: endLabel);
     }
 

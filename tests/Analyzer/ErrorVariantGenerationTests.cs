@@ -12,10 +12,10 @@ using static TestHelpers;
 public class ErrorVariantGenerationTests
 {
     #region Maybe Variant (absent only)
+
     /// <summary>
     /// Verifies semantic analysis behavior for failable with absent only generates try variant.
     /// </summary>
-
     [Fact]
     public void Analyze_FailableWithAbsentOnly_GeneratesTryVariant()
     {
@@ -51,10 +51,10 @@ public class ErrorVariantGenerationTests
     #endregion
 
     #region Result Variant (throw only)
+
     /// <summary>
     /// Verifies semantic analysis behavior for failable with throw only generates check and try variants.
     /// </summary>
-
     [Fact]
     public void Analyze_FailableWithThrowOnly_GeneratesCheckAndTryVariants()
     {
@@ -97,10 +97,10 @@ public class ErrorVariantGenerationTests
     #endregion
 
     #region Lookup Variant (throw AND absent)
+
     /// <summary>
     /// Verifies semantic analysis behavior for failable with both throw and absent generates lookup and try variants.
     /// </summary>
-
     [Fact]
     public void Analyze_FailableWithBothThrowAndAbsent_GeneratesLookupAndTryVariants()
     {
@@ -154,10 +154,10 @@ public class ErrorVariantGenerationTests
     #endregion
 
     #region Variant Generation for memberRoutines
+
     /// <summary>
     /// Verifies semantic analysis behavior for failable memberRoutine generates variants.
     /// </summary>
-
     [Fact]
     public void Analyze_FailableMemberRoutine_GeneratesVariants()
     {
@@ -184,10 +184,10 @@ public class ErrorVariantGenerationTests
     #endregion
 
     #region No Variant Generation
+
     /// <summary>
     /// Verifies semantic analysis behavior for non failable routine no variants generated.
     /// </summary>
-
     [Fact]
     public void Analyze_NonFailableRoutine_NoVariantsGenerated()
     {
@@ -206,7 +206,6 @@ public class ErrorVariantGenerationTests
     /// <summary>
     /// Verifies semantic analysis behavior for failable with no throw or absent warns or errors.
     /// </summary>
-
     [Fact]
     public void Analyze_FailableWithNoThrowOrAbsent_WarnsOrErrors()
     {
@@ -225,6 +224,7 @@ public class ErrorVariantGenerationTests
     #endregion
 
     #region Error Cases
+
     /// <summary>
     /// Failability is now INFERRED: a <c>throw</c> in a routine NOT declared <c>!</c> no longer emits
     /// ThrowOutsideFailableFunction — the routine is inferred-failable instead.
@@ -272,7 +272,6 @@ public class ErrorVariantGenerationTests
     /// <summary>
     /// Verifies semantic analysis behavior for throw non crashable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ThrowNonCrashable_ReportsError()
     {
@@ -298,10 +297,10 @@ public class ErrorVariantGenerationTests
     #endregion
 
     #region Variant Naming Convention
+
     /// <summary>
     /// Verifies semantic analysis behavior for variant names follow convention.
     /// </summary>
-
     [Fact]
     public void Analyze_VariantNames_FollowConvention()
     {
@@ -338,10 +337,10 @@ public class ErrorVariantGenerationTests
     #endregion
 
     #region Error Handling Types Not Passable as Parameters
+
     /// <summary>
     /// Verifies semantic analysis behavior for result as parameter and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ResultAsParameter_ReportsError()
     {
@@ -368,7 +367,6 @@ public class ErrorVariantGenerationTests
     /// <summary>
     /// Verifies semantic analysis behavior for lookup as parameter and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_LookupAsParameter_ReportsError()
     {

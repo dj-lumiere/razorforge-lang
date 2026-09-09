@@ -1,3 +1,5 @@
+using SyntaxTree;
+
 namespace RazorForge.Tests.Parser;
 
 using static TestHelpers;
@@ -88,7 +90,7 @@ public class TrailingBangCallTests
                         routine g!() -> S64
                           return 0_s64
                         """;
-        var result = Parse(source: source);
-        Assert.NotNull(result);
+        Program result = Parse(source: source);
+        Assert.NotNull(@object: result);
     }
 }

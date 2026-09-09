@@ -24,6 +24,7 @@ public sealed partial class TypeRegistry
     /// </summary>
     [ThreadStatic]
     private static TypeRegistry? _ambient;
+
     /// <summary>Thread-local ambient registry; set by the constructor so test isolation works without injection.</summary>
     public static TypeRegistry? Ambient => _ambient;
 
@@ -31,7 +32,10 @@ public sealed partial class TypeRegistry
     /// constructor so each new <see cref="TypeRegistry"/> registers itself as the current thread's ambient,
     /// enabling static helpers (e.g. <see cref="RoutineInfo"/> Substitute methods) to resolve generics
     /// without requiring a registry parameter at every call site.</summary>
-    private static void RegisterAsAmbient(TypeRegistry registry) => _ambient = registry;
+    private static void RegisterAsAmbient(TypeRegistry registry)
+    {
+        _ambient = registry;
+    }
 
     /// <summary>The language being built. Settable so the stdlib (always RazorForge source) can be
     /// analyzed in RazorForge mode during a Suflae compile — see SemanticVerifier.AnalyzeStdlibBodies.</summary>
@@ -99,18 +103,27 @@ public sealed partial class TypeRegistry
     /// <summary>
     /// Stores the live-type set computed by TypeLivenessPass.  Called once, before Phase 6 synthesis.
     /// </summary>
-    public void SetLiveConcreteTypes(HashSet<string> liveTypes) => _liveConcreteTypes = liveTypes;
+    public void SetLiveConcreteTypes(HashSet<string> liveTypes)
+    {
+        _liveConcreteTypes = liveTypes;
+    }
 
     /// <summary>Enables GMP discovery tracking. After this call, newly created EntityTypeInfo/
     /// RecordTypeInfo instances are pushed to the discovery queue.</summary>
-    public void StartGmpDiscoveryTracking() => _gmpDiscoveryQueue = new Queue<TypeInfo>();
+    public void StartGmpDiscoveryTracking()
+    {
+        _gmpDiscoveryQueue = new Queue<TypeInfo>();
+    }
 
     /// <summary>Drains and returns all types discovered since the last drain (or since tracking
     /// started). Returns empty if tracking is not active.</summary>
     public List<TypeInfo> DrainGmpDiscoveryQueue()
     {
         if (_gmpDiscoveryQueue == null || _gmpDiscoveryQueue.Count == 0)
+        {
             return [];
+        }
+
         var result = _gmpDiscoveryQueue.ToList();
         _gmpDiscoveryQueue.Clear();
         return result;
@@ -119,10 +132,16 @@ public sealed partial class TypeRegistry
     /// <summary>Called at the start of <c>AnalyzeStdlibBodies</c>. New resolutions created
     /// inside this window are marked <see cref="TypeInfo.IsStdlibLazy"/> and excluded from
     /// GMP iteration until user code references them.</summary>
-    public void BeginStdlibAnalysis() => _stdlibAnalysisActive = true;
+    public void BeginStdlibAnalysis()
+    {
+        _stdlibAnalysisActive = true;
+    }
 
     /// <summary>Called at the end of <c>AnalyzeStdlibBodies</c>. Resumes normal eager resolution.</summary>
-    public void EndStdlibAnalysis() => _stdlibAnalysisActive = false;
+    public void EndStdlibAnalysis()
+    {
+        _stdlibAnalysisActive = false;
+    }
 
     /// <summary>
     /// Clears <see cref="TypeInfo.IsStdlibLazy"/> on <paramref name="type"/> and enqueues it
@@ -130,14 +149,26 @@ public sealed partial class TypeRegistry
     /// </summary>
     private void MaterializeIfLazy(TypeInfo type)
     {
-        if (!type.IsStdlibLazy) return;
-        type.IsStdlibLazy = false;
-        if (_gmpDiscoveryQueue == null || type is not (EntityTypeInfo or RecordTypeInfo) || !IsFullyConcrete(type))
+        if (!type.IsStdlibLazy)
+        {
             return;
+        }
+
+        type.IsStdlibLazy = false;
+        if (_gmpDiscoveryQueue == null || type is not (EntityTypeInfo or RecordTypeInfo) ||
+            !IsFullyConcrete(t: type))
+        {
+            return;
+        }
+
         string bareBaseName = type.BareName;
         bool isSelfNesting = type.TypeArguments != null &&
-                             type.TypeArguments.Any(arg => arg.FullName.Contains(bareBaseName));
-        if (!isSelfNesting) _gmpDiscoveryQueue.Enqueue(type);
+                             type.TypeArguments.Any(predicate: arg =>
+                                 arg.FullName.Contains(value: bareBaseName));
+        if (!isSelfNesting)
+        {
+            _gmpDiscoveryQueue.Enqueue(item: type);
+        }
     }
 
     /// <summary>
@@ -145,12 +176,11 @@ public sealed partial class TypeRegistry
     /// Always true for non-generic types and generic definitions; for concrete generic instances,
     /// requires the type to have been included in the live set by TypeLivenessPass.
     /// </summary>
-    private bool IsConcreteTypeLive(TypeInfo t) =>
-        _liveConcreteTypes == null ||
-        t.IsGenericDefinition ||
-        t.TypeArguments == null ||
-        t.TypeArguments.Count == 0 ||
-        _liveConcreteTypes.Contains(t.FullName);
+    private bool IsConcreteTypeLive(TypeInfo t)
+    {
+        return _liveConcreteTypes == null || t.IsGenericDefinition || t.TypeArguments == null ||
+               t.TypeArguments.Count == 0 || _liveConcreteTypes.Contains(item: t.FullName);
+    }
 
     /// <summary>
     /// Wrapper type resolutions cache for synthesized scoped/RC wrappers
@@ -213,7 +243,10 @@ public sealed partial class TypeRegistry
     /// convention — which misses modules whose file name differs from their declared name
     /// and knows nothing about external library directories.
     /// </summary>
-    public void UseModuleResolver(ModuleResolver resolver) => _moduleResolver = resolver;
+    public void UseModuleResolver(ModuleResolver resolver)
+    {
+        _moduleResolver = resolver;
+    }
 
     /// <summary>
     /// Marks a module as already provided by the current compilation, so an
@@ -256,7 +289,8 @@ public sealed partial class TypeRegistry
     /// by-name level makes `owner.MemberRoutine` lookup O(1) (no list scan), and — because a bare generic-param
     /// owner (`routine T.m()`) is stored under the canonical key <see cref="GenericOwnerKey"/> — lets a
     /// receiver-agnostic default-impl member routine resolve by name off the SAME store, no separate index.</summary>
-    private readonly Dictionary<string, Dictionary<string, List<RoutineInfo>>> _routinesByOwner = new();
+    private readonly Dictionary<string, Dictionary<string, List<RoutineInfo>>> _routinesByOwner =
+        new();
 
     /// <summary>Canonical owner key for a bare generic-parameter owner (`routine T.m()` / `E.m()` / …): the
     /// param name is arbitrary for a default-impl member routine, so they all share one key so `x.m()` on a
@@ -269,21 +303,31 @@ public sealed partial class TypeRegistry
     internal const string FreeOwnerKey = "$free";
 
     /// <summary>The flattened memberRoutine list for an owner (all overloads across all memberRoutine names), or empty.</summary>
-    private static IEnumerable<RoutineInfo> OwnerMemberRoutines(Dictionary<string, List<RoutineInfo>>? byName)
-        => byName?.Values.SelectMany(selector: l => l) ?? Enumerable.Empty<RoutineInfo>();
+    private static IEnumerable<RoutineInfo> OwnerMemberRoutines(
+        Dictionary<string, List<RoutineInfo>>? byName)
+    {
+        return byName?.Values.SelectMany(selector: l => l) ?? Enumerable.Empty<RoutineInfo>();
+    }
 
     /// <summary>Derive memberRoutine NAMES that are OPT-IN (capability-conferred): any `@overridable/@override
     /// T.m()` whose gate is a `needs P everywhere` / `needs T obeys P` capability constraint. Once a memberRoutine
     /// is opt-in, ALL its derive templates — including KIND-gated overrides (`needs T is VariantType`) —
     /// stay opt-in (must NOT become live universals). Keyed by name so a kind-override registered AFTER its
     /// capability-gated base is classified consistently. Populated during stdlib load.</summary>
-    private readonly HashSet<string> _optInDeriveMemberRoutines = new(comparer: StringComparer.Ordinal);
+    private readonly HashSet<string> _optInDeriveMemberRoutines =
+        new(comparer: StringComparer.Ordinal);
 
     /// <summary>Marks a derive memberRoutine name opt-in (capability-conferred) — see <see cref="_optInDeriveMemberRoutines"/>.</summary>
-    public void MarkOptInDeriveMemberRoutine(string memberRoutine) => _optInDeriveMemberRoutines.Add(item: memberRoutine);
+    public void MarkOptInDeriveMemberRoutine(string memberRoutine)
+    {
+        _optInDeriveMemberRoutines.Add(item: memberRoutine);
+    }
 
     /// <summary>True if a derive memberRoutine name was marked opt-in via a capability gate.</summary>
-    public bool IsOptInDeriveMemberRoutine(string memberRoutine) => _optInDeriveMemberRoutines.Contains(item: memberRoutine);
+    public bool IsOptInDeriveMemberRoutine(string memberRoutine)
+    {
+        return _optInDeriveMemberRoutines.Contains(item: memberRoutine);
+    }
 
     /// <summary>
     /// Auto-derive templates: universal <c>@overridable routine T.MemberRoutine()</c> bodies, plus their
@@ -293,8 +337,8 @@ public sealed partial class TypeRegistry
     /// so several same-signature templates coexist here without any registry/call-resolution clash).
     /// </summary>
     private readonly Dictionary<string,
-        List<(string OwnerParam, int Arity, List<GenericConstraintDeclaration> Gates,
-            Statement Body)>> _deriveTemplates = new();
+        List<(string OwnerParam, int Arity, List<GenericConstraintDeclaration> Gates, Statement
+            Body)>> _deriveTemplates = new();
 
     /// <summary>Generic routine resolutions cache.</summary>
     private readonly Dictionary<string, RoutineInfo> _routineResolutions = new();
@@ -349,7 +393,7 @@ public sealed partial class TypeRegistry
     public TypeRegistry(Language language, string? stdlibPath = null)
     {
         Language = language;
-        RegisterAsAmbient(this);
+        RegisterAsAmbient(registry: this);
         GlobalScope = new Scope(kind: ScopeKind.Global);
         _currentScope = GlobalScope;
         _stdlibPath = stdlibPath ?? StdlibLoader.GetDefaultStdlibPath();
@@ -425,8 +469,11 @@ public sealed partial class TypeRegistry
     private List<(Program Program, string FilePath, string Module)>? _restoredStdlibPrograms;
 
     /// <summary>Installs pre-lowered stdlib programs from a warm-compile snapshot.</summary>
-    public void RestoreStdlibPrograms(List<(Program Program, string FilePath, string Module)> programs) =>
+    public void RestoreStdlibPrograms(
+        List<(Program Program, string FilePath, string Module)> programs)
+    {
         _restoredStdlibPrograms = programs;
+    }
 
     /// <summary>Stdlib programs that still need Phase 6/7/8 lowering: the loader's freshly-parsed
     /// programs. In a cold compile that is EVERY stdlib program; in a warm compile the restored programs
@@ -452,8 +499,10 @@ public sealed partial class TypeRegistry
         _userPrograms;
 
     /// <summary>Registers a user program so synthesis passes can search it for routine bodies.</summary>
-    public void RegisterUserProgram(Program program, string filePath, string module) =>
+    public void RegisterUserProgram(Program program, string filePath, string module)
+    {
         _userPrograms.Add(item: (program, filePath, module));
+    }
 
     /// <summary>
     /// Per-module import list (module path → the module paths it imports), populated once after the
@@ -464,10 +513,13 @@ public sealed partial class TypeRegistry
         new(comparer: StringComparer.Ordinal);
 
     /// <summary>Returns the sorted module import list for <paramref name="module"/>, or an empty list.</summary>
-    public IReadOnlyList<string> GetModuleDependencies(string? module) =>
-        module != null && _moduleDependencies.TryGetValue(key: module, value: out List<string>? deps)
+    public IReadOnlyList<string> GetModuleDependencies(string? module)
+    {
+        return module != null &&
+               _moduleDependencies.TryGetValue(key: module, value: out List<string>? deps)
             ? deps
             : [];
+    }
 
     /// <summary>Records (accumulating + de-duplicating) the modules <paramref name="module"/> imports.</summary>
     public void AddModuleDependencies(string module, IEnumerable<string> imports)
@@ -495,7 +547,9 @@ public sealed partial class TypeRegistry
     /// resolver isn't injected or the prefix is a leaf module with no submodules.
     /// </summary>
     public IReadOnlyList<string> EnumerateSubmodules(string prefix)
-        => _moduleResolver?.EnumerateSubmodulePaths(prefix: prefix) ?? [];
+    {
+        return _moduleResolver?.EnumerateSubmodulePaths(prefix: prefix) ?? [];
+    }
 
     /// <summary>
     /// Loads a module on-demand by its import path.
@@ -544,7 +598,8 @@ public sealed partial class TypeRegistry
         // Bare module name (e.g. `import Collections`) — load every file declaring `module <Name>`
         // via the multi-file overload. Filesystem fallback can't handle directory-as-module unless
         // the directory contains a same-named anchor file (e.g. BuilderQuery/BuilderQuery.rf).
-        bool isBareModuleName = !importPath.Contains(value: '/') && !importPath.Contains(value: '.');
+        bool isBareModuleName =
+            !importPath.Contains(value: '/') && !importPath.Contains(value: '.');
         if (isBareModuleName && _stdlibLoader.LoadModule(registry: this, moduleName: importPath))
         {
             _loadedModules.Add(item: moduleId);
@@ -569,7 +624,8 @@ public sealed partial class TypeRegistry
             return false;
         }
 
-        return LoadResolvedModuleFile(resolvedPath: resolvedPath, moduleId: moduleId,
+        return LoadResolvedModuleFile(resolvedPath: resolvedPath,
+            moduleId: moduleId,
             effectiveModule: out effectiveModule);
     }
 
@@ -579,7 +635,8 @@ public sealed partial class TypeRegistry
     /// avoid duplicate-definition errors), otherwise marks it loaded (before parsing, to break import
     /// recursion) and loads it via <see cref="StdlibLoader"/>.
     /// </summary>
-    private bool LoadResolvedModuleFile(string resolvedPath, string moduleId, out string? effectiveModule)
+    private bool LoadResolvedModuleFile(string resolvedPath, string moduleId,
+        out string? effectiveModule)
     {
         // Dedup by RESOLVED FILE PATH: the file may already be registered under a different
         // import-path alias (e.g. the build pipeline pre-marked `module Fun2` from Fun2/A.rf,
@@ -587,7 +644,8 @@ public sealed partial class TypeRegistry
         // it from the existing registration instead of re-parsing/re-registering it, which
         // would raise duplicate-definition errors.
         string fullResolvedPath = Path.GetFullPath(path: resolvedPath);
-        if (_loadedFilePaths.TryGetValue(key: fullResolvedPath, value: out string? alreadyLoadedModule))
+        if (_loadedFilePaths.TryGetValue(key: fullResolvedPath,
+                value: out string? alreadyLoadedModule))
         {
             _loadedModules.Add(item: moduleId);
             effectiveModule = alreadyLoadedModule;
@@ -643,21 +701,18 @@ public sealed partial class TypeRegistry
         // LoadCoreModule's RegisterProgramRoutines processes Maybe[T].unwrap etc., it calls
         // LookupType("Maybe") and gets this shell (FullName="Maybe"), causing those memberRoutines to
         // be keyed under "Maybe" in _routinesByOwner rather than "Core.Maybe".
-        RegisterType(
-            type: new RecordTypeInfo(name: "Maybe")
-            {
-                GenericParameters = ["T"], Module = "Core", CarrierKind = CarrierKind.Maybe
-            });
-        RegisterType(
-            type: new RecordTypeInfo(name: "Result")
-            {
-                GenericParameters = ["T"], Module = "Core", CarrierKind = CarrierKind.Result
-            });
-        RegisterType(
-            type: new RecordTypeInfo(name: "Lookup")
-            {
-                GenericParameters = ["T"], Module = "Core", CarrierKind = CarrierKind.Lookup
-            });
+        RegisterType(type: new RecordTypeInfo(name: "Maybe")
+        {
+            GenericParameters = ["T"], Module = "Core", CarrierKind = CarrierKind.Maybe
+        });
+        RegisterType(type: new RecordTypeInfo(name: "Result")
+        {
+            GenericParameters = ["T"], Module = "Core", CarrierKind = CarrierKind.Result
+        });
+        RegisterType(type: new RecordTypeInfo(name: "Lookup")
+        {
+            GenericParameters = ["T"], Module = "Core", CarrierKind = CarrierKind.Lookup
+        });
     }
 
     #endregion
@@ -687,8 +742,12 @@ public sealed partial class TypeRegistry
     /// world-lines coexist in one compilation. When <see cref="AmbientRealm"/> is the default <c>"RF"</c> and
     /// every type is <c>Realm="RF"</c>, this is exactly <see cref="TypeInfo.FullName"/> (no behavior change).
     /// </summary>
-    internal string RealmRegistryKey(TypeInfo type) =>
-        type.Realm == AmbientRealm ? type.FullName : type.RealmQualifiedName;
+    internal string RealmRegistryKey(TypeInfo type)
+    {
+        return type.Realm == AmbientRealm
+            ? type.FullName
+            : type.RealmQualifiedName;
+    }
 
     /// <summary>
     /// The routine-index key for <paramref name="routine"/>: its realm-free
@@ -698,7 +757,10 @@ public sealed partial class TypeRegistry
     /// never collides with / shadows the ambient <c>Core.List.add_last</c> (the RF-S406 creator clash).
     /// Owner-less (free) routines are never realm-bridged, so they use the bare key.
     /// </summary>
-    public static string RealmRoutineKey(RoutineInfo routine) => routine.RegistryKey;
+    public static string RealmRoutineKey(RoutineInfo routine)
+    {
+        return routine.RegistryKey;
+    }
 
     /// <summary>
     /// Registers a type in the registry.
@@ -841,7 +903,9 @@ public sealed partial class TypeRegistry
     {
         if (!_types.TryGetValue(key: typeName, value: out TypeInfo? type) ||
             type is not CrashableTypeInfo crashable)
+        {
             return;
+        }
 
         var updated = new CrashableTypeInfo(name: crashable.Name)
         {
@@ -860,7 +924,9 @@ public sealed partial class TypeRegistry
     {
         if (!_types.TryGetValue(key: typeName, value: out TypeInfo? type) ||
             type is not CrashableTypeInfo crashable)
+        {
             return;
+        }
 
         var updated = new CrashableTypeInfo(name: crashable.Name)
         {
@@ -940,8 +1006,7 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="protocolName">The name of the protocol to update.</param>
     /// <param name="parentProtocols">The resolved parent protocol types.</param>
-    public void UpdateProtocolParents(string protocolName,
-        List<ProtocolTypeInfo> parentProtocols)
+    public void UpdateProtocolParents(string protocolName, List<ProtocolTypeInfo> parentProtocols)
     {
         if (!_types.TryGetValue(key: protocolName, value: out TypeInfo? type))
         {
@@ -1066,14 +1131,17 @@ public sealed partial class TypeRegistry
         {
             return LookupTypeInAmbient(name: name);
         }
+
         // Bridged realm: registered under the realm-marked key. Try the name as given, and — for a bare
         // name whose ambient hit reveals the module-qualified FullName — the realm-prefixed FullName.
         if (_types.TryGetValue(key: $"{realm}::{name}", value: out TypeInfo? direct))
         {
             return direct;
         }
-        return LookupTypeInAmbient(name: name) is { } ambient
-               && _types.TryGetValue(key: $"{realm}::{ambient.FullName}", value: out TypeInfo? viaFull)
+
+        return LookupTypeInAmbient(name: name) is { } ambient &&
+               _types.TryGetValue(key: $"{realm}::{ambient.FullName}",
+                   value: out TypeInfo? viaFull)
             ? viaFull
             : null;
     }
@@ -1088,11 +1156,13 @@ public sealed partial class TypeRegistry
     public TypeInfo? LookupType(string name)
     {
         TypeInfo? hit = LookupTypeInAmbient(name: name);
-        if (ResolutionRealm != AmbientRealm && hit != null
-            && _types.TryGetValue(key: $"{ResolutionRealm}::{hit.FullName}", value: out TypeInfo? preferred))
+        if (ResolutionRealm != AmbientRealm && hit != null &&
+            _types.TryGetValue(key: $"{ResolutionRealm}::{hit.FullName}",
+                value: out TypeInfo? preferred))
         {
             return preferred;
         }
+
         return hit;
     }
 
@@ -1111,7 +1181,11 @@ public sealed partial class TypeRegistry
         // Try resolution cache
         if (_resolutions.TryGetValue(key: name, value: out TypeInfo? resolution))
         {
-            if (!_stdlibAnalysisActive) MaterializeIfLazy(resolution);
+            if (!_stdlibAnalysisActive)
+            {
+                MaterializeIfLazy(type: resolution);
+            }
+
             return resolution;
         }
 
@@ -1163,16 +1237,31 @@ public sealed partial class TypeRegistry
             // the ambient case is what lets `RF::Core.List` reach the RF-realm list (keyed bare `Core.List`).
             TypeInfo? tDef;
             if (realm == AmbientRealm)
+            {
                 tDef = LookupTypeInAmbient(name: genericDef.FullName);
+            }
             else
-                tDef = _types.TryGetValue(key: $"{realm}::{genericDef.FullName}", value: out TypeInfo? d) ? d : null;
-            return tDef != null ? GetOrCreateResolution(genericDef: tDef, typeArguments: [.. args]) : null;
+            {
+                tDef = _types.TryGetValue(key: $"{realm}::{genericDef.FullName}",
+                    value: out TypeInfo? d)
+                    ? d
+                    : null;
+            }
+
+            return tDef != null
+                ? GetOrCreateResolution(genericDef: tDef, typeArguments: [.. args])
+                : null;
         }
 
         // A non-generic type or a bare generic definition: bare key for the ambient realm, else realm-marked.
         if (realm == AmbientRealm)
+        {
             return LookupTypeInAmbient(name: type.FullName);
-        return _types.TryGetValue(key: $"{realm}::{type.FullName}", value: out TypeInfo? t) ? t : null;
+        }
+
+        return _types.TryGetValue(key: $"{realm}::{type.FullName}", value: out TypeInfo? t)
+            ? t
+            : null;
     }
 
     /// <summary>
@@ -1181,13 +1270,14 @@ public sealed partial class TypeRegistry
     /// <param name="genericDef">The generic type definition.</param>
     /// <param name="typeArguments">The type arguments for resolution.</param>
     /// <returns>The resolved type (cached if already created).</returns>
-    public TypeInfo GetOrCreateResolution(TypeInfo genericDef,
-        List<TypeInfo> typeArguments)
+    public TypeInfo GetOrCreateResolution(TypeInfo genericDef, List<TypeInfo> typeArguments)
     {
         // Don't create or store instances where SA failed to resolve a type argument.
         // Storing ErrorTypeInfo-keyed instances produces broken concrete types that crash codegen.
         if (typeArguments.Any(predicate: t => t is ErrorTypeInfo))
+        {
             return genericDef;
+        }
 
         // Primary key uses FullName for each type argument (e.g. "Hijacked[Core.Byte]").
         // A short-name alias (e.g. "Hijacked[Byte]") is stored as a backward-compatible fallback.
@@ -1205,7 +1295,9 @@ public sealed partial class TypeRegistry
         // names by GenericAstRewriter (e.g. "Collections.BTreeSetNode[Core.S64]"). A BRIDGED (non-ambient)
         // realm def gets a leading `RF::`/`SF::` so a bridged `RF::Core.List[S64]` keys distinctly from the
         // ambient `Core.List[S64]`; the ambient realm adds no prefix (unchanged for a single-realm compile).
-        string realmPrefix = genericDef.Realm != AmbientRealm ? $"{genericDef.Realm}::" : "";
+        string realmPrefix = genericDef.Realm != AmbientRealm
+            ? $"{genericDef.Realm}::"
+            : "";
         string? moduleFullKey = genericDef.FullName != genericDef.Name
             ? $"{realmPrefix}{genericDef.FullName}[{string.Join(separator: ", ", values: typeArguments.Select(selector: t => t.FullName))}]"
             : null;
@@ -1213,8 +1305,11 @@ public sealed partial class TypeRegistry
         // The module-qualified key is DISTINCT across modules/realms (RazorForge `Core.List` vs the
         // Suflae-realm overlay `Suflae.List`), so check it FIRST — the bare fullKey/shortKey below are
         // module-blind aliases that a same-named other-module type can occupy first-wins.
-        if (TryGetCachedResolution(fullKey: fullKey, shortKey: shortKey, moduleFullKey: moduleFullKey,
-                genericDef: genericDef, typeArguments: typeArguments) is { } cachedHit)
+        if (TryGetCachedResolution(fullKey: fullKey,
+                shortKey: shortKey,
+                moduleFullKey: moduleFullKey,
+                genericDef: genericDef,
+                typeArguments: typeArguments) is { } cachedHit)
         {
             return cachedHit;
         }
@@ -1240,14 +1335,22 @@ public sealed partial class TypeRegistry
         // write them only when free or already ours, so a same-named OTHER-module type keeps its own
         // bare alias instead of being clobbered (the cross-module collision this all guards against).
         if (moduleFullKey != null && moduleFullKey != fullKey)
+        {
             _resolutions[key: moduleFullKey] = resolved;
-        if (!_resolutions.TryGetValue(key: fullKey, value: out TypeInfo? bareOccupant)
-            || ResolutionGenericDefMatches(resolved: bareOccupant, genericDef: genericDef))
+        }
+
+        if (!_resolutions.TryGetValue(key: fullKey, value: out TypeInfo? bareOccupant) ||
+            ResolutionGenericDefMatches(resolved: bareOccupant, genericDef: genericDef))
+        {
             _resolutions[key: fullKey] = resolved;
-        if (fullKey != shortKey
-            && (!_resolutions.TryGetValue(key: shortKey, value: out TypeInfo? shortOccupant)
-                || ResolutionGenericDefMatches(resolved: shortOccupant, genericDef: genericDef)))
+        }
+
+        if (fullKey != shortKey &&
+            (!_resolutions.TryGetValue(key: shortKey, value: out TypeInfo? shortOccupant) ||
+             ResolutionGenericDefMatches(resolved: shortOccupant, genericDef: genericDef)))
+        {
             _resolutions[key: shortKey] = resolved;
+        }
 
         if (_stdlibAnalysisActive)
         {
@@ -1274,13 +1377,16 @@ public sealed partial class TypeRegistry
     private void EnqueueDiscoveredResolution(TypeInfo resolved)
     {
         if (_gmpDiscoveryQueue != null && resolved is EntityTypeInfo or RecordTypeInfo &&
-            IsFullyConcrete(resolved))
+            IsFullyConcrete(t: resolved))
         {
             string bareBaseName = resolved.BareName;
             bool isSelfNesting = resolved.TypeArguments != null &&
-                                 resolved.TypeArguments.Any(arg => arg.FullName.Contains(bareBaseName));
+                                 resolved.TypeArguments.Any(predicate: arg =>
+                                     arg.FullName.Contains(value: bareBaseName));
             if (!isSelfNesting)
-                _gmpDiscoveryQueue.Enqueue(resolved);
+            {
+                _gmpDiscoveryQueue.Enqueue(item: resolved);
+            }
         }
     }
 
@@ -1291,33 +1397,47 @@ public sealed partial class TypeRegistry
     /// accepted when the cached resolution's generic definition (and, for the short alias, its type args)
     /// match the request. Returns null when no matching cached resolution exists.
     /// </summary>
-    private TypeInfo? TryGetCachedResolution(string fullKey, string shortKey, string? moduleFullKey,
-        TypeInfo genericDef, List<TypeInfo> typeArguments)
+    private TypeInfo? TryGetCachedResolution(string fullKey, string shortKey,
+        string? moduleFullKey, TypeInfo genericDef, List<TypeInfo> typeArguments)
     {
         if (moduleFullKey != null &&
             _resolutions.TryGetValue(key: moduleFullKey, value: out TypeInfo? existing))
         {
-            if (!_stdlibAnalysisActive) MaterializeIfLazy(existing);
+            if (!_stdlibAnalysisActive)
+            {
+                MaterializeIfLazy(type: existing);
+            }
+
             return existing;
         }
+
         // Bare fullKey: accept only when the cached resolution's generic DEFINITION is the one requested
         // (no-op for single-realm types; rejects a Suflae `List[Core.S32]` for a Core.List request).
-        if (_resolutions.TryGetValue(key: fullKey, value: out existing)
-            && ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
+        if (_resolutions.TryGetValue(key: fullKey, value: out existing) &&
+            ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
         {
-            if (!_stdlibAnalysisActive) MaterializeIfLazy(existing);
+            if (!_stdlibAnalysisActive)
+            {
+                MaterializeIfLazy(type: existing);
+            }
+
             return existing;
         }
+
         // The shortKey is a bare-type-arg alias (e.g. "Modifying[Counter]") shared by callers that
         // look up by short arg name. It COLLIDES when two modules declare a same-named type
         // (Modifying[A/Counter] vs Modifying[B/Counter]): a first-wins short alias would return the
         // wrong module's inner type, contaminating wrapper forwarding / memberRoutine dispatch. Only accept a
         // short-alias hit whose type arguments AND generic definition match the request.
-        if (fullKey != shortKey && _resolutions.TryGetValue(key: shortKey, value: out existing)
-            && ResolutionTypeArgsMatch(resolved: existing, typeArguments: typeArguments)
-            && ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
+        if (fullKey != shortKey && _resolutions.TryGetValue(key: shortKey, value: out existing) &&
+            ResolutionTypeArgsMatch(resolved: existing, typeArguments: typeArguments) &&
+            ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
         {
-            if (!_stdlibAnalysisActive) MaterializeIfLazy(existing);
+            if (!_stdlibAnalysisActive)
+            {
+                MaterializeIfLazy(type: existing);
+            }
+
             return existing;
         }
 
@@ -1366,10 +1486,12 @@ public sealed partial class TypeRegistry
         foreach (MemberExpandTemplateInfo template in templates)
         {
             // The concrete source type whose members become columns (the T in `allmemvarof(T)`).
-            if (!baseSubs.TryGetValue(key: template.SourceParamName, value: out TypeInfo? sourceType))
+            if (!baseSubs.TryGetValue(key: template.SourceParamName,
+                    value: out TypeInfo? sourceType))
             {
                 continue;
             }
+
             List<MemberVariableInfo> sourceMembers = sourceType switch
             {
                 RecordTypeInfo r => r.MemberVariables,
@@ -1380,20 +1502,21 @@ public sealed partial class TypeRegistry
             foreach (MemberVariableInfo field in sourceMembers)
             {
                 // Per-field substitution: the `${m.type}` placeholder binds to this field's type.
-                var subs = new Dictionary<string, TypeInfo>(dictionary: baseSubs,
-                    comparer: StringComparer.Ordinal)
-                {
-                    [key: MemberExpandTemplateInfo.ColumnPlaceholderName] = field.Type
-                };
-                TypeInfo columnType = RecordTypeInfo.SubstituteType(type: template.ColumnTypeTemplate,
-                    substitution: subs);
-                target.Add(item: new MemberVariableInfo(
-                    name: template.NamePrefix + field.Name, type: columnType)
-                {
-                    Visibility = template.Visibility,
-                    Index = target.Count,
-                    Owner = resolved
-                });
+                var subs =
+                    new Dictionary<string, TypeInfo>(dictionary: baseSubs,
+                        comparer: StringComparer.Ordinal)
+                    {
+                        [key: MemberExpandTemplateInfo.ColumnPlaceholderName] = field.Type
+                    };
+                TypeInfo columnType =
+                    RecordTypeInfo.SubstituteType(type: template.ColumnTypeTemplate,
+                        substitution: subs);
+                target.Add(
+                    item: new MemberVariableInfo(name: template.NamePrefix + field.Name,
+                        type: columnType)
+                    {
+                        Visibility = template.Visibility, Index = target.Count, Owner = resolved
+                    });
             }
         }
     }
@@ -1407,11 +1530,19 @@ public sealed partial class TypeRegistry
     private static bool ResolutionTypeArgsMatch(TypeInfo resolved, List<TypeInfo> typeArguments)
     {
         List<TypeInfo>? actual = resolved.TypeArguments;
-        if (actual == null || actual.Count != typeArguments.Count) return false;
+        if (actual == null || actual.Count != typeArguments.Count)
+        {
+            return false;
+        }
+
         for (int i = 0; i < actual.Count; i++)
         {
-            if (actual[index: i].FullName != typeArguments[index: i].FullName) return false;
+            if (actual[index: i].FullName != typeArguments[index: i].FullName)
+            {
+                return false;
+            }
         }
+
         return true;
     }
 
@@ -1453,15 +1584,24 @@ public sealed partial class TypeRegistry
             $"{genericDef.Name}[{string.Join(separator: ", ", values: typeArguments.Select(selector: t => t.FullName))}]";
         // Module-qualified key first (distinct across modules/realms); mirrors GetOrCreateResolution
         // incl. the bridged-realm `RF::`/`SF::` prefix (ambient realm adds none).
-        string realmPrefix = genericDef.Realm != AmbientRealm ? $"{genericDef.Realm}::" : "";
+        string realmPrefix = genericDef.Realm != AmbientRealm
+            ? $"{genericDef.Realm}::"
+            : "";
         string? moduleFullKey = genericDef.FullName != genericDef.Name
             ? $"{realmPrefix}{genericDef.FullName}[{string.Join(separator: ", ", values: typeArguments.Select(selector: t => t.FullName))}]"
             : null;
-        if (moduleFullKey != null && _resolutions.TryGetValue(key: moduleFullKey, value: out TypeInfo? existing))
+        if (moduleFullKey != null &&
+            _resolutions.TryGetValue(key: moduleFullKey, value: out TypeInfo? existing))
+        {
             return existing;
-        if (_resolutions.TryGetValue(key: fullKey, value: out existing)
-            && ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
+        }
+
+        if (_resolutions.TryGetValue(key: fullKey, value: out existing) &&
+            ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
+        {
             return existing;
+        }
+
         string shortKey =
             $"{genericDef.Name}[{string.Join(separator: ", ", values: typeArguments.Select(selector: GetShortName))}]";
         // The shortKey is a bare-type-arg alias and COLLIDES when two modules declare a same-named type
@@ -1469,17 +1609,26 @@ public sealed partial class TypeRegistry
         // instance, mis-dispatching member routines (a value-record `peek` resolving to an entity `peek`).
         // Accept a short-alias hit ONLY when its type arguments AND generic definition match — mirroring
         // TryGetCachedResolution (this lookup-only twin was missing the args check).
-        if (fullKey != shortKey && _resolutions.TryGetValue(key: shortKey, value: out existing)
-            && ResolutionTypeArgsMatch(resolved: existing, typeArguments: typeArguments)
-            && ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
+        if (fullKey != shortKey && _resolutions.TryGetValue(key: shortKey, value: out existing) &&
+            ResolutionTypeArgsMatch(resolved: existing, typeArguments: typeArguments) &&
+            ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
+        {
             return existing;
+        }
+
         // Wrapper types (Hijacked, Retained, etc.) are stored in _wrapperResolutions, not _resolutions.
         if (_wrapperResolutions.TryGetValue(key: fullKey, value: out WrapperTypeInfo? wrapper))
+        {
             return wrapper;
+        }
+
         if (fullKey != shortKey &&
-            _wrapperResolutions.TryGetValue(key: shortKey, value: out wrapper)
-            && ResolutionTypeArgsMatch(resolved: wrapper, typeArguments: typeArguments))
+            _wrapperResolutions.TryGetValue(key: shortKey, value: out wrapper) &&
+            ResolutionTypeArgsMatch(resolved: wrapper, typeArguments: typeArguments))
+        {
             return wrapper;
+        }
+
         return null;
     }
 
@@ -1552,8 +1701,7 @@ public sealed partial class TypeRegistry
         foreach (TypeInfo resolution in _resolutions.Values.ToList())
         {
             if (resolution is ProtocolTypeInfo protoRes &&
-                protoRes.GenericDefinition == genericDef &&
-                protoRes.TypeArguments != null &&
+                protoRes.GenericDefinition == genericDef && protoRes.TypeArguments != null &&
                 IsProtocolResolutionStale(instance: protoRes, genericDef: genericDef))
             {
                 var fresh =
@@ -1573,10 +1721,12 @@ public sealed partial class TypeRegistry
     {
         foreach (ProtocolMemberRoutineInfo defMemberRoutine in genericDef.MemberRoutines)
         {
-            ProtocolMemberRoutineInfo? instMemberRoutine = instance.MemberRoutines.FirstOrDefault(predicate: m =>
-                m.Name == defMemberRoutine.Name && m.IsFailable == defMemberRoutine.IsFailable);
-            if (instMemberRoutine == null ||
-                instMemberRoutine.ParameterTypes.Count != defMemberRoutine.ParameterTypes.Count)
+            ProtocolMemberRoutineInfo? instMemberRoutine =
+                instance.MemberRoutines.FirstOrDefault(predicate: m =>
+                    m.Name == defMemberRoutine.Name &&
+                    m.IsFailable == defMemberRoutine.IsFailable);
+            if (instMemberRoutine == null || instMemberRoutine.ParameterTypes.Count !=
+                defMemberRoutine.ParameterTypes.Count)
             {
                 return true;
             }
@@ -1588,10 +1738,12 @@ public sealed partial class TypeRegistry
     /// Short name for a type argument used in the shortKey of GetOrCreateResolution / TryGetResolution.
     /// WrapperTypeInfo.Name is bare ("Owned") without inner args, so we expand it recursively to
     /// "InnerName" to prevent shortKey collisions across different inner types.
-    private static string GetShortName(TypeInfo t) =>
-        t is WrapperTypeInfo wt
-            ? $"{wt.Name}[{GetShortName(wt.InnerType)}]"
+    private static string GetShortName(TypeInfo t)
+    {
+        return t is WrapperTypeInfo wt
+            ? $"{wt.Name}[{GetShortName(t: wt.InnerType)}]"
             : t.Name;
+    }
 
     /// <summary>
     /// Gets or creates a function type with the given parameter and return types.
@@ -1732,8 +1884,12 @@ public sealed partial class TypeRegistry
         TypeInfo? textType = LookupType(name: "Text");
         if (textType != null)
         {
-            RegisterSynthesizedMemberRoutine(name: RuntimeContract.Display.Represent, owner: newType, returnType: textType);
-            RegisterSynthesizedMemberRoutine(name: RuntimeContract.Display.Diagnose, owner: newType, returnType: textType);
+            RegisterSynthesizedMemberRoutine(name: RuntimeContract.Display.Represent,
+                owner: newType,
+                returnType: textType);
+            RegisterSynthesizedMemberRoutine(name: RuntimeContract.Display.Diagnose,
+                owner: newType,
+                returnType: textType);
         }
     }
 
@@ -1745,12 +1901,18 @@ public sealed partial class TypeRegistry
     private void RegisterTupleEqualityRoutines(TupleTypeInfo newType, List<TypeInfo> elementTypes)
     {
         TypeInfo? boolType = LookupType(name: "Bool");
-        if (boolType != null &&
-            elementTypes.All(predicate: et => LookupMemberRoutine(type: et, memberRoutineName: "eq") != null))
+        if (boolType != null && elementTypes.All(predicate: et =>
+                LookupMemberRoutine(type: et, memberRoutineName: "eq") != null))
         {
             var youParam = new ParameterInfo(name: "you", type: newType);
-            RegisterSynthesizedMemberRoutine(name: "eq", owner: newType, returnType: boolType, parameters: [youParam]);
-            RegisterSynthesizedMemberRoutine(name: "ne", owner: newType, returnType: boolType, parameters: [youParam]);
+            RegisterSynthesizedMemberRoutine(name: "eq",
+                owner: newType,
+                returnType: boolType,
+                parameters: [youParam]);
+            RegisterSynthesizedMemberRoutine(name: "ne",
+                owner: newType,
+                returnType: boolType,
+                parameters: [youParam]);
         }
     }
 
@@ -1758,8 +1920,8 @@ public sealed partial class TypeRegistry
     private void RegisterTupleHashRoutine(TupleTypeInfo newType, List<TypeInfo> elementTypes)
     {
         TypeInfo? u64Type = LookupType(name: "U64");
-        if (u64Type != null &&
-            elementTypes.All(predicate: et => LookupMemberRoutine(type: et, memberRoutineName: "hash") != null))
+        if (u64Type != null && elementTypes.All(predicate: et =>
+                LookupMemberRoutine(type: et, memberRoutineName: "hash") != null))
         {
             RegisterSynthesizedMemberRoutine(name: "hash", owner: newType, returnType: u64Type);
         }
@@ -1774,12 +1936,15 @@ public sealed partial class TypeRegistry
     private void RegisterTupleSerializeRoutine(TupleTypeInfo newType, List<TypeInfo> elementTypes)
     {
         TypeInfo? serialValueType = LookupType(name: "SerialValue");
-        if (serialValueType != null &&
-            elementTypes.All(predicate: et =>
-                et is not GenericParameterTypeInfo &&
-                (et is RoutineTypeInfo || LookupMemberRoutine(type: et, memberRoutineName: RuntimeContract.Serialize) != null)))
+        if (serialValueType != null && elementTypes.All(predicate: et =>
+                et is not GenericParameterTypeInfo && (et is RoutineTypeInfo ||
+                                                       LookupMemberRoutine(type: et,
+                                                           memberRoutineName: RuntimeContract
+                                                              .Serialize) != null)))
         {
-            RegisterSynthesizedMemberRoutine(name: RuntimeContract.Serialize, owner: newType, returnType: serialValueType);
+            RegisterSynthesizedMemberRoutine(name: RuntimeContract.Serialize,
+                owner: newType,
+                returnType: serialValueType);
         }
     }
 
@@ -1793,9 +1958,9 @@ public sealed partial class TypeRegistry
     private void RegisterTupleStoreRoutine(TupleTypeInfo newType, List<TypeInfo> elementTypes)
     {
         if (elementTypes.All(predicate: et =>
-                CanAutoDeriveAssignable(type: et)
-                || DoesTypeObeyProtocol(type: et, protocolName: "Assignable")
-                || LookupMemberRoutine(type: et, memberRoutineName: "assign") is not null))
+                CanAutoDeriveAssignable(type: et) ||
+                DoesTypeObeyProtocol(type: et, protocolName: "Assignable") ||
+                LookupMemberRoutine(type: et, memberRoutineName: "assign") is not null))
         {
             RegisterSynthesizedMemberRoutine(name: "assign", owner: newType, returnType: newType);
         }
@@ -1803,15 +1968,19 @@ public sealed partial class TypeRegistry
 
     /// <summary>Auto-registers <c>cmp</c> plus the derived <c>lt/le/gt/ge</c> operators if ALL element
     /// types support cmp.</summary>
-    private void RegisterTupleComparisonRoutines(TupleTypeInfo newType, List<TypeInfo> elementTypes)
+    private void RegisterTupleComparisonRoutines(TupleTypeInfo newType,
+        List<TypeInfo> elementTypes)
     {
         TypeInfo? boolType = LookupType(name: "Bool");
         TypeInfo? comparisonSignType = LookupType(name: "ComparisonSign");
-        if (boolType != null && comparisonSignType != null &&
-            elementTypes.All(predicate: et => LookupMemberRoutine(type: et, memberRoutineName: "cmp") != null))
+        if (boolType != null && comparisonSignType != null && elementTypes.All(predicate: et =>
+                LookupMemberRoutine(type: et, memberRoutineName: "cmp") != null))
         {
             var youParam = new ParameterInfo(name: "you", type: newType);
-            RegisterSynthesizedMemberRoutine(name: "cmp", owner: newType, returnType: comparisonSignType, parameters: [youParam]);
+            RegisterSynthesizedMemberRoutine(name: "cmp",
+                owner: newType,
+                returnType: comparisonSignType,
+                parameters: [youParam]);
 
             // Derived: lt, le, gt, ge
             foreach (string opName in new[]
@@ -1822,7 +1991,10 @@ public sealed partial class TypeRegistry
                          "ge"
                      })
             {
-                RegisterSynthesizedMemberRoutine(name: opName, owner: newType, returnType: boolType, parameters: [youParam]);
+                RegisterSynthesizedMemberRoutine(name: opName,
+                    owner: newType,
+                    returnType: boolType,
+                    parameters: [youParam]);
             }
         }
     }
@@ -1847,7 +2019,10 @@ public sealed partial class TypeRegistry
         if (_wrapperResolutions.TryGetValue(key: key, value: out WrapperTypeInfo? wrapperType))
         {
             if (!_stdlibAnalysisActive && wrapperType.IsStdlibLazy)
+            {
                 wrapperType.IsStdlibLazy = false;
+            }
+
             return wrapperType;
         }
 
@@ -1858,7 +2033,9 @@ public sealed partial class TypeRegistry
         _wrapperResolutions[key: key] = newType;
 
         if (_stdlibAnalysisActive)
+        {
             newType.IsStdlibLazy = true;
+        }
 
         return newType;
     }
@@ -1902,12 +2079,17 @@ public sealed partial class TypeRegistry
     public int MaterializeAllLazyStdlibTypes()
     {
         int n = 0;
-        foreach (TypeInfo t in _resolutions.Values.Distinct().ToList())
+        foreach (TypeInfo t in _resolutions.Values
+                                           .Distinct()
+                                           .ToList())
+        {
             if (t.IsStdlibLazy)
             {
                 t.IsStdlibLazy = false;
                 n++;
             }
+        }
+
         return n;
     }
 
@@ -1922,16 +2104,30 @@ public sealed partial class TypeRegistry
     public int RelazyStdlibConcreteInstances()
     {
         int n = 0;
+
         void Relazy(TypeInfo t)
         {
-            if (!t.IsStdlibLazy && t.TypeArguments is { Count: > 0 } && IsFullyConcrete(t))
+            if (!t.IsStdlibLazy && t.TypeArguments is { Count: > 0 } && IsFullyConcrete(t: t))
             {
                 t.IsStdlibLazy = true;
                 n++;
             }
         }
-        foreach (TypeInfo t in _resolutions.Values.Distinct().ToList()) Relazy(t);
-        foreach (TypeInfo t in _wrapperResolutions.Values.Distinct().ToList()) Relazy(t);
+
+        foreach (TypeInfo t in _resolutions.Values
+                                           .Distinct()
+                                           .ToList())
+        {
+            Relazy(t: t);
+        }
+
+        foreach (TypeInfo t in _wrapperResolutions.Values
+                                                  .Distinct()
+                                                  .ToList())
+        {
+            Relazy(t: t);
+        }
+
         return n;
     }
 
@@ -1945,8 +2141,10 @@ public sealed partial class TypeRegistry
     public IEnumerable<TypeInfo> AllConcreteGenericInstances =>
         _resolutions.Values
                     .Where(predicate: t =>
-                         t is EntityTypeInfo or RecordTypeInfo && t is { IsGenericDefinition: false, TypeArguments: { Count: > 0 } args } && args.All(predicate: IsFullyConcrete) &&
-                         IsConcreteTypeLive(t) && !t.IsStdlibLazy)
+                         t is EntityTypeInfo or RecordTypeInfo &&
+                         t is { IsGenericDefinition: false, TypeArguments: { Count: > 0 } args } &&
+                         args.All(predicate: IsFullyConcrete) && IsConcreteTypeLive(t: t) &&
+                         !t.IsStdlibLazy)
                     .Distinct(); // dual-index stores the same TypeInfo under two keys; deduplicate by reference.
 
     /// <summary>
@@ -1958,8 +2156,9 @@ public sealed partial class TypeRegistry
     public IEnumerable<TypeInfo> AllConcreteGenericInstancesUnfiltered =>
         _resolutions.Values
                     .Where(predicate: t =>
-                         t is EntityTypeInfo or RecordTypeInfo && t is { IsGenericDefinition: false, TypeArguments: { Count: > 0 } args } && args.All(predicate: IsFullyConcrete) &&
-                         !t.IsStdlibLazy)
+                         t is EntityTypeInfo or RecordTypeInfo &&
+                         t is { IsGenericDefinition: false, TypeArguments: { Count: > 0 } args } &&
+                         args.All(predicate: IsFullyConcrete) && !t.IsStdlibLazy)
                     .Distinct();
 
     /// <summary>
@@ -1973,13 +2172,28 @@ public sealed partial class TypeRegistry
         // they can be instantiated/codegen'd.
         if (t is GenericParameterTypeInfo or ErrorTypeInfo or AssociatedProjectionTypeInfo
             or ProtocolSelfTypeInfo)
+        {
             return false;
-        if (t.IsNone) return false;
+        }
+
+        if (t.IsNone)
+        {
+            return false;
+        }
+
         // A generic definition has free type parameters (no TypeArguments, only GenericParameters).
         // Wrapper instances like Hijacked[BTreeDictNode[K,V]] must not be treated as fully concrete
         // since they still reference unresolved type params via the generic-def inner type.
-        if (t.IsGenericDefinition) return false;
-        if (t.TypeArguments is not { Count: > 0 } args) return true;
+        if (t.IsGenericDefinition)
+        {
+            return false;
+        }
+
+        if (t.TypeArguments is not { Count: > 0 } args)
+        {
+            return true;
+        }
+
         return args.All(predicate: IsFullyConcrete);
     }
 
@@ -1991,8 +2205,9 @@ public sealed partial class TypeRegistry
     public IEnumerable<WrapperTypeInfo> AllConcreteWrapperInstances =>
         _wrapperResolutions.Values
                            .Where(predicate: t =>
-                                t.TypeArguments is { Count: > 0 } args && args.All(predicate: IsFullyConcrete) &&
-                                IsConcreteTypeLive(t) && !t.IsStdlibLazy)
+                                t.TypeArguments is { Count: > 0 } args &&
+                                args.All(predicate: IsFullyConcrete) && IsConcreteTypeLive(t: t) &&
+                                !t.IsStdlibLazy)
                            .Distinct();
 
     /// <summary>
@@ -2005,8 +2220,8 @@ public sealed partial class TypeRegistry
     public IEnumerable<WrapperTypeInfo> AllConcreteWrapperInstancesUnfiltered =>
         _wrapperResolutions.Values
                            .Where(predicate: t =>
-                                t.TypeArguments is { Count: > 0 } args && args.All(predicate: IsFullyConcrete) &&
-                                !t.IsStdlibLazy)
+                                t.TypeArguments is { Count: > 0 } args &&
+                                args.All(predicate: IsFullyConcrete) && !t.IsStdlibLazy)
                            .Distinct();
 
     /// <summary>
@@ -2026,17 +2241,21 @@ public sealed partial class TypeRegistry
         // Materialize: callers (e.g. WiredRoutinePass wired-body synthesis) register new resolutions
         // WHILE iterating this, which would invalidate a lazy enumerator over the live `_types`/
         // `_resolutions` dictionaries ("Collection was modified"). A snapshot is the current type set.
-        return namedTypes.Concat(second: tupleTypes).ToList();
+        return namedTypes.Concat(second: tupleTypes)
+                         .ToList();
     }
 
     /// <summary>Concrete routine types from the resolutions cache (structural — never in <c>_types</c>).
     /// WiredRoutinePass iterates these to synthesize their wired bodies (serialize) regardless of the
     /// GetAllRoutines liveness filter, mirroring the tuple path.</summary>
     public IEnumerable<TypeInfo> GetResolvedRoutineTypes()
-        // Materialized: like GetTypesWithMemberRoutines, wired-body synthesis registers resolutions while
-        // iterating this, which would invalidate a lazy enumerator over the live `_resolutions`.
-        => _resolutions.Values.Where(predicate: t => t is RoutineTypeInfo { IsGenericDefinition: false })
-            .ToList();
+    // Materialized: like GetTypesWithMemberRoutines, wired-body synthesis registers resolutions while
+    // iterating this, which would invalidate a lazy enumerator over the live `_resolutions`.
+    {
+    return _resolutions.Values
+                       .Where(predicate: t => t is RoutineTypeInfo { IsGenericDefinition: false })
+                       .ToList();
+    }
 
     /// <summary>
     /// Gets all registered types.
@@ -2061,31 +2280,49 @@ public sealed partial class TypeRegistry
         var seen = new HashSet<string>();
 
         IEnumerable<TypeInfo> candidates = GetTypesByCategory(category: TypeCategory.Entity)
-            .Concat(second: GetTypesByCategory(category: TypeCategory.Record))
-            .Concat(second: GetTypesByCategory(category: TypeCategory.Crashable));
+                                          .Concat(second: GetTypesByCategory(
+                                               category: TypeCategory.Record))
+                                          .Concat(second: GetTypesByCategory(
+                                               category: TypeCategory.Crashable));
 
         foreach (TypeInfo type in candidates)
         {
-            if (type.IsGenericDefinition && protocol.TypeArguments == null) continue;
-            if (!seen.Add(item: type.Name)) continue;
+            if (type.IsGenericDefinition && protocol.TypeArguments == null)
+            {
+                continue;
+            }
 
-            List<TypeInfo>? implemented = GetImplementedProtocols(type);
-            if (implemented == null) continue;
+            if (!seen.Add(item: type.Name))
+            {
+                continue;
+            }
 
-            TryAddImplementor(protocol: protocol, protocolBaseName: protocolBaseName,
-                type: type, implemented: implemented, result: result);
+            List<TypeInfo>? implemented = GetImplementedProtocols(type: type);
+            if (implemented == null)
+            {
+                continue;
+            }
+
+            TryAddImplementor(protocol: protocol,
+                protocolBaseName: protocolBaseName,
+                type: type,
+                implemented: implemented,
+                result: result);
         }
 
         return result;
     }
 
     // Returns the implemented-protocols list for an entity or record; null for other type kinds.
-    private static List<TypeInfo>? GetImplementedProtocols(TypeInfo type) => type switch
+    private static List<TypeInfo>? GetImplementedProtocols(TypeInfo type)
     {
-        EntityTypeInfo e => e.ImplementedProtocols,
-        RecordTypeInfo r => r.ImplementedProtocols,
-        _ => null
-    };
+        return type switch
+        {
+            EntityTypeInfo e => e.ImplementedProtocols,
+            RecordTypeInfo r => r.ImplementedProtocols,
+            _ => null
+        };
+    }
 
     // Scans the implemented-protocol list of a candidate type and adds a matching implementor
     // (concrete, generic-bound, or bare) to result when the protocol base name matches.
@@ -2095,7 +2332,10 @@ public sealed partial class TypeRegistry
         foreach (TypeInfo impl in implemented)
         {
             string implBaseName = (impl as ProtocolTypeInfo)?.GenericDefinition?.Name ?? impl.Name;
-            if (implBaseName != protocolBaseName) continue;
+            if (implBaseName != protocolBaseName)
+            {
+                continue;
+            }
 
             TypeInfo? toAdd = ResolveImplementorMatch(protocol: protocol, type: type, impl: impl);
             if (toAdd != null)
@@ -2108,12 +2348,15 @@ public sealed partial class TypeRegistry
 
     // Resolves which concrete type to add for a protocol-base-name match: null when the match
     // fails type-argument or binding checks (caller should skip this impl and continue).
-    private TypeInfo? ResolveImplementorMatch(ProtocolTypeInfo protocol, TypeInfo type, TypeInfo impl)
+    private TypeInfo? ResolveImplementorMatch(ProtocolTypeInfo protocol, TypeInfo type,
+        TypeInfo impl)
     {
-        if (!type.IsGenericDefinition && protocol.TypeArguments is { Count: > 0 }
-            && impl.TypeArguments is { Count: > 0 })
+        if (!type.IsGenericDefinition && protocol.TypeArguments is { Count: > 0 } &&
+            impl.TypeArguments is { Count: > 0 })
         {
-            return ProtocolTypeArgsMatch(protocol: protocol, impl: impl) ? type : null;
+            return ProtocolTypeArgsMatch(protocol: protocol, impl: impl)
+                ? type
+                : null;
         }
 
         if (type.IsGenericDefinition && protocol.TypeArguments is { Count: > 0 })
@@ -2137,8 +2380,7 @@ public sealed partial class TypeRegistry
 
         for (int i = 0; i < protocol.TypeArguments.Count; i++)
         {
-            if (protocol.TypeArguments[index: i].FullName !=
-                impl.TypeArguments[index: i].FullName)
+            if (protocol.TypeArguments[index: i].FullName != impl.TypeArguments[index: i].FullName)
             {
                 return false;
             }
@@ -2154,7 +2396,8 @@ public sealed partial class TypeRegistry
     /// bindable — e.g. <c>entity BitArrayIterator[N] obeys Iterator[Bool]</c> leaves N unbound, so the
     /// obeyer surfaces only via real <c>BitArrayIterator[8]</c>-style instantiations elsewhere.
     /// </summary>
-    private TypeInfo? TryBindGenericImplementor(ProtocolTypeInfo protocol, TypeInfo type, TypeInfo impl)
+    private TypeInfo? TryBindGenericImplementor(ProtocolTypeInfo protocol, TypeInfo type,
+        TypeInfo impl)
     {
         ProtocolTypeInfo protoDef2 = protocol.GenericDefinition ?? protocol;
         if (protoDef2.GenericParameters is not { Count: > 0 } ||
@@ -2169,8 +2412,7 @@ public sealed partial class TypeRegistry
         // bind that obeyer-param to the protocol's concrete arg in the same slot.
         // Concrete entries in impl.TypeArguments (e.g. `Bool`) contribute no binding.
         var obeyerBindings = new Dictionary<string, TypeInfo>();
-        int slots = Math.Min(val1: impl.TypeArguments.Count,
-            val2: protocol.TypeArguments!.Count);
+        int slots = Math.Min(val1: impl.TypeArguments.Count, val2: protocol.TypeArguments!.Count);
         for (int slot = 0; slot < slots; slot++)
         {
             if (impl.TypeArguments[index: slot] is GenericParameterTypeInfo gp &&
@@ -2246,8 +2488,12 @@ public sealed partial class TypeRegistry
     {
         var variable = new VariableInfo(name: name, type: type)
         {
-            IsModifiable = !isPreset, IsPreset = isPreset, PresetValue = presetValue,
-            IsNullable = isNullable, IsGlobal = isGlobal, Location = location
+            IsModifiable = !isPreset,
+            IsPreset = isPreset,
+            PresetValue = presetValue,
+            IsNullable = isNullable,
+            IsGlobal = isGlobal,
+            Location = location
         };
 
         return _currentScope.DeclareVariable(variable: variable);
@@ -2267,7 +2513,10 @@ public sealed partial class TypeRegistry
     {
         var variable = new VariableInfo(name: name, type: type)
         {
-            IsModifiable = false, IsPreset = true, IsSecret = isSecret, Module = module,
+            IsModifiable = false,
+            IsPreset = true,
+            IsSecret = isSecret,
+            Module = module,
             PresetValue = value
         };
 
@@ -2300,7 +2549,8 @@ public sealed partial class TypeRegistry
     /// across files within the same module. Mirrors <see cref="RegisterPreset"/> but the global is
     /// modifiable and NOT a preset (so it is not inlined; codegen gives it real <c>@global</c> storage).
     /// </summary>
-    public void RegisterGlobal(string name, TypeInfo type, string? module = null, bool isSecret = false)
+    public void RegisterGlobal(string name, TypeInfo type, string? module = null,
+        bool isSecret = false)
     {
         var variable = new VariableInfo(name: name, type: type)
         {

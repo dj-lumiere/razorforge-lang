@@ -11,10 +11,10 @@ using static TestHelpers;
 public class RoutineValidationTests
 {
     #region #157: Mutation category conflict
+
     /// <summary>
     /// Verifies semantic analysis behavior for single mutation annotation without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_SingleMutationAnnotation_NoError()
     {
@@ -34,7 +34,6 @@ public class RoutineValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for conflicting mutation annotations and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ConflictingMutationAnnotations_ReportsError()
     {
@@ -130,10 +129,10 @@ public class RoutineValidationTests
     #endregion
 
     #region #151: Static/instance mismatch
+
     /// <summary>
     /// Verifies semantic analysis behavior for common routine called on instance and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_CommonRoutineCalledOnInstance_ReportsError()
     {
@@ -156,7 +155,6 @@ public class RoutineValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for common routine called on type without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_CommonRoutineCalledOnType_NoError()
     {

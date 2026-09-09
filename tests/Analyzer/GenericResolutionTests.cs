@@ -14,10 +14,10 @@ using static TestHelpers;
 public class GenericResolutionTests
 {
     #region S191 — Void return on generic memberRoutine calls
+
     /// <summary>
     /// Verifies semantic analysis behavior for generic void memberRoutine returns blank.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericVoidMemberRoutine_ReturnsNone()
     {
@@ -42,10 +42,10 @@ public class GenericResolutionTests
     #endregion
 
     #region S192 — Double-generic memberRoutine return type
+
     /// <summary>
     /// Verifies semantic analysis behavior for memberRoutine level generic return type resolves correctly.
     /// </summary>
-
     [Fact]
     public void Analyze_memberRoutineLevelGenericReturnType_ResolvesCorrectly()
     {
@@ -70,7 +70,6 @@ public class GenericResolutionTests
     /// <summary>
     /// Verifies semantic analysis behavior for memberRoutine level generic return type infers without annotation.
     /// </summary>
-
     [Fact]
     public void Analyze_memberRoutineLevelGenericReturnType_InfersWithoutAnnotation()
     {
@@ -95,7 +94,6 @@ public class GenericResolutionTests
     /// <summary>
     /// Verifies semantic analysis behavior for memberRoutine level generic direct return resolves correctly.
     /// </summary>
-
     [Fact]
     public void Analyze_memberRoutineLevelGenericDirectReturn_ResolvesCorrectly()
     {
@@ -120,10 +118,10 @@ public class GenericResolutionTests
     #endregion
 
     #region S193 — $eq on generic record types
+
     /// <summary>
     /// Verifies semantic analysis behavior for generic record memberRoutine lookup works on resolution.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericRecordMemberRoutineLookup_WorksOnResolution()
     {
@@ -149,10 +147,10 @@ public class GenericResolutionTests
     #endregion
 
     #region LookupMemberRoutine fully-resolved results
+
     /// <summary>
     /// Verifies semantic analysis behavior for generic owner memberRoutine param type substituted.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericOwnerMemberRoutine_ParamTypeSubstituted()
     {
@@ -178,7 +176,6 @@ public class GenericResolutionTests
     /// <summary>
     /// Verifies semantic analysis behavior for generic owner memberRoutine return type substituted.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericOwnerMemberRoutine_ReturnTypeSubstituted()
     {
@@ -202,7 +199,6 @@ public class GenericResolutionTests
     /// <summary>
     /// Verifies semantic analysis behavior for generic owner memberRoutine nested generic substitution.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericOwnerMemberRoutine_NestedGenericSubstitution()
     {
@@ -252,14 +248,14 @@ public class GenericResolutionTests
                         """;
 
         Program program = Parse(source: source);
-        var analyzer = new SemanticVerifier(
-            language: Language.RazorForge) { SaOnly = true };
+        var analyzer = new SemanticVerifier(language: Language.RazorForge) { SaOnly = true };
         AnalysisResult result = analyzer.Analyze(program: program);
         Assert.Empty(collection: result.Errors);
 
         // Find the 'test' routine, get its body, find the call to swap_first
-        var testRoutine = program.Declarations.OfType<RoutineDeclaration>()
-                                 .First(predicate: r => r.Name == "test");
+        RoutineDeclaration testRoutine = program.Declarations
+                                                .OfType<RoutineDeclaration>()
+                                                .First(predicate: r => r.Name == "test");
         var body = (BlockStatement)testRoutine.Body;
         // Statement 1 (index 1): var old = p.swap_first(value: 3)
         var declStmt = (DeclarationStatement)body.Statements[index: 1];
@@ -294,13 +290,13 @@ public class GenericResolutionTests
                         """;
 
         Program program = Parse(source: source);
-        var analyzer = new SemanticVerifier(
-            language: Language.RazorForge) { SaOnly = true };
+        var analyzer = new SemanticVerifier(language: Language.RazorForge) { SaOnly = true };
         AnalysisResult result = analyzer.Analyze(program: program);
         Assert.Empty(collection: result.Errors);
 
-        var testRoutine = program.Declarations.OfType<RoutineDeclaration>()
-                                 .First(predicate: r => r.Name == "test");
+        RoutineDeclaration testRoutine = program.Declarations
+                                                .OfType<RoutineDeclaration>()
+                                                .First(predicate: r => r.Name == "test");
         var body = (BlockStatement)testRoutine.Body;
         // Statement 1 (index 1): b.clear()
         var exprStmt = (ExpressionStatement)body.Statements[index: 1];
@@ -336,8 +332,9 @@ public class GenericResolutionTests
         AnalysisResult result = analyzer.Analyze(program: program);
         Assert.Empty(collection: result.Errors);
 
-        var testRoutine = program.Declarations.OfType<RoutineDeclaration>()
-                                 .First(predicate: r => r.Name == "test");
+        RoutineDeclaration testRoutine = program.Declarations
+                                                .OfType<RoutineDeclaration>()
+                                                .First(predicate: r => r.Name == "test");
         var body = (BlockStatement)testRoutine.Body;
         // Statement 1 (index 1): var c = b.convert[Bool](true)
         // After GenericCallLoweringPass, the node is lowered to a CallExpression with TypeArguments.
@@ -348,16 +345,16 @@ public class GenericResolutionTests
         Assert.NotNull(@object: call.ResolvedRoutine);
         Assert.Equal(expected: "convert", actual: call.ResolvedRoutine!.Name);
         Assert.NotNull(@object: call.TypeArguments);
-        Assert.Single(call.TypeArguments!);
+        Assert.Single(collection: call.TypeArguments!);
     }
 
     #endregion
 
     #region P2 — GenericDefinition preserved after type updates
+
     /// <summary>
     /// Verifies semantic analysis behavior for generic record preserves definition after member update.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericRecord_PreservesDefinitionAfterMemberUpdate()
     {
@@ -382,7 +379,6 @@ public class GenericResolutionTests
     /// <summary>
     /// Verifies semantic analysis behavior for generic entity preserves definition after member update.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericEntity_PreservesDefinitionAfterMemberUpdate()
     {

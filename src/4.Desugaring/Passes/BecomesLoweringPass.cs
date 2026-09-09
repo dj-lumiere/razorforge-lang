@@ -14,29 +14,29 @@ internal sealed class BecomesLoweringPass(PostprocessingContext _) : AstRewriter
     {
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration routine:
                 {
-                    Statement lowered = VisitStatement(routine.Body);
-                    if (!ReferenceEquals(lowered, routine.Body))
+                    Statement lowered = VisitStatement(stmt: routine.Body);
+                    if (!ReferenceEquals(objA: lowered, objB: routine.Body))
                     {
-                        program.Declarations[i] = routine with { Body = lowered };
+                        program.Declarations[index: i] = routine with { Body = lowered };
                     }
 
                     break;
                 }
 
                 case EntityDeclaration entity:
-                    LowerMemberList(entity.Members);
+                    LowerMemberList(members: entity.Members);
                     break;
 
                 case RecordDeclaration record:
-                    LowerMemberList(record.Members);
+                    LowerMemberList(members: record.Members);
                     break;
 
                 case CrashableDeclaration crashable:
-                    LowerMemberList(crashable.Members);
+                    LowerMemberList(members: crashable.Members);
                     break;
             }
         }
@@ -46,15 +46,15 @@ internal sealed class BecomesLoweringPass(PostprocessingContext _) : AstRewriter
     {
         for (int i = 0; i < members.Count; i++)
         {
-            if (members[i] is not RoutineDeclaration routine)
+            if (members[index: i] is not RoutineDeclaration routine)
             {
                 continue;
             }
 
-            Statement lowered = VisitStatement(routine.Body);
-            if (!ReferenceEquals(lowered, routine.Body))
+            Statement lowered = VisitStatement(stmt: routine.Body);
+            if (!ReferenceEquals(objA: lowered, objB: routine.Body))
             {
-                members[i] = routine with { Body = lowered };
+                members[index: i] = routine with { Body = lowered };
             }
         }
     }
@@ -74,11 +74,13 @@ internal sealed class BecomesLoweringPass(PostprocessingContext _) : AstRewriter
         List<Statement>? loweredStatements = null;
         for (int i = 0; i < lowered.Statements.Count - 1; i++)
         {
-            if (TryGetSyntheticWhenResultTarget(lowered.Statements[i], out IdentifierExpression? target) &&
-                ContainsBecomes(lowered.Statements[i + 1]))
+            if (TryGetSyntheticWhenResultTarget(statement: lowered.Statements[index: i],
+                    target: out IdentifierExpression? target) &&
+                ContainsBecomes(statement: lowered.Statements[index: i + 1]))
             {
-                loweredStatements ??= [..lowered.Statements];
-                loweredStatements[i + 1] = RewriteBecomes(loweredStatements[i + 1], target!);
+                loweredStatements ??= [.. lowered.Statements];
+                loweredStatements[index: i + 1] =
+                    RewriteBecomes(statement: loweredStatements[index: i + 1], target: target!);
             }
         }
 
@@ -98,8 +100,8 @@ internal sealed class BecomesLoweringPass(PostprocessingContext _) : AstRewriter
                 {
                     Initializer: null
                 } variable
-            } ||
-            !variable.Name.StartsWith(value: "_wres_", comparisonType: StringComparison.Ordinal))
+            } || !variable.Name.StartsWith(value: "_wres_",
+                comparisonType: StringComparison.Ordinal))
         {
             return false;
         }
@@ -113,21 +115,23 @@ internal sealed class BecomesLoweringPass(PostprocessingContext _) : AstRewriter
         return statement switch
         {
             BecomesStatement => true,
-            BlockStatement block => block.Statements.Any(ContainsBecomes),
-            IfStatement ifs =>
-                ContainsBecomes(ifs.ThenStatement) ||
-                ifs.ElseStatement != null && ContainsBecomes(ifs.ElseStatement),
-            WhileStatement whileStmt =>
-                ContainsBecomes(whileStmt.Body) ||
-                whileStmt.ElseBranch != null && ContainsBecomes(whileStmt.ElseBranch),
-            LoopStatement loop => ContainsBecomes(loop.Body),
-            EachStatement eachStmt =>
-                ContainsBecomes(eachStmt.Body) ||
-                eachStmt.ElseBranch != null && ContainsBecomes(eachStmt.ElseBranch),
-            WhenStatement whenStmt => whenStmt.Clauses.Any(clause => ContainsBecomes(clause.Body)),
-            DangerStatement danger => ContainsBecomes(danger.Body),
-            UsingStatement usingStmt => ContainsBecomes(usingStmt.Body) ||
-                usingStmt.FallbackBody != null && ContainsBecomes(usingStmt.FallbackBody),
+            BlockStatement block => block.Statements.Any(predicate: ContainsBecomes),
+            IfStatement ifs => ContainsBecomes(statement: ifs.ThenStatement) ||
+                               ifs.ElseStatement != null &&
+                               ContainsBecomes(statement: ifs.ElseStatement),
+            WhileStatement whileStmt => ContainsBecomes(statement: whileStmt.Body) ||
+                                        whileStmt.ElseBranch != null &&
+                                        ContainsBecomes(statement: whileStmt.ElseBranch),
+            LoopStatement loop => ContainsBecomes(statement: loop.Body),
+            EachStatement eachStmt => ContainsBecomes(statement: eachStmt.Body) ||
+                                      eachStmt.ElseBranch != null &&
+                                      ContainsBecomes(statement: eachStmt.ElseBranch),
+            WhenStatement whenStmt => whenStmt.Clauses.Any(predicate: clause =>
+                ContainsBecomes(statement: clause.Body)),
+            DangerStatement danger => ContainsBecomes(statement: danger.Body),
+            UsingStatement usingStmt => ContainsBecomes(statement: usingStmt.Body) ||
+                                        usingStmt.FallbackBody != null &&
+                                        ContainsBecomes(statement: usingStmt.FallbackBody),
             _ => false
         };
     }
@@ -136,59 +140,60 @@ internal sealed class BecomesLoweringPass(PostprocessingContext _) : AstRewriter
     {
         return statement switch
         {
-            BecomesStatement becomes => new AssignmentStatement(
-                Target: target,
+            BecomesStatement becomes => new AssignmentStatement(Target: target,
                 Value: becomes.Value,
                 Location: becomes.Location),
             BlockStatement block => block with
             {
                 Statements = block.Statements
-                    .Select(stmt => RewriteBecomes(stmt, target))
-                    .ToList()
+                                  .Select(selector: stmt =>
+                                       RewriteBecomes(statement: stmt, target: target))
+                                  .ToList()
             },
             IfStatement ifs => ifs with
             {
-                ThenStatement = RewriteBecomes(ifs.ThenStatement, target),
+                ThenStatement = RewriteBecomes(statement: ifs.ThenStatement, target: target),
                 ElseStatement = ifs.ElseStatement != null
-                    ? RewriteBecomes(ifs.ElseStatement, target)
+                    ? RewriteBecomes(statement: ifs.ElseStatement, target: target)
                     : null
             },
             WhileStatement whileStmt => whileStmt with
             {
-                Body = RewriteBecomes(whileStmt.Body, target),
+                Body = RewriteBecomes(statement: whileStmt.Body, target: target),
                 ElseBranch = whileStmt.ElseBranch != null
-                    ? RewriteBecomes(whileStmt.ElseBranch, target)
+                    ? RewriteBecomes(statement: whileStmt.ElseBranch, target: target)
                     : null
             },
             LoopStatement loop => loop with
             {
-                Body = RewriteBecomes(loop.Body, target)
+                Body = RewriteBecomes(statement: loop.Body, target: target)
             },
             EachStatement eachStmt => eachStmt with
             {
-                Body = RewriteBecomes(eachStmt.Body, target),
+                Body = RewriteBecomes(statement: eachStmt.Body, target: target),
                 ElseBranch = eachStmt.ElseBranch != null
-                    ? RewriteBecomes(eachStmt.ElseBranch, target)
+                    ? RewriteBecomes(statement: eachStmt.ElseBranch, target: target)
                     : null
             },
             WhenStatement whenStmt => whenStmt with
             {
                 Clauses = whenStmt.Clauses
-                    .Select(clause => clause with
-                    {
-                        Body = RewriteBecomes(clause.Body, target)
-                    })
-                    .ToList()
+                                  .Select(selector: clause => clause with
+                                   {
+                                       Body = RewriteBecomes(statement: clause.Body,
+                                           target: target)
+                                   })
+                                  .ToList()
             },
             DangerStatement danger => danger with
             {
-                Body = (BlockStatement)RewriteBecomes(danger.Body, target)
+                Body = (BlockStatement)RewriteBecomes(statement: danger.Body, target: target)
             },
             UsingStatement usingStmt => usingStmt with
             {
-                Body = RewriteBecomes(usingStmt.Body, target),
+                Body = RewriteBecomes(statement: usingStmt.Body, target: target),
                 FallbackBody = usingStmt.FallbackBody != null
-                    ? RewriteBecomes(usingStmt.FallbackBody, target)
+                    ? RewriteBecomes(statement: usingStmt.FallbackBody, target: target)
                     : null
             },
             _ => statement

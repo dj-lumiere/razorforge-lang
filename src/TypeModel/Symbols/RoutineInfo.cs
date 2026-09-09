@@ -97,12 +97,15 @@ public sealed class RoutineInfo
             }
             else
             {
-                baseName = string.IsNullOrEmpty(value: Module) ? Name : $"{Module}.{Name}";
+                baseName = string.IsNullOrEmpty(value: Module)
+                    ? Name
+                    : $"{Module}.{Name}";
             }
+
             if (TypeArguments is { Count: > 0 })
             {
                 string typeArgs = string.Join(separator: ",",
-                    values: TypeArguments.Select(GetTypeIdentity));
+                    values: TypeArguments.Select(selector: GetTypeIdentity));
                 baseName = $"{baseName}[{typeArgs}]";
             }
 
@@ -111,7 +114,9 @@ public sealed class RoutineInfo
                 : $"{baseName}#{string.Join(separator: ",", values: Parameters.Select(selector: p => GetTypeIdentity(type: p.Type)))}";
 
             // Bridged-realm owner → realm-prefixed key (ambient realm "RF" stays bare = RF byte-identical).
-            return OwnerType is { Realm: not "RF" and { } r } ? $"{r}::{key}" : key;
+            return OwnerType is { Realm: not "RF" and { } r }
+                ? $"{r}::{key}"
+                : key;
         }
     }
 
@@ -127,8 +132,7 @@ public sealed class RoutineInfo
             string baseName = string.IsNullOrEmpty(value: type.Module)
                 ? type.Name
                 : $"{type.Module}.{type.Name}";
-            return
-                $"{baseName}[{string.Join(separator: ", ", values: type.GenericParameters)}]";
+            return $"{baseName}[{string.Join(separator: ", ", values: type.GenericParameters)}]";
         }
 
         return type.FullName;
@@ -236,15 +240,13 @@ public sealed class RoutineInfo
     /// STRONGER claim that must be explicit. (A <c>Reshaping</c> default was a latent bug: any construction
     /// or copy path that forgot to set the category silently made the routine look maximally-mutating,
     /// e.g. tripping the RF-S625 reshaping-during-iteration ban on a plainly <c>@readonly</c> call.)</summary>
-    public MutationCategory DeclaredMutation { get; init; } =
-        MutationCategory.Writable;
+    public MutationCategory DeclaredMutation { get; init; } = MutationCategory.Writable;
 
     /// <summary>
     /// The inferred/final mutation category for this routine.
     /// Initially set to declared value, then updated by mutation inference.
     /// </summary>
-    public MutationCategory MutationCategory { get; set; } =
-        MutationCategory.Writable;
+    public MutationCategory MutationCategory { get; set; } = MutationCategory.Writable;
 
     /// <summary>Generic type parameters, if any.</summary>
     public List<string>? GenericParameters { get; init; }
@@ -276,6 +278,7 @@ public sealed class RoutineInfo
                     indices.Add(item: i);
                 }
             }
+
             return indices;
         }
     }
@@ -286,6 +289,7 @@ public sealed class RoutineInfo
         {
             return false;
         }
+
         string baseName = (proto.GenericDefinition ?? proto).BareName;
         return RuntimeContract.IsMarkerProtocol(baseName: baseName);
     }
@@ -361,7 +365,7 @@ public sealed class RoutineInfo
                     content = content[..^1];
                 }
 
-                if (content.Length >= 2 && content[0] == '"' && content[^1] == '"')
+                if (content.Length >= 2 && content[index: 0] == '"' && content[^1] == '"')
                 {
                     content = content[1..^1];
                 }
@@ -607,7 +611,8 @@ public sealed class RoutineInfo
         // so reachability/instantiation paths that route through here also resolve projections.
         if (type is AssociatedProjectionTypeInfo projection)
         {
-            return SubstituteAssociatedProjection(projection: projection, substitution: substitution);
+            return SubstituteAssociatedProjection(projection: projection,
+                substitution: substitution);
         }
 
         // Comptime const-generic (`${max(T.data_size().byte_size(), 8)}`): once the referenced type
@@ -642,8 +647,8 @@ public sealed class RoutineInfo
     }
 
     // Associated-type projection (`S/Iter`): substitute the base, resolve via its binding, else re-base.
-    private static TypeSymbol SubstituteAssociatedProjection(AssociatedProjectionTypeInfo projection,
-        Dictionary<string, TypeSymbol> substitution)
+    private static TypeSymbol SubstituteAssociatedProjection(
+        AssociatedProjectionTypeInfo projection, Dictionary<string, TypeSymbol> substitution)
     {
         TypeSymbol newBase = SubstituteType(type: projection.Base, substitution: substitution);
         TypeInfo? bound = RecordTypeInfo.ProjectAssociatedBinding(baseType: newBase,
@@ -652,6 +657,7 @@ public sealed class RoutineInfo
         {
             return SubstituteType(type: bound, substitution: substitution);
         }
+
         return ReferenceEquals(objA: newBase, objB: projection.Base)
             ? projection
             : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: projection.SlotName);
@@ -661,11 +667,12 @@ public sealed class RoutineInfo
     private static TypeSymbol SubstituteComptimeConstGeneric(ComptimeConstGenericTypeInfo comptime,
         Dictionary<string, TypeSymbol> substitution)
     {
-        return comptime.TryFold(
-                resolveTypeParam: name => substitution.TryGetValue(key: name, value: out TypeSymbol? s)
+        return comptime.TryFold(resolveTypeParam: name =>
+                substitution.TryGetValue(key: name, value: out TypeSymbol? s)
                     ? s
                     : null,
-                pointerSize: 8, out long folded)
+            pointerSize: 8,
+            result: out long folded)
             ? new ConstGenericValueTypeInfo(literalText: folded.ToString(),
                 value: folded,
                 explicitTypeName: "U64")
@@ -677,8 +684,10 @@ public sealed class RoutineInfo
         Dictionary<string, TypeSymbol> substitution)
     {
         var substitutedParams = routineType.ParameterTypes
-            .Select(selector: p => SubstituteType(type: p, substitution: substitution))
-            .ToList();
+                                           .Select(selector: p =>
+                                                SubstituteType(type: p,
+                                                    substitution: substitution))
+                                           .ToList();
         TypeSymbol? substitutedReturn = routineType.ReturnType != null
             ? SubstituteType(type: routineType.ReturnType, substitution: substitution)
             : null;
@@ -691,11 +700,14 @@ public sealed class RoutineInfo
         Dictionary<string, TypeSymbol> substitution)
     {
         var substitutedElements = tupleType.ElementTypes
-            .Select(selector => SubstituteType(type: selector, substitution: substitution))
-            .ToList();
-        bool anyChanged = substitutedElements.Where((element, index) =>
-                !ReferenceEquals(objA: element, objB: tupleType.ElementTypes[index: index]))
-            .Any();
+                                           .Select(selector: selector =>
+                                                SubstituteType(type: selector,
+                                                    substitution: substitution))
+                                           .ToList();
+        bool anyChanged = substitutedElements.Where(predicate: (element, index) =>
+                                                  !ReferenceEquals(objA: element,
+                                                      objB: tupleType.ElementTypes[index: index]))
+                                             .Any();
         return anyChanged
             ? new TupleTypeInfo(elementTypes: substitutedElements)
             : tupleType;
@@ -719,21 +731,24 @@ public sealed class RoutineInfo
         if (type is EntityTypeInfo { GenericDefinition: not null } entityType)
         {
             return registry != null
-                ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition, typeArguments: newArgs)
+                ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition,
+                    typeArguments: newArgs)
                 : entityType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
         if (type is RecordTypeInfo { GenericDefinition: not null } recordType)
         {
             return registry != null
-                ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition, typeArguments: newArgs)
+                ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition,
+                    typeArguments: newArgs)
                 : recordType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
         if (type is ProtocolTypeInfo { GenericDefinition: not null } protocolType)
         {
             return registry != null
-                ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition, typeArguments: newArgs)
+                ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition,
+                    typeArguments: newArgs)
                 : protocolType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
@@ -746,7 +761,8 @@ public sealed class RoutineInfo
             TypeInfo? recordDef = registry.LookupType(name: type.Name);
             if (recordDef is RecordTypeInfo { IsGenericDefinition: true })
             {
-                return registry.GetOrCreateResolution(genericDef: recordDef, typeArguments: newArgs);
+                return registry.GetOrCreateResolution(genericDef: recordDef,
+                    typeArguments: newArgs);
             }
         }
 

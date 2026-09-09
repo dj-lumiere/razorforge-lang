@@ -25,7 +25,7 @@ public static class LinkAnnotation
     public static (string? Library, string? Symbol) Parse(string annotation)
     {
         string a = annotation.Trim();
-        if (!a.StartsWith(value: "link(") || !a.EndsWith(')'))
+        if (!a.StartsWith(value: "link(") || !a.EndsWith(value: ')'))
         {
             return (null, null);
         }
@@ -44,7 +44,9 @@ public static class LinkAnnotation
                 continue;
             }
 
-            (lib, symbol) = ParseLinkPart(part: part, lib: lib, symbol: symbol,
+            (lib, symbol) = ParseLinkPart(part: part,
+                lib: lib,
+                symbol: symbol,
                 positional: ref positional);
         }
 
@@ -61,7 +63,8 @@ public static class LinkAnnotation
         int eq = part.IndexOf(value: '=');
         if (eq >= 0)
         {
-            string key = part[..eq].Trim();
+            string key = part[..eq]
+               .Trim();
             string val = Unquote(s: part[(eq + 1)..]);
             switch (key)
             {
@@ -83,5 +86,9 @@ public static class LinkAnnotation
         return (lib, symbol);
     }
 
-    private static string Unquote(string s) => s.Trim().Trim('"');
+    private static string Unquote(string s)
+    {
+        return s.Trim()
+                .Trim(trimChar: '"');
+    }
 }

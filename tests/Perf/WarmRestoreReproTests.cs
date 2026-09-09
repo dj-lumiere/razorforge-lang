@@ -21,12 +21,19 @@ namespace RazorForge.Tests.Perf;
 public sealed class WarmRestoreReproTests
 {
     private readonly ITestOutputHelper _out;
-    public WarmRestoreReproTests(ITestOutputHelper output) => _out = output;
+    public WarmRestoreReproTests(ITestOutputHelper output)
+    {
+        _out = output;
+    }
 
-    private static Program Parse(string src, string file) =>
-        new Compiler.Parser.Parser(
-            tokens: new Tokenizer(source: src, fileName: file, language: Language.RazorForge).Tokenize(),
-            language: Language.RazorForge, fileName: file).Parse();
+    private static Program Parse(string src, string file)
+    {
+        return new Compiler.Parser.Parser(
+            tokens: new Tokenizer(source: src, fileName: file, language: Language.RazorForge)
+               .Tokenize(),
+            language: Language.RazorForge,
+            fileName: file).Parse();
+    }
 
     [Fact]
     public void WarmRestore_ImportsNonCoreModule_DoesNotReLowerStdlibCore()
@@ -52,9 +59,18 @@ public sealed class WarmRestoreReproTests
         {
             var analyzer = new SemanticVerifier(language: Language.RazorForge, warm: warm);
             AnalysisResult r = analyzer.AnalyzeMultiple(
-                files: new List<(Program, string)> { (Parse(user, "bench.rf"), "bench.rf") });
-            _out.WriteLine($"run {i}: errors={r.Errors.Count} fresh={analyzer.Registry.FreshlyLoadedStdlibPrograms.Count}");
-            foreach (SemanticError e in r.Errors.Take(10)) _out.WriteLine(e.ToString());
+                files: new List<(Program, string)>
+                {
+                    (Parse(src: user, file: "bench.rf"), "bench.rf")
+                });
+            _out.WriteLine(
+                message:
+                $"run {i}: errors={r.Errors.Count} fresh={analyzer.Registry.FreshlyLoadedStdlibPrograms.Count}");
+            foreach (SemanticError e in r.Errors.Take(count: 10))
+            {
+                _out.WriteLine(message: e.ToString());
+            }
+
             Assert.Empty(collection: r.Errors);
         }
     }

@@ -17,7 +17,11 @@ public static class AstWalker
     /// </summary>
     public static void Walk(object? root, Action<object> visit)
     {
-        if (root == null) return;
+        if (root == null)
+        {
+            return;
+        }
+
         visit(obj: root);
         foreach (object child in EnumerateChildren(node: root))
         {
@@ -34,7 +38,10 @@ public static class AstWalker
         Walk(root: root,
             visit: n =>
             {
-                if (n is Expression e) visit(obj: e);
+                if (n is Expression e)
+                {
+                    visit(obj: e);
+                }
             });
     }
 
@@ -50,25 +57,29 @@ public static class AstWalker
         // Node types are disjoint across these categories, so at most one helper handles a given
         // node. Chained in the original declaration order (Program → Statements → Expressions →
         // Patterns → Declarations → Auxiliary) so the yielded child order is preserved exactly.
-        return EnumerateProgramChildren(node: node)
-            ?? EnumerateStatementChildren(node: node)
-            ?? EnumerateExpressionChildren(node: node)
-            ?? EnumeratePatternChildren(node: node)
-            ?? EnumerateDeclarationChildren(node: node)
-            ?? EnumerateAuxiliaryChildren(node: node)
-            ?? Enumerable.Empty<object>();
+        return EnumerateProgramChildren(node: node) ?? EnumerateStatementChildren(node: node) ??
+            EnumerateExpressionChildren(node: node) ?? EnumeratePatternChildren(node: node) ??
+            EnumerateDeclarationChildren(node: node) ?? EnumerateAuxiliaryChildren(node: node) ??
+            Enumerable.Empty<object>();
     }
 
     // -------- Program --------
     private static IEnumerable<object>? EnumerateProgramChildren(object node)
     {
-        if (node is not Program p) return null;
+        if (node is not Program p)
+        {
+            return null;
+        }
+
         return ProgramChildren(p: p);
     }
 
     private static IEnumerable<object> ProgramChildren(Program p)
     {
-        foreach (ISyntaxTreeNode d in p.Declarations) yield return d;
+        foreach (ISyntaxTreeNode d in p.Declarations)
+        {
+            yield return d;
+        }
     }
 
     // -------- Statements --------
@@ -77,29 +88,65 @@ public static class AstWalker
         switch (node)
         {
             case ExpressionStatement s:
-                return new object[] { s.Expression };
+                return new object[]
+                {
+                    s.Expression
+                };
             case DeclarationStatement s:
-                return new object[] { s.Declaration };
+                return new object[]
+                {
+                    s.Declaration
+                };
             case AssignmentStatement s:
-                return new object[] { s.Target, s.Value };
+                return new object[]
+                {
+                    s.Target,
+                    s.Value
+                };
             case DestructuringStatement s:
-                return new object[] { s.Pattern, s.Initializer };
+                return new object[]
+                {
+                    s.Pattern,
+                    s.Initializer
+                };
             case ReturnStatement s:
-                return s.Value != null ? new object[] { s.Value } : Enumerable.Empty<object>();
+                return s.Value != null
+                    ? new object[]
+                    {
+                        s.Value
+                    }
+                    : Enumerable.Empty<object>();
             case BecomesStatement s:
-                return new object[] { s.Value };
+                return new object[]
+                {
+                    s.Value
+                };
             case ThrowStatement s:
-                return new object[] { s.Error };
+                return new object[]
+                {
+                    s.Error
+                };
             case VariantReturnStatement s:
-                return s.Value != null ? new object[] { s.Value } : Enumerable.Empty<object>();
+                return s.Value != null
+                    ? new object[]
+                    {
+                        s.Value
+                    }
+                    : Enumerable.Empty<object>();
             case DiscardStatement s:
-                return new object[] { s.Expression };
+                return new object[]
+                {
+                    s.Expression
+                };
             case IfStatement s:
                 return IfStatementChildren(s: s);
             case WhileStatement s:
                 return WhileStatementChildren(s: s);
             case LoopStatement s:
-                return new object[] { s.Body };
+                return new object[]
+                {
+                    s.Body
+                };
             case EachStatement s:
                 return EachStatementChildren(s: s);
             case BlockStatement s:
@@ -107,7 +154,10 @@ public static class AstWalker
             case WhenStatement s:
                 return WhenStatementChildren(s: s);
             case DangerStatement s:
-                return new object[] { s.Body };
+                return new object[]
+                {
+                    s.Body
+                };
             case UsingStatement s:
                 return UsingStatementChildren(s: s);
             case AbsentStatement:
@@ -124,40 +174,62 @@ public static class AstWalker
     {
         yield return s.Condition;
         yield return s.ThenStatement;
-        if (s.ElseStatement != null) yield return s.ElseStatement;
+        if (s.ElseStatement != null)
+        {
+            yield return s.ElseStatement;
+        }
     }
 
     private static IEnumerable<object> WhileStatementChildren(WhileStatement s)
     {
         yield return s.Condition;
         yield return s.Body;
-        if (s.ElseBranch != null) yield return s.ElseBranch;
+        if (s.ElseBranch != null)
+        {
+            yield return s.ElseBranch;
+        }
     }
 
     private static IEnumerable<object> EachStatementChildren(EachStatement s)
     {
-        if (s.VariablePattern != null) yield return s.VariablePattern;
+        if (s.VariablePattern != null)
+        {
+            yield return s.VariablePattern;
+        }
+
         yield return s.Iterable;
         yield return s.Body;
-        if (s.ElseBranch != null) yield return s.ElseBranch;
+        if (s.ElseBranch != null)
+        {
+            yield return s.ElseBranch;
+        }
     }
 
     private static IEnumerable<object> BlockStatementChildren(BlockStatement s)
     {
-        foreach (Statement child in s.Statements) yield return child;
+        foreach (Statement child in s.Statements)
+        {
+            yield return child;
+        }
     }
 
     private static IEnumerable<object> WhenStatementChildren(WhenStatement s)
     {
         yield return s.Expression;
-        foreach (WhenClause c in s.Clauses) yield return c;
+        foreach (WhenClause c in s.Clauses)
+        {
+            yield return c;
+        }
     }
 
     private static IEnumerable<object> UsingStatementChildren(UsingStatement s)
     {
         yield return s.Resource;
         yield return s.Body;
-        if (s.FallbackBody != null) yield return s.FallbackBody;
+        if (s.FallbackBody != null)
+        {
+            yield return s.FallbackBody;
+        }
     }
 
     // -------- Expressions --------
@@ -176,31 +248,67 @@ public static class AstWalker
             case TupleLiteralExpression e:
                 return TupleLiteralExpressionChildren(e: e);
             case CompoundAssignmentExpression e:
-                return new object[] { e.Target, e.Value };
+                return new object[]
+                {
+                    e.Target,
+                    e.Value
+                };
             case BinaryExpression e:
-                return new object[] { e.Left, e.Right };
+                return new object[]
+                {
+                    e.Left,
+                    e.Right
+                };
             case UnaryExpression e:
-                return new object[] { e.Operand };
+                return new object[]
+                {
+                    e.Operand
+                };
             case CallExpression e:
                 return CallExpressionChildren(e: e);
             case NamedArgumentExpression e:
-                return new object[] { e.Value };
+                return new object[]
+                {
+                    e.Value
+                };
             case DictEntryLiteralExpression e:
-                return new object[] { e.Key, e.Value };
+                return new object[]
+                {
+                    e.Key,
+                    e.Value
+                };
             case CreatorExpression e:
                 return CreatorExpressionChildren(e: e);
             case WithExpression e:
                 return WithExpressionChildren(e: e);
             case MemberExpression e:
-                return new object[] { e.Object };
+                return new object[]
+                {
+                    e.Object
+                };
             case OptionalMemberExpression e:
-                return new object[] { e.Object };
+                return new object[]
+                {
+                    e.Object
+                };
             case IndexExpression e:
-                return new object[] { e.Object, e.Index };
+                return new object[]
+                {
+                    e.Object,
+                    e.Index
+                };
             case ConditionalExpression e:
-                return new object[] { e.Condition, e.TrueExpression, e.FalseExpression };
+                return new object[]
+                {
+                    e.Condition,
+                    e.TrueExpression,
+                    e.FalseExpression
+                };
             case BlockExpression e:
-                return new object[] { e.Value };
+                return new object[]
+                {
+                    e.Value
+                };
             case ChainedComparisonExpression e:
                 return ChainedComparisonExpressionChildren(e: e);
             case RangeExpression e:
@@ -210,31 +318,57 @@ public static class AstWalker
             case TypeExpression e:
                 return TypeExpressionChildren(e: e);
             case TypeConversionExpression e:
-                return new object[] { e.Expression };
+                return new object[]
+                {
+                    e.Expression
+                };
             case GenericMemberRoutineCallExpression e:
                 return GenericMemberRoutineCallExpressionChildren(e: e);
             case GenericMemberExpression e:
                 return GenericMemberExpressionChildren(e: e);
             case TypeIdExpression e:
-                return new object[] { e.Type };
+                return new object[]
+                {
+                    e.Type
+                };
             case CarrierPayloadExpression e:
-                return new object[] { e.Carrier, e.ConcreteType };
+                return new object[]
+                {
+                    e.Carrier,
+                    e.ConcreteType
+                };
             case CrashableDispatchExpression e:
-                return new object[] { e.Carrier };
+                return new object[]
+                {
+                    e.Carrier
+                };
             case IsPatternExpression e:
-                return new object[] { e.Expression, e.Pattern };
+                return new object[]
+                {
+                    e.Expression,
+                    e.Pattern
+                };
             case FlagsTestExpression e:
-                return new object[] { e.Subject };
+                return new object[]
+                {
+                    e.Subject
+                };
             case WhenExpression e:
                 return WhenExpressionChildren(e: e);
             case StealExpression e:
-                return new object[] { e.Operand };
+                return new object[]
+                {
+                    e.Operand
+                };
             case WaitforExpression e:
                 return WaitforExpressionChildren(e: e);
             case DependentWaitforExpression e:
                 return DependentWaitforExpressionChildren(e: e);
             case BackIndexExpression e:
-                return new object[] { e.Operand };
+                return new object[]
+                {
+                    e.Operand
+                };
             case LiteralExpression:
             case IdentifierExpression:
                 return Enumerable.Empty<object>();
@@ -245,19 +379,36 @@ public static class AstWalker
 
     private static IEnumerable<object> InsertedTextExpressionChildren(InsertedTextExpression e)
     {
-        foreach (InsertedTextPart part in e.Parts) yield return part;
+        foreach (InsertedTextPart part in e.Parts)
+        {
+            yield return part;
+        }
     }
 
     private static IEnumerable<object> ListLiteralExpressionChildren(ListLiteralExpression e)
     {
-        foreach (Expression el in e.Elements) yield return el;
-        if (e.ElementType != null) yield return e.ElementType;
+        foreach (Expression el in e.Elements)
+        {
+            yield return el;
+        }
+
+        if (e.ElementType != null)
+        {
+            yield return e.ElementType;
+        }
     }
 
     private static IEnumerable<object> SetLiteralExpressionChildren(SetLiteralExpression e)
     {
-        foreach (Expression el in e.Elements) yield return el;
-        if (e.ElementType != null) yield return e.ElementType;
+        foreach (Expression el in e.Elements)
+        {
+            yield return el;
+        }
+
+        if (e.ElementType != null)
+        {
+            yield return e.ElementType;
+        }
     }
 
     private static IEnumerable<object> DictLiteralExpressionChildren(DictLiteralExpression e)
@@ -267,29 +418,57 @@ public static class AstWalker
             yield return pair.Key;
             yield return pair.Value;
         }
-        if (e.KeyType != null) yield return e.KeyType;
-        if (e.ValueType != null) yield return e.ValueType;
+
+        if (e.KeyType != null)
+        {
+            yield return e.KeyType;
+        }
+
+        if (e.ValueType != null)
+        {
+            yield return e.ValueType;
+        }
     }
 
     private static IEnumerable<object> TupleLiteralExpressionChildren(TupleLiteralExpression e)
     {
-        foreach (Expression el in e.Elements) yield return el;
+        foreach (Expression el in e.Elements)
+        {
+            yield return el;
+        }
     }
 
     private static IEnumerable<object> CallExpressionChildren(CallExpression e)
     {
         yield return e.Callee;
-        foreach (Expression arg in e.Arguments) yield return arg;
+        foreach (Expression arg in e.Arguments)
+        {
+            yield return arg;
+        }
+
         if (e.TypeArguments != null)
-            foreach (TypeExpression t in e.TypeArguments) yield return t;
+        {
+            foreach (TypeExpression t in e.TypeArguments)
+            {
+                yield return t;
+            }
+        }
     }
 
     private static IEnumerable<object> CreatorExpressionChildren(CreatorExpression e)
     {
         if (e.TypeArguments != null)
-            foreach (TypeExpression t in e.TypeArguments) yield return t;
+        {
+            foreach (TypeExpression t in e.TypeArguments)
+            {
+                yield return t;
+            }
+        }
+
         foreach ((string Name, Expression Value) mv in e.MemberVariables)
+        {
             yield return mv.Value;
+        }
     }
 
     private static IEnumerable<object> WithExpressionChildren(WithExpression e)
@@ -297,65 +476,114 @@ public static class AstWalker
         yield return e.Base;
         foreach ((List<string>? Path, Expression? Index, Expression Value) u in e.Updates)
         {
-            if (u.Index != null) yield return u.Index;
+            if (u.Index != null)
+            {
+                yield return u.Index;
+            }
+
             yield return u.Value;
         }
     }
 
-    private static IEnumerable<object> ChainedComparisonExpressionChildren(ChainedComparisonExpression e)
+    private static IEnumerable<object> ChainedComparisonExpressionChildren(
+        ChainedComparisonExpression e)
     {
-        foreach (Expression op in e.Operands) yield return op;
+        foreach (Expression op in e.Operands)
+        {
+            yield return op;
+        }
     }
 
     private static IEnumerable<object> RangeExpressionChildren(RangeExpression e)
     {
         yield return e.Start;
         yield return e.End;
-        if (e.Step != null) yield return e.Step;
+        if (e.Step != null)
+        {
+            yield return e.Step;
+        }
     }
 
     private static IEnumerable<object> LambdaExpressionChildren(LambdaExpression e)
     {
-        foreach (Parameter p in e.Parameters) yield return p;
+        foreach (Parameter p in e.Parameters)
+        {
+            yield return p;
+        }
+
         yield return e.Body;
     }
 
     private static IEnumerable<object> TypeExpressionChildren(TypeExpression e)
     {
         if (e.GenericArguments != null)
-            foreach (TypeExpression t in e.GenericArguments) yield return t;
+        {
+            foreach (TypeExpression t in e.GenericArguments)
+            {
+                yield return t;
+            }
+        }
     }
 
-    private static IEnumerable<object> GenericMemberRoutineCallExpressionChildren(GenericMemberRoutineCallExpression e)
+    private static IEnumerable<object> GenericMemberRoutineCallExpressionChildren(
+        GenericMemberRoutineCallExpression e)
     {
         yield return e.Object;
-        foreach (TypeExpression t in e.TypeArguments) yield return t;
-        foreach (Expression arg in e.Arguments) yield return arg;
+        foreach (TypeExpression t in e.TypeArguments)
+        {
+            yield return t;
+        }
+
+        foreach (Expression arg in e.Arguments)
+        {
+            yield return arg;
+        }
     }
 
     private static IEnumerable<object> GenericMemberExpressionChildren(GenericMemberExpression e)
     {
         yield return e.Object;
-        foreach (TypeExpression t in e.TypeArguments) yield return t;
+        foreach (TypeExpression t in e.TypeArguments)
+        {
+            yield return t;
+        }
     }
 
     private static IEnumerable<object> WhenExpressionChildren(WhenExpression e)
     {
-        if (e.Expression != null) yield return e.Expression;
-        foreach (WhenClause c in e.Clauses) yield return c;
+        if (e.Expression != null)
+        {
+            yield return e.Expression;
+        }
+
+        foreach (WhenClause c in e.Clauses)
+        {
+            yield return c;
+        }
     }
 
     private static IEnumerable<object> WaitforExpressionChildren(WaitforExpression e)
     {
         yield return e.Operand;
-        if (e.Timeout != null) yield return e.Timeout;
+        if (e.Timeout != null)
+        {
+            yield return e.Timeout;
+        }
     }
 
-    private static IEnumerable<object> DependentWaitforExpressionChildren(DependentWaitforExpression e)
+    private static IEnumerable<object> DependentWaitforExpressionChildren(
+        DependentWaitforExpression e)
     {
-        foreach (TaskDependency dep in e.Dependencies) yield return dep;
+        foreach (TaskDependency dep in e.Dependencies)
+        {
+            yield return dep;
+        }
+
         yield return e.Operand;
-        if (e.Timeout != null) yield return e.Timeout;
+        if (e.Timeout != null)
+        {
+            yield return e.Timeout;
+        }
     }
 
     // -------- Patterns --------
@@ -366,17 +594,35 @@ public static class AstWalker
             case TypePattern p:
                 return TypePatternChildren(p: p);
             case NegatedTypePattern p:
-                return new object[] { p.Type };
+                return new object[]
+                {
+                    p.Type
+                };
             case ExpressionPattern p:
-                return new object[] { p.Expression };
+                return new object[]
+                {
+                    p.Expression
+                };
             case ComparisonPattern p:
-                return new object[] { p.Value };
+                return new object[]
+                {
+                    p.Value
+                };
             case VariantPattern p:
                 return VariantPatternChildren(p: p);
             case GuardPattern p:
-                return new object[] { p.InnerPattern, p.Guard };
+                return new object[]
+                {
+                    p.InnerPattern,
+                    p.Guard
+                };
             case CrashablePattern p:
-                return p.ErrorType != null ? new object[] { p.ErrorType } : Enumerable.Empty<object>();
+                return p.ErrorType != null
+                    ? new object[]
+                    {
+                        p.ErrorType
+                    }
+                    : Enumerable.Empty<object>();
             case DestructuringPattern p:
                 return DestructuringPatternChildren(p: p);
             case TypeDestructuringPattern p:
@@ -397,24 +643,40 @@ public static class AstWalker
     {
         yield return p.Type;
         if (p.Bindings != null)
-            foreach (DestructuringBinding b in p.Bindings) yield return b;
+        {
+            foreach (DestructuringBinding b in p.Bindings)
+            {
+                yield return b;
+            }
+        }
     }
 
     private static IEnumerable<object> VariantPatternChildren(VariantPattern p)
     {
         if (p.Bindings != null)
-            foreach (DestructuringBinding b in p.Bindings) yield return b;
+        {
+            foreach (DestructuringBinding b in p.Bindings)
+            {
+                yield return b;
+            }
+        }
     }
 
     private static IEnumerable<object> DestructuringPatternChildren(DestructuringPattern p)
     {
-        foreach (DestructuringBinding b in p.Bindings) yield return b;
+        foreach (DestructuringBinding b in p.Bindings)
+        {
+            yield return b;
+        }
     }
 
     private static IEnumerable<object> TypeDestructuringPatternChildren(TypeDestructuringPattern p)
     {
         yield return p.Type;
-        foreach (DestructuringBinding b in p.Bindings) yield return b;
+        foreach (DestructuringBinding b in p.Bindings)
+        {
+            yield return b;
+        }
     }
 
     // -------- Declarations --------
@@ -439,7 +701,11 @@ public static class AstWalker
             case ProtocolDeclaration d:
                 return ProtocolDeclarationChildren(d: d);
             case PresetDeclaration d:
-                return new object[] { d.Type, d.Value };
+                return new object[]
+                {
+                    d.Type,
+                    d.Value
+                };
             case ExternalDeclaration d:
                 return ExternalDeclarationChildren(d: d);
             case ExternalBlockDeclaration d:
@@ -457,60 +723,119 @@ public static class AstWalker
 
     private static IEnumerable<object> VariableDeclarationChildren(VariableDeclaration d)
     {
-        if (d.Type != null) yield return d.Type;
-        if (d.Initializer != null) yield return d.Initializer;
+        if (d.Type != null)
+        {
+            yield return d.Type;
+        }
+
+        if (d.Initializer != null)
+        {
+            yield return d.Initializer;
+        }
     }
 
     private static IEnumerable<object> RoutineDeclarationChildren(RoutineDeclaration d)
     {
-        foreach (Parameter p in d.Parameters) yield return p;
-        if (d.ReturnType != null) yield return d.ReturnType;
+        foreach (Parameter p in d.Parameters)
+        {
+            yield return p;
+        }
+
+        if (d.ReturnType != null)
+        {
+            yield return d.ReturnType;
+        }
+
         yield return d.Body;
     }
 
     private static IEnumerable<object> EntityDeclarationChildren(EntityDeclaration d)
     {
-        foreach (TypeExpression t in d.Protocols) yield return t;
-        foreach (Declaration m in d.Members) yield return m;
+        foreach (TypeExpression t in d.Protocols)
+        {
+            yield return t;
+        }
+
+        foreach (Declaration m in d.Members)
+        {
+            yield return m;
+        }
     }
 
     private static IEnumerable<object> RecordDeclarationChildren(RecordDeclaration d)
     {
-        foreach (TypeExpression t in d.Protocols) yield return t;
-        foreach (Declaration m in d.Members) yield return m;
+        foreach (TypeExpression t in d.Protocols)
+        {
+            yield return t;
+        }
+
+        foreach (Declaration m in d.Members)
+        {
+            yield return m;
+        }
     }
 
     private static IEnumerable<object> ChoiceDeclarationChildren(ChoiceDeclaration d)
     {
-        foreach (ChoiceCase c in d.Cases) yield return c;
-        foreach (RoutineDeclaration m in d.MemberRoutines) yield return m;
+        foreach (ChoiceCase c in d.Cases)
+        {
+            yield return c;
+        }
+
+        foreach (RoutineDeclaration m in d.MemberRoutines)
+        {
+            yield return m;
+        }
     }
 
     private static IEnumerable<object> CrashableDeclarationChildren(CrashableDeclaration d)
     {
-        foreach (Declaration m in d.Members) yield return m;
+        foreach (Declaration m in d.Members)
+        {
+            yield return m;
+        }
     }
 
     private static IEnumerable<object> VariantDeclarationChildren(VariantDeclaration d)
     {
-        foreach (VariantMember m in d.Members) yield return m;
+        foreach (VariantMember m in d.Members)
+        {
+            yield return m;
+        }
     }
 
     private static IEnumerable<object> ProtocolDeclarationChildren(ProtocolDeclaration d)
     {
-        foreach (TypeExpression t in d.ParentProtocols) yield return t;
-        foreach (RoutineSignature m in d.MemberRoutines) yield return m;
+        foreach (TypeExpression t in d.ParentProtocols)
+        {
+            yield return t;
+        }
+
+        foreach (RoutineSignature m in d.MemberRoutines)
+        {
+            yield return m;
+        }
     }
 
     private static IEnumerable<object> ExternalDeclarationChildren(ExternalDeclaration d)
     {
-        foreach (Parameter p in d.Parameters) yield return p;
-        if (d.ReturnType != null) yield return d.ReturnType;
+        foreach (Parameter p in d.Parameters)
+        {
+            yield return p;
+        }
+
+        if (d.ReturnType != null)
+        {
+            yield return d.ReturnType;
+        }
     }
 
     private static IEnumerable<object> ExternalBlockDeclarationChildren(ExternalBlockDeclaration d)
     {
-        foreach (Declaration child in d.Declarations) yield return child;
+        foreach (Declaration child in d.Declarations)
+        {
+            yield return child;
+        }
     }
 
     // -------- Auxiliary records --------
@@ -519,21 +844,44 @@ public static class AstWalker
         switch (node)
         {
             case WhenClause c:
-                return new object[] { c.Pattern, c.Body };
+                return new object[]
+                {
+                    c.Pattern,
+                    c.Body
+                };
             case DestructuringBinding b:
-                return b.NestedPattern != null ? new object[] { b.NestedPattern } : Enumerable.Empty<object>();
+                return b.NestedPattern != null
+                    ? new object[]
+                    {
+                        b.NestedPattern
+                    }
+                    : Enumerable.Empty<object>();
             case Parameter p:
                 return ParameterChildren(p: p);
             case ChoiceCase c:
-                return c.Value != null ? new object[] { c.Value } : Enumerable.Empty<object>();
+                return c.Value != null
+                    ? new object[]
+                    {
+                        c.Value
+                    }
+                    : Enumerable.Empty<object>();
             case VariantMember m:
-                return new object[] { m.Type };
+                return new object[]
+                {
+                    m.Type
+                };
             case RoutineSignature r:
                 return RoutineSignatureChildren(r: r);
             case TaskDependency d:
-                return new object[] { d.DependencyExpr };
+                return new object[]
+                {
+                    d.DependencyExpr
+                };
             case ExpressionPart ep:
-                return new object[] { ep.Expression };
+                return new object[]
+                {
+                    ep.Expression
+                };
             case TextPart:
                 return Enumerable.Empty<object>();
             default:
@@ -543,13 +891,27 @@ public static class AstWalker
 
     private static IEnumerable<object> ParameterChildren(Parameter p)
     {
-        if (p.Type != null) yield return p.Type;
-        if (p.DefaultValue != null) yield return p.DefaultValue;
+        if (p.Type != null)
+        {
+            yield return p.Type;
+        }
+
+        if (p.DefaultValue != null)
+        {
+            yield return p.DefaultValue;
+        }
     }
 
     private static IEnumerable<object> RoutineSignatureChildren(RoutineSignature r)
     {
-        foreach (Parameter p in r.Parameters) yield return p;
-        if (r.ReturnType != null) yield return r.ReturnType;
+        foreach (Parameter p in r.Parameters)
+        {
+            yield return p;
+        }
+
+        if (r.ReturnType != null)
+        {
+            yield return r.ReturnType;
+        }
     }
 }

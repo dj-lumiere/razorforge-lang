@@ -26,7 +26,10 @@ public partial class Tokenizer
         }
 
         bool isFloat = ScanDecimalFractionalPart();
-        if (ScanScientificNotation()) isFloat = true;
+        if (ScanScientificNotation())
+        {
+            isFloat = true;
+        }
 
         // Skip underscore before suffix after scientific notation (e.g., 3.4e10_f64)
         if (Peek() == '_' && char.IsLetter(c: Peek(offset: 1)))
@@ -137,8 +140,7 @@ public partial class Tokenizer
         }
         else
         {
-            throw new GrammarException(
-                code: ClassifySuffixError(suffix: suffix, isFloat: isFloat),
+            throw new GrammarException(code: ClassifySuffixError(suffix: suffix, isFloat: isFloat),
                 message: $"Unknown suffix '{suffix}'",
                 fileName: _fileName,
                 line: _line,
@@ -201,7 +203,11 @@ public partial class Tokenizer
     {
         ScanHexIntegerDigits();
         bool isHexFloat = ScanHexFractionalPart();
-        if (ScanHexBinaryExponent()) isHexFloat = true;
+        if (ScanHexBinaryExponent())
+        {
+            isHexFloat = true;
+        }
+
         return isHexFloat;
     }
 
@@ -285,11 +291,9 @@ public partial class Tokenizer
 
         if (lookAhead > 1)
         {
-            string candidate = _source.Substring(startIndex: _position + 1,
-                length: lookAhead - 1);
+            string candidate = _source.Substring(startIndex: _position + 1, length: lookAhead - 1);
             if (_numericSuffixToTokenType.ContainsKey(key: candidate) ||
-                candidate == ArbitraryIntegerSuffix ||
-                candidate == ArbitraryDecimalSuffix)
+                candidate == ArbitraryIntegerSuffix || candidate == ArbitraryDecimalSuffix)
             {
                 return true;
             }

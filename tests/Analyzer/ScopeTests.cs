@@ -10,10 +10,10 @@ using static TestHelpers;
 public class ScopeTests
 {
     #region Variable Resolution
+
     /// <summary>
     /// Verifies semantic analysis behavior for variable in scope and resolves the expected symbol.
     /// </summary>
-
     [Fact]
     public void Analyze_VariableInScope_Resolves()
     {
@@ -31,7 +31,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for undefined variable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_UndefinedVariable_ReportsError()
     {
@@ -55,7 +54,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for variable used before declaration and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_VariableUsedBeforeDeclaration_ReportsError()
     {
@@ -73,10 +71,10 @@ public class ScopeTests
     #endregion
 
     #region Block Scoping
+
     /// <summary>
     /// Verifies semantic analysis behavior for variable in block scope without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_VariableInBlockScope_NoError()
     {
@@ -94,7 +92,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for variable out of block scope and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_VariableOutOfBlockScope_ReportsError()
     {
@@ -112,7 +109,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for nested block scopes and resolves the expected symbol.
     /// </summary>
-
     [Fact]
     public void Analyze_NestedBlockScopes_Resolves()
     {
@@ -134,10 +130,10 @@ public class ScopeTests
     #endregion
 
     #region Loop Scoping
+
     /// <summary>
     /// Verifies semantic analysis behavior for for loop variable in scope.
     /// </summary>
-
     [Fact]
     public void Analyze_EachLoopVariable_InScope()
     {
@@ -154,7 +150,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for for loop variable out of scope.
     /// </summary>
-
     [Fact]
     public void Analyze_EachLoopVariable_OutOfScope()
     {
@@ -172,7 +167,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for while loop variable in scope.
     /// </summary>
-
     [Fact]
     public void Analyze_WhileLoopVariable_InScope()
     {
@@ -192,10 +186,10 @@ public class ScopeTests
     #endregion
 
     #region FreeRoutine Parameter Scoping
+
     /// <summary>
     /// Verifies semantic analysis behavior for parameter in scope and resolves the expected symbol.
     /// </summary>
-
     [Fact]
     public void Analyze_ParameterInScope_Resolves()
     {
@@ -211,7 +205,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for parameter shadows outer without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ParameterShadowsOuter_NoError()
     {
@@ -231,10 +224,10 @@ public class ScopeTests
     #endregion
 
     #region Variable Shadowing
+
     /// <summary>
     /// Verifies semantic analysis behavior for shadowing in nested block allowed.
     /// </summary>
-
     [Fact]
     public void Analyze_ShadowingInNestedBlock_Allowed()
     {
@@ -255,7 +248,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for shadowing in same scope and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ShadowingInSameScope_ReportsError()
     {
@@ -273,10 +265,10 @@ public class ScopeTests
     #endregion
 
     #region When/Pattern Scoping
+
     /// <summary>
     /// Verifies semantic analysis behavior for pattern binding in when in scope.
     /// </summary>
-
     [Fact]
     public void Analyze_PatternBindingInWhen_InScope()
     {
@@ -298,7 +290,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for pattern binding out of when out of scope.
     /// </summary>
-
     [Fact]
     public void Analyze_PatternBindingOutOfWhen_OutOfScope()
     {
@@ -322,10 +313,10 @@ public class ScopeTests
     #endregion
 
     #region Viewing/Hijacking Scoping
+
     /// <summary>
     /// Verifies semantic analysis behavior for viewing block variable in scope.
     /// </summary>
-
     [Fact]
     public void Analyze_ViewingBlockVariable_InScope()
     {
@@ -345,7 +336,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for viewing block variable out of scope.
     /// </summary>
-
     [Fact]
     public void Analyze_ViewingBlockVariable_OutOfScope()
     {
@@ -448,10 +438,10 @@ public class ScopeTests
     #endregion
 
     #region Closure Scoping
+
     /// <summary>
     /// Verifies semantic analysis behavior for lambda implicit capture and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_LambdaImplicitCapture_ReportsError()
     {
@@ -467,12 +457,12 @@ public class ScopeTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.True(condition: result.Errors.Count > 0);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Message.Contains(value: "given", comparisonType: StringComparison.OrdinalIgnoreCase));
+            filter: e => e.Message.Contains(value: "given",
+                comparisonType: StringComparison.OrdinalIgnoreCase));
     }
     /// <summary>
     /// Verifies semantic analysis behavior for lambda with given clause undefined capture and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_LambdaWithGivenClause_UndefinedCapture_ReportsError()
     {
@@ -487,14 +477,16 @@ public class ScopeTests
         Assert.True(condition: result.Errors.Count > 0);
         Assert.Contains(collection: result.Errors,
             filter: e =>
-                e.Message.Contains(value: 'z', comparisonType: StringComparison.OrdinalIgnoreCase) ||
-                e.Message.Contains(value: "not defined", comparisonType: StringComparison.OrdinalIgnoreCase) ||
-                e.Message.Contains(value: "unknown", comparisonType: StringComparison.OrdinalIgnoreCase));
+                e.Message.Contains(value: 'z',
+                    comparisonType: StringComparison.OrdinalIgnoreCase) ||
+                e.Message.Contains(value: "not defined",
+                    comparisonType: StringComparison.OrdinalIgnoreCase) ||
+                e.Message.Contains(value: "unknown",
+                    comparisonType: StringComparison.OrdinalIgnoreCase));
     }
     /// <summary>
     /// Verifies semantic analysis behavior for lambda with given clause valid capture without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_LambdaWithGivenClause_ValidCapture_NoError()
     {
@@ -512,7 +504,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for lambda capture preset without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_LambdaCapturePreset_NoError()
     {
@@ -530,7 +521,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for lambda capture global var without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_LambdaCaptureGlobalVar_NoError()
     {
@@ -548,7 +538,6 @@ public class ScopeTests
     /// <summary>
     /// Verifies semantic analysis behavior for lambda capture not in given and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_LambdaCaptureNotInGiven_ReportsError()
     {
@@ -564,8 +553,11 @@ public class ScopeTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.True(condition: result.Errors.Count > 0);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Message.Contains(value: 'b', comparisonType: StringComparison.OrdinalIgnoreCase)
-                      && e.Message.Contains(value: "given", comparisonType: StringComparison.OrdinalIgnoreCase));
+            filter: e =>
+                e.Message.Contains(value: 'b',
+                    comparisonType: StringComparison.OrdinalIgnoreCase) &&
+                e.Message.Contains(value: "given",
+                    comparisonType: StringComparison.OrdinalIgnoreCase));
     }
 
     #endregion

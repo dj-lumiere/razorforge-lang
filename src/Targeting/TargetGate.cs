@@ -36,7 +36,9 @@ public static class TargetGate
     public static bool ShouldCompile(string filePath, TargetConfig? target = null)
     {
         if (!filePath.EndsWith(value: ".rf", comparisonType: StringComparison.OrdinalIgnoreCase))
+        {
             return true;
+        }
 
         string? inside = ReadTargetDirective(filePath: filePath);
         return inside == null || Matches(inside: inside, target: target ?? HostTarget);
@@ -52,11 +54,23 @@ public static class TargetGate
         foreach (string raw in File.ReadLines(path: filePath))
         {
             string line = raw.Trim();
-            if (line.Length == 0) continue;               // blank line
-            if (line.StartsWith('#')) continue;           // comment / doc comment — keep scanning header
-            if (line.StartsWith(value: "@target(") && line.EndsWith(')'))
+            if (line.Length == 0)
+            {
+                continue; // blank line
+            }
+
+            if (line.StartsWith(value: '#'))
+            {
+                continue; // comment / doc comment — keep scanning header
+            }
+
+            if (line.StartsWith(value: "@target(") && line.EndsWith(value: ')'))
+            {
                 return line["@target(".Length..^1];
-            return null; // first real line (e.g. `module`) — the `@target` directive must precede it
+            }
+
+            return
+                null; // first real line (e.g. `module`) — the `@target` directive must precede it
         }
 
         return null;
@@ -68,21 +82,33 @@ public static class TargetGate
         // colon starts a new key; a part WITHOUT one is an additional value for the current key — so
         // `os: "linux", "macos"` reads as os ∈ {linux, macos}. Keys are AND-ed; values within a key
         // are OR-ed.
-        var conditions = new Dictionary<string, List<string>>(comparer: StringComparer.OrdinalIgnoreCase);
+        var conditions =
+            new Dictionary<string, List<string>>(comparer: StringComparer.OrdinalIgnoreCase);
         string? currentKey = null;
         foreach (string rawPart in inside.Split(separator: ','))
         {
             string part = rawPart.Trim();
-            if (part.Length == 0) continue;
+            if (part.Length == 0)
+            {
+                continue;
+            }
+
             int colon = part.IndexOf(value: ':');
             if (colon >= 0)
             {
-                currentKey = part[..colon].Trim();
-                conditions[key: currentKey] = [part[(colon + 1)..].Trim().Trim('"')];
+                currentKey = part[..colon]
+                   .Trim();
+                conditions[key: currentKey] =
+                [
+                    part[(colon + 1)..]
+                       .Trim()
+                       .Trim(trimChar: '"')
+                ];
             }
             else if (currentKey != null)
             {
-                conditions[key: currentKey].Add(item: part.Trim('"'));
+                conditions[key: currentKey]
+                   .Add(item: part.Trim(trimChar: '"'));
             }
         }
 
@@ -90,14 +116,18 @@ public static class TargetGate
         {
             bool ok = key switch
             {
-                "os" => values.Any(predicate: v => string.Equals(a: v, b: target.TargetOS,
+                "os" => values.Any(predicate: v => string.Equals(a: v,
+                    b: target.TargetOS,
                     comparisonType: StringComparison.OrdinalIgnoreCase)),
                 "arch" => values.Any(predicate: v => string.Equals(a: NormalizeArch(arch: v),
                     b: NormalizeArch(arch: target.TargetArch),
                     comparisonType: StringComparison.OrdinalIgnoreCase)),
                 _ => true // unknown key: forward-compatible, ignore
             };
-            if (!ok) return false;
+            if (!ok)
+            {
+                return false;
+            }
         }
 
         return true;
@@ -106,10 +136,14 @@ public static class TargetGate
     /// <summary>Canonicalizes an architecture spelling so the directive's ergonomic aliases
     /// (<c>x64</c>/<c>arm64</c>) match <see cref="TargetConfig.TargetArch"/>'s LLVM names
     /// (<c>x86_64</c>/<c>aarch64</c>).</summary>
-    private static string NormalizeArch(string arch) => arch.Trim().ToLowerInvariant() switch
+    private static string NormalizeArch(string arch)
     {
-        "x64" or "amd64" or "x86_64" => "x86_64",
-        "arm64" or "aarch64" => "aarch64",
-        var other => other
-    };
+        return arch.Trim()
+                   .ToLowerInvariant() switch
+        {
+            "x64" or "amd64" or "x86_64" => "x86_64",
+            "arm64" or "aarch64" => "aarch64",
+            var other => other
+        };
+    }
 }

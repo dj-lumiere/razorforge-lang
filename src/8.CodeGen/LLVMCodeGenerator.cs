@@ -18,18 +18,25 @@ public sealed class LlvmCodeGeneratorOptions
 {
     /// <summary>Optional stdlib programs for intrinsic routine definitions.</summary>
     public List<(Program Program, string FilePath, string Module)>? StdlibPrograms { get; init; }
+
     /// <summary>Target platform configuration (defaults to current host when null).</summary>
     public TargetConfig? Target { get; init; }
+
     /// <summary>Build optimization mode (defaults to Debug).</summary>
     public RfBuildMode BuildMode { get; init; } = RfBuildMode.Debug;
+
     /// <summary>AST bodies for compiler-generated derived operators.</summary>
     public IReadOnlyDictionary<string, Statement>? SynthesizedBodies { get; init; }
+
     /// <summary>Instantiated generic bodies from GenericMonomorphizationPass.</summary>
     public IReadOnlyDictionary<string, MonomorphizedBody>? InstantiatedGenericBodies { get; init; }
+
     /// <summary>Reachable routine keys; empty disables reachability filtering.</summary>
     public IReadOnlyCollection<string>? LiveRoutineKeys { get; init; }
+
     /// <summary>Routine keys that may suspend (used for coroutine frame layout).</summary>
     public IReadOnlyCollection<string>? MaySuspendRoutineKeys { get; init; }
+
     /// <summary>Mangled symbols already defined in the resident base dylib; empty = full emission.</summary>
     public IReadOnlyCollection<string>? ResidentSymbols { get; init; }
 }
@@ -83,8 +90,10 @@ public partial class LlvmCodeGenerator
     /// True when this routine's body is provided by the resident base dylib and must NOT be re-defined
     /// in the delta module. Short-circuits on the empty set so the cold path pays nothing.
     /// </summary>
-    private bool IsResident(string mangledFuncName) =>
-        _residentSymbols.Count > 0 && _residentSymbols.Contains(item: mangledFuncName);
+    private bool IsResident(string mangledFuncName)
+    {
+        return _residentSymbols.Count > 0 && _residentSymbols.Contains(item: mangledFuncName);
+    }
 
     /// <summary>
     /// Base-emission mode (resident-JIT incremental Phase 0a, see
@@ -99,12 +108,10 @@ public partial class LlvmCodeGenerator
     private static readonly IReadOnlySet<string> WrapperTypeNames = RuntimeContract.WrapperTypes;
 
     /// <summary>The user program ASTs to generate code for (single-file or multi-file).</summary>
-    private readonly List<(Program Program, string FilePath, string Module)>
-        _userPrograms;
+    private readonly List<(Program Program, string FilePath, string Module)> _userPrograms;
 
     /// <summary>The stdlib programs to include routine bodies from.</summary>
-    private readonly List<(Program Program, string FilePath, string Module)>
-        _stdlibPrograms;
+    private readonly List<(Program Program, string FilePath, string Module)> _stdlibPrograms;
 
     /// <summary>
     /// Type declarations bucketed by kind and sorted lexicographically within each bucket.
@@ -169,9 +176,10 @@ public partial class LlvmCodeGenerator
     private readonly Dictionary<string, string> _stringConstants = new();
 
     /// <summary>Map of C string values to their global constant names (for deduplication).</summary>
-    private readonly Dictionary<string, string> _cstrConstants = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _cstrConstants =
+        new(comparer: StringComparer.Ordinal);
 
-/// <summary>Map of local variable names to their types for the current function.</summary>
+    /// <summary>Map of local variable names to their types for the current function.</summary>
     private readonly Dictionary<string, TypeInfo> _localVariables = new();
 
     /// <summary>Suflae module-level <c>global</c> variables: source name -&gt; (type, LLVM <c>@global</c>
@@ -233,8 +241,11 @@ public partial class LlvmCodeGenerator
     /// emits those as extern <c>declare</c>s instead of re-defining them. Valid after
     /// <see cref="Generate"/>.
     /// </summary>
-    public IReadOnlyCollection<string> GetEmittedRoutineSymbols() =>
-        new HashSet<string>(collection: _generatedRoutineDefs, comparer: StringComparer.Ordinal);
+    public IReadOnlyCollection<string> GetEmittedRoutineSymbols()
+    {
+        return new HashSet<string>(collection: _generatedRoutineDefs,
+            comparer: StringComparer.Ordinal);
+    }
 
     /// <summary>The return type of the current function being generated.</summary>
     private TypeInfo? _currentRoutineReturnType;
@@ -299,12 +310,15 @@ public partial class LlvmCodeGenerator
     /// <param name="registry">The type registry from semantic analysis.</param>
     /// <param name="options">Optional generation settings (stdlib, target, build mode, bodies, keys).</param>
     public LlvmCodeGenerator(Program program, TypeRegistry registry,
-        LlvmCodeGeneratorOptions? options = null) :
-        this(userPrograms:
-            [(program, program.Location.FileName,
-                program.Declarations.OfType<ModuleDeclaration>().FirstOrDefault()?.Path ?? "")],
-            registry: registry,
-            options: options)
+        LlvmCodeGeneratorOptions? options = null) : this(userPrograms:
+        [
+            (program, program.Location.FileName, program.Declarations
+                                                        .OfType<ModuleDeclaration>()
+                                                        .FirstOrDefault()
+                                                       ?.Path ?? "")
+        ],
+        registry: registry,
+        options: options)
     {
     }
 
@@ -314,10 +328,8 @@ public partial class LlvmCodeGenerator
     /// <param name="userPrograms">The user program ASTs with file paths and module names.</param>
     /// <param name="registry">The type registry from semantic analysis.</param>
     /// <param name="options">Optional generation settings (stdlib, target, build mode, bodies, keys).</param>
-    public LlvmCodeGenerator(
-        List<(Program Program, string FilePath, string Module)> userPrograms,
-        TypeRegistry registry,
-        LlvmCodeGeneratorOptions? options = null)
+    public LlvmCodeGenerator(List<(Program Program, string FilePath, string Module)> userPrograms,
+        TypeRegistry registry, LlvmCodeGeneratorOptions? options = null)
     {
         options ??= new LlvmCodeGeneratorOptions();
         _target = options.Target ?? TargetConfig.ForCurrentHost();
@@ -332,15 +344,28 @@ public partial class LlvmCodeGenerator
         _userPrograms = userPrograms;
         _registry = registry;
         _stdlibPrograms = options.StdlibPrograms ?? [];
-        if (options.SynthesizedBodies != null) _synthesizedBodies = options.SynthesizedBodies;
+        if (options.SynthesizedBodies != null)
+        {
+            _synthesizedBodies = options.SynthesizedBodies;
+        }
+
         if (options.InstantiatedGenericBodies != null)
+        {
             _instantiatedGenericBodies = options.InstantiatedGenericBodies;
+        }
+
         if (options.LiveRoutineKeys is { Count: > 0 })
+        {
             _liveRoutineKeys = new HashSet<string>(collection: options.LiveRoutineKeys,
                 comparer: StringComparer.Ordinal);
+        }
+
         if (options.ResidentSymbols is { Count: > 0 })
+        {
             _residentSymbols = new HashSet<string>(collection: options.ResidentSymbols,
                 comparer: StringComparer.Ordinal);
+        }
+
         _buildMode = options.BuildMode;
         _pointerBitWidth = _target.PointerBitWidth;
         _pointerSizeBytes = _target.PointerBitWidth / 8;
@@ -387,8 +412,10 @@ public partial class LlvmCodeGenerator
     /// Gets the generic definition for a resolved generic type, regardless of concrete subtype.
     /// Returns null for non-generic or non-resolved types.
     /// </summary>
-    private static TypeInfo? GetGenericBase(TypeInfo type) =>
-        GetGenericBaseStatic(type: type);
+    private static TypeInfo? GetGenericBase(TypeInfo type)
+    {
+        return GetGenericBaseStatic(type: type);
+    }
 
     /// <summary>
     /// Gets the generic definition for a resolved generic type.
@@ -408,13 +435,17 @@ public partial class LlvmCodeGenerator
     /// Gets the generic definition's name for a resolved generic type.
     /// Returns null for non-generic or non-resolved types.
     /// </summary>
-    private static string? GetGenericBaseName(TypeInfo type) =>
-        GetGenericBaseNameStatic(type: type);
+    private static string? GetGenericBaseName(TypeInfo type)
+    {
+        return GetGenericBaseNameStatic(type: type);
+    }
 
     /// <summary>Guarded helper for resolved-generic base-name lookups.</summary>
-    internal static string? GetGenericBaseNameStatic(TypeInfo type) =>
-        GetGenericBaseStatic(type: type)
+    internal static string? GetGenericBaseNameStatic(TypeInfo type)
+    {
+        return GetGenericBaseStatic(type: type)
           ?.Name;
+    }
 
     #endregion
 
@@ -442,9 +473,14 @@ public partial class LlvmCodeGenerator
     {
         bool timing = Timing;
         var sw = System.Diagnostics.Stopwatch.StartNew();
+
         void Mark(string label)
         {
-            if (!timing) return;
+            if (!timing)
+            {
+                return;
+            }
+
             sw.Stop();
             Console.Error.WriteLine(value: $"[CG] {label}: {sw.ElapsedMilliseconds} ms");
             sw.Restart();
@@ -556,8 +592,8 @@ public partial class LlvmCodeGenerator
         {
             if (type is RecordTypeInfo { IsGenericDefinition: false } record &&
                 record.TypeArguments?.Any(predicate: t =>
-                    ContainsGenericParameter(t) || t is ErrorTypeInfo ||
-                    ContainsAbstractProjection(t)) != true)
+                    ContainsGenericParameter(type: t) || t is ErrorTypeInfo ||
+                    ContainsAbstractProjection(type: t)) != true)
             {
                 GenerateRecordType(record: record);
             }
@@ -593,7 +629,10 @@ public partial class LlvmCodeGenerator
         // treated as generic, so its routine declaration is SKIPPED while its call site still emits the
         // concrete mangled name → "use of undefined value" at LLVM parse (surfaced by the resident-JIT base).
         if (type is ComptimeConstGenericTypeInfo cc)
+        {
             return !cc.TryFold(resolveTypeParam: _ => null, pointerSize: 8, result: out _);
+        }
+
         if (type is GenericParameterTypeInfo or ErrorTypeInfo)
         {
             return true;
@@ -646,11 +685,19 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static bool SignatureHasUnresolvedGeneric(RoutineInfo r)
     {
-        if (r.ReturnType is TypeInfo rt && SignatureTypeIsUnresolved(t: rt)) return true;
+        if (r.ReturnType is TypeInfo rt && SignatureTypeIsUnresolved(t: rt))
+        {
+            return true;
+        }
+
         foreach (ParameterInfo p in r.Parameters)
         {
-            if (p.Type is TypeInfo pt && SignatureTypeIsUnresolved(t: pt)) return true;
+            if (p.Type is TypeInfo pt && SignatureTypeIsUnresolved(t: pt))
+            {
+                return true;
+            }
         }
+
         return false;
     }
 
@@ -665,8 +712,16 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static bool SignatureTypeIsUnresolved(TypeInfo t)
     {
-        if (ContainsGenericParameter(type: t)) return true;
-        if (t.Name.Contains(value: "__Vararg", comparisonType: StringComparison.Ordinal)) return true;
+        if (ContainsGenericParameter(type: t))
+        {
+            return true;
+        }
+
+        if (t.Name.Contains(value: "__Vararg", comparisonType: StringComparison.Ordinal))
+        {
+            return true;
+        }
+
         return t.TypeArguments?.Any(predicate: SignatureTypeIsUnresolved) == true;
     }
 
@@ -693,17 +748,21 @@ public partial class LlvmCodeGenerator
                     continue;
                 }
 
-                TypeInfo? type = _registry.LookupVariable(name: g.Name)?.Type;
+                TypeInfo? type = _registry.LookupVariable(name: g.Name)
+                                         ?.Type;
                 if (type == null)
                 {
                     continue; // SA registered every global; skip defensively if absent
                 }
 
                 string llvmType = GetValueLlvmType(type: type);
-                string qualified = string.IsNullOrEmpty(value: module) ? g.Name : $"{module}.{g.Name}";
+                string qualified = string.IsNullOrEmpty(value: module)
+                    ? g.Name
+                    : $"{module}.{g.Name}";
                 string symbol = $"@\"global.{qualified}\"";
 
-                EmitLine(sb: _globalDeclarations, line: $"{symbol} = global {llvmType} zeroinitializer");
+                EmitLine(sb: _globalDeclarations,
+                    line: $"{symbol} = global {llvmType} zeroinitializer");
                 _moduleGlobals[key: g.Name] = (type, symbol);
             }
         }
@@ -715,7 +774,9 @@ public partial class LlvmCodeGenerator
         HashSet<string> routinesWithBodies = CollectRoutinesWithBodies();
 
         foreach (RoutineInfo routine in _registry.GetAllRoutines()
-            .Where(r => !ShouldSkipRoutineDeclaration(routine: r, routinesWithBodies: routinesWithBodies)))
+                                                 .Where(predicate: r =>
+                                                      !ShouldSkipRoutineDeclaration(routine: r,
+                                                          routinesWithBodies: routinesWithBodies)))
         {
             // Only emit 'declare' for truly external routines
             GenerateRoutineDeclaration(routine: routine);
@@ -726,7 +787,8 @@ public partial class LlvmCodeGenerator
     private HashSet<string> CollectRoutinesWithBodies()
     {
         var routinesWithBodies = new HashSet<string>();
-        foreach ((Program program, string _, string _) in _userPrograms.Concat(second: _stdlibPrograms))
+        foreach ((Program program, string _, string _) in _userPrograms.Concat(
+                     second: _stdlibPrograms))
         {
             foreach (ISyntaxTreeNode decl in program.Declarations)
             {
@@ -736,6 +798,7 @@ public partial class LlvmCodeGenerator
                 }
             }
         }
+
         return routinesWithBodies;
     }
 
@@ -820,8 +883,12 @@ public partial class LlvmCodeGenerator
         foreach ((string _, MonomorphizedBody body) in _instantiatedGenericBodies)
         {
             string instFuncName = MangleRoutineName(routine: body.Info);
-            if (_generatedRoutineDefs.Contains(item: instFuncName)
-                || IsResident(mangledFuncName: instFuncName)) continue;
+            if (_generatedRoutineDefs.Contains(item: instFuncName) ||
+                IsResident(mangledFuncName: instFuncName))
+            {
+                continue;
+            }
+
             // A body anchored on a generic-DEFINITION owner (a template like `RoamController[T].member_type_id`
             // or `Array[T, N].member_type_id` wrongly demand-collected under its generic-def key, not a
             // concrete instance) has no concrete `me` layout — emitting its param list recurses into an
@@ -830,13 +897,23 @@ public partial class LlvmCodeGenerator
             // concrete for an `@llvm`-backed generic def like `Array[T, N]`). Skip it (correctness bookkeeping,
             // like the sentinel/resident skips above); concrete instances still emit under their own key. The
             // non-synthesized branch's GenerateRoutineDefinition applies the same guard via ShouldSkipRoutine.
-            if (body.Info.OwnerType is { IsGenericDefinition: true }) continue;
+            if (body.Info.OwnerType is { IsGenericDefinition: true })
+            {
+                continue;
+            }
+
             if (body.IsSynthesized)
             {
-                if (body.Ast.Body is BlockStatement { Statements.Count: 0 }) continue; // sentinel, not a body
+                if (body.Ast.Body is BlockStatement { Statements.Count: 0 })
+                {
+                    continue; // sentinel, not a body
+                }
+
                 _generatedRoutineDefs.Add(item: instFuncName);
                 _generatedRoutines.Add(item: instFuncName);
-                EmitSynthesizedBodyFromAst(routine: body.Info, funcName: instFuncName, body: body.Ast.Body);
+                EmitSynthesizedBodyFromAst(routine: body.Info,
+                    funcName: instFuncName,
+                    body: body.Ast.Body);
             }
             else
             {
@@ -917,13 +994,13 @@ public partial class LlvmCodeGenerator
         AppendMainEntryPoint(output: output);
 
         // Normalize to Unix line endings (clang/LLVM requires LF, not CRLF)
-        var normalized = output.ToString()
-                               .Replace(oldValue: "\r\n", newValue: "\n")
-                               .Replace(oldValue: "\r", newValue: "\n");
+        string normalized = output.ToString()
+                                  .Replace(oldValue: "\r\n", newValue: "\n")
+                                  .Replace(oldValue: "\r", newValue: "\n");
         // TBAA first (tags loads/stores), then line-tables debug info (tags instructions + define
         // headers). Both are text post-passes that append their own metadata block; DI numbers itself
         // above TBAA's fixed !0..!22. ApplyDebugInfo is a no-op outside debug builds.
-        return ApplyDebugInfo(ApplyTbaa(normalized));
+        return ApplyDebugInfo(ir: ApplyTbaa(ir: normalized));
     }
 
     /// <summary>
@@ -933,8 +1010,8 @@ public partial class LlvmCodeGenerator
     private void AppendTypeDeclarations(StringBuilder output)
     {
         bool anyTypes = _typeDeclarationsRecord.Count > 0 || _typeDeclarationsVariant.Count > 0 ||
-                        _typeDeclarationsEntity.Count > 0 || _typeDeclarationsCrashable.Count > 0 ||
-                        _typeDeclarationsClosure.Count > 0;
+                        _typeDeclarationsEntity.Count > 0 ||
+                        _typeDeclarationsCrashable.Count > 0 || _typeDeclarationsClosure.Count > 0;
         if (!anyTypes)
         {
             return;
@@ -948,6 +1025,7 @@ public partial class LlvmCodeGenerator
             {
                 return;
             }
+
             output.AppendLine(handler: $"; -- {header} --");
             foreach (string decl in bucket.Values)
             {
@@ -995,14 +1073,14 @@ public partial class LlvmCodeGenerator
         {
             return;
         }
+
         throw new InvalidOperationException(
-            message:
-            $"Codegen bug: declare/define signature mismatch for @{name}.\n" +
-            $"  declare: {declSig}  ({declLine.Trim()})\n" +
-            $"  define : {defSig}  ({defHeader.Trim()})\n" +
-            "The forward declaration and the emitted body disagree on the function type. " +
-            "This is an internal compiler error — the conversion/mangling path that built " +
-            "the declare differs from the one that built the define.");
+            message: $"Codegen bug: declare/define signature mismatch for @{name}.\n" +
+                     $"  declare: {declSig}  ({declLine.Trim()})\n" +
+                     $"  define : {defSig}  ({defHeader.Trim()})\n" +
+                     "The forward declaration and the emitted body disagree on the function type. " +
+                     "This is an internal compiler error — the conversion/mangling path that built " +
+                     "the declare differs from the one that built the define.");
     }
 
     /// <summary>
@@ -1015,7 +1093,9 @@ public partial class LlvmCodeGenerator
         // Delta build references the base's TLS globals (extern, no initializer); base/normal defines them.
         if (deltaMode)
         {
-            output.AppendLine(value: "@_rf_trace_stack = external thread_local global [32 x { ptr, ptr, i32, i32 }]");
+            output.AppendLine(
+                value:
+                "@_rf_trace_stack = external thread_local global [32 x { ptr, ptr, i32, i32 }]");
             output.AppendLine(value: "@_rf_trace_depth = external thread_local global i32");
         }
         else
@@ -1025,6 +1105,7 @@ public partial class LlvmCodeGenerator
                 "@_rf_trace_stack = thread_local global [32 x { ptr, ptr, i32, i32 }] zeroinitializer");
             output.AppendLine(value: "@_rf_trace_depth = thread_local global i32 0");
         }
+
         output.AppendLine();
         // push helper — branchless: mask index to [0,31] with AND
         output.AppendLine(
@@ -1070,8 +1151,7 @@ public partial class LlvmCodeGenerator
         // update-loc helper — overwrites the line/col of the current (topmost) frame. Emitted before
         // each call so the trace reflects the call's source line. Skip when depth == 0 (no frame yet).
         output.AppendLine(
-            value:
-            "define private void @_rf_trace_update_loc(i32 %ln, i32 %col) alwaysinline {");
+            value: "define private void @_rf_trace_update_loc(i32 %ln, i32 %col) alwaysinline {");
         output.AppendLine(value: EntryLabel);
         output.AppendLine(value: "  %d = load i32, ptr @_rf_trace_depth");
         output.AppendLine(value: "  %has = icmp ugt i32 %d, 0");
@@ -1102,8 +1182,7 @@ public partial class LlvmCodeGenerator
         output.AppendLine(value: EntryLabel);
         output.AppendLine(value: "  %depth = load i32, ptr @_rf_trace_depth");
         output.AppendLine(
-            value:
-            "  call void @rf_print_shadow_stack_data(ptr @_rf_trace_stack, i32 %depth)");
+            value: "  call void @rf_print_shadow_stack_data(ptr @_rf_trace_stack, i32 %depth)");
         output.AppendLine(value: RetVoidInstruction);
         output.AppendLine(value: "}");
         output.AppendLine();
@@ -1134,6 +1213,7 @@ public partial class LlvmCodeGenerator
         {
             output.AppendLine(value: "declare void @rf_set_stack_printer(ptr)");
         }
+
         output.AppendLine();
         output.AppendLine(value: "; Entry point");
         output.AppendLine(value: "define i32 @main(i32 %argc, ptr %argv) {");
@@ -1145,6 +1225,7 @@ public partial class LlvmCodeGenerator
             output.AppendLine(
                 value: "  call void @rf_set_stack_printer(ptr @_rf_print_trace_stack)");
         }
+
         output.AppendLine(handler: $"  call void @{startFunc}()");
         output.AppendLine(value: "  ret i32 0");
         output.AppendLine(value: "}");
@@ -1158,8 +1239,10 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private string? ResolveEntryStartSymbol()
     {
-        static bool IsStartSymbol(string f) =>
-            f.EndsWith(value: ".start()\"") || f.EndsWith(value: " start()\"");
+        static bool IsStartSymbol(string f)
+        {
+            return f.EndsWith(value: ".start()\"") || f.EndsWith(value: " start()\"");
+        }
 
         string? startFunc = null;
         if (!string.IsNullOrEmpty(value: EntryModule))
@@ -1167,6 +1250,7 @@ public partial class LlvmCodeGenerator
             startFunc = _generatedRoutineDefs.FirstOrDefault(predicate: f =>
                 f.EndsWith(value: $"{EntryModule}.start()\""));
         }
+
         return startFunc ?? _generatedRoutineDefs.SingleOrDefault(predicate: IsStartSymbol);
     }
 
@@ -1194,7 +1278,9 @@ public partial class LlvmCodeGenerator
     private static string NormalizeFunctionSignature(string header)
     {
         int at = header.IndexOf(value: '@');
-        int open = at < 0 ? -1 : header.IndexOf(value: '(', startIndex: at);
+        int open = at < 0
+            ? -1
+            : header.IndexOf(value: '(', startIndex: at);
         if (at < 0 || open < 0)
         {
             return header.Trim();
@@ -1207,9 +1293,13 @@ public partial class LlvmCodeGenerator
         }
 
         // Return segment = everything between the leading keyword (declare/define) and '@'.
-        string head = header[..at].Trim();
+        string head = header[..at]
+           .Trim();
         int firstSpace = head.IndexOf(value: ' ');
-        string returnSegment = firstSpace < 0 ? "" : head[(firstSpace + 1)..].Trim();
+        string returnSegment = firstSpace < 0
+            ? ""
+            : head[(firstSpace + 1)..]
+               .Trim();
         string returnType = NormalizeTypeToken(token: returnSegment);
 
         // Parameter types: split on top-level commas, normalize each to its bare type.
@@ -1252,10 +1342,11 @@ public partial class LlvmCodeGenerator
         for (int i = 0; i <= paramSegment.Length; i++)
         {
             bool atBoundary = i == paramSegment.Length ||
-                (paramSegment[index: i] == ',' && depth == 0);
+                              paramSegment[index: i] == ',' && depth == 0;
             if (atBoundary)
             {
-                string raw = paramSegment[start..i].Trim();
+                string raw = paramSegment[start..i]
+                   .Trim();
                 if (raw.Length > 0)
                 {
                     paramTypes.Add(item: NormalizeTypeToken(token: raw));
@@ -1299,7 +1390,9 @@ public partial class LlvmCodeGenerator
         if (token.StartsWith(value: "%\"", comparisonType: StringComparison.Ordinal))
         {
             int endQuote = token.IndexOf(value: '"', startIndex: 2);
-            return endQuote < 0 ? token : token[..(endQuote + 1)];
+            return endQuote < 0
+                ? token
+                : token[..(endQuote + 1)];
         }
 
         // Simple type: up to the first whitespace or '(' (an attribute like sret(...) following ptr).
@@ -1325,13 +1418,18 @@ public partial class LlvmCodeGenerator
         while (token.Length > 0)
         {
             int sp = token.IndexOf(value: ' ');
-            string firstWord = sp < 0 ? token : token[..sp];
+            string firstWord = sp < 0
+                ? token
+                : token[..sp];
             if (!ReturnAttributeWords.Contains(item: firstWord))
             {
                 break;
             }
 
-            token = sp < 0 ? "" : token[(sp + 1)..].TrimStart();
+            token = sp < 0
+                ? ""
+                : token[(sp + 1)..]
+                   .TrimStart();
         }
 
         return token;
@@ -1343,7 +1441,9 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static string ReadBalancedType(string token, char openChar)
     {
-        char closeChar = openChar == '{' ? '}' : ']';
+        char closeChar = openChar == '{'
+            ? '}'
+            : ']';
         int depth = 0;
         for (int i = 0; i < token.Length; i++)
         {
@@ -1400,14 +1500,21 @@ public partial class LlvmCodeGenerator
 
         // @layout("align=N") on a record raises its stack slot's alignment so a pointer handed to C
         // matches the C-side over-aligned struct.
-        string alignSuffix = align is { } a ? $", align {a}" : "";
-        EmitLine(sb: _currentRoutineEntryAllocas, line: $"  {llvmName} = alloca {llvmType}{alignSuffix}");
+        string alignSuffix = align is { } a
+            ? $", align {a}"
+            : "";
+        EmitLine(sb: _currentRoutineEntryAllocas,
+            line: $"  {llvmName} = alloca {llvmType}{alignSuffix}");
     }
 
     /// <summary>The forced stack-slot alignment for a value of <paramref name="type"/>, from a record's
     /// <c>@layout("align=N")</c>; null when the type has no forced alignment.</summary>
-    private static int? ForcedAllocaAlignment(TypeInfo type) =>
-        type is RecordTypeInfo { ForcedAlignment: { } n } ? n : null;
+    private static int? ForcedAllocaAlignment(TypeInfo type)
+    {
+        return type is RecordTypeInfo { ForcedAlignment: { } n }
+            ? n
+            : null;
+    }
 
     /// <summary>
     /// Emits a null-terminated C string as an LLVM global constant.
@@ -1416,7 +1523,9 @@ public partial class LlvmCodeGenerator
     private string EmitCStringConstant(string value)
     {
         if (_cstrConstants.TryGetValue(key: value, value: out string? cached))
+        {
             return cached;
+        }
 
         string name = $"@.cstr.{_cstrCounter++}";
         byte[] utf8 = Encoding.UTF8.GetBytes(s: value + "\0");
@@ -1435,7 +1544,7 @@ public partial class LlvmCodeGenerator
 
         EmitLine(sb: _globalDeclarations,
             line: $"{name} = private unnamed_addr constant [{utf8.Length} x i8] c\"{sb}\"");
-        _cstrConstants[value] = name;
+        _cstrConstants[key: value] = name;
         return name;
     }
 

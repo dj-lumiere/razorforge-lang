@@ -35,7 +35,10 @@ public sealed partial class SemanticVerifier
             case RoutineDeclaration func:
                 // Skip external/LLVM-only routines — their PassStatement bodies have nothing to analyze
                 if (func.Body is not PassStatement)
+                {
                     AnalyzeFunctionBody(routine: func);
+                }
+
                 break;
 
             case RecordDeclaration record:
@@ -58,8 +61,10 @@ public sealed partial class SemanticVerifier
                 if (globalDecl.Initializer != null)
                 {
                     TypeSymbol declaredType = ResolveType(typeExpr: globalDecl.Type!);
-                    AnalyzeExpression(expression: globalDecl.Initializer, expectedType: declaredType);
+                    AnalyzeExpression(expression: globalDecl.Initializer,
+                        expectedType: declaredType);
                 }
+
                 break;
 
             case VariableDeclaration varDecl:
@@ -86,6 +91,7 @@ public sealed partial class SemanticVerifier
                 AnalyzeFunctionBody(routine: memberRoutine);
             }
         }
+
         _currentType = prevType;
     }
 
@@ -113,7 +119,7 @@ public sealed partial class SemanticVerifier
         // A user-defined `destroy` replaces the compiler-generated memory teardown (field
         // recursion + invalidate `me`), so the author owns freeing `me` and its fields. Require
         // `dangerous` so this opt-in to manual memory management is explicit at the declaration.
-        ValidateDestroyDeclaration(routine);
+        ValidateDestroyDeclaration(routine: routine);
 
         // Construct the base name matching how the routine was registered.
         (string baseName, TypeSymbol? routineOwnerType) = ComputeRoutineBaseName(routine: routine);
@@ -124,15 +130,16 @@ public sealed partial class SemanticVerifier
         // binding attached at registration (ResolvedInfo) for THAT case only — every other routine
         // (dotted members, protocol extensions like `MutableIndexable[T].pick`) keeps the existing
         // path, whose `me`-typing special-casing must not be bypassed.
-        bool isConstructorDecl = routine.MemberRoutineName is null
-            && routine.ResolvedInfo is { IsCreator: true, OwnerType: not null };
+        bool isConstructorDecl = routine.MemberRoutineName is null && routine.ResolvedInfo is
+            { IsCreator: true, OwnerType: not null };
         if (isConstructorDecl && routine.ResolvedInfo!.OwnerType is { } resolvedInfoOwner)
         {
             routineOwnerType = resolvedInfoOwner;
         }
 
         RoutineInfo? routineInfo = ResolveRoutineInfoWithFallbacks(routine: routine,
-            baseName: baseName, routineOwnerType: routineOwnerType,
+            baseName: baseName,
+            routineOwnerType: routineOwnerType,
             isConstructorDecl: isConstructorDecl);
 
         if (routineInfo == null)
@@ -158,12 +165,19 @@ public sealed partial class SemanticVerifier
         DeclareParametersInScope(routine: routine, routineInfo: routineInfo);
 
         bool wasDangerImplicit = routineInfo.IsDangerous && _dangerBlockDepth == 0;
-        if (wasDangerImplicit) _dangerBlockDepth = 1;
+        if (wasDangerImplicit)
+        {
+            _dangerBlockDepth = 1;
+        }
 
         // @innate routines have compiler-supplied bodies — skip analysis entirely.
         if (routine.Annotations.Contains(item: "innate"))
         {
-            if (wasDangerImplicit) _dangerBlockDepth = 0;
+            if (wasDangerImplicit)
+            {
+                _dangerBlockDepth = 0;
+            }
+
             _registry.ExitScope();
             _currentRoutine = previousRoutine;
             return;
@@ -171,7 +185,10 @@ public sealed partial class SemanticVerifier
 
         AnalyzeStatement(statement: routine.Body);
 
-        if (wasDangerImplicit) _dangerBlockDepth = 0;
+        if (wasDangerImplicit)
+        {
+            _dangerBlockDepth = 0;
+        }
 
         ValidateRoutineBodyPostAnalysis(routine: routine, routineInfo: routineInfo);
 
@@ -189,7 +206,8 @@ public sealed partial class SemanticVerifier
         string baseName, TypeSymbol? routineOwnerType, bool isConstructorDecl)
     {
         RoutineInfo? routineInfo = ResolveRoutineInfoByRegistryKey(routine: routine,
-            baseName: baseName, routineOwnerType: routineOwnerType,
+            baseName: baseName,
+            routineOwnerType: routineOwnerType,
             isConstructorDecl: isConstructorDecl);
 
         routineInfo ??= _registry.LookupRoutine(fullName: baseName,
@@ -203,8 +221,8 @@ public sealed partial class SemanticVerifier
             string concreteName = string.IsNullOrEmpty(value: module)
                 ? routine.Name
                 : $"{module}.{routine.Name}";
-            routineInfo = _registry.LookupRoutine(fullName: concreteName)
-                ?? _registry.LookupRoutineByQualifiedName(qualifiedName: concreteName);
+            routineInfo = _registry.LookupRoutine(fullName: concreteName) ??
+                          _registry.LookupRoutineByQualifiedName(qualifiedName: concreteName);
         }
 
         // Final fallback: the exact decl→info binding pinned at registration.
@@ -233,7 +251,8 @@ public sealed partial class SemanticVerifier
     /// failable-without-failure, stores the body for error-handling variant generation, reports
     /// undismantled Lookup variables, and snapshots stolen variable names for teardown.
     /// </summary>
-    private void ValidateRoutineBodyPostAnalysis(RoutineDeclaration routine, RoutineInfo routineInfo)
+    private void ValidateRoutineBodyPostAnalysis(RoutineDeclaration routine,
+        RoutineInfo routineInfo)
     {
         // Infer None return type if no annotation was given and no return value was found.
         // null is a transient "not yet inferred" state — after body analysis it must be resolved.
@@ -265,8 +284,8 @@ public sealed partial class SemanticVerifier
         // Store routine body for error handling variant generation (Phase 4).
         // Only store if the body actually has throw/absent/failable-calls — routines
         // implemented via @llvm_ir have no such AST nodes and can't have variants generated.
-        if (routineInfo.IsFailable &&
-            (routineInfo.HasThrow || routineInfo.HasAbsent || routineInfo.HasFailableCalls))
+        if (routineInfo.IsFailable && (routineInfo.HasThrow || routineInfo.HasAbsent ||
+                                       routineInfo.HasFailableCalls))
         {
             StoreRoutineBody(routine: routineInfo, body: routine.Body);
         }
@@ -296,13 +315,11 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private bool IsSkippableOptInDeriveTemplate(RoutineDeclaration routine)
     {
-        if (_currentType == null
-            && (routine.Annotations.Contains(item: "overridable")
-                || routine.Annotations.Contains(item: "override"))
-            && routine.MemberRoutineName is { } memberRoutine
-            && routine.OwnerName is { } ownerName
-            && !routine.HasReceiverTypeArgs
-            && LookupTypeWithImports(name: ownerName) == null)
+        if (_currentType == null &&
+            (routine.Annotations.Contains(item: "overridable") ||
+             routine.Annotations.Contains(item: "override")) &&
+            routine.MemberRoutineName is { } memberRoutine && routine.OwnerName is { } ownerName &&
+            !routine.HasReceiverTypeArgs && LookupTypeWithImports(name: ownerName) == null)
         {
             // The auto-conferred display derives (represent/diagnose) ARE registered universals →
             // `T` is bound → they stay analyzed. Protocol-grounded via the wired catalog, not a
@@ -347,7 +364,10 @@ public sealed partial class SemanticVerifier
             if (typeName.Contains(value: '[') && ownerType is ProtocolTypeInfo)
             {
                 TypeSymbol? bracketed = _registry.LookupType(name: typeName);
-                if (bracketed is ProtocolTypeInfo) ownerType = bracketed;
+                if (bracketed is ProtocolTypeInfo)
+                {
+                    ownerType = bracketed;
+                }
             }
 
             // Universal member routine (`routine T.represent()`): a bare owner name that resolves to no
@@ -357,8 +377,8 @@ public sealed partial class SemanticVerifier
             // inside the body resolves as a parameter — instead of falling through to a first-wins
             // by-member-name match on some concrete type's same-named routine (e.g. BitArray.represent),
             // which left `T` resolvable only via the cross-module short-name scan.
-            if (ownerType == null && routine.OwnerName is { } bareOwner
-                && !bareOwner.Contains(value: '['))
+            if (ownerType == null && routine.OwnerName is { } bareOwner &&
+                !bareOwner.Contains(value: '['))
             {
                 ownerType = new GenericParameterTypeInfo(name: bareOwner);
             }
@@ -396,11 +416,12 @@ public sealed partial class SemanticVerifier
         RoutineInfo? prevRoutine = _currentRoutine;
         _currentRoutine = new RoutineInfo(name: baseName)
         {
-            GenericParameters = routine.GenericParameters,
-            OwnerType = routineOwnerType
+            GenericParameters = routine.GenericParameters, OwnerType = routineOwnerType
         };
 
-        RoutineInfo? routineInfo = isConstructorDecl ? routine.ResolvedInfo : null;
+        RoutineInfo? routineInfo = isConstructorDecl
+            ? routine.ResolvedInfo
+            : null;
         if (routineInfo == null && routine.Parameters.Count > 0)
         {
             IEnumerable<string> paramTypeNames = routine.Parameters
@@ -412,8 +433,7 @@ public sealed partial class SemanticVerifier
                                                              }
 
                                                              TypeSymbol resolved =
-                                                                 ResolveType(
-                                                                     typeExpr: p.Type);
+                                                                 ResolveType(typeExpr: p.Type);
                                                              if (resolved is ErrorTypeInfo)
                                                              {
                                                                  return p.Type.Name ?? "";
@@ -441,8 +461,8 @@ public sealed partial class SemanticVerifier
             // The first lookup above used the generic-def-normalized owner
             // (`Core.List[T].create`), so it missed. Resolve the concrete owner
             // type from the routine name and rebuild the canonical key.
-            if (routineInfo == null && routine.HasReceiverTypeArgs
-                && routine.ReceiverType is { } ownerExpr && routine.MemberRoutineName is { } mName)
+            if (routineInfo == null && routine.HasReceiverTypeArgs &&
+                routine.ReceiverType is { } ownerExpr && routine.MemberRoutineName is { } mName)
             {
                 // Structured receiver from the parser (was: re-parse the owner substring of Name).
                 TypeSymbol resolvedOwner = ResolveType(typeExpr: ownerExpr);
@@ -493,10 +513,14 @@ public sealed partial class SemanticVerifier
                 // reshaping-during-iteration check can fire even though the EachStatement was
                 // rewritten away before this phase. Track it for the duration of the body.
                 bool tracksIterationSource = loopStmt.IterationSourceName != null &&
-                    _activeIterationSources.Add(item: loopStmt.IterationSourceName);
+                                             _activeIterationSources.Add(
+                                                 item: loopStmt.IterationSourceName);
                 AnalyzeStatement(statement: loopStmt.Body);
                 if (tracksIterationSource)
+                {
                     _activeIterationSources.Remove(item: loopStmt.IterationSourceName!);
+                }
+
                 _registry.ExitScope();
                 break;
 
@@ -562,7 +586,8 @@ public sealed partial class SemanticVerifier
 
             default:
                 ReportWarning(code: SemanticWarningCode.UnknownStatementType,
-                    message: $"Internal: semantic analyzer has no handler for AST node '{statement.GetType().Name}'. This statement will be skipped; downstream analysis may be incomplete. Please report as a compiler bug.",
+                    message:
+                    $"Internal: semantic analyzer has no handler for AST node '{statement.GetType().Name}'. This statement will be skipped; downstream analysis may be incomplete. Please report as a compiler bug.",
                     location: statement.Location);
                 break;
         }
@@ -601,9 +626,8 @@ public sealed partial class SemanticVerifier
             if (diverged)
             {
                 ReportError(code: SemanticDiagnosticCode.UnreachableStatement,
-                    message:
-                    "Unreachable statement: the previous statement always diverges " +
-                    "(return / throw / absent / break / continue), so this code can never run.",
+                    message: "Unreachable statement: the previous statement always diverges " +
+                             "(return / throw / absent / break / continue), so this code can never run.",
                     location: stmt.Location);
                 break;
             }
@@ -640,7 +664,8 @@ public sealed partial class SemanticVerifier
 
     private void AnalyzeVariableDeclaration(VariableDeclaration varDecl)
     {
-        RejectLayoutAnnotation(annotations: varDecl.Annotations, location: varDecl.Location,
+        RejectLayoutAnnotation(annotations: varDecl.Annotations,
+            location: varDecl.Location,
             where: "a variable declaration");
 
         TypeSymbol varType;
@@ -687,17 +712,16 @@ public sealed partial class SemanticVerifier
 
         // #16: Plain `var x: T` without an initializer is disallowed.
         // Use `lateinit var x: T` (eager allocation, late initialization).
-        if (_registry.Language == Language.RazorForge &&
-            varDecl is { Type: not null, Initializer: null, IsLateInit: false })
+        if (_registry.Language == Language.RazorForge && varDecl is
+                { Type: not null, Initializer: null, IsLateInit: false })
         {
             ReportError(code: SemanticDiagnosticCode.VariableNeedsTypeOrInitializer,
-                message:
-                $"Variable '{varDecl.Name}' has a type annotation but no initializer. " +
-                "Use 'lateinit var' to defer initialization.",
+                message: $"Variable '{varDecl.Name}' has a type annotation but no initializer. " +
+                         "Use 'lateinit var' to defer initialization.",
                 location: varDecl.Location);
         }
 
-        ValidateVariableInitializer(varDecl, varType);
+        ValidateVariableInitializer(varDecl: varDecl, varType: varType);
 
         CheckVariableCopyRestrictions(varDecl: varDecl, varType: varType);
 
@@ -709,8 +733,8 @@ public sealed partial class SemanticVerifier
         // inferred from a nullable entity read (`var n = a.optField`) or a `none` literal — so member
         // access on it is gated until a null-check.
         bool varIsNullable = annotatedNullable ||
-            (varDecl is { Type: null, Initializer: not null } &&
-             IsNullableEntityRead(expr: varDecl.Initializer));
+                             varDecl is { Type: null, Initializer: not null } &&
+                             IsNullableEntityRead(expr: varDecl.Initializer);
 
         // Suflae: assigning a possibly-none value into a NON-NULL entity variable (`var x: E = <nullable>`
         // or `var x: E = none`) is rejected — declare the variable optional (`x: E?`) to allow none.
@@ -718,11 +742,14 @@ public sealed partial class SemanticVerifier
             IsNullableEntityRead(expr: varDecl.Initializer))
         {
             ReportNullableIntoNonNull(target: $"variable '{varDecl.Name}'",
-                value: varDecl.Initializer, optionalHint: $"{varDecl.Name}: <Type>?");
+                value: varDecl.Initializer,
+                optionalHint: $"{varDecl.Name}: <Type>?");
         }
 
-        bool declared = _registry.DeclareVariable(name: varDecl.Name, type: varType,
-            isNullable: varIsNullable, location: varDecl.Location);
+        bool declared = _registry.DeclareVariable(name: varDecl.Name,
+            type: varType,
+            isNullable: varIsNullable,
+            location: varDecl.Location);
 
         if (!declared)
         {
@@ -736,7 +763,8 @@ public sealed partial class SemanticVerifier
         // readers-XOR-writer check keys on the shared DATA, not the variable name — a clone
         // (`var s2 = s.share()`) inherits `s`'s identity and so conflicts with it.
         if (_registry.Language == Language.RazorForge &&
-            varType.BareName is Declaration.RuntimeContract.Guarded or Declaration.RuntimeContract.Witnessed)
+            varType.BareName is Declaration.RuntimeContract.Guarded
+                or Declaration.RuntimeContract.Witnessed)
         {
             RecordSharedHandleIdentity(name: varDecl.Name, initializer: varDecl.Initializer);
         }
@@ -777,12 +805,16 @@ public sealed partial class SemanticVerifier
         // A tuple element access (`_t.item0`) is how `var (a, b) = expr` destructuring lowers: the tuple
         // is a CONSUMED temporary, so each element MOVES out — not a view of a persisting owner. Exclude it
         // (Object is a TupleTypeInfo) so channel/pair destructuring of entity elements stays a legal move.
-        bool isEntityViewInit = varDecl.Initializer is IdentifierExpression
-            || varDecl.Initializer is IndexExpression { Index: not RangeExpression }
-            || varDecl.Initializer is MemberExpression { Object.ResolvedType: not TupleTypeInfo };
-        if (_registry.Language == Language.RazorForge
-            && isEntityViewInit
-            && varType is EntityTypeInfo)
+        bool isEntityViewInit = varDecl.Initializer is IdentifierExpression ||
+                                varDecl.Initializer is IndexExpression
+                                {
+                                    Index: not RangeExpression
+                                } || varDecl.Initializer is MemberExpression
+                                {
+                                    Object.ResolvedType: not TupleTypeInfo
+                                };
+        if (_registry.Language == Language.RazorForge && isEntityViewInit &&
+            varType is EntityTypeInfo)
         {
             ReportError(code: SemanticDiagnosticCode.BareEntityAssignment,
                 message:
@@ -819,8 +851,8 @@ public sealed partial class SemanticVerifier
         // #81: Result/Lookup cannot be copied from variable to variable
         // `var r = check_parse!(data)` then `when r` is allowed (call result)
         // `var r2 = r1` where r1: Result[T] is not allowed (variable copy)
-        if (varDecl.Initializer is IdentifierExpression &&
-            IsCarrierType(type: varType) && !IsMaybeType(type: varType))
+        if (varDecl.Initializer is IdentifierExpression && IsCarrierType(type: varType) &&
+            !IsMaybeType(type: varType))
         {
             ReportError(code: SemanticDiagnosticCode.ErrorHandlingTypeStoredInVariable,
                 message: $"'{varType.Name}' cannot be copied to another variable. " +
@@ -831,8 +863,7 @@ public sealed partial class SemanticVerifier
         // Scoped access tokens (Viewing / Modifying / Consulting / Amending) cannot bind to a
         // var at all — they only exist inline within their producing expression. Use the
         // value inline (`a.view().x`) or open a scope (`using a.view() as v`).
-        if (_registry.Language == Language.RazorForge &&
-            IsInlineOnlyTokenType(type: varType))
+        if (_registry.Language == Language.RazorForge && IsInlineOnlyTokenType(type: varType))
         {
             string wrapperName = varType.BareName;
             ReportError(code: SemanticDiagnosticCode.ImplicitWrapperCopy,
@@ -854,13 +885,21 @@ public sealed partial class SemanticVerifier
     private void CheckImplicitWrapperCopyOnInit(VariableDeclaration varDecl, TypeSymbol varType)
     {
         if (_registry.Language != Language.RazorForge)
+        {
             return;
-        if (varDecl.Initializer is not (IdentifierExpression or MemberExpression))
-            return;
-        if (IsTriviallyAssignable(type: varType))
-            return;
+        }
 
-        var hint = FindNonTriviallyAssignableWrapper(type: varType);
+        if (varDecl.Initializer is not (IdentifierExpression or MemberExpression))
+        {
+            return;
+        }
+
+        if (IsTriviallyAssignable(type: varType))
+        {
+            return;
+        }
+
+        (string Wrapper, string Path)? hint = FindNonTriviallyAssignableWrapper(type: varType);
         if (hint != null)
         {
             string verb = NonTriviallyAssignableWrappers[key: hint.Value.Wrapper];
@@ -898,12 +937,14 @@ public sealed partial class SemanticVerifier
             // An `Agent[T]` result dropped on the floor is the lazy-async footgun: a `suspended`/
             // `threaded` call only builds a recipe — dropping it means the routine BODY never runs
             // (in the old eager model it would have). Point at the verbs that actually start it.
-            if (exprType is RecordTypeInfo ag && (ag.GenericDefinition?.Name ?? ag.Name) == "Agent")
+            if (exprType is RecordTypeInfo ag &&
+                (ag.GenericDefinition?.Name ?? ag.Name) == "Agent")
             {
                 ReportWarning(code: SemanticWarningCode.AsyncAgentNeverLaunched,
-                    message: $"Agent from '{routineName}()' is never launched — the routine will NOT " +
-                             "run. Call `.execute()` to run it in the background, or `.retrieve()` to " +
-                             "run it and await the value.",
+                    message:
+                    $"Agent from '{routineName}()' is never launched — the routine will NOT " +
+                    "run. Call `.execute()` to run it in the background, or `.retrieve()` to " +
+                    "run it and await the value.",
                     location: call.Location);
             }
             else
@@ -934,13 +975,15 @@ public sealed partial class SemanticVerifier
         }
 
         TypeSymbol targetType = AnalyzeExpression(expression: assign.Target);
-        TypeSymbol valueType = AnalyzeExpression(expression: assign.Value, expectedType: targetType);
+        TypeSymbol valueType =
+            AnalyzeExpression(expression: assign.Value, expectedType: targetType);
 
         // Check if target is assignable (variable, member variable, or index)
         if (!IsAssignableTarget(target: assign.Target))
         {
             ReportError(code: SemanticDiagnosticCode.InvalidAssignmentTarget,
-                message: "Invalid assignment target. Only variables, member accesses (e.g. obj.field), and indexed expressions (e.g. list[i]) can be assigned to.",
+                message:
+                "Invalid assignment target. Only variables, member accesses (e.g. obj.field), and indexed expressions (e.g. list[i]) can be assigned to.",
                 location: assign.Target.Location);
             return;
         }
@@ -964,8 +1007,8 @@ public sealed partial class SemanticVerifier
         }
 
         // #81: Result/Lookup cannot be copied from variable to variable via assignment
-        if (assign.Value is IdentifierExpression &&
-            IsCarrierType(type: valueType) && !IsMaybeType(type: valueType))
+        if (assign.Value is IdentifierExpression && IsCarrierType(type: valueType) &&
+            !IsMaybeType(type: valueType))
         {
             ReportError(code: SemanticDiagnosticCode.ErrorHandlingTypeStoredInVariable,
                 message: $"'{valueType.Name}' cannot be copied to another variable. " +
@@ -1033,7 +1076,8 @@ public sealed partial class SemanticVerifier
     /// wrapper, checks setter visibility, blocks assigning to a member of a preset variable, and
     /// blocks mutating `me` from a @readonly member routine.
     /// </summary>
-    private void ValidateMemberAssignmentTarget(AssignmentStatement assign, MemberExpression member)
+    private void ValidateMemberAssignmentTarget(AssignmentStatement assign,
+        MemberExpression member)
     {
         TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
 
@@ -1054,8 +1098,7 @@ public sealed partial class SemanticVerifier
         // Preset enforcement: cannot assign to member variables of preset variables
         if (member.Object is IdentifierExpression memberVariableTarget)
         {
-            VariableInfo? targetVar =
-                _registry.LookupVariable(name: memberVariableTarget.Name);
+            VariableInfo? targetVar = _registry.LookupVariable(name: memberVariableTarget.Name);
             if (targetVar is { IsModifiable: false })
             {
                 ReportError(code: SemanticDiagnosticCode.MemberVariableAssignmentOnImmutable,
@@ -1089,21 +1132,25 @@ public sealed partial class SemanticVerifier
     /// owner-type bindings from a routine's name string when the AST does not
     /// carry the owner as a separate node. Returns null on malformed input.
     /// </summary>
-    internal static TypeExpression? ParseTypeExpressionString(string text,
-        SourceLocation location)
+    internal static TypeExpression? ParseTypeExpressionString(string text, SourceLocation location)
     {
         text = text.Trim();
-        if (string.IsNullOrEmpty(value: text)) return null;
+        if (string.IsNullOrEmpty(value: text))
+        {
+            return null;
+        }
 
         int bracketIdx = text.IndexOf(value: '[');
         if (bracketIdx < 0)
         {
-            return new TypeExpression(Name: text,
-                GenericArguments: null,
-                Location: location);
+            return new TypeExpression(Name: text, GenericArguments: null, Location: location);
         }
 
-        if (!text.EndsWith(value: ']')) return null;
+        if (!text.EndsWith(value: ']'))
+        {
+            return null;
+        }
+
         string head = text[..bracketIdx];
         string inner = text[(bracketIdx + 1)..^1];
 
@@ -1113,13 +1160,24 @@ public sealed partial class SemanticVerifier
         for (int i = 0; i < inner.Length; i++)
         {
             char c = inner[index: i];
-            if (c == '[') depth++;
-            else if (c == ']') depth--;
+            if (c == '[')
+            {
+                depth++;
+            }
+            else if (c == ']')
+            {
+                depth--;
+            }
             else if (c == ',' && depth == 0)
             {
                 TypeExpression? arg = ParseTypeExpressionString(
-                    text: inner[start..i], location: location);
-                if (arg == null) return null;
+                    text: inner[start..i],
+                    location: location);
+                if (arg == null)
+                {
+                    return null;
+                }
+
                 args.Add(item: arg);
                 start = i + 1;
             }
@@ -1127,19 +1185,23 @@ public sealed partial class SemanticVerifier
 
         TypeExpression? lastArg =
             ParseTypeExpressionString(text: inner[start..], location: location);
-        if (lastArg == null) return null;
+        if (lastArg == null)
+        {
+            return null;
+        }
+
         args.Add(item: lastArg);
 
-        return new TypeExpression(Name: head,
-            GenericArguments: args,
-            Location: location);
+        return new TypeExpression(Name: head, GenericArguments: args, Location: location);
     }
 
     #endregion
+
     private void ValidateDestroyDeclaration(RoutineDeclaration routine)
     {
-        bool isDestroyDecl = routine.Name == "destroy"
-            || routine.Name.EndsWith(value: ".destroy", comparisonType: StringComparison.Ordinal);
+        bool isDestroyDecl = routine.Name == "destroy" ||
+                             routine.Name.EndsWith(value: ".destroy",
+                                 comparisonType: StringComparison.Ordinal);
         if (isDestroyDecl && !routine.IsDangerous)
         {
             ReportError(code: SemanticDiagnosticCode.DestroyMustBeDangerous,
@@ -1165,5 +1227,4 @@ public sealed partial class SemanticVerifier
             }
         }
     }
-
 }

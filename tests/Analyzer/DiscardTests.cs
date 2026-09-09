@@ -15,10 +15,10 @@ using static TestHelpers;
 public class DiscardTests
 {
     #region RazorForge - Discard With Call
+
     /// <summary>
     /// Verifies semantic analysis behavior for discard call without unexpected warnings.
     /// </summary>
-
     [Fact]
     public void Analyze_DiscardCall_NoWarning()
     {
@@ -38,7 +38,6 @@ public class DiscardTests
     /// <summary>
     /// Verifies semantic analysis behavior for call without discard non blank return warning.
     /// </summary>
-
     [Fact]
     public void Analyze_CallWithoutDiscard_NonNoneReturn_WarningCurrentlySuppressed()
     {
@@ -63,7 +62,6 @@ public class DiscardTests
     /// <summary>
     /// Verifies semantic analysis behavior for call without discard blank return without unexpected warnings.
     /// </summary>
-
     [Fact]
     public void Analyze_CallWithoutDiscard_NoneReturn_NoWarning()
     {
@@ -84,7 +82,6 @@ public class DiscardTests
     /// <summary>
     /// Verifies semantic analysis behavior for assigned call without unexpected warnings.
     /// </summary>
-
     [Fact]
     public void Analyze_AssignedCall_NoWarning()
     {
@@ -107,7 +104,6 @@ public class DiscardTests
     /// <summary>
     /// Verifies semantic analysis behavior for discard member call without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_DiscardMemberCall_NoError()
     {
@@ -133,7 +129,6 @@ public class DiscardTests
     /// <summary>
     /// Verifies that the parser accepts discard member call succeeds.
     /// </summary>
-
     [Fact]
     public void Parse_DiscardMemberCall_Succeeds()
     {
@@ -155,7 +150,6 @@ public class DiscardTests
     /// <summary>
     /// Verifies that the parser accepts discard failable member call succeeds.
     /// </summary>
-
     [Fact]
     public void Parse_DiscardFailableMemberCall_Succeeds()
     {

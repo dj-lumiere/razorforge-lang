@@ -25,7 +25,8 @@ internal static class ImplicitCallContract
     /// Only genuine no-AST-node insertions belong here — routines reached through a real (even
     /// synthesized) AST call are walked normally and must NOT be listed.
     /// </summary>
-    public static IEnumerable<(TypeInfo owner, string memberRoutineName)> ForLiveType(TypeInfo liveType)
+    public static IEnumerable<(TypeInfo owner, string memberRoutineName)> ForLiveType(
+        TypeInfo liveType)
     {
         // Structured base-name classification (canonical helper — prefers the generic definition's
         // BareName, no ad-hoc bracket parsing). Returns null for anything that isn't an RC wrapper.
@@ -36,10 +37,14 @@ internal static class ImplicitCallContract
         // reachability runs). Renamed from the STEP-3 unified `store` — RC's copy is the explicit-share op,
         // distinct from value-record `store`; seeded here (not via the WiredRoutineCatalog Assignable entry).
         if (ownerBase != null)
+        {
             yield return (liveType, RuntimeContract.RefCount.Share);
+        }
 
         if (ownerBase != RuntimeContract.Roamed)
+        {
             yield break;
+        }
 
         // Roamed[T]: promote at spawn boundaries, lock_enter/lock_exit around direct field access,
         // raw_inner for argument projection (Roamed arg → bare param), control for the memberRoutine-dispatch

@@ -27,7 +27,9 @@ public sealed partial class SemanticVerifier
         // `none` value literal: needs a carrier-slot expected type
         // (Maybe[T] / Lookup[T] / variant-with-None). Anything else is a hard error.
         if (literal.LiteralType == TokenType.NoneValue)
+        {
             return AnalyzeNoneValueLiteral(literal: literal, expectedType: expectedType);
+        }
 
         string? typeName = MapLiteralTypeName(literal: literal);
         if (typeName == null)
@@ -41,16 +43,22 @@ public sealed partial class SemanticVerifier
         if (IsSuflaeSuffixGateViolation(literal: literal, typeName: typeName))
         {
             ReportError(code: SemanticDiagnosticCode.SuflaeNumericImportRequired,
-                message: $"Fixed-width numeric literal suffix '{typeName}' is import-gated in Suflae — add "
-                         + "`import Numerics`. Bare numbers default to Integer/Decimal (fixed-width types like "
-                         + "S32/U64/F128 stay behind the import to keep the surface approachable).",
+                message:
+                $"Fixed-width numeric literal suffix '{typeName}' is import-gated in Suflae — add " +
+                "`import Numerics`. Bare numbers default to Integer/Decimal (fixed-width types like " +
+                "S32/U64/F128 stay behind the import to keep the surface approachable).",
                 location: literal.Location);
             return ErrorTypeInfo.Instance;
         }
 
-        typeName = ApplyContextualTypeInference(literal: literal, expectedType: expectedType,
-            typeName: typeName, earlyExit: out bool earlyExitOnOverflow);
-        if (earlyExitOnOverflow) return ErrorTypeInfo.Instance;
+        typeName = ApplyContextualTypeInference(literal: literal,
+            expectedType: expectedType,
+            typeName: typeName,
+            earlyExit: out bool earlyExitOnOverflow);
+        if (earlyExitOnOverflow)
+        {
+            return ErrorTypeInfo.Instance;
+        }
 
         StoreParsedLiteral(literal: literal, typeName: typeName);
 
@@ -74,41 +82,53 @@ public sealed partial class SemanticVerifier
     {
         // Only fires for explicit fixed-width / complex suffixes; unsuffixed literals stay bare.
         if (literal.LiteralType is TokenType.UndecidedInteger or TokenType.UndecidedDecimal
-                or TokenType.IntegerLiteral or TokenType.DecimalLiteral)
+            or TokenType.IntegerLiteral or TokenType.DecimalLiteral)
+        {
             return false;
-        return Declaration.TypeResolver.IsImportGatedNumeric(name: typeName)
-            && UsesSuflaeNumericDefaults(literal: literal)
-            && !IsStdlibFile(filePath: literal.Location.FileName ?? "")
-            && !(_importedModules.Contains(item: "Numerics")
-                 && !_importedSymbolNames.Contains(item: IntegerTypeName));
+        }
+
+        return Declaration.TypeResolver.IsImportGatedNumeric(name: typeName) &&
+               UsesSuflaeNumericDefaults(literal: literal) &&
+               !IsStdlibFile(filePath: literal.Location.FileName ?? "") &&
+               !(_importedModules.Contains(item: "Numerics") &&
+                 !_importedSymbolNames.Contains(item: IntegerTypeName));
     }
 
     /// <summary>
     /// Applies contextual type inference for unsuffixed integer/decimal literals when an expected type
     /// is present. Sets <paramref name="earlyExit"/> to true if an overflow error was reported.
     /// </summary>
-    private string ApplyContextualTypeInference(LiteralExpression literal, TypeSymbol? expectedType,
-        string typeName, out bool earlyExit)
+    private string ApplyContextualTypeInference(LiteralExpression literal,
+        TypeSymbol? expectedType, string typeName, out bool earlyExit)
     {
         earlyExit = false;
-        if (expectedType == null) return typeName;
+        if (expectedType == null)
+        {
+            return typeName;
+        }
 
-        if (literal.LiteralType is TokenType.UndecidedInteger && IsFixedWidthIntegerType(type: expectedType))
+        if (literal.LiteralType is TokenType.UndecidedInteger &&
+            IsFixedWidthIntegerType(type: expectedType))
         {
             if (LiteralFitsInType(literal: literal, targetType: expectedType))
+            {
                 return expectedType.Name;
+            }
 
             string range = GetIntegerTypeRange(typeName: expectedType.Name);
             ReportError(code: SemanticDiagnosticCode.IntegerLiteralOverflow,
-                message: $"Integer literal '{literal.Value}' overflows type '{expectedType.Name}'. Valid range: {range}.",
+                message:
+                $"Integer literal '{literal.Value}' overflows type '{expectedType.Name}'. Valid range: {range}.",
                 location: literal.Location);
             earlyExit = true;
             return typeName;
         }
 
-        if (literal.LiteralType is TokenType.UndecidedDecimal
-            && (IsFloatType(type: expectedType) || IsDecimalType(type: expectedType)))
+        if (literal.LiteralType is TokenType.UndecidedDecimal &&
+            (IsFloatType(type: expectedType) || IsDecimalType(type: expectedType)))
+        {
             return expectedType.Name;
+        }
 
         return typeName;
     }
@@ -118,11 +138,18 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void StoreParsedLiteral(LiteralExpression literal, string typeName)
     {
-        if (literal.Value is not string rawValue) return;
+        if (literal.Value is not string rawValue)
+        {
+            return;
+        }
+
         ParsedLiteral? parsed = ParseDeferredLiteral(literal: literal,
-            rawValue: rawValue, resolvedTypeName: typeName);
+            rawValue: rawValue,
+            resolvedTypeName: typeName);
         if (parsed != null)
+        {
             _parsedLiterals[key: literal.Location] = parsed;
+        }
     }
 
     /// <summary>
@@ -136,17 +163,21 @@ public sealed partial class SemanticVerifier
         {
             return expectedType;
         }
+
         // Suflae: `none` against a `Roamed[E]` slot (an OPTIONAL entity reference `x: E?`) is a null
         // Roamed handle (roamed_none). Entity references carry their own none via a null pointer, so
         // no Maybe carrier is needed.
-        if (_registry.Language == Language.Suflae
-            && expectedType is RecordTypeInfo { GenericDefinition.Name: Declaration.RuntimeContract.Roamed })
+        if (_registry.Language == Language.Suflae && expectedType is RecordTypeInfo
+            {
+                GenericDefinition.Name: Declaration.RuntimeContract.Roamed
+            })
         {
             return expectedType;
         }
+
         ReportError(code: SemanticDiagnosticCode.NoneOutsideCarrierSlot,
             message:
-            $"'none' is only valid where the expected type is Maybe[T], Lookup[T], or a variant with a None arm; got {(expectedType?.Name ?? "no contextual type")}.",
+            $"'none' is only valid where the expected type is Maybe[T], Lookup[T], or a variant with a None arm; got {expectedType?.Name ?? "no contextual type"}.",
             location: literal.Location);
         return ErrorTypeInfo.Instance;
     }
@@ -196,10 +227,10 @@ public sealed partial class SemanticVerifier
             // into a scalar op → `store %Record.Numerics.Integer` / `icmp i256, %Record` type errors. Key on
             // the LITERAL's own file (its Location), NOT `_currentFilePath` (stale = the user entry under
             // cross-module body analysis).
-            TokenType.UndecidedInteger => UsesSuflaeNumericDefaults(literal)
+            TokenType.UndecidedInteger => UsesSuflaeNumericDefaults(literal: literal)
                 ? IntegerTypeName
                 : "S64",
-            TokenType.UndecidedDecimal => UsesSuflaeNumericDefaults(literal)
+            TokenType.UndecidedDecimal => UsesSuflaeNumericDefaults(literal: literal)
                 ? "Decimal"
                 : "F64",
 
@@ -241,7 +272,7 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
- /// Checks if a type is a fixed-width integer type (S8-S128, U8-U128, Address).
+    /// Checks if a type is a fixed-width integer type (S8-S128, U8-U128, Address).
     /// Uses protocol conformance: fixed-width integer types obey <c>FixedIntegral</c>.
     /// </summary>
     private bool IsFixedWidthIntegerType(TypeSymbol type)
@@ -264,8 +295,11 @@ public sealed partial class SemanticVerifier
     private bool UsesSuflaeNumericDefaults(LiteralExpression literal)
     {
         string? litFile = literal.Location.FileName;
-        string probeFile = string.IsNullOrEmpty(value: litFile) ? _currentFilePath ?? "" : litFile;
-        return probeFile.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase);
+        string probeFile = string.IsNullOrEmpty(value: litFile)
+            ? _currentFilePath ?? ""
+            : litFile;
+        return probeFile.EndsWith(value: ".sf",
+            comparisonType: StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -297,17 +331,26 @@ public sealed partial class SemanticVerifier
         // String-form literals whose magnitude doesn't fit in 64 bits can only fit in S128/U128.
         if (literal.Value is string strVal)
         {
-            if (!TryExtractStringLiteralMagnitude(strValue: strVal, negative: out bool neg64,
+            if (!TryExtractStringLiteralMagnitude(strValue: strVal,
+                    negative: out bool neg64,
                     magnitude: out ulong mag64))
+            {
                 return targetType.Name is "S128" or "U128";
+            }
+
             return MagnitudeFitsInType(targetType: targetType, negative: neg64, magnitude: mag64);
         }
 
-        if (!TryExtractLiteralMagnitudeAndSign(literal: literal, negative: out bool negative,
+        if (!TryExtractLiteralMagnitudeAndSign(literal: literal,
+                negative: out bool negative,
                 magnitude: out ulong magnitude))
+        {
             return false;
+        }
 
-        return MagnitudeFitsInType(targetType: targetType, negative: negative, magnitude: magnitude);
+        return MagnitudeFitsInType(targetType: targetType,
+            negative: negative,
+            magnitude: magnitude);
     }
 
     /// <summary>
@@ -323,13 +366,14 @@ public sealed partial class SemanticVerifier
             case long longValue:
                 negative = longValue < 0;
                 magnitude = negative
-                    ? (ulong)(-(longValue + 1)) + 1 // two's-complement-safe |long.MinValue|
+                    ? (ulong)-(longValue + 1) + 1 // two's-complement-safe |long.MinValue|
                     : (ulong)longValue;
                 return true;
 
             case string strValue:
                 return TryExtractStringLiteralMagnitude(strValue: strValue,
-                    negative: out negative, magnitude: out magnitude);
+                    negative: out negative,
+                    magnitude: out magnitude);
 
             default:
                 negative = false;
@@ -343,27 +387,29 @@ public sealed partial class SemanticVerifier
     /// sign and 64-bit magnitude. Returns false when the magnitude does not fit in 64 bits
     /// (wide literals — only S128/U128 could hold them; callers handle that).
     /// </summary>
-    private static bool TryExtractStringLiteralMagnitude(string strValue,
-        out bool negative, out ulong magnitude)
+    private static bool TryExtractStringLiteralMagnitude(string strValue, out bool negative,
+        out ulong magnitude)
     {
         // Strip type suffix before removing digit-separator underscores.
         // e.g. "20_s64" -> strip "_s64" -> "20" -> parses fine.
         // A suffix starts at the last '_' when what follows is a letter.
         int lastUnderscore = strValue.LastIndexOf(value: '_');
-        string withoutSuffix = lastUnderscore >= 0 &&
-                               lastUnderscore < strValue.Length - 1 &&
-                               char.IsLetter(c: strValue[lastUnderscore + 1])
+        string withoutSuffix = lastUnderscore >= 0 && lastUnderscore < strValue.Length - 1 &&
+                               char.IsLetter(c: strValue[index: lastUnderscore + 1])
             ? strValue[..lastUnderscore]
             : strValue;
         string cleaned = withoutSuffix.Replace(oldValue: "_", newValue: "");
         negative = cleaned.StartsWith(value: '-');
-        string digits = negative ? cleaned[1..] : cleaned;
+        string digits = negative
+            ? cleaned[1..]
+            : cleaned;
         if (!TryParseLiteralMagnitude(digits: digits, magnitude: out magnitude))
         {
             // Magnitude doesn't fit in 64 bits — only S128/U128 could hold it, but we can't
             // determine that here; callers that need the wide-literal check do so themselves.
             return false;
         }
+
         return true;
     }
 
@@ -374,9 +420,15 @@ public sealed partial class SemanticVerifier
     {
         return targetType.Name switch
         {
-            "S8" => negative ? magnitude <= 128UL : magnitude <= 127UL,
-            "S16" => negative ? magnitude <= 32768UL : magnitude <= 32767UL,
-            "S32" => negative ? magnitude <= 2147483648UL : magnitude <= 2147483647UL,
+            "S8" => negative
+                ? magnitude <= 128UL
+                : magnitude <= 127UL,
+            "S16" => negative
+                ? magnitude <= 32768UL
+                : magnitude <= 32767UL,
+            "S32" => negative
+                ? magnitude <= 2147483648UL
+                : magnitude <= 2147483647UL,
             "S64" => negative
                 ? magnitude <= 9223372036854775808UL
                 : magnitude <= 9223372036854775807UL,
@@ -404,20 +456,25 @@ public sealed partial class SemanticVerifier
     {
         if (digits.StartsWith(value: "0x", comparisonType: StringComparison.OrdinalIgnoreCase))
         {
-            return ulong.TryParse(s: digits[2..], style: NumberStyles.HexNumber,
-                provider: CultureInfo.InvariantCulture, result: out magnitude);
+            return ulong.TryParse(s: digits[2..],
+                style: NumberStyles.HexNumber,
+                provider: CultureInfo.InvariantCulture,
+                result: out magnitude);
         }
 
         if (digits.StartsWith(value: "0b", comparisonType: StringComparison.OrdinalIgnoreCase) ||
             digits.StartsWith(value: "0o", comparisonType: StringComparison.OrdinalIgnoreCase))
         {
-            int numericBase = char.ToLowerInvariant(c: digits[1]) == 'b' ? 2 : 8;
+            int numericBase = char.ToLowerInvariant(c: digits[index: 1]) == 'b'
+                ? 2
+                : 8;
             try
             {
                 magnitude = Convert.ToUInt64(value: digits[2..], fromBase: numericBase);
                 return true;
             }
-            catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentOutOfRangeException)
+            catch (Exception ex) when (ex is FormatException or OverflowException
+                                           or ArgumentOutOfRangeException)
             {
                 magnitude = 0;
                 return false;
@@ -603,9 +660,15 @@ public sealed partial class SemanticVerifier
     private static ParsedF128 ParseF128Literal(LiteralExpression literal, string rawValue)
     {
         if (rawValue == "inf")
-            return new ParsedF128(literal.Location, Lo: 0UL, Hi: 0x7FFF000000000000UL);
+        {
+            return new ParsedF128(Location: literal.Location, Lo: 0UL, Hi: 0x7FFF000000000000UL);
+        }
+
         if (rawValue == "nan")
-            return new ParsedF128(literal.Location, Lo: 0UL, Hi: 0x7FFF800000000000UL);
+        {
+            return new ParsedF128(Location: literal.Location, Lo: 0UL, Hi: 0x7FFF800000000000UL);
+        }
+
         NumericLiteralParser.F128 result = NumericLiteralParser.EncodeF128(str: rawValue);
         return new ParsedF128(Location: literal.Location, Lo: result.Lo, Hi: result.Hi);
     }
@@ -616,9 +679,15 @@ public sealed partial class SemanticVerifier
     private static ParsedD32 ParseD32Literal(LiteralExpression literal, string rawValue)
     {
         if (rawValue == "inf")
-            return new ParsedD32(literal.Location, Value: 0x78000000U);
+        {
+            return new ParsedD32(Location: literal.Location, Value: 0x78000000U);
+        }
+
         if (rawValue == "nan")
-            return new ParsedD32(literal.Location, Value: 0x7C000000U);
+        {
+            return new ParsedD32(Location: literal.Location, Value: 0x7C000000U);
+        }
+
         NumericLiteralParser.D32 result = NumericLiteralParser.EncodeD32Bid(str: rawValue);
         return new ParsedD32(Location: literal.Location, Value: result.Value);
     }
@@ -629,9 +698,15 @@ public sealed partial class SemanticVerifier
     private static ParsedD64 ParseD64Literal(LiteralExpression literal, string rawValue)
     {
         if (rawValue == "inf")
-            return new ParsedD64(literal.Location, Value: 0x7800000000000000UL);
+        {
+            return new ParsedD64(Location: literal.Location, Value: 0x7800000000000000UL);
+        }
+
         if (rawValue == "nan")
-            return new ParsedD64(literal.Location, Value: 0x7C00000000000000UL);
+        {
+            return new ParsedD64(Location: literal.Location, Value: 0x7C00000000000000UL);
+        }
+
         NumericLiteralParser.D64 result = NumericLiteralParser.EncodeD64Bid(str: rawValue);
         return new ParsedD64(Location: literal.Location, Value: result.Value);
     }
@@ -642,9 +717,15 @@ public sealed partial class SemanticVerifier
     private static ParsedD128 ParseD128Literal(LiteralExpression literal, string rawValue)
     {
         if (rawValue == "inf")
-            return new ParsedD128(literal.Location, Lo: 0UL, Hi: 0x7800000000000000UL);
+        {
+            return new ParsedD128(Location: literal.Location, Lo: 0UL, Hi: 0x7800000000000000UL);
+        }
+
         if (rawValue == "nan")
-            return new ParsedD128(literal.Location, Lo: 0UL, Hi: 0x7C00000000000000UL);
+        {
+            return new ParsedD128(Location: literal.Location, Lo: 0UL, Hi: 0x7C00000000000000UL);
+        }
+
         NumericLiteralParser.D128 result = NumericLiteralParser.EncodeD128Bid(str: rawValue);
         return new ParsedD128(Location: literal.Location, Lo: result.Lo, Hi: result.Hi);
     }
@@ -656,7 +737,8 @@ public sealed partial class SemanticVerifier
     {
         // Strip the `n` suffix and digit-group underscores (e.g. "1_000_000n" -> "1000000")
         // before handing the bare digits to the native parser.
-        string digits = CleanNumericLiteral(value: ExtractNumericPart(rawValue: rawValue, suffix: "n"));
+        string digits =
+            CleanNumericLiteral(value: ExtractNumericPart(rawValue: rawValue, suffix: "n"));
         (byte[] bytes, int sign) = NumericLiteralParser.ParseIntegerToBytes(str: digits);
         if (bytes.Length == 0)
         {
@@ -682,7 +764,8 @@ public sealed partial class SemanticVerifier
     {
         // Strip the `dn` suffix and digit-group underscores (e.g. "3.14_159dn" -> "3.14159")
         // before parsing. decNumber (unlike libbf's bf_atof) rejects trailing non-numeric chars.
-        string digits = CleanNumericLiteral(value: ExtractNumericPart(rawValue: rawValue, suffix: "dn"));
+        string digits =
+            CleanNumericLiteral(value: ExtractNumericPart(rawValue: rawValue, suffix: "dn"));
 
         // Validate against the i256 BID Decimal range the same way codegen will encode it:
         // EncodeDecimal throws OverflowException when the value would round to ±infinity, and the
@@ -762,11 +845,14 @@ public sealed partial class SemanticVerifier
         string numericPart = ExtractNumericPart(rawValue: rawValue, suffix: "s128");
         string cleanedValue = CleanNumericLiteral(value: numericPart);
 
-        if (TryParseWideMagnitude(cleaned: cleanedValue, value: out System.Numerics.BigInteger value)
-            && value >= (System.Numerics.BigInteger)Int128.MinValue
-            && value <= (System.Numerics.BigInteger)Int128.MaxValue)
+        if (TryParseWideMagnitude(cleaned: cleanedValue,
+                value: out System.Numerics.BigInteger value) &&
+            value >= (System.Numerics.BigInteger)Int128.MinValue &&
+            value <= (System.Numerics.BigInteger)Int128.MaxValue)
         {
-            return new ParsedSignedInt(Location: literal.Location, TypeName: "S128", Value: (Int128)value);
+            return new ParsedSignedInt(Location: literal.Location,
+                TypeName: "S128",
+                Value: (Int128)value);
         }
 
         ReportError(code: SemanticDiagnosticCode.InvalidIntegerLiteral,
@@ -829,9 +915,9 @@ public sealed partial class SemanticVerifier
                 maxValue: ulong.MaxValue,
                 suffix: "addr"),
             _ => throw new InvalidOperationException(
-                $"UndecidedInteger resolved to unexpected type '{resolvedTypeName}' ??" +
-                $"type inference must produce a concrete numeric type before reaching here; " +
-                $"'Integer' fallback is only valid when inference failed (handled by the caller)")
+                message: $"UndecidedInteger resolved to unexpected type '{resolvedTypeName}' ??" +
+                         $"type inference must produce a concrete numeric type before reaching here; " +
+                         $"'Integer' fallback is only valid when inference failed (handled by the caller)")
         };
     }
 
@@ -852,7 +938,7 @@ public sealed partial class SemanticVerifier
             "D128" => ParseD128Literal(literal: literal, rawValue: rawValue),
             "Decimal" => ParseDecimalLiteral(literal: literal, rawValue: rawValue),
             _ => throw new InvalidOperationException(
-                $"UndecidedDecimal resolved to unexpected type '{resolvedTypeName}'")
+                message: $"UndecidedDecimal resolved to unexpected type '{resolvedTypeName}'")
         };
     }
 
@@ -896,8 +982,9 @@ public sealed partial class SemanticVerifier
         string numericPart = ExtractNumericPart(rawValue: rawValue, suffix: "u128");
         string cleanedValue = CleanNumericLiteral(value: numericPart);
 
-        if (TryParseWideMagnitude(cleaned: cleanedValue, value: out System.Numerics.BigInteger value)
-            && value.Sign >= 0 && value <= (System.Numerics.BigInteger)UInt128.MaxValue)
+        if (TryParseWideMagnitude(cleaned: cleanedValue,
+                value: out System.Numerics.BigInteger value) && value.Sign >= 0 &&
+            value <= (System.Numerics.BigInteger)UInt128.MaxValue)
         {
             return new ParsedUnsignedInt(Location: literal.Location,
                 TypeName: "U128",
@@ -913,8 +1000,10 @@ public sealed partial class SemanticVerifier
     // 256-bit integer range bounds (no .NET native type — validated with BigInteger).
     private static readonly System.Numerics.BigInteger U256MaxValue =
         (System.Numerics.BigInteger.One << 256) - 1;
+
     private static readonly System.Numerics.BigInteger S256MaxValue =
         (System.Numerics.BigInteger.One << 255) - 1;
+
     private static readonly System.Numerics.BigInteger S256MinValue =
         -(System.Numerics.BigInteger.One << 255);
 
@@ -924,15 +1013,18 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private ParsedWideInt? ParseU256Literal(LiteralExpression literal, string rawValue)
     {
-        string cleanedValue = CleanNumericLiteral(value: ExtractNumericPart(rawValue: rawValue, suffix: "u256"));
-        if (TryParseWideMagnitude(cleaned: cleanedValue, value: out System.Numerics.BigInteger value)
-            && value.Sign >= 0 && value <= U256MaxValue)
+        string cleanedValue =
+            CleanNumericLiteral(value: ExtractNumericPart(rawValue: rawValue, suffix: "u256"));
+        if (TryParseWideMagnitude(cleaned: cleanedValue,
+                value: out System.Numerics.BigInteger value) && value.Sign >= 0 &&
+            value <= U256MaxValue)
         {
             return new ParsedWideInt(Location: literal.Location, TypeName: "U256", Value: value);
         }
 
         ReportError(code: SemanticDiagnosticCode.InvalidIntegerLiteral,
-            message: $"Invalid or out-of-range U256 literal: '{rawValue}' (valid range 0 to 2^256-1).",
+            message:
+            $"Invalid or out-of-range U256 literal: '{rawValue}' (valid range 0 to 2^256-1).",
             location: literal.Location);
         return null;
     }
@@ -943,17 +1035,20 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private ParsedWideInt? ParseS256Literal(LiteralExpression literal, string rawValue)
     {
-        string cleanedValue = CleanNumericLiteral(value: ExtractNumericPart(rawValue: rawValue, suffix: "s256"));
+        string cleanedValue =
+            CleanNumericLiteral(value: ExtractNumericPart(rawValue: rawValue, suffix: "s256"));
         // The lexer bakes a leading sign into the literal text (mirroring S128), so accept the
         // full signed range here. Codegen emits the (possibly negative) decimal as an i256 const.
-        if (TryParseWideMagnitude(cleaned: cleanedValue, value: out System.Numerics.BigInteger value)
-            && value >= S256MinValue && value <= S256MaxValue)
+        if (TryParseWideMagnitude(cleaned: cleanedValue,
+                value: out System.Numerics.BigInteger value) && value >= S256MinValue &&
+            value <= S256MaxValue)
         {
             return new ParsedWideInt(Location: literal.Location, TypeName: "S256", Value: value);
         }
 
         ReportError(code: SemanticDiagnosticCode.InvalidIntegerLiteral,
-            message: $"Invalid or out-of-range S256 literal: '{rawValue}' (valid range -2^255 to 2^255-1).",
+            message:
+            $"Invalid or out-of-range S256 literal: '{rawValue}' (valid range -2^255 to 2^255-1).",
             location: literal.Location);
         return null;
     }
@@ -964,9 +1059,17 @@ public sealed partial class SemanticVerifier
     private ParsedFloat? ParseF16Literal(LiteralExpression literal, string rawValue)
     {
         if (rawValue == "inf")
-            return new ParsedFloat(literal.Location, "F16", double.PositiveInfinity);
+        {
+            return new ParsedFloat(Location: literal.Location,
+                TypeName: "F16",
+                Value: double.PositiveInfinity);
+        }
+
         if (rawValue == "nan")
-            return new ParsedFloat(literal.Location, "F16", double.NaN);
+        {
+            return new ParsedFloat(Location: literal.Location, TypeName: "F16", Value: double.NaN);
+        }
+
         string numericPart = ExtractNumericPart(rawValue: rawValue, suffix: "f16");
         string cleanedValue = CleanNumericLiteral(value: numericPart);
 
@@ -1002,9 +1105,17 @@ public sealed partial class SemanticVerifier
     private ParsedFloat? ParseF32Literal(LiteralExpression literal, string rawValue)
     {
         if (rawValue == "inf")
-            return new ParsedFloat(literal.Location, "F32", double.PositiveInfinity);
+        {
+            return new ParsedFloat(Location: literal.Location,
+                TypeName: "F32",
+                Value: double.PositiveInfinity);
+        }
+
         if (rawValue == "nan")
-            return new ParsedFloat(literal.Location, "F32", double.NaN);
+        {
+            return new ParsedFloat(Location: literal.Location, TypeName: "F32", Value: double.NaN);
+        }
+
         string numericPart = ExtractNumericPart(rawValue: rawValue, suffix: "f32");
         string cleanedValue = CleanNumericLiteral(value: numericPart);
 
@@ -1038,9 +1149,17 @@ public sealed partial class SemanticVerifier
     private ParsedFloat? ParseF64Literal(LiteralExpression literal, string rawValue)
     {
         if (rawValue == "inf")
-            return new ParsedFloat(literal.Location, "F64", double.PositiveInfinity);
+        {
+            return new ParsedFloat(Location: literal.Location,
+                TypeName: "F64",
+                Value: double.PositiveInfinity);
+        }
+
         if (rawValue == "nan")
-            return new ParsedFloat(literal.Location, "F64", double.NaN);
+        {
+            return new ParsedFloat(Location: literal.Location, TypeName: "F64", Value: double.NaN);
+        }
+
         string numericPart = ExtractNumericPart(rawValue: rawValue, suffix: "f64");
         string cleanedValue = CleanNumericLiteral(value: numericPart);
 
@@ -1285,24 +1404,36 @@ public sealed partial class SemanticVerifier
     {
         value = System.Numerics.BigInteger.Zero;
         if (string.IsNullOrEmpty(value: cleaned))
+        {
             return false;
+        }
 
         int i = 0;
         bool negative = cleaned[index: 0] == '-';
         if (cleaned[index: 0] is '+' or '-')
+        {
             i = 1;
+        }
 
         (int numericBase, int start) = DetectWideBase(cleaned: cleaned, signEnd: i);
         i = start;
 
         if (i >= cleaned.Length)
+        {
             return false; // sign / base prefix with no digits
+        }
 
-        if (!TryAccumulateWideDigits(cleaned: cleaned, startIndex: i, numericBase: numericBase,
+        if (!TryAccumulateWideDigits(cleaned: cleaned,
+                startIndex: i,
+                numericBase: numericBase,
                 acc: out System.Numerics.BigInteger acc))
+        {
             return false;
+        }
 
-        value = negative ? -acc : acc;
+        value = negative
+            ? -acc
+            : acc;
         return true;
     }
 
@@ -1320,6 +1451,7 @@ public sealed partial class SemanticVerifier
                 case 'o': return (8, signEnd + 2);
             }
         }
+
         return (10, signEnd);
     }
 
@@ -1340,9 +1472,13 @@ public sealed partial class SemanticVerifier
                 _ => -1
             };
             if (digit < 0 || digit >= numericBase)
+            {
                 return false;
+            }
+
             acc = acc * numericBase + digit;
         }
+
         return true;
     }
 

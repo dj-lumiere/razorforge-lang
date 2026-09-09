@@ -78,16 +78,21 @@ internal partial class Program
             return 0;
         }
 
-        string command = args[0].ToLowerInvariant().TrimStart(trimChar: '-');
+        string command = args[0]
+                        .ToLowerInvariant()
+                        .TrimStart(trimChar: '-');
 
         int earlyResult = HandleEarlyCommands(command: command);
-        if (earlyResult >= 0) return earlyResult;
+        if (earlyResult >= 0)
+        {
+            return earlyResult;
+        }
 
         // Check if first arg is a command or a file
         bool isCommand = command is "parse" or "tokenize" or "codegen" or BuildCommand
             or "buildandrun" or "check" or "validate-stdlib" or "emit-pbrf" or "help";
 
-        if (!isCommand && !TryRewriteBareSuflaeArgs(ref args, ref command))
+        if (!isCommand && !TryRewriteBareSuflaeArgs(args: ref args, command: ref command))
         {
             // Default behavior for a bare .rf file: parse and show AST summary
             return ParseFile(sourceFile: args[0]);
@@ -148,10 +153,13 @@ internal partial class Program
             return false;
         }
 
-        var forwarded = new string[args.Length + 1];
+        string[] forwarded = new string[args.Length + 1];
         forwarded[0] = BuildAndRunCommand;
-        Array.Copy(sourceArray: args, sourceIndex: 0, destinationArray: forwarded,
-            destinationIndex: 1, length: args.Length);
+        Array.Copy(sourceArray: args,
+            sourceIndex: 0,
+            destinationArray: forwarded,
+            destinationIndex: 1,
+            length: args.Length);
         args = forwarded;
         command = BuildAndRunCommand;
         return true;
@@ -170,6 +178,7 @@ internal partial class Program
                     Console.WriteLine(value: "Error: parse command requires a file path");
                     return 1;
                 }
+
                 return ParseFile(sourceFile: args[1]);
 
             case "tokenize":
@@ -178,6 +187,7 @@ internal partial class Program
                     Console.WriteLine(value: "Error: tokenize command requires a file path");
                     return 1;
                 }
+
                 return TokenizeFile(sourceFile: args[1]);
 
             case "codegen":
@@ -186,8 +196,11 @@ internal partial class Program
                     Console.WriteLine(value: "Error: codegen command requires a file path");
                     return 1;
                 }
+
                 return GenerateCode(sourceFile: args[1],
-                    outputFile: args.Length > 2 ? args[2] : null,
+                    outputFile: args.Length > 2
+                        ? args[2]
+                        : null,
                     buildMode: RfBuildMode.Debug);
 
             case BuildCommand:
@@ -223,16 +236,25 @@ internal partial class Program
         {
             return 1;
         }
-        return CheckMultiFile(entryFile: resolved.EntryFile, projectRoot: resolved.ProjectRoot,
+
+        return CheckMultiFile(entryFile: resolved.EntryFile,
+            projectRoot: resolved.ProjectRoot,
             libraryRoots: resolved.LibraryRoots);
     }
 
     /// <summary>Runs the <c>validate-stdlib</c> command: validates stdlib routine bodies for the given language.</summary>
     private static int RunValidateStdlibCommand(string[] args)
     {
-        string defaultLang = InvokedAsSuflae ? "sf" : "rf";
-        string lang = args.Length >= 2 ? args[1].ToLowerInvariant() : defaultLang;
-        Language stdlibLang = lang is "sf" or "suflae" ? Language.Suflae : Language.RazorForge;
+        string defaultLang = InvokedAsSuflae
+            ? "sf"
+            : "rf";
+        string lang = args.Length >= 2
+            ? args[1]
+               .ToLowerInvariant()
+            : defaultLang;
+        Language stdlibLang = lang is "sf" or "suflae"
+            ? Language.Suflae
+            : Language.RazorForge;
         return ValidateStdlib(language: stdlibLang);
     }
 
@@ -293,7 +315,8 @@ internal partial class Program
 
         // Warm-daemon path: delegate the COMPILE to a running daemon (skips stdlib reprocessing),
         // then run the produced exe locally so interactive stdin/stdout stays with this process.
-        if (!dumpIr && CompileDaemon.TryClientBuildAndRun(resolved: resolved, exitCode: out int drc))
+        if (!dumpIr &&
+            CompileDaemon.TryClientBuildAndRun(resolved: resolved, exitCode: out int drc))
         {
             return drc;
         }
@@ -312,13 +335,16 @@ internal partial class Program
     /// </summary>
     private static int EmitPbrf(string[] args)
     {
-        string? outDir = args.Length > 1 && !args[1].StartsWith(value: "--")
+        string? outDir = args.Length > 1 && !args[1]
+           .StartsWith(value: "--")
             ? args[1]
             : Path.Combine(path1: StdlibLoader.GetDefaultStdlibPath(), path2: ".pbrf");
 
         var langs = new List<Language> { Language.RazorForge };
         if (args.Contains(value: "--all") || args.Contains(value: "--sf"))
+        {
             langs.Add(item: Language.Suflae);
+        }
 
         foreach (Language lang in langs)
         {
@@ -326,10 +352,12 @@ internal partial class Program
             {
                 string langDir = Path.Combine(path1: outDir, path2: lang.ToString());
                 string stampPath = Path.Combine(path1: langDir, path2: "stamp.txt");
-                string? hash = Compiler.Serialization.StdlibSnapshotCache.ComputeStdlibHash(language: lang);
+                string? hash =
+                    Compiler.Serialization.StdlibSnapshotCache.ComputeStdlibHash(language: lang);
 
-                if (hash != null && File.Exists(path: stampPath) &&
-                    File.ReadAllText(path: stampPath).Trim() == hash &&
+                if (hash != null && File.Exists(path: stampPath) && File
+                       .ReadAllText(path: stampPath)
+                       .Trim() == hash &&
                     File.Exists(path: Path.Combine(path1: langDir, path2: "index.pbrf")))
                 {
                     Console.WriteLine(value: $"[emit-pbrf] {lang}: up to date");
@@ -339,16 +367,27 @@ internal partial class Program
                 var sw = Stopwatch.StartNew();
                 SemanticVerifier.CompiledStdlibState state =
                     SemanticVerifier.CaptureCompiledStdlib(language: lang);
-                if (Directory.Exists(path: langDir)) Directory.Delete(path: langDir, recursive: true);
+                if (Directory.Exists(path: langDir))
+                {
+                    Directory.Delete(path: langDir, recursive: true);
+                }
+
                 IReadOnlyList<string> labels =
-                    Compiler.Serialization.ModularStdlibCache.Serialize(state: state, dir: langDir);
-                if (hash != null) File.WriteAllText(path: stampPath, contents: hash);
+                    Compiler.Serialization.ModularStdlibCache.Serialize(state: state,
+                        dir: langDir);
+                if (hash != null)
+                {
+                    File.WriteAllText(path: stampPath, contents: hash);
+                }
+
                 Console.WriteLine(
-                    value: $"[emit-pbrf] {lang}: {labels.Count} modules ({sw.ElapsedMilliseconds} ms) -> {langDir}");
+                    value:
+                    $"[emit-pbrf] {lang}: {labels.Count} modules ({sw.ElapsedMilliseconds} ms) -> {langDir}");
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine(value: $"[emit-pbrf] {lang} FAILED (non-fatal): {ex.Message}");
+                Console.Error.WriteLine(
+                    value: $"[emit-pbrf] {lang} FAILED (non-fatal): {ex.Message}");
             }
         }
 
@@ -362,7 +401,8 @@ internal partial class Program
     private sealed record WarmProviders(
         Func<Language, SemanticVerifier.CompiledStdlibState?>? WarmProvider,
         Action<string>? IrCallback,
-        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>? StdlibIndexProvider);
+        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>?
+            StdlibIndexProvider);
 
     /// <summary>
     /// Bundles the inputs that drive Phase 2 (semantic analysis) of the multi-file pipeline,
@@ -378,16 +418,27 @@ internal partial class Program
 
     /// <summary>Groups the parameters for <see cref="RunPhase1BuildDriver"/>.</summary>
     private sealed record Phase1Context(
-        string EntryFile, string ProjectRoot, string StdlibRoot, Language Language,
+        string EntryFile,
+        string ProjectRoot,
+        string StdlibRoot,
+        Language Language,
         IReadOnlyList<string>? LibraryRoots,
-        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>? StdlibIndexProvider,
-        bool ShowBuildStages, Stopwatch? SwBuild);
+        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>?
+            StdlibIndexProvider,
+        bool ShowBuildStages,
+        Stopwatch? SwBuild);
 
     /// <summary>Groups the parameters for <see cref="RunPhase3Codegen"/>.</summary>
     private sealed record Phase3Context(
-        string EntryFile, string? OutputFile, TargetConfig Target, RfBuildMode BuildMode,
-        bool SaTiming, bool DumpAst, bool ShowBuildStages,
-        Action<string>? IrCallback, Stopwatch? SwPhase);
+        string EntryFile,
+        string? OutputFile,
+        TargetConfig Target,
+        RfBuildMode BuildMode,
+        bool SaTiming,
+        bool DumpAst,
+        bool ShowBuildStages,
+        Action<string>? IrCallback,
+        Stopwatch? SwPhase);
 
     /// <summary>
     /// The fully-resolved build configuration for a <c>build</c>/<c>buildandrun</c>/<c>check</c> invocation:
@@ -400,33 +451,47 @@ internal partial class Program
     {
         /// <summary>The entry source file, or null when resolution failed (error already printed).</summary>
         public string? EntryFile { get; init; }
+
         /// <summary>The project root (manifest directory), used as the import search root.</summary>
         public string? ProjectRoot { get; init; }
+
         /// <summary>The optional explicit output file (codegen verb); null otherwise.</summary>
         public string? OutputFile { get; init; }
+
         /// <summary>The build optimization mode.</summary>
         public RfBuildMode BuildMode { get; init; } = RfBuildMode.Debug;
+
         /// <summary>Whether to dump the post-desugar AST alongside the build.</summary>
         public bool DumpAst { get; init; }
+
         /// <summary>Whether to print per-phase SA timings.</summary>
         public bool SaTiming { get; init; }
+
         /// <summary>Whether SA must find a <c>routine start()</c> (an executable build).</summary>
         public bool RequireStartRoutine { get; init; }
+
         /// <summary>Whether to print build-stage banners.</summary>
         public bool ShowBuildStages { get; init; }
+
         /// <summary>External RF library dependency directories (import search roots).</summary>
         public IReadOnlyList<string> LibraryRoots { get; init; } = [];
+
         /// <summary>Simple name-only C libraries to link (the <c>-l</c> names).</summary>
         public IReadOnlyList<string> CLibraries { get; init; } = [];
+
         /// <summary>Extra <c>-L</c> search directories for the C libraries.</summary>
         public IReadOnlyList<string> LibraryPaths { get; init; } = [];
+
         /// <summary>Richly-declared C libraries (<c>[libraries.NAME]</c>): linkage kind + calling convention.</summary>
         public IReadOnlyDictionary<string, CLibrary> LibraryConfigs { get; init; } =
             new Dictionary<string, CLibrary>();
+
         /// <summary>Route builds through a running warm daemon (manifest <c>[target] use-daemon</c>).</summary>
         public bool UseDaemon { get; init; }
+
         /// <summary>Use the ORC-JIT dev-loop path for buildandrun (manifest <c>mode = "debug-jit"</c>).</summary>
         public bool Jit { get; init; }
+
         /// <summary>Reserved: incremental compilation (manifest <c>[target] incremental</c>); not yet wired.</summary>
         public bool Incremental { get; init; }
     }
@@ -443,8 +508,10 @@ internal partial class Program
     private static ResolvedEntry ResolveEntryFile(string[] args, bool needsOutputArg)
     {
         // args[0] is the command name (build/buildandrun/check)
-        if (!ParsePositionalArgs(args: args, needsOutputArg: needsOutputArg,
-                explicitEntry: out string? explicitEntry, outputFile: out string? outputFile))
+        if (!ParsePositionalArgs(args: args,
+                needsOutputArg: needsOutputArg,
+                explicitEntry: out string? explicitEntry,
+                outputFile: out string? outputFile))
         {
             return new ResolvedEntry();
         }
@@ -454,8 +521,8 @@ internal partial class Program
         // remains the single source of build configuration (mode, library deps, debug
         // fields) even for single-file builds; only [target] executable is overridden.
         // .toml files are treated as manifests, not source files.
-        if (explicitEntry != null &&
-            !explicitEntry.EndsWith(value: ".toml", comparisonType: StringComparison.OrdinalIgnoreCase))
+        if (explicitEntry != null && !explicitEntry.EndsWith(value: ".toml",
+                comparisonType: StringComparison.OrdinalIgnoreCase))
         {
             return ResolveExplicitEntry(explicitEntry: explicitEntry, outputFile: outputFile);
         }
@@ -475,7 +542,7 @@ internal partial class Program
         while (i < args.Length)
         {
             if (!args[i]
-                   .StartsWith('-'))
+                   .StartsWith(value: '-'))
             {
                 if (explicitEntry == null)
                 {
@@ -520,7 +587,9 @@ internal partial class Program
             DiagnosticFlags.Reset();
             return new ResolvedEntry
             {
-                EntryFile = explicitEntry, ProjectRoot = entryDir, OutputFile = outputFile,
+                EntryFile = explicitEntry,
+                ProjectRoot = entryDir,
+                OutputFile = outputFile,
                 RequireStartRoutine = true
             };
         }
@@ -549,13 +618,20 @@ internal partial class Program
             ApplyDiagnosticFlags(manifest: manifest);
             return new ResolvedEntry
             {
-                EntryFile = explicitEntry, ProjectRoot = manifest.ManifestDirectory,
-                OutputFile = outputFile, BuildMode = buildMode, DumpAst = manifest.Debug.DumpAst,
-                SaTiming = manifest.Debug.Timing, RequireStartRoutine = true,
-                ShowBuildStages = manifest.Debug.ShowBuildStages, LibraryRoots = target.Libraries,
-                CLibraries = target.CLibraries, LibraryPaths = target.LibraryPaths,
+                EntryFile = explicitEntry,
+                ProjectRoot = manifest.ManifestDirectory,
+                OutputFile = outputFile,
+                BuildMode = buildMode,
+                DumpAst = manifest.Debug.DumpAst,
+                SaTiming = manifest.Debug.Timing,
+                RequireStartRoutine = true,
+                ShowBuildStages = manifest.Debug.ShowBuildStages,
+                LibraryRoots = target.Libraries,
+                CLibraries = target.CLibraries,
+                LibraryPaths = target.LibraryPaths,
                 LibraryConfigs = target.LibraryConfigs,
-                UseDaemon = target.UseDaemon, Jit = ModeUsesJit(mode: target.Mode),
+                UseDaemon = target.UseDaemon,
+                Jit = ModeUsesJit(mode: target.Mode),
                 Incremental = target.Incremental
             };
         }
@@ -576,12 +652,15 @@ internal partial class Program
         string? manifestPath;
         if (explicitEntry != null)
         {
-            manifestPath = File.Exists(path: explicitEntry) ? Path.GetFullPath(path: explicitEntry) : null;
+            manifestPath = File.Exists(path: explicitEntry)
+                ? Path.GetFullPath(path: explicitEntry)
+                : null;
         }
         else
         {
             manifestPath = ManifestLoader.FindManifest(startDir: Environment.CurrentDirectory);
         }
+
         if (manifestPath == null)
         {
             if (explicitEntry != null)
@@ -622,12 +701,20 @@ internal partial class Program
             ApplyDiagnosticFlags(manifest: manifest);
             return new ResolvedEntry
             {
-                EntryFile = target.Executable, ProjectRoot = manifest.ManifestDirectory,
-                OutputFile = outputFile, BuildMode = buildMode, DumpAst = manifest.Debug.DumpAst,
-                SaTiming = manifest.Debug.Timing, RequireStartRoutine = true, ShowBuildStages = showBuildStages,
-                LibraryRoots = target.Libraries, CLibraries = target.CLibraries,
-                LibraryPaths = target.LibraryPaths, LibraryConfigs = target.LibraryConfigs,
-                UseDaemon = target.UseDaemon, Jit = ModeUsesJit(mode: target.Mode),
+                EntryFile = target.Executable,
+                ProjectRoot = manifest.ManifestDirectory,
+                OutputFile = outputFile,
+                BuildMode = buildMode,
+                DumpAst = manifest.Debug.DumpAst,
+                SaTiming = manifest.Debug.Timing,
+                RequireStartRoutine = true,
+                ShowBuildStages = showBuildStages,
+                LibraryRoots = target.Libraries,
+                CLibraries = target.CLibraries,
+                LibraryPaths = target.LibraryPaths,
+                LibraryConfigs = target.LibraryConfigs,
+                UseDaemon = target.UseDaemon,
+                Jit = ModeUsesJit(mode: target.Mode),
                 Incremental = target.Incremental
             };
         }
@@ -654,14 +741,18 @@ internal partial class Program
             "release-time" => RfBuildMode.ReleaseTime,
             "release-space" => RfBuildMode.ReleaseSpace,
             _ => throw new InvalidOperationException(
-                $"Unknown build mode '{mode}' in [target]. " +
-                "Valid modes are: debug-jit, debug, release, release-time, release-space.")
+                message: $"Unknown build mode '{mode}' in [target]. " +
+                         "Valid modes are: debug-jit, debug, release, release-time, release-space.")
         };
     }
 
     /// <summary>Whether a <c>[target] mode</c> string selects the in-process ORC-JIT dev loop.</summary>
-    private static bool ModeUsesJit(string mode) =>
-        string.Equals(a: mode?.Trim(), b: "debug-jit", comparisonType: StringComparison.OrdinalIgnoreCase);
+    private static bool ModeUsesJit(string mode)
+    {
+        return string.Equals(a: mode?.Trim(),
+            b: "debug-jit",
+            comparisonType: StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Populates the process-wide <see cref="DiagnosticFlags"/> from a manifest's <c>[debug]</c> section,
@@ -686,7 +777,9 @@ internal partial class Program
     {
         // The command name the user typed (the shipped `suflae`/`sf` aliases are copies of the
         // apphost), so examples echo how the tool was actually invoked.
-        string tool = InvokedAsSuflae ? "suflae" : "razorforge";
+        string tool = InvokedAsSuflae
+            ? "suflae"
+            : "razorforge";
         string header = InvokedAsSuflae
             ? $"{SuflaeLanguageName} v{SuflaeVersion}"
             : $"{RazorForgeLanguageName} Builder {GetVersionString()}";
@@ -694,10 +787,9 @@ internal partial class Program
         Console.WriteLine(value: header);
         Console.WriteLine();
         Console.WriteLine(value: "Usage:");
-        Console.WriteLine(
-            value: InvokedAsSuflae
-                ? $"  {tool} <source-file>                        - Build and run the script"
-                : $"  {tool} <source-file>                        - Parse file and show AST summary (a bare .sf runs)");
+        Console.WriteLine(value: InvokedAsSuflae
+            ? $"  {tool} <source-file>                        - Build and run the script"
+            : $"  {tool} <source-file>                        - Parse file and show AST summary (a bare .sf runs)");
         Console.WriteLine(
             value:
             $"  {tool} parse <source-file>                  - Parse file and show AST summary");
@@ -708,7 +800,8 @@ internal partial class Program
             value:
             $"  {tool} codegen <source-file> [out.ll]       - Generate LLVM IR (single file)");
         Console.WriteLine(
-            value: $"  {tool} build [entry-file]                   - Build a native executable (host OS, no run)");
+            value:
+            $"  {tool} build [entry-file]                   - Build a native executable (host OS, no run)");
         Console.WriteLine(
             value: $"  {tool} buildandrun [entry-file]             - Build and execute");
         Console.WriteLine(
@@ -727,7 +820,8 @@ internal partial class Program
         if (InvokedAsSuflae)
         {
             Console.WriteLine(
-                value: "  Invoked as suflae: a source with no .rf/.sf extension defaults to Suflae.");
+                value:
+                "  Invoked as suflae: a source with no .rf/.sf extension defaults to Suflae.");
         }
 
         Console.WriteLine(
@@ -761,20 +855,19 @@ internal partial class Program
     private static string GetVersionString()
     {
         var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-        string version = BuildInfo.AssemblyMetadata(key: "RazorForgeVersion")
-                     ?? assembly
-                        .GetCustomAttributes(
-                             attributeType: typeof(System.Reflection.AssemblyInformationalVersionAttribute),
-                             inherit: false)
-                        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
-                        .FirstOrDefault()
-                       ?.InformationalVersion
-                     ?? assembly.GetName()
-                                .Version
-                               ?.ToString()
-                     ?? "unknown";
+        string version = BuildInfo.AssemblyMetadata(key: "RazorForgeVersion") ?? assembly
+           .GetCustomAttributes(
+                attributeType: typeof(System.Reflection.AssemblyInformationalVersionAttribute),
+                inherit: false)
+           .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+           .FirstOrDefault()
+          ?.InformationalVersion ?? assembly.GetName()
+                                            .Version
+                                           ?.ToString() ?? "unknown";
         int plusIndex = version.IndexOf(value: '+');
-        return plusIndex > 0 ? $"v{version[..plusIndex]}" : $"v{version}";
+        return plusIndex > 0
+            ? $"v{version[..plusIndex]}"
+            : $"v{version}";
     }
 
     /// <summary>Returns true if the given file path has a <c>.sf</c> extension (Suflae source file).</summary>
@@ -817,7 +910,8 @@ internal partial class Program
         bool isSuflae = IsSuflaeSource(path: sourceFile);
 
         Console.WriteLine(
-            value: $"Tokenizing {sourceFile} as {(isSuflae ? SuflaeLanguageName : RazorForgeLanguageName)}...");
+            value:
+            $"Tokenizing {sourceFile} as {(isSuflae ? SuflaeLanguageName : RazorForgeLanguageName)}...");
         Console.WriteLine();
 
         try
@@ -865,7 +959,8 @@ internal partial class Program
         bool isSuflae = IsSuflaeSource(path: sourceFile);
 
         Console.WriteLine(
-            value: $"Parsing {sourceFile} as {(isSuflae ? SuflaeLanguageName : RazorForgeLanguageName)}...");
+            value:
+            $"Parsing {sourceFile} as {(isSuflae ? SuflaeLanguageName : RazorForgeLanguageName)}...");
         Console.WriteLine();
 
         try
@@ -959,9 +1054,11 @@ internal partial class Program
                 Console.WriteLine(
                     value: $"=== RUNTIME-CONTRACT ERRORS ({contractErrors.Count}) ===");
                 Console.WriteLine(
-                    value: "  A name the compiler hard-codes against the stdlib no longer resolves.");
+                    value:
+                    "  A name the compiler hard-codes against the stdlib no longer resolves.");
                 Console.WriteLine(
-                    value: "  Update src/Resolution/RuntimeContract.cs to match the stdlib rename.");
+                    value:
+                    "  Update src/Resolution/RuntimeContract.cs to match the stdlib rename.");
                 foreach (string contractError in contractErrors)
                 {
                     Console.WriteLine(value: $"    - {contractError}");
@@ -1035,7 +1132,8 @@ internal partial class Program
         bool isSuflae = IsSuflaeSource(path: sourceFile);
 
         Console.WriteLine(
-            value: $"Building {sourceFile} as {(isSuflae ? SuflaeLanguageName : RazorForgeLanguageName)}...");
+            value:
+            $"Building {sourceFile} as {(isSuflae ? SuflaeLanguageName : RazorForgeLanguageName)}...");
         Console.WriteLine();
 
         try
@@ -1063,7 +1161,8 @@ internal partial class Program
 
             var target = TargetConfig.ForCurrentHost();
             var analyzer = new SemanticVerifier(language: language,
-                target: target, buildMode: buildMode) { SaTiming = saTiming };
+                target: target,
+                buildMode: buildMode) { SaTiming = saTiming };
             AnalysisResult result = analyzer.Analyze(program: ast);
 
             Console.WriteLine(
@@ -1093,14 +1192,14 @@ internal partial class Program
             Console.WriteLine(value: "=== CODE GENERATION ===");
 
             // Pass stdlib programs to codegen so intrinsic routines get built
-            List<(SyntaxTree.Program Program, string FilePath, string Module)>
-                stdlibPrograms = result.Registry.StdlibPrograms;
+            List<(SyntaxTree.Program Program, string FilePath, string Module)> stdlibPrograms =
+                result.Registry.StdlibPrograms;
 
             // 9-2: instrument may-suspend routine bodies with cancellation push/pop markers
             // (no-op unless something reaches a coroutine suspend point). Mutates `ast` in place,
             // which is the same AST object codegen consumes below.
-            Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
-                programs: [(ast, ast.Location.FileName, "")],
+            Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(programs:
+                [(ast, ast.Location.FileName, "")],
                 instantiatedBodies: result.InstantiatedGenericBodies,
                 maySuspendKeys: result.MaySuspendRoutineKeys,
                 registry: result.Registry);
@@ -1120,8 +1219,10 @@ internal partial class Program
             {
                 Timing = saTiming,
                 // Single-file codegen: the entry file's own module is the program entry.
-                EntryModule = ast.Declarations.OfType<ModuleDeclaration>()
-                                 .FirstOrDefault()?.Path
+                EntryModule = ast.Declarations
+                                 .OfType<ModuleDeclaration>()
+                                 .FirstOrDefault()
+                                ?.Path
             };
             string llvmIr = generator.Generate();
             Console.WriteLine(value: $"Routines emitted: {generator.EmittedRoutineCount}");
@@ -1164,9 +1265,9 @@ internal partial class Program
         string normalizedStdlib = Path.GetFullPath(path: stdlibRoot);
         return buildResult.Units
                           .Where(predicate: u => !Path.GetFullPath(path: u.FilePath)
-                              .StartsWith(value: normalizedStdlib,
-                                   comparisonType: StringComparison
-                                      .OrdinalIgnoreCase))
+                                                      .StartsWith(value: normalizedStdlib,
+                                                           comparisonType: StringComparison
+                                                              .OrdinalIgnoreCase))
                           .ToList();
     }
 
@@ -1195,12 +1296,14 @@ internal partial class Program
         }
 
         // Fallback: if init order doesn't cover all units (e.g., entry file with no module decl)
-        orderedFiles.AddRange(
-            userUnits
-                .Where(unit => !orderedFiles.Any(f => string.Equals(
-                    a: f.FilePath, b: unit.FilePath,
-                    comparisonType: StringComparison.OrdinalIgnoreCase)))
-                .Select(unit => (unit.Ast, unit.FilePath)));
+        orderedFiles.AddRange(collection: userUnits
+                                         .Where(predicate: unit =>
+                                              !orderedFiles.Any(predicate: f =>
+                                                  string.Equals(a: f.FilePath,
+                                                      b: unit.FilePath,
+                                                      comparisonType: StringComparison
+                                                         .OrdinalIgnoreCase)))
+                                         .Select(selector: unit => (unit.Ast, unit.FilePath)));
 
         return orderedFiles;
     }
@@ -1211,8 +1314,8 @@ internal partial class Program
     /// Returns 0 on success or 1 if any stage fails.
     /// </summary>
     private static int BuildMultiFile(string entryFile, string? outputFile,
-        out IReadOnlyList<string> discoveredLinkLibraries,
-        ResolvedEntry config, WarmProviders? warm = null)
+        out IReadOnlyList<string> discoveredLinkLibraries, ResolvedEntry config,
+        WarmProviders? warm = null)
     {
         string? projectRoot = config.ProjectRoot;
         RfBuildMode buildMode = config.BuildMode;
@@ -1223,7 +1326,8 @@ internal partial class Program
         IReadOnlyList<string>? libraryRoots = config.LibraryRoots;
         Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = warm?.WarmProvider;
         Action<string>? irCallback = warm?.IrCallback;
-        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>? stdlibIndexProvider = warm?.StdlibIndexProvider;
+        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>?
+            stdlibIndexProvider = warm?.StdlibIndexProvider;
         // C libraries declared in source via `@link("...")` on `C::` externs, gathered from the files
         // that actually compile (post `@target` gate) and surfaced to the link step. Assigned once the
         // AST is available; stays empty on the early-error paths below.
@@ -1249,17 +1353,30 @@ internal partial class Program
 
         try
         {
-            var _swBuild = DiagnosticFlags.PhaseTiming ? Stopwatch.StartNew() : null;
+            Stopwatch? _swBuild = DiagnosticFlags.PhaseTiming
+                ? Stopwatch.StartNew()
+                : null;
             projectRoot ??= Path.GetDirectoryName(path: Path.GetFullPath(path: entryFile)) ?? ".";
             string stdlibRoot = StdlibLoader.GetDefaultStdlibPath();
 
             // Phase 1: Parse all files and resolve dependencies
             int phase1Result = RunPhase1BuildDriver(
-                p1: new Phase1Context(entryFile, projectRoot, stdlibRoot, language, libraryRoots,
-                    stdlibIndexProvider, showBuildStages, _swBuild),
-                orderedFiles: out var orderedFiles, unitsByFile: out var unitsByFile,
-                driver: out var driver, discoveredLinks: out discoveredLinkLibraries);
-            if (phase1Result != 0) return phase1Result;
+                p1: new Phase1Context(EntryFile: entryFile,
+                    ProjectRoot: projectRoot,
+                    StdlibRoot: stdlibRoot,
+                    Language: language,
+                    LibraryRoots: libraryRoots,
+                    StdlibIndexProvider: stdlibIndexProvider,
+                    ShowBuildStages: showBuildStages,
+                    SwBuild: _swBuild),
+                orderedFiles: out List<(SyntaxTree.Program Program, string FilePath)> orderedFiles,
+                unitsByFile: out Dictionary<string, FileBuildUnit> unitsByFile,
+                driver: out BuildDriver driver,
+                discoveredLinks: out discoveredLinkLibraries);
+            if (phase1Result != 0)
+            {
+                return phase1Result;
+            }
 
             if (!InjectGlobalInitializers(orderedFiles: orderedFiles))
             {
@@ -1269,19 +1386,36 @@ internal partial class Program
             }
 
             // Phase 2: Semantic analysis (multi-file) — extracted to keep this method's complexity ≤15.
-            var phase2Ctx = new Phase2Context(Language: language, BuildMode: buildMode,
-                SaTiming: saTiming, ShowBuildStages: showBuildStages,
-                RequireStartRoutine: requireStartRoutine, WarmProvider: warmProvider);
-            int phase2Result = RunPhase2SemanticAnalysis(ctx: phase2Ctx, driver: driver,
-                orderedFiles: orderedFiles, swBuild: _swBuild,
-                result: out AnalysisResult result, swPhase: out var _swPhase);
-            if (phase2Result != 0) return phase2Result;
+            var phase2Ctx = new Phase2Context(Language: language,
+                BuildMode: buildMode,
+                SaTiming: saTiming,
+                ShowBuildStages: showBuildStages,
+                RequireStartRoutine: requireStartRoutine,
+                WarmProvider: warmProvider);
+            int phase2Result = RunPhase2SemanticAnalysis(ctx: phase2Ctx,
+                driver: driver,
+                orderedFiles: orderedFiles,
+                swBuild: _swBuild,
+                result: out AnalysisResult result,
+                swPhase: out Stopwatch? _swPhase);
+            if (phase2Result != 0)
+            {
+                return phase2Result;
+            }
 
             // Phase 3: Code generation (multi-program)
-            return RunPhase3Codegen(
-                p3: new Phase3Context(entryFile, outputFile, TargetConfig.ForCurrentHost(), buildMode,
-                    saTiming, dumpAst, showBuildStages, irCallback, _swPhase),
-                orderedFiles: orderedFiles, unitsByFile: unitsByFile, result: result);
+            return RunPhase3Codegen(p3: new Phase3Context(EntryFile: entryFile,
+                    OutputFile: outputFile,
+                    Target: TargetConfig.ForCurrentHost(),
+                    BuildMode: buildMode,
+                    SaTiming: saTiming,
+                    DumpAst: dumpAst,
+                    ShowBuildStages: showBuildStages,
+                    IrCallback: irCallback,
+                    SwPhase: _swPhase),
+                orderedFiles: orderedFiles,
+                unitsByFile: unitsByFile,
+                result: result);
         }
         catch (GrammarException ex)
         {
@@ -1301,12 +1435,9 @@ internal partial class Program
     /// runs <see cref="SemanticVerifier.AnalyzeMultiple"/>, reports errors and warnings, and
     /// checks that a <c>routine start()</c> is present when required. Returns 0 on success.
     /// </summary>
-    private static int RunPhase2SemanticAnalysis(
-        Phase2Context ctx, BuildDriver driver,
-        List<(SyntaxTree.Program Program, string FilePath)> orderedFiles,
-        Stopwatch? swBuild,
-        out AnalysisResult result,
-        out Stopwatch? swPhase)
+    private static int RunPhase2SemanticAnalysis(Phase2Context ctx, BuildDriver driver,
+        List<(SyntaxTree.Program Program, string FilePath)> orderedFiles, Stopwatch? swBuild,
+        out AnalysisResult result, out Stopwatch? swPhase)
     {
         if (ctx.ShowBuildStages)
         {
@@ -1320,32 +1451,50 @@ internal partial class Program
         // program is analyzed. Cold path (WarmProvider == null) constructs a fresh verifier.
         // A cold-path fallback through the snapshot cache is deferred — it exposed a warm-restore
         // over-prune on complex programs. Fix that liveness gap first, then re-enable.
-        SemanticVerifier.CompiledStdlibState? warmState = ctx.WarmProvider?.Invoke(ctx.Language);
+        SemanticVerifier.CompiledStdlibState? warmState =
+            ctx.WarmProvider?.Invoke(arg: ctx.Language);
         // The timing flag drives both granular SA sub-phase lines and the coarse phase lines below,
         // via the single DiagnosticFlags.PhaseTiming source.
-        var analyzer = warmState != null
-            ? new SemanticVerifier(language: ctx.Language, warm: warmState,
-                target: target, buildMode: ctx.BuildMode)
-              { SaTiming = ctx.SaTiming || DiagnosticFlags.PhaseTiming }
+        SemanticVerifier analyzer = warmState != null
+            ? new SemanticVerifier(language: ctx.Language,
+                warm: warmState,
+                target: target,
+                buildMode: ctx.BuildMode)
+            {
+                SaTiming = ctx.SaTiming || DiagnosticFlags.PhaseTiming
+            }
             : new SemanticVerifier(language: ctx.Language,
-                target: target, buildMode: ctx.BuildMode)
-              { SaTiming = ctx.SaTiming || DiagnosticFlags.PhaseTiming };
+                target: target,
+                buildMode: ctx.BuildMode)
+            {
+                SaTiming = ctx.SaTiming || DiagnosticFlags.PhaseTiming
+            };
         if (swBuild != null)
         {
-            Console.Error.WriteLine(value: $"[timing] warm-restore ctor (rebuild verifier from snapshot): {swBuild.ElapsedMilliseconds} ms");
+            Console.Error.WriteLine(
+                value:
+                $"[timing] warm-restore ctor (rebuild verifier from snapshot): {swBuild.ElapsedMilliseconds} ms");
             swBuild.Restart();
         }
+
         analyzer.Registry.UseModuleResolver(resolver: driver.Resolver);
-        swPhase = DiagnosticFlags.PhaseTiming ? Stopwatch.StartNew() : null;
+        swPhase = DiagnosticFlags.PhaseTiming
+            ? Stopwatch.StartNew()
+            : null;
         result = analyzer.AnalyzeMultiple(files: orderedFiles);
         if (swPhase != null)
         {
-            Console.Error.WriteLine(value: $"[phase] AnalyzeMultiple (SA+instantiation+postproc): {swPhase.ElapsedMilliseconds} ms");
+            Console.Error.WriteLine(
+                value:
+                $"[phase] AnalyzeMultiple (SA+instantiation+postproc): {swPhase.ElapsedMilliseconds} ms");
             swPhase.Restart();
         }
 
         if (ctx.ShowBuildStages)
-            Console.WriteLine(value: $"Routines registered: {result.Registry.GetAllRoutines().Count()}");
+        {
+            Console.WriteLine(
+                value: $"Routines registered: {result.Registry.GetAllRoutines().Count()}");
+        }
 
         if (result.Errors.Count > 0)
         {
@@ -1367,7 +1516,10 @@ internal partial class Program
         if (ctx.RequireStartRoutine)
         {
             int startCheck = CheckStartRoutinePresent(orderedFiles: orderedFiles, result: result);
-            if (startCheck != 0) return startCheck;
+            if (startCheck != 0)
+            {
+                return startCheck;
+            }
         }
 
         return 0;
@@ -1377,43 +1529,51 @@ internal partial class Program
     /// Phase 1 of the multi-file build: drives the <see cref="BuildDriver"/> to parse all source files,
     /// resolve imports, and produce the topologically-ordered user file list. Returns 0 on success.
     /// </summary>
-    private static int RunPhase1BuildDriver(
-        Phase1Context p1,
+    private static int RunPhase1BuildDriver(Phase1Context p1,
         out List<(SyntaxTree.Program Program, string FilePath)> orderedFiles,
-        out Dictionary<string, FileBuildUnit> unitsByFile,
-        out BuildDriver driver,
+        out Dictionary<string, FileBuildUnit> unitsByFile, out BuildDriver driver,
         out IReadOnlyList<string> discoveredLinks)
     {
         string entryFile = p1.EntryFile, projectRoot = p1.ProjectRoot, stdlibRoot = p1.StdlibRoot;
         Language language = p1.Language;
         IReadOnlyList<string>? libraryRoots = p1.LibraryRoots;
-        var stdlibIndexProvider = p1.StdlibIndexProvider;
+        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>?
+            stdlibIndexProvider = p1.StdlibIndexProvider;
         bool showBuildStages = p1.ShowBuildStages;
         Stopwatch? swBuild = p1.SwBuild;
         orderedFiles = [];
-        unitsByFile = new Dictionary<string, FileBuildUnit>(comparer: StringComparer.OrdinalIgnoreCase);
+        unitsByFile =
+            new Dictionary<string, FileBuildUnit>(comparer: StringComparer.OrdinalIgnoreCase);
         discoveredLinks = [];
 
         if (showBuildStages)
+        {
             Console.WriteLine(value: "=== BUILD DRIVER ===");
+        }
 
         // Daemon-cached stdlib import index (built once): lets the driver skip the ~0.8 s per-request
         // stdlib re-parse. Null on a cold build → the driver parses the stdlib as before.
         IReadOnlyDictionary<string, string>? cachedStdlibIndex =
             stdlibIndexProvider?.Invoke(arg1: language, arg2: libraryRoots ?? []);
         driver = new BuildDriver(projectRoot: projectRoot,
-            stdlibRoot: stdlibRoot, language: language,
-            libraryRoots: libraryRoots, cachedStdlibIndex: cachedStdlibIndex);
+            stdlibRoot: stdlibRoot,
+            language: language,
+            libraryRoots: libraryRoots,
+            cachedStdlibIndex: cachedStdlibIndex);
         BuildResult buildResult = driver.CompileFile(entryFile: Path.GetFullPath(path: entryFile));
 
         if (swBuild != null)
         {
-            Console.Error.WriteLine(value: $"[timing] build-driver (parse+module-resolve): {swBuild.ElapsedMilliseconds} ms");
+            Console.Error.WriteLine(
+                value:
+                $"[timing] build-driver (parse+module-resolve): {swBuild.ElapsedMilliseconds} ms");
             swBuild.Restart();
         }
 
         if (showBuildStages)
+        {
             Console.WriteLine(value: $"Parsed {buildResult.Units.Count} file(s)");
+        }
 
         if (buildResult.Errors.Count > 0)
         {
@@ -1435,17 +1595,23 @@ internal partial class Program
         }
 
         if (showBuildStages)
+        {
             Console.WriteLine(
-                value: $"Initialization order: {string.Join(separator: " -> ", values: buildResult.InitializationOrder)}");
+                value:
+                $"Initialization order: {string.Join(separator: " -> ", values: buildResult.InitializationOrder)}");
+        }
 
-        List<FileBuildUnit> userUnits = FilterUserUnits(buildResult: buildResult, stdlibRoot: stdlibRoot);
+        List<FileBuildUnit> userUnits =
+            FilterUserUnits(buildResult: buildResult, stdlibRoot: stdlibRoot);
         foreach (FileBuildUnit unit in userUnits)
         {
             unitsByFile[key: unit.FilePath] = unit;
         }
 
-        orderedFiles = OrderUserFiles(userUnits: userUnits, initializationOrder: buildResult.InitializationOrder);
-        discoveredLinks = CollectLinkLibraries(programs: orderedFiles.Select(selector: f => f.Program));
+        orderedFiles = OrderUserFiles(userUnits: userUnits,
+            initializationOrder: buildResult.InitializationOrder);
+        discoveredLinks =
+            CollectLinkLibraries(programs: orderedFiles.Select(selector: f => f.Program));
         return 0;
     }
 
@@ -1454,25 +1620,27 @@ internal partial class Program
     /// 0 if found, 1 (with error printed) if missing.
     /// </summary>
     private static int CheckStartRoutinePresent(
-        List<(SyntaxTree.Program Program, string FilePath)> orderedFiles,
-        AnalysisResult result)
+        List<(SyntaxTree.Program Program, string FilePath)> orderedFiles, AnalysisResult result)
     {
         var userFilePaths = orderedFiles.Select(selector: f => f.FilePath)
-            .ToHashSet(comparer: StringComparer.OrdinalIgnoreCase);
-        bool hasStartRoutine = result.Registry.GetAllRoutines().Any(predicate: r =>
-            r.OwnerType == null &&
-            (r.Name == "start" || r.BaseName.EndsWith(value: ".start")) &&
-            r.Location != null && userFilePaths.Contains(item: r.Location.FileName));
+                                        .ToHashSet(comparer: StringComparer.OrdinalIgnoreCase);
+        bool hasStartRoutine = result.Registry
+                                     .GetAllRoutines()
+                                     .Any(predicate: r =>
+                                          r.OwnerType == null &&
+                                          (r.Name == "start" ||
+                                           r.BaseName.EndsWith(value: ".start")) &&
+                                          r.Location != null &&
+                                          userFilePaths.Contains(item: r.Location.FileName));
         if (!hasStartRoutine)
         {
             Console.WriteLine();
-            Console.WriteLine(
-                value:
-                "Error: executable target has no 'start' routine. " +
-                "Add 'routine start()' or 'routine start!()' to the entry module, " +
-                "or set the target type to 'library' in config.toml.");
+            Console.WriteLine(value: "Error: executable target has no 'start' routine. " +
+                                     "Add 'routine start()' or 'routine start!()' to the entry module, " +
+                                     "or set the target type to 'library' in config.toml.");
             return 1;
         }
+
         return 0;
     }
 
@@ -1481,11 +1649,9 @@ internal partial class Program
     /// dumps the AST, and writes the IR to the output file or invokes the IR callback
     /// configured in <paramref name="p3"/>. Returns 0 on success.
     /// </summary>
-    private static int RunPhase3Codegen(
-        Phase3Context p3,
+    private static int RunPhase3Codegen(Phase3Context p3,
         List<(SyntaxTree.Program Program, string FilePath)> orderedFiles,
-        Dictionary<string, FileBuildUnit> unitsByFile,
-        AnalysisResult result)
+        Dictionary<string, FileBuildUnit> unitsByFile, AnalysisResult result)
     {
         string entryFile = p3.EntryFile;
         string? outputFile = p3.OutputFile;
@@ -1501,21 +1667,23 @@ internal partial class Program
         }
 
         var userPrograms = orderedFiles.Select(selector: f =>
-        {
-            string module = unitsByFile.TryGetValue(key: f.FilePath, value: out FileBuildUnit? u)
-                ? u.Module ?? ""
-                : "";
-            return (f.Program, f.FilePath, module);
-        }).ToList();
+                                        {
+                                            string module =
+                                                unitsByFile.TryGetValue(key: f.FilePath,
+                                                    value: out FileBuildUnit? u)
+                                                    ? u.Module ?? ""
+                                                    : "";
+                                            return (f.Program, f.FilePath, module);
+                                        })
+                                       .ToList();
 
-        List<(SyntaxTree.Program Program, string FilePath, string Module)>
-            stdlibPrograms = result.Registry.StdlibPrograms;
+        List<(SyntaxTree.Program Program, string FilePath, string Module)> stdlibPrograms =
+            result.Registry.StdlibPrograms;
 
         // 9-2: instrument may-suspend routine bodies with cancellation push/pop markers
         // (no-op unless something reaches a coroutine suspend point). Mutates the userPrograms
         // ASTs in place — the same objects codegen consumes below.
-        Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
-            programs: userPrograms,
+        Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(programs: userPrograms,
             instantiatedBodies: result.InstantiatedGenericBodies,
             maySuspendKeys: result.MaySuspendRoutineKeys,
             registry: result.Registry);
@@ -1523,9 +1691,10 @@ internal partial class Program
         // The entry module (manifest executable) is the module declared by the entry file —
         // it, not an arbitrary imported module's `start`, is the program entry point.
         string entryFull = Path.GetFullPath(path: entryFile);
-        string? entryModule = unitsByFile.TryGetValue(key: entryFull, value: out FileBuildUnit? entryUnit)
-            ? entryUnit.Module
-            : null;
+        string? entryModule =
+            unitsByFile.TryGetValue(key: entryFull, value: out FileBuildUnit? entryUnit)
+                ? entryUnit.Module
+                : null;
 
         var generator = new LlvmCodeGenerator(userPrograms: userPrograms,
             registry: result.Registry,
@@ -1538,11 +1707,7 @@ internal partial class Program
                 InstantiatedGenericBodies = result.InstantiatedGenericBodies,
                 LiveRoutineKeys = result.LiveRoutineKeys,
                 MaySuspendRoutineKeys = result.MaySuspendRoutineKeys
-            })
-        {
-            Timing = saTiming,
-            EntryModule = entryModule
-        };
+            }) { Timing = saTiming, EntryModule = entryModule };
 
         // dump-ast dumps the EXACT AST that LLVM codegen consumes — captured immediately BEFORE
         // Generate(), after all desugaring/monomorphization + the final CancellationInstrumentation
@@ -1550,25 +1715,30 @@ internal partial class Program
         if (dumpAst)
         {
             string astPath = Path.ChangeExtension(path: entryFile, extension: ".rf.desugared");
-            string astText = new RfSyntaxTreePrinter().PrintMultiProgram(
-                programs: userPrograms,
+            string astText = new RfSyntaxTreePrinter().PrintMultiProgram(programs: userPrograms,
                 synthesizedBodies: result.SynthesizedBodies,
                 registry: result.Registry,
                 stdlibPrograms: stdlibPrograms,
                 instantiatedGenericBodies: result.InstantiatedGenericBodies);
             File.WriteAllText(path: astPath, contents: astText);
             if (showBuildStages)
+            {
                 Console.WriteLine(value: $"Codegen-input AST written to: {astPath}");
+            }
         }
 
         string llvmIr = generator.Generate();
         if (swPhase != null)
         {
-            Console.Error.WriteLine(value: $"[phase] codegen Generate(): {swPhase.ElapsedMilliseconds} ms ({llvmIr.Length} chars, {generator.EmittedRoutineCount} routines)");
+            Console.Error.WriteLine(
+                value:
+                $"[phase] codegen Generate(): {swPhase.ElapsedMilliseconds} ms ({llvmIr.Length} chars, {generator.EmittedRoutineCount} routines)");
         }
 
         if (showBuildStages)
+        {
             Console.Error.WriteLine(value: $"Routines emitted: {generator.EmittedRoutineCount}");
+        }
 
         // Output. The JIT path (irCallback set) takes the IR IN MEMORY — no temp .ll write + read-back.
         if (irCallback != null)
@@ -1580,7 +1750,9 @@ internal partial class Program
             string outPath = outputFile ?? Path.ChangeExtension(path: entryFile, extension: ".ll");
             File.WriteAllText(path: outPath, contents: llvmIr);
             if (showBuildStages)
+            {
                 Console.WriteLine(value: $"LLVM IR written to: {outPath}");
+            }
         }
 
         if (showBuildStages)
@@ -1588,6 +1760,7 @@ internal partial class Program
             Console.WriteLine();
             Console.WriteLine(value: "Build successful!");
         }
+
         return 0;
     }
 
@@ -1633,7 +1806,8 @@ internal partial class Program
             if (buildResult.Errors.Count > 0)
             {
                 Console.WriteLine();
-                Console.Error.WriteLine(value: $"=== BUILD ERRORS ({buildResult.Errors.Count}) ===");
+                Console.Error.WriteLine(
+                    value: $"=== BUILD ERRORS ({buildResult.Errors.Count}) ===");
                 DiagnosticRenderer.PrintAll(errors: buildResult.Errors);
 
                 Console.WriteLine();
@@ -1651,9 +1825,11 @@ internal partial class Program
             }
 
             // Filter out stdlib files, then order the user files in initialization order.
-            List<FileBuildUnit> userUnits = FilterUserUnits(buildResult: buildResult, stdlibRoot: stdlibRoot);
+            List<FileBuildUnit> userUnits =
+                FilterUserUnits(buildResult: buildResult, stdlibRoot: stdlibRoot);
             List<(SyntaxTree.Program Program, string FilePath)> orderedFiles =
-                OrderUserFiles(userUnits: userUnits, initializationOrder: buildResult.InitializationOrder);
+                OrderUserFiles(userUnits: userUnits,
+                    initializationOrder: buildResult.InitializationOrder);
 
             // Phase 2: Semantic analysis (multi-file) -> no codegen
             Console.WriteLine();
@@ -1735,68 +1911,91 @@ internal partial class Program
     {
         // 1) Collect globals (in encounter order) and strip their initializers off the declarations. The
         //    (now init-less) declaration is kept so SA still registers the global for reference resolution.
-        var collected = new List<(string Name, TypeExpression Type, Expression Init, SourceLocation Loc)>();
+        var collected =
+            new List<(string Name, TypeExpression Type, Expression Init, SourceLocation Loc)>();
         foreach ((SyntaxTree.Program program, string _) in orderedFiles)
         {
             List<ISyntaxTreeNode> decls = program.Declarations;
             for (int i = 0; i < decls.Count; i++)
             {
-                if (decls[i] is VariableDeclaration { IsGlobal: true, Initializer: not null, Type: not null } g)
+                if (decls[index: i] is VariableDeclaration
+                    {
+                        IsGlobal: true, Initializer: not null, Type: not null
+                    } g)
                 {
                     collected.Add(item: (g.Name, g.Type, g.Initializer, g.Location));
-                    decls[i] = g with { Initializer = null };
+                    decls[index: i] = g with { Initializer = null };
                 }
             }
         }
 
-        if (collected.Count == 0) return true;
+        if (collected.Count == 0)
+        {
+            return true;
+        }
 
         List<(string Name, TypeExpression Type, Expression Init, SourceLocation Loc)> globals =
             DeduplicateGlobals(collected: collected);
         int n = globals.Count;
-        List<HashSet<int>> deps = ComputeGlobalDependencies(orderedFiles: orderedFiles, globals: globals);
+        List<HashSet<int>> deps =
+            ComputeGlobalDependencies(orderedFiles: orderedFiles, globals: globals);
         List<int> order = KahnOrder(deps: deps, n: n);
 
         if (order.Count != n)
         {
             IEnumerable<string> cyclic = Enumerable.Range(start: 0, count: n)
-                .Where(predicate: i => !order.Contains(value: i))
-                .Select(selector: i => globals[index: i].Name);
+                                                   .Where(predicate: i =>
+                                                        !order.Contains(value: i))
+                                                   .Select(selector: i => globals[index: i].Name);
             Console.Error.WriteLine(
-                value: "error[RF-S436]: circular global initialization — these globals reference each " +
-                       $"other (directly) before they are initialized: {string.Join(", ", cyclic)}. " +
-                       "A global's initializer may only reference globals it does not (transitively) depend on.");
+                value:
+                "error[RF-S436]: circular global initialization — these globals reference each " +
+                $"other (directly) before they are initialized: {string.Join(separator: ", ", values: cyclic)}. " +
+                "A global's initializer may only reference globals it does not (transitively) depend on.");
             return false;
         }
 
-        if (!TryBuildModuleGlobalsSynthesis(globals: globals, deps: deps, order: order,
-                entityDecl: out var entityDecl, singletonDecl: out var singletonDecl,
-                initStmts: out var initStmts))
+        if (!TryBuildModuleGlobalsSynthesis(globals: globals,
+                deps: deps,
+                order: order,
+                entityDecl: out EntityDeclaration entityDecl,
+                singletonDecl: out VariableDeclaration singletonDecl,
+                initStmts: out List<Statement> initStmts))
         {
             return false;
         }
 
         return SpliceGlobalsIntoStart(orderedFiles: orderedFiles,
-            entityDecl: entityDecl, singletonDecl: singletonDecl, initStmts: initStmts);
+            entityDecl: entityDecl,
+            singletonDecl: singletonDecl,
+            initStmts: initStmts);
     }
 
     /// <summary>Deduplicates collected globals by name (last-write-wins) while preserving first-seen order
     /// for a stable field layout.</summary>
     private static List<(string Name, TypeExpression Type, Expression Init, SourceLocation Loc)>
         DeduplicateGlobals(
-            List<(string Name, TypeExpression Type, Expression Init, SourceLocation Loc)> collected)
+            List<(string Name, TypeExpression Type, Expression Init, SourceLocation Loc)>
+                collected)
     {
         var seenOrder = new List<string>();
-        var latest = new Dictionary<string, (TypeExpression Type, Expression Init, SourceLocation Loc)>(
-            comparer: StringComparer.Ordinal);
-        foreach ((string name, TypeExpression type, Expression init, SourceLocation loc) in collected)
+        var latest =
+            new Dictionary<string, (TypeExpression Type, Expression Init, SourceLocation Loc)>(
+                comparer: StringComparer.Ordinal);
+        foreach ((string name, TypeExpression type, Expression init, SourceLocation loc) in
+                 collected)
         {
-            if (!latest.ContainsKey(key: name)) seenOrder.Add(item: name);
+            if (!latest.ContainsKey(key: name))
+            {
+                seenOrder.Add(item: name);
+            }
+
             latest[key: name] = (type, init, loc);
         }
-        return seenOrder
-            .Select(selector: name => (Name: name, latest[key: name].Type, latest[key: name].Init, latest[key: name].Loc))
-            .ToList();
+
+        return seenOrder.Select(selector: name => (Name: name, latest[key: name].Type,
+                             latest[key: name].Init, latest[key: name].Loc))
+                        .ToList();
     }
 
     /// <summary>Builds the synthesized entity declaration, singleton declaration, and the init-statement
@@ -1804,10 +2003,8 @@ internal partial class Program
     /// has a type with no synthesizable default (RF-S437).</summary>
     private static bool TryBuildModuleGlobalsSynthesis(
         List<(string Name, TypeExpression Type, Expression Init, SourceLocation Loc)> globals,
-        List<HashSet<int>> deps, List<int> order,
-        out EntityDeclaration entityDecl,
-        out VariableDeclaration singletonDecl,
-        out List<Statement> initStmts)
+        List<HashSet<int>> deps, List<int> order, out EntityDeclaration entityDecl,
+        out VariableDeclaration singletonDecl, out List<Statement> initStmts)
     {
         int n = globals.Count;
         SourceLocation loc0 = globals[index: 0].Loc;
@@ -1817,12 +2014,18 @@ internal partial class Program
         for (int i = 0; i < n; i++)
         {
             fieldDecls.Add(item: new VariableDeclaration(Name: globals[index: i].Name,
-                Type: globals[index: i].Type, Initializer: null, Visibility: VisibilityModifier.Open,
+                Type: globals[index: i].Type,
+                Initializer: null,
+                Visibility: VisibilityModifier.Open,
                 Location: globals[index: i].Loc));
         }
-        entityDecl = new EntityDeclaration(Name: ModuleGlobalsEntityName, GenericParameters: null,
-            Protocols: new List<TypeExpression>(), Members: fieldDecls,
-            Visibility: VisibilityModifier.Open, Location: loc0);
+
+        entityDecl = new EntityDeclaration(Name: ModuleGlobalsEntityName,
+            GenericParameters: null,
+            Protocols: new List<TypeExpression>(),
+            Members: fieldDecls,
+            Visibility: VisibilityModifier.Open,
+            Location: loc0);
 
         // 4) Constructor arguments: independent fields use their real initializer; dependent fields
         //    are seeded with a type default and get their real value from a post-construction assignment.
@@ -1836,7 +2039,8 @@ internal partial class Program
             }
             else
             {
-                LiteralExpression? def = DefaultInitializerFor(type: globals[index: i].Type, loc: globals[index: i].Loc);
+                LiteralExpression? def = DefaultInitializerFor(type: globals[index: i].Type,
+                    loc: globals[index: i].Loc);
                 if (def == null)
                 {
                     Console.Error.WriteLine(
@@ -1848,32 +2052,50 @@ internal partial class Program
                     initStmts = null!;
                     return false;
                 }
+
                 value = def;
             }
+
             ctorArgs.Add(item: (globals[index: i].Name, value));
         }
-        var construct = new CreatorExpression(TypeName: ModuleGlobalsEntityName, TypeArguments: null,
-            MemberVariables: ctorArgs, Location: loc0);
+
+        var construct = new CreatorExpression(TypeName: ModuleGlobalsEntityName,
+            TypeArguments: null,
+            MemberVariables: ctorArgs,
+            Location: loc0);
 
         // 5) Init statements: construct + promote singleton, then ordered assignments for dependent globals.
         initStmts = new List<Statement>(capacity: n + 1)
         {
             new AssignmentStatement(
-                Target: new IdentifierExpression(Name: ModuleGlobalsSingletonName, Location: loc0),
-                Value: construct, Location: loc0) { IsGlobalInit = true }
+                Target: new IdentifierExpression(Name: ModuleGlobalsSingletonName,
+                    Location: loc0),
+                Value: construct,
+                Location: loc0) { IsGlobalInit = true }
         };
         foreach (int i in order)
         {
-            if (deps[index: i].Count == 0) continue; // independent — already set by the constructor
+            if (deps[index: i].Count == 0)
+            {
+                continue; // independent — already set by the constructor
+            }
+
             initStmts.Add(item: new AssignmentStatement(
-                Target: new IdentifierExpression(Name: globals[index: i].Name, Location: globals[index: i].Loc),
-                Value: globals[index: i].Init, Location: globals[index: i].Loc));
+                Target: new IdentifierExpression(Name: globals[index: i].Name,
+                    Location: globals[index: i].Loc),
+                Value: globals[index: i].Init,
+                Location: globals[index: i].Loc));
         }
 
         // 6) The singleton declaration — an entity `global` stored behind a promoted Roamed[E] handle.
         singletonDecl = new VariableDeclaration(Name: ModuleGlobalsSingletonName,
-            Type: new TypeExpression(Name: ModuleGlobalsEntityName, GenericArguments: null, Location: loc0),
-            Initializer: null, Visibility: VisibilityModifier.Open, Location: loc0, IsGlobal: true);
+            Type: new TypeExpression(Name: ModuleGlobalsEntityName,
+                GenericArguments: null,
+                Location: loc0),
+            Initializer: null,
+            Visibility: VisibilityModifier.Open,
+            Location: loc0,
+            IsGlobal: true);
         return true;
     }
 
@@ -1895,7 +2117,11 @@ internal partial class Program
                     break;
                 }
             }
-            if (startBlock == null) continue;
+
+            if (startBlock == null)
+            {
+                continue;
+            }
 
             // Append (NOT prepend) the synthesized declarations: imports must stay at the top of the
             // file (RF-S114). Declaration order does not matter for type collection.
@@ -1906,8 +2132,9 @@ internal partial class Program
         }
 
         Console.Error.WriteLine(
-            value: "error[RF-S438]: module-level 'global' declarations require a 'routine start()' entry " +
-                   "point to host their initialization.");
+            value:
+            "error[RF-S438]: module-level 'global' declarations require a 'routine start()' entry " +
+            "point to host their initialization.");
         return false;
     }
 
@@ -1921,7 +2148,10 @@ internal partial class Program
     {
         int n = globals.Count;
         var nameToIdx = new Dictionary<string, int>(comparer: StringComparer.Ordinal);
-        for (int i = 0; i < n; i++) nameToIdx[key: globals[index: i].Name] = i; // last decl of a dup name wins
+        for (int i = 0; i < n; i++)
+        {
+            nameToIdx[key: globals[index: i].Name] = i; // last decl of a dup name wins
+        }
 
         // Index every free routine's body by bare name so the dependency scan can follow calls.
         var routineBodies = new Dictionary<string, Statement>(comparer: StringComparer.Ordinal);
@@ -1939,8 +2169,7 @@ internal partial class Program
         var deps = new List<HashSet<int>>(capacity: n);
         for (int i = 0; i < n; i++)
         {
-            deps.Add(item: ComputeSingleGlobalDeps(
-                init: globals[index: i].Init,
+            deps.Add(item: ComputeSingleGlobalDeps(init: globals[index: i].Init,
                 nameToIdx: nameToIdx,
                 routineBodies: routineBodies));
         }
@@ -1950,10 +2179,8 @@ internal partial class Program
 
     /// <summary>BFS over AST expressions from the given initializer; collects indices of globals this
     /// global directly or transitively depends on by following free-routine call bodies one level.</summary>
-    private static HashSet<int> ComputeSingleGlobalDeps(
-        Expression init,
-        Dictionary<string, int> nameToIdx,
-        Dictionary<string, Statement> routineBodies)
+    private static HashSet<int> ComputeSingleGlobalDeps(Expression init,
+        Dictionary<string, int> nameToIdx, Dictionary<string, Statement> routineBodies)
     {
         var d = new HashSet<int>();
         var visitedRoutines = new HashSet<string>(comparer: StringComparer.Ordinal);
@@ -1962,21 +2189,26 @@ internal partial class Program
         while (toScan.Count > 0)
         {
             object root = toScan.Dequeue();
-            AstWalker.WalkExpressions(root: root, visit: e =>
-            {
-                if (e is IdentifierExpression id && nameToIdx.TryGetValue(key: id.Name, value: out int j))
+            AstWalker.WalkExpressions(root: root,
+                visit: e =>
                 {
-                    d.Add(item: j);
-                }
-                // Follow a call into the callee's body once (transitive hidden dependency).
-                if (e is CallExpression { Callee: IdentifierExpression callee }
-                    && routineBodies.TryGetValue(key: callee.Name, value: out Statement? calleeBody)
-                    && visitedRoutines.Add(item: callee.Name))
-                {
-                    toScan.Enqueue(item: calleeBody);
-                }
-            });
+                    if (e is IdentifierExpression id &&
+                        nameToIdx.TryGetValue(key: id.Name, value: out int j))
+                    {
+                        d.Add(item: j);
+                    }
+
+                    // Follow a call into the callee's body once (transitive hidden dependency).
+                    if (e is CallExpression { Callee: IdentifierExpression callee } &&
+                        routineBodies.TryGetValue(key: callee.Name,
+                            value: out Statement? calleeBody) &&
+                        visitedRoutines.Add(item: callee.Name))
+                    {
+                        toScan.Enqueue(item: calleeBody);
+                    }
+                });
         }
+
         return d;
     }
 
@@ -1985,17 +2217,21 @@ internal partial class Program
     /// (the caller reports the un-ordered globals as RF-S436).</summary>
     private static List<int> KahnOrder(List<HashSet<int>> deps, int n)
     {
-        var indegree = new int[n];
+        int[] indegree = new int[n];
         for (int i = 0; i < n; i++)
         {
-            indegree[i] += deps[index: i].Count(j => j != i); // edge j -> i (dependency j before dependent i)
+            indegree[i] += deps[index: i]
+               .Count(predicate: j => j != i); // edge j -> i (dependency j before dependent i)
         }
 
         var order = new List<int>(capacity: n);
         bool ready;
         do
         {
-            ready = KahnSweep(deps: deps, indegree: indegree, n: n, order: order);
+            ready = KahnSweep(deps: deps,
+                indegree: indegree,
+                n: n,
+                order: order);
         } while (ready);
 
         return order;
@@ -2003,21 +2239,30 @@ internal partial class Program
 
     /// <summary>Single Kahn sweep: enqueues all zero-indegree nodes into <paramref name="order"/> and
     /// decrements their dependents' indegrees. Returns true if at least one node was emitted.</summary>
-    private static bool KahnSweep(List<HashSet<int>> deps, int[] indegree, int n, List<int> order)
+    private static bool KahnSweep(List<HashSet<int>> deps, int[] indegree, int n,
+        List<int> order)
     {
         bool any = false;
         for (int i = 0; i < n; i++)
         {
-            if (indegree[i] != 0) continue;
+            if (indegree[i] != 0)
+            {
+                continue;
+            }
+
             indegree[i] = -1; // consumed
             order.Add(item: i);
             any = true;
             for (int k = 0; k < n; k++)
             {
-                if (k != i && deps[index: k].Contains(item: i))
+                if (k != i && deps[index: k]
+                       .Contains(item: i))
+                {
                     indegree[k]--;
+                }
             }
         }
+
         return any;
     }
 
@@ -2025,18 +2270,22 @@ internal partial class Program
     /// global (so its real value is assigned after the singleton is constructed). A bare integer literal
     /// <c>0</c> conforms to any numeric type (int/float/decimal) via RF-S767; Text and Bool have their
     /// own empty/false defaults. Returns null for a type with no synthesizable default.</summary>
-    private static LiteralExpression? DefaultInitializerFor(TypeExpression type, SourceLocation loc)
+    private static LiteralExpression? DefaultInitializerFor(TypeExpression type,
+        SourceLocation loc)
     {
         return type.Name switch
         {
-            "Text" => new LiteralExpression(Value: "", LiteralType: TokenType.TextLiteral,
+            "Text" => new LiteralExpression(Value: "",
+                LiteralType: TokenType.TextLiteral,
                 Location: loc),
-            "Bool" => new LiteralExpression(Value: false, LiteralType: TokenType.False,
+            "Bool" => new LiteralExpression(Value: false,
+                LiteralType: TokenType.False,
                 Location: loc),
             "S8" or "S16" or "S32" or "S64" or "S128" or "S256" or "U8" or "U16" or "U32" or "U64"
                 or "U128" or "U256" or "F16" or "F32" or "F64" or "F128" or "F256" or "Decimal"
                 or "D32" or "D64" or "D128" or "Integer" => new LiteralExpression(Value: "0",
-                    LiteralType: TokenType.UndecidedInteger, Location: loc),
+                    LiteralType: TokenType.UndecidedInteger,
+                    Location: loc),
             _ => null
         };
     }
@@ -2052,30 +2301,43 @@ internal partial class Program
                 VisitLinkDeclaration(node: decl, libs: libs, seen: seen);
             }
         }
+
         return libs;
     }
 
-    private static void ScanLinkAnnotations(List<string>? annotations, List<string> libs, HashSet<string> seen)
+    private static void ScanLinkAnnotations(List<string>? annotations, List<string> libs,
+        HashSet<string> seen)
     {
-        if (annotations == null) return;
+        if (annotations == null)
+        {
+            return;
+        }
+
         foreach (string ann in annotations)
         {
             (string? lib, string? _) = TypeModel.Symbols.LinkAnnotation.Parse(annotation: ann);
-            if (lib != null && seen.Add(item: lib)) libs.Add(item: lib);
+            if (lib != null && seen.Add(item: lib))
+            {
+                libs.Add(item: lib);
+            }
         }
     }
 
-    private static void VisitLinkDeclaration(ISyntaxTreeNode node, List<string> libs, HashSet<string> seen)
+    private static void VisitLinkDeclaration(ISyntaxTreeNode node, List<string> libs,
+        HashSet<string> seen)
     {
         switch (node)
         {
-            case RoutineDeclaration r: ScanLinkAnnotations(annotations: r.Annotations, libs: libs, seen: seen); break;
-            case ExternalDeclaration e: ScanLinkAnnotations(annotations: e.Annotations, libs: libs, seen: seen); break;
+            case RoutineDeclaration r:
+                ScanLinkAnnotations(annotations: r.Annotations, libs: libs, seen: seen); break;
+            case ExternalDeclaration e:
+                ScanLinkAnnotations(annotations: e.Annotations, libs: libs, seen: seen); break;
             case ExternalBlockDeclaration b:
                 foreach (Declaration d in b.Declarations)
                 {
                     VisitLinkDeclaration(node: d, libs: libs, seen: seen);
                 }
+
                 break;
         }
     }
@@ -2095,16 +2357,14 @@ internal partial class Program
             outputFile: null,
             discoveredLinkLibraries: out _,
             config: config,
-            warm: new WarmProviders(
-                WarmProvider: warm?.WarmProvider,
+            warm: new WarmProviders(WarmProvider: warm?.WarmProvider,
                 IrCallback: s => captured = s,
                 StdlibIndexProvider: warm?.StdlibIndexProvider));
         ir = captured;
         return rc;
     }
 
-    private static int BuildExecutable(string entryFile, out string exeFile,
-        ResolvedEntry config,
+    private static int BuildExecutable(string entryFile, out string exeFile, ResolvedEntry config,
         Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null)
     {
         IReadOnlyList<string> cLibraries = config.CLibraries;
@@ -2115,7 +2375,9 @@ internal partial class Program
         string llFile = Path.ChangeExtension(path: entryFile, extension: ".ll");
         string optFile = Path.ChangeExtension(path: llFile, extension: ".opt.ll");
         exeFile = Path.ChangeExtension(path: llFile, extension: ".exe");
-        NativeToolchain.CleanBuildAndRunOutputs(llFile: llFile, optFile: optFile, exeFile: exeFile);
+        NativeToolchain.CleanBuildAndRunOutputs(llFile: llFile,
+            optFile: optFile,
+            exeFile: exeFile);
 
         // Build first (to a temp .ll file). BuildMultiFile also reports any `@link(...)` C libraries
         // declared in the compiled source.
@@ -2123,7 +2385,11 @@ internal partial class Program
             outputFile: llFile,
             discoveredLinkLibraries: out IReadOnlyList<string> discoveredLinks,
             config: config,
-            warm: warmProvider != null ? new WarmProviders(warmProvider, null, null) : null);
+            warm: warmProvider != null
+                ? new WarmProviders(WarmProvider: warmProvider,
+                    IrCallback: null,
+                    StdlibIndexProvider: null)
+                : null);
         if (buildResult != 0)
         {
             return buildResult;
@@ -2134,20 +2400,39 @@ internal partial class Program
         // [libraries.X] declaration's `name` override (e.g. "SDL2" → "SDL2-2.0") when present, so the
         // real `-l` link name is used. The declared libraries' own names are also linked.
         var allCLibraries = new List<string>();
+
         void AddLib(string lib)
         {
             string resolved = libraryConfigs.TryGetValue(key: lib, value: out CLibrary? cfg)
                 ? cfg.Name
                 : lib;
-            if (!allCLibraries.Contains(item: resolved)) allCLibraries.Add(item: resolved);
+            if (!allCLibraries.Contains(item: resolved))
+            {
+                allCLibraries.Add(item: resolved);
+            }
         }
-        foreach (string lib in cLibraries) AddLib(lib: lib);
-        foreach (CLibrary cfg in libraryConfigs.Values) AddLib(lib: cfg.Name);
-        foreach (string lib in discoveredLinks) AddLib(lib: lib);
+
+        foreach (string lib in cLibraries)
+        {
+            AddLib(lib: lib);
+        }
+
+        foreach (CLibrary cfg in libraryConfigs.Values)
+        {
+            AddLib(lib: cfg.Name);
+        }
+
+        foreach (string lib in discoveredLinks)
+        {
+            AddLib(lib: lib);
+        }
 
         return LinkAndStageExecutable(exeFile: exeFile,
-            llFile: llFile, optFile: optFile, buildMode: config.BuildMode,
-            allCLibraries: allCLibraries, libraryPaths: libraryPaths,
+            llFile: llFile,
+            optFile: optFile,
+            buildMode: config.BuildMode,
+            allCLibraries: allCLibraries,
+            libraryPaths: libraryPaths,
             libraryConfigs: libraryConfigs);
     }
 
@@ -2155,9 +2440,8 @@ internal partial class Program
     /// Optimizes, links, and stages the runtime DLLs after code generation, factored out of
     /// <see cref="BuildExecutable"/> to reduce its cognitive complexity.
     /// </summary>
-    private static int LinkAndStageExecutable(string exeFile,
-        string llFile, string optFile, RfBuildMode buildMode,
-        List<string> allCLibraries, IReadOnlyList<string> libraryPaths,
+    private static int LinkAndStageExecutable(string exeFile, string llFile, string optFile,
+        RfBuildMode buildMode, List<string> allCLibraries, IReadOnlyList<string> libraryPaths,
         IReadOnlyDictionary<string, CLibrary> libraryConfigs)
     {
         string exeDir;
@@ -2172,7 +2456,8 @@ internal partial class Program
             return 1;
         }
 
-        if (NativeToolchain.TryFindNativeBuildDirectory(exeDir: exeDir, nativeBuildDir: out string nativeBuildDir))
+        if (NativeToolchain.TryFindNativeBuildDirectory(exeDir: exeDir,
+                nativeBuildDir: out string nativeBuildDir))
         {
             // Development checkout: rebuild the native runtime incrementally before linking.
             int nativeResult = NativeToolchain.BuildNativeRuntime(exeDir: exeDir,
@@ -2184,7 +2469,8 @@ internal partial class Program
 
             runtimeLibDir = Path.Combine(path1: nativeBuildDir, path2: "lib");
         }
-        else if (File.Exists(path: Path.Combine(path1: exeDir, path2: NativeToolchain.RuntimeLinkLibraryFileName)))
+        else if (File.Exists(path: Path.Combine(path1: exeDir,
+                     path2: NativeToolchain.RuntimeLinkLibraryFileName)))
         {
             // Installed/published layout: prebuilt runtime artifacts ship flat next to the
             // executable (csproj LinkBase="." / the packaging scripts) — nothing to rebuild.
@@ -2199,16 +2485,19 @@ internal partial class Program
         }
 
         // Optimize the emitted IR, then link it into a native executable.
-        int optResult = NativeToolchain.OptimizeIr(llFile: llFile, optFile: optFile,
-            buildMode: buildMode);
+        int optResult =
+            NativeToolchain.OptimizeIr(llFile: llFile, optFile: optFile, buildMode: buildMode);
         if (optResult != 0)
         {
             return optResult;
         }
 
-        int linkResult = NativeToolchain.LinkExecutable(optFile: optFile, exeFile: exeFile,
-            runtimeLibDir: runtimeLibDir, buildMode: buildMode,
-            cLibraries: allCLibraries, libraryPaths: libraryPaths);
+        int linkResult = NativeToolchain.LinkExecutable(optFile: optFile,
+            exeFile: exeFile,
+            runtimeLibDir: runtimeLibDir,
+            buildMode: buildMode,
+            cLibraries: allCLibraries,
+            libraryPaths: libraryPaths);
         if (linkResult != 0)
         {
             return linkResult;
@@ -2219,8 +2508,10 @@ internal partial class Program
         NativeToolchain.StageRuntimeDlls(exeDir: exeDir, exeFile: exeFile);
         // Also stage each dynamically-linked @link/c_libraries dependency DLL from the -L search paths,
         // so a freshly-built exe runs without the user hand-copying its foreign libraries.
-        NativeToolchain.StageUserLibraryDlls(exeFile: exeFile, cLibraries: allCLibraries,
-            libraryPaths: libraryPaths, libraryConfigs: libraryConfigs);
+        NativeToolchain.StageUserLibraryDlls(exeFile: exeFile,
+            cLibraries: allCLibraries,
+            libraryPaths: libraryPaths,
+            libraryConfigs: libraryConfigs);
         return 0;
     }
 
@@ -2311,8 +2602,10 @@ internal partial class Program
             // keeps both pipes draining continuously.
             Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
             Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-            string stdout = stdoutTask.GetAwaiter().GetResult();
-            string stderr = stderrTask.GetAwaiter().GetResult();
+            string stdout = stdoutTask.GetAwaiter()
+                                      .GetResult();
+            string stderr = stderrTask.GetAwaiter()
+                                      .GetResult();
             process.WaitForExit();
 
             if (!string.IsNullOrEmpty(value: stdout))
@@ -2333,5 +2626,4 @@ internal partial class Program
             return 1;
         }
     }
-
 }

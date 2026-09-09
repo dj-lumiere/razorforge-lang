@@ -186,10 +186,10 @@ public enum GrammarDiagnosticCode
     /// <summary>A type expression was expected after a constraint keyword but not found.</summary>
     ExpectedConstraintType = 302
 }
+
 /// <summary>
 /// Provides formatting helpers for <see cref="GrammarDiagnosticCode"/>.
 /// </summary>
-
 public static class GrammarDiagnosticCodeExtensions
 {
     /// <summary>

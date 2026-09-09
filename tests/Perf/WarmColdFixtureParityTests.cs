@@ -23,22 +23,36 @@ namespace RazorForge.Tests.Perf;
 public sealed partial class WarmColdFixtureParityTests
 {
     private readonly ITestOutputHelper _out;
-    public WarmColdFixtureParityTests(ITestOutputHelper output) => _out = output;
+    public WarmColdFixtureParityTests(ITestOutputHelper output)
+    {
+        _out = output;
+    }
 
-    private static readonly string FixtureDir =
-        Path.Combine(LocateRepoRoot(), "tests", "Fixtures", "Stdlib");
+    private static readonly string FixtureDir = Path.Combine(path1: LocateRepoRoot(),
+        path2: "tests",
+        path3: "Fixtures",
+        path4: "Stdlib");
 
     private static string LocateRepoRoot()
     {
         string dir = AppContext.BaseDirectory;
-        while (!string.IsNullOrEmpty(dir))
+        while (!string.IsNullOrEmpty(value: dir))
         {
-            if (File.Exists(Path.Combine(dir, "RazorForge.csproj"))) return dir;
-            string? parent = Path.GetDirectoryName(dir);
-            if (parent == null || parent == dir) break;
+            if (File.Exists(path: Path.Combine(path1: dir, path2: "RazorForge.csproj")))
+            {
+                return dir;
+            }
+
+            string? parent = Path.GetDirectoryName(path: dir);
+            if (parent == null || parent == dir)
+            {
+                break;
+            }
+
             dir = parent;
         }
-        throw new InvalidOperationException("Could not locate RazorForge.csproj.");
+
+        throw new InvalidOperationException(message: "Could not locate RazorForge.csproj.");
     }
 
     // Captured ONCE (the daemon's resident stdlib) and shared across all cases in this class.
@@ -56,74 +70,107 @@ public sealed partial class WarmColdFixtureParityTests
             "error_paths_api", "crashable_api", "list_api", "dict_api", "set_api",
             "sorted_dict_api", "choice_api", "variant_api", "generic_routine_api",
             "guarded_api", "guarded_access_api", "fallible_lock_api", "agent_api",
-            "array_api", "range_api", "filesystem_api", "itertools_api",
+            "array_api", "range_api", "filesystem_api", "itertools_api"
         ];
         var data = new TheoryData<string, string>();
         foreach (string n in names)
         {
-            string p = Path.Combine(FixtureDir, n + ".rf");
-            if (File.Exists(p)) data.Add(n, p);
+            string p = Path.Combine(path1: FixtureDir, path2: n + ".rf");
+            if (File.Exists(path: p))
+            {
+                data.Add(p1: n, p2: p);
+            }
         }
+
         return data;
     }
 
     [Theory]
-    [MemberData(nameof(RiskyFixtures))]
+    [MemberData(memberName: nameof(RiskyFixtures))]
     public void RiskyFixture_WarmMatchesCold(string name, string path)
     {
-        (int cold, int warm, string[] coldOnly, string[] warmOnly) = CompareDefines(path);
-        _out.WriteLine($"{name}: coldDefs={cold} warmDefs={warm}");
-        if (coldOnly.Length > 0) _out.WriteLine($"  cold-only: {string.Join(" | ", coldOnly.Take(10))}");
-        if (warmOnly.Length > 0) _out.WriteLine($"  warm-only: {string.Join(" | ", warmOnly.Take(10))}");
-        Assert.True(coldOnly.Length == 0 && warmOnly.Length == 0,
-            $"{name}: warm/cold define-set diverged — cold-only=[{string.Join(", ", coldOnly)}] " +
-            $"warm-only=[{string.Join(", ", warmOnly)}]");
+        (int cold, int warm, string[] coldOnly, string[] warmOnly) = CompareDefines(path: path);
+        _out.WriteLine(message: $"{name}: coldDefs={cold} warmDefs={warm}");
+        if (coldOnly.Length > 0)
+        {
+            _out.WriteLine(
+                message:
+                $"  cold-only: {string.Join(separator: " | ", values: coldOnly.Take(count: 10))}");
+        }
+
+        if (warmOnly.Length > 0)
+        {
+            _out.WriteLine(
+                message:
+                $"  warm-only: {string.Join(separator: " | ", values: warmOnly.Take(count: 10))}");
+        }
+
+        Assert.True(condition: coldOnly.Length == 0 && warmOnly.Length == 0,
+            userMessage:
+            $"{name}: warm/cold define-set diverged — cold-only=[{string.Join(separator: ", ", value: coldOnly)}] " +
+            $"warm-only=[{string.Join(separator: ", ", value: warmOnly)}]");
     }
 
-    [Fact(Skip = "Slow full sweep (one cold full-SA per fixture, ~192×). Un-skip to audit ALL fixtures.")]
+    [Fact(Skip =
+        "Slow full sweep (one cold full-SA per fixture, ~192×). Un-skip to audit ALL fixtures.")]
     public void AllFixtures_Parity()
     {
         var diverged = new List<string>();
-        foreach (string path in Directory.GetFiles(FixtureDir, "*.rf").OrderBy(p => p))
+        foreach (string path in Directory.GetFiles(path: FixtureDir, searchPattern: "*.rf")
+                                         .OrderBy(keySelector: p => p))
         {
-            string name = Path.GetFileNameWithoutExtension(path);
-            (_, _, string[] coldOnly, string[] warmOnly) = CompareDefines(path);
+            string name = Path.GetFileNameWithoutExtension(path: path);
+            (_, _, string[] coldOnly, string[] warmOnly) = CompareDefines(path: path);
             if (coldOnly.Length > 0 || warmOnly.Length > 0)
             {
-                diverged.Add(name);
-                _out.WriteLine($"DIVERGED {name}: cold-only=[{string.Join(", ", coldOnly.Take(6))}] " +
-                    $"warm-only=[{string.Join(", ", warmOnly.Take(6))}]");
+                diverged.Add(item: name);
+                _out.WriteLine(
+                    message:
+                    $"DIVERGED {name}: cold-only=[{string.Join(separator: ", ", values: coldOnly.Take(count: 6))}] " +
+                    $"warm-only=[{string.Join(separator: ", ", values: warmOnly.Take(count: 6))}]");
             }
         }
-        Assert.True(diverged.Count == 0, $"{diverged.Count} fixtures diverged: {string.Join(", ", diverged)}");
+
+        Assert.True(condition: diverged.Count == 0,
+            userMessage:
+            $"{diverged.Count} fixtures diverged: {string.Join(separator: ", ", values: diverged)}");
     }
 
-    private static (int cold, int warm, string[] coldOnly, string[] warmOnly) CompareDefines(string path)
+    private static (int cold, int warm, string[] coldOnly, string[] warmOnly) CompareDefines(
+        string path)
     {
-        string src = File.ReadAllText(path);
-        var coldDefs = DefineSet(Codegen(new SemanticVerifier(language: Language.RazorForge)
-            .Analyze(program: Parse(src, path))));
-        var warmDefs = DefineSet(Codegen(new SemanticVerifier(language: Language.RazorForge, warm: Warm)
-            .Analyze(program: Parse(src, path))));
-        return (coldDefs.Count, warmDefs.Count,
-            coldDefs.Except(warmDefs).OrderBy(s => s).ToArray(),
-            warmDefs.Except(coldDefs).OrderBy(s => s).ToArray());
+        string src = File.ReadAllText(path: path);
+        HashSet<string> coldDefs = DefineSet(ll: Codegen(
+            r: new SemanticVerifier(language: Language.RazorForge).Analyze(
+                program: Parse(src: src, path: path))));
+        HashSet<string> warmDefs = DefineSet(ll: Codegen(
+            r: new SemanticVerifier(language: Language.RazorForge, warm: Warm).Analyze(
+                program: Parse(src: src, path: path))));
+        return (coldDefs.Count, warmDefs.Count, coldDefs.Except(second: warmDefs)
+                                                        .OrderBy(keySelector: s => s)
+                                                        .ToArray(), warmDefs
+           .Except(second: coldDefs)
+           .OrderBy(keySelector: s => s)
+           .ToArray());
     }
 
     private static Program Parse(string src, string path)
     {
-        var tokens = new Tokenizer(source: src, fileName: path, language: Language.RazorForge).Tokenize();
-        return new Compiler.Parser.Parser(tokens: tokens, language: Language.RazorForge,
+        List<Token> tokens =
+            new Tokenizer(source: src, fileName: path, language: Language.RazorForge).Tokenize();
+        return new Compiler.Parser.Parser(tokens: tokens,
+            language: Language.RazorForge,
             fileName: path).Parse();
     }
 
     private static string Codegen(AnalysisResult r)
     {
         Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
-            programs: r.Registry.UserPrograms, instantiatedBodies: r.InstantiatedGenericBodies,
-            maySuspendKeys: r.MaySuspendRoutineKeys, registry: r.Registry);
-        var gen = new Compiler.CodeGen.LlvmCodeGenerator(
-            userPrograms: r.Registry.UserPrograms,
+            programs: r.Registry.UserPrograms,
+            instantiatedBodies: r.InstantiatedGenericBodies,
+            maySuspendKeys: r.MaySuspendRoutineKeys,
+            registry: r.Registry);
+        var gen = new Compiler.CodeGen.LlvmCodeGenerator(userPrograms: r.Registry.UserPrograms,
             registry: r.Registry,
             options: new Compiler.CodeGen.LlvmCodeGeneratorOptions
             {
@@ -136,12 +183,16 @@ public sealed partial class WarmColdFixtureParityTests
         return gen.Generate();
     }
 
-    [GeneratedRegex(@" !dbg ![0-9]+")]
+    [GeneratedRegex(pattern: @" !dbg ![0-9]+")]
     private static partial Regex DbgAnnotationRegex();
 
-    private static HashSet<string> DefineSet(string ll) =>
-        ll.Split('\n')
-          .Where(l => l.StartsWith("define ", StringComparison.Ordinal))
-          .Select(l => DbgAnnotationRegex().Replace(l.Split(" {", 2)[0], ""))
-          .ToHashSet(StringComparer.Ordinal);
+    private static HashSet<string> DefineSet(string ll)
+    {
+        return ll.Split(separator: '\n')
+                 .Where(predicate: l =>
+                      l.StartsWith(value: "define ", comparisonType: StringComparison.Ordinal))
+                 .Select(selector: l => DbgAnnotationRegex()
+                     .Replace(input: l.Split(separator: " {", count: 2)[0], replacement: ""))
+                 .ToHashSet(comparer: StringComparer.Ordinal);
+    }
 }

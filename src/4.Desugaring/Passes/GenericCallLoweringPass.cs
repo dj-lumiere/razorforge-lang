@@ -33,8 +33,10 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// Stores the registry state used by this compiler phase.
     /// </summary>
     private readonly TypeRegistry _registry;
+
     private readonly Dictionary<string, Statement> _variantBodies;
     private readonly Dictionary<string, MonomorphizedBody>? _instantiatedGenericBodies;
+
     /// <summary>Warm-restore stdlib variant keys already lowered at snapshot capture — skipped by
     /// <see cref="RunOnVariantBodies"/>. Empty on cold builds and non-desugaring-context callers.</summary>
     private readonly HashSet<string> _restoredVariantKeys;
@@ -42,26 +44,36 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// <summary>
     /// Initializes a new instance with the dependencies required for its compiler phase.
     /// </summary>
-    public GenericCallLoweringPass(DesugaringContext ctx)
-        : this(ctx.Registry, ctx.VariantBodies, ctx.InstantiatedGenericBodies, ctx.RestoredVariantKeys) { }
+    public GenericCallLoweringPass(DesugaringContext ctx) : this(registry: ctx.Registry,
+        variantBodies: ctx.VariantBodies,
+        instantiatedGenericBodies: ctx.InstantiatedGenericBodies,
+        restoredVariantKeys: ctx.RestoredVariantKeys)
+    {
+    }
 
     /// <summary>
     /// Initializes a new instance with the dependencies required for its compiler phase.
     /// </summary>
-    public GenericCallLoweringPass(TypeRegistry registry, Dictionary<string, Statement> variantBodies)
-        : this(registry, variantBodies, null) { }
+    public GenericCallLoweringPass(TypeRegistry registry,
+        Dictionary<string, Statement> variantBodies) : this(registry: registry,
+        variantBodies: variantBodies,
+        instantiatedGenericBodies: null)
+    {
+    }
 
     /// <summary>
     /// Initializes a new instance with the dependencies required for its compiler phase.
     /// </summary>
-    private GenericCallLoweringPass(TypeRegistry registry, Dictionary<string, Statement> variantBodies,
+    private GenericCallLoweringPass(TypeRegistry registry,
+        Dictionary<string, Statement> variantBodies,
         Dictionary<string, MonomorphizedBody>? instantiatedGenericBodies,
         HashSet<string>? restoredVariantKeys = null)
     {
         _registry = registry;
         _variantBodies = variantBodies;
         _instantiatedGenericBodies = instantiatedGenericBodies;
-        _restoredVariantKeys = restoredVariantKeys ?? new HashSet<string>(comparer: StringComparer.Ordinal);
+        _restoredVariantKeys = restoredVariantKeys ??
+                               new HashSet<string>(comparer: StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -71,26 +83,29 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     {
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration r:
                 {
-                    Statement newBody = VisitStatement(r.Body);
-                    if (!ReferenceEquals(newBody, r.Body))
-                        program.Declarations[i] = r with { Body = newBody };
+                    Statement newBody = VisitStatement(stmt: r.Body);
+                    if (!ReferenceEquals(objA: newBody, objB: r.Body))
+                    {
+                        program.Declarations[index: i] = r with { Body = newBody };
+                    }
+
                     break;
                 }
 
                 case EntityDeclaration e:
-                    LowerMemberList(e.Members);
+                    LowerMemberList(members: e.Members);
                     break;
 
                 case RecordDeclaration rec:
-                    LowerMemberList(rec.Members);
+                    LowerMemberList(members: rec.Members);
                     break;
 
                 case CrashableDeclaration cr:
-                    LowerMemberList(cr.Members);
+                    LowerMemberList(members: cr.Members);
                     break;
             }
         }
@@ -104,11 +119,17 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     {
         foreach (string key in _variantBodies.Keys.ToList())
         {
-            if (_restoredVariantKeys.Contains(item: key)) continue; // already lowered at snapshot capture
-            Statement body = _variantBodies[key];
-            Statement lowered = VisitStatement(body);
-            if (!ReferenceEquals(lowered, body))
-                _variantBodies[key] = lowered;
+            if (_restoredVariantKeys.Contains(item: key))
+            {
+                continue; // already lowered at snapshot capture
+            }
+
+            Statement body = _variantBodies[key: key];
+            Statement lowered = VisitStatement(stmt: body);
+            if (!ReferenceEquals(objA: lowered, objB: body))
+            {
+                _variantBodies[key: key] = lowered;
+            }
         }
     }
 
@@ -138,18 +159,15 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     {
         foreach (string key in bodies.Keys.ToList())
         {
-            MonomorphizedBody body = bodies[key];
+            MonomorphizedBody body = bodies[key: key];
             // NOTE: Previously skipped synthesized bodies (assumed they never contained GMCEs),
             // but wrapper represent/diagnose forwarders synthesized by WiredRoutinePass /
             // wrapper-forwarder synthesis DO contain GMCEs (e.g. Hijacked[T].x calls). Lower
             // them too so they meet the codegen contract.
-            Statement lowered = VisitStatement(body.Ast.Body);
-            if (!ReferenceEquals(lowered, body.Ast.Body))
+            Statement lowered = VisitStatement(stmt: body.Ast.Body);
+            if (!ReferenceEquals(objA: lowered, objB: body.Ast.Body))
             {
-                bodies[key] = body with
-                {
-                    Ast = body.Ast with { Body = lowered }
-                };
+                bodies[key: key] = body with { Ast = body.Ast with { Body = lowered } };
             }
         }
     }
@@ -161,10 +179,16 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     {
         for (int j = 0; j < members.Count; j++)
         {
-            if (members[j] is not RoutineDeclaration m) continue;
-            Statement newBody = VisitStatement(m.Body);
-            if (!ReferenceEquals(newBody, m.Body))
-                members[j] = m with { Body = newBody };
+            if (members[index: j] is not RoutineDeclaration m)
+            {
+                continue;
+            }
+
+            Statement newBody = VisitStatement(stmt: m.Body);
+            if (!ReferenceEquals(objA: newBody, objB: m.Body))
+            {
+                members[index: j] = m with { Body = newBody };
+            }
         }
     }
 
@@ -176,16 +200,23 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// through to just rewriting its children. All other structural recursion comes from
     /// <see cref="AstRewriter"/>.
     /// </summary>
-    protected override Expression VisitGenericMemberRoutineCall(GenericMemberRoutineCallExpression e)
-        => TryLowerGenericCall(e) ?? LowerGenericCallChildren(e);
+    protected override Expression VisitGenericMemberRoutineCall(
+        GenericMemberRoutineCallExpression e)
+    {
+        return TryLowerGenericCall(gmc: e) ?? LowerGenericCallChildren(gmc: e);
+    }
 
     /// <summary>
     /// Rewrites children, then re-copies the mutable resolution metadata that <c>with</c> drops.
     /// </summary>
     protected override Expression VisitCall(CallExpression e)
     {
-        Expression rebuilt = base.VisitCall(e);
-        if (ReferenceEquals(rebuilt, e) || rebuilt is not CallExpression rewritten) return rebuilt;
+        Expression rebuilt = base.VisitCall(e: e);
+        if (ReferenceEquals(objA: rebuilt, objB: e) || rebuilt is not CallExpression rewritten)
+        {
+            return rebuilt;
+        }
+
         // ResolvedRoutine/ResolvedType/etc. are mutable {get;set;} props — `with` drops them.
         rewritten.ResolvedRoutine = e.ResolvedRoutine;
         rewritten.LoweringKind = e.LoweringKind;
@@ -201,8 +232,12 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// </summary>
     protected override Expression VisitMember(MemberExpression e)
     {
-        Expression rebuilt = base.VisitMember(e);
-        if (ReferenceEquals(rebuilt, e) || rebuilt is not MemberExpression rewritten) return rebuilt;
+        Expression rebuilt = base.VisitMember(e: e);
+        if (ReferenceEquals(objA: rebuilt, objB: e) || rebuilt is not MemberExpression rewritten)
+        {
+            return rebuilt;
+        }
+
         rewritten.ResolvedType = e.ResolvedType;
         return rewritten;
     }
@@ -213,8 +248,12 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// </summary>
     protected override Expression VisitCreator(CreatorExpression e)
     {
-        Expression rebuilt = base.VisitCreator(e);
-        if (ReferenceEquals(rebuilt, e) || rebuilt is not CreatorExpression rewritten) return rebuilt;
+        Expression rebuilt = base.VisitCreator(e: e);
+        if (ReferenceEquals(objA: rebuilt, objB: e) || rebuilt is not CreatorExpression rewritten)
+        {
+            return rebuilt;
+        }
+
         // Mutable {get;set;} props are dropped by `with` — carry them over.
         rewritten.LoweringKind = e.LoweringKind;
         rewritten.ConstructedType = e.ConstructedType;
@@ -246,7 +285,10 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     private Expression? TryLowerGenericCall(GenericMemberRoutineCallExpression gmc)
     {
         // Collection literals need special codegen (create + add_last loop).
-        if (gmc.IsCollectionLiteral) return null;
+        if (gmc.IsCollectionLiteral)
+        {
+            return null;
+        }
 
         // -----------------------------------------------------------------------------
         // SA finds no matching create overload (e.g. List[T](data:..., count:..., capacity:...))
@@ -267,32 +309,37 @@ internal sealed class GenericCallLoweringPass : AstRewriter
         // (e.g. the variant-arm extractor `Dict[Text, SerialValue].create!(from: sv)`). Leave it as a
         // GMC so SA resolves the creator; SA-time lowering (below, once ResolvedRoutine is set) or the
         // creator-routing path handles it.
-        if (gmc.Object is IdentifierExpression literalId && literalId.Name == gmc.MemberRoutineName
-            && !gmc.IsMemoryOperation
-            && gmc.ResolvedRoutine == null
+        if (gmc.Object is IdentifierExpression literalId &&
+            literalId.Name == gmc.MemberRoutineName && !gmc.IsMemoryOperation &&
+            gmc.ResolvedRoutine == null
             // Constructor form `Type[Args](...)`: MemberRoutineName names a type. Prefer the SA-resolved
             // ConstructedType (import-precise) over a bare `LookupType(name)`, which only found a
             // cross-module type (e.g. Collections.BitArray) via the short-name scan.
-            && (gmc.ConstructedType != null || _registry.LookupType(name: gmc.MemberRoutineName) != null)
-            && (gmc.Arguments.Count > 0
-                || HasZeroMemberVariables(type: gmc.ConstructedType)))
+            && (gmc.ConstructedType != null ||
+                _registry.LookupType(name: gmc.MemberRoutineName) != null) &&
+            (gmc.Arguments.Count > 0 || HasZeroMemberVariables(type: gmc.ConstructedType)))
         {
             return LowerFieldInitCreator(gmc: gmc);
         }
 
         // Only lower when SA has resolved the routine -> provides the concrete call target.
-        if (gmc.ResolvedRoutine == null) return null;
+        if (gmc.ResolvedRoutine == null)
+        {
+            return null;
+        }
 
         // A memberRoutine-generic call (`recast_as[T]`) whose ResolvedRoutine is still the generic-def
         // (its type param comes from the explicit `[T]` arg, so owner substitution alone can't
         // concretize it) must be re-instantiated from its now-concrete type arguments before it is
         // baked into a plain CallExpression — otherwise codegen receives a generic-def callee.
-        gmc = gmc with { ResolvedRoutine = ConcretizeMemberRoutineGenericRoutine(gmc) };
+        gmc = gmc with { ResolvedRoutine = ConcretizeMemberRoutineGenericRoutine(gmc: gmc) };
 
         // Lower arguments first.
         var loweredArgs = new List<Expression>(capacity: gmc.Arguments.Count);
         foreach (Expression arg in gmc.Arguments)
-            loweredArgs.Add(VisitExpression(arg));
+        {
+            loweredArgs.Add(item: VisitExpression(expr: arg));
+        }
 
         // -----------------------------------------------------------------------------
         // e.g., Maybe[S64](present: true, value: x) -> SA resolved create and set ResolvedRoutine.
@@ -325,19 +372,28 @@ internal sealed class GenericCallLoweringPass : AstRewriter
         // CreatorExpression's MemberVariables uses ("", expr) for positional entries.
         bool allNamed = gmc.Arguments.All(predicate: a => a is NamedArgumentExpression);
         bool anyNamed = gmc.Arguments.Any(predicate: a => a is NamedArgumentExpression);
-        if (!allNamed && anyNamed) return null; // mixed named/positional — not our case
+        if (!allNamed && anyNamed)
+        {
+            return null; // mixed named/positional — not our case
+        }
 
         var members = new List<(string Name, Expression Value)>(capacity: gmc.Arguments.Count);
         foreach (Expression arg in gmc.Arguments)
         {
             if (arg is NamedArgumentExpression named)
-                members.Add((named.Name, VisitExpression(named.Value)));
+            {
+                members.Add(item: (named.Name, VisitExpression(expr: named.Value)));
+            }
             else
-                members.Add(("", VisitExpression(arg)));
+            {
+                members.Add(item: ("", VisitExpression(expr: arg)));
+            }
         }
-        return new CreatorExpression(
-            TypeName: gmc.MemberRoutineName,
-            TypeArguments: gmc.TypeArguments.Count > 0 ? gmc.TypeArguments : null,
+
+        return new CreatorExpression(TypeName: gmc.MemberRoutineName,
+            TypeArguments: gmc.TypeArguments.Count > 0
+                ? gmc.TypeArguments
+                : null,
             MemberVariables: members,
             Location: gmc.Location)
         {
@@ -364,8 +420,9 @@ internal sealed class GenericCallLoweringPass : AstRewriter
         return new CallExpression(
             // Callee is the type name (without the failable `!`); codegen constructs via
             // ConstructedType/ResolvedRoutine, so the name only identifies the type.
-            Callee: new IdentifierExpression(
-                Name: isTypeConstruction ? id.Name : gmc.ResolvedRoutine!.Name,
+            Callee: new IdentifierExpression(Name: isTypeConstruction
+                    ? id.Name
+                    : gmc.ResolvedRoutine!.Name,
                 Location: gmc.Location,
                 // Preserve the `::` realm qualifier (`LLVM::add[U128]`) so a re-analysis of the
                 // lowered body (monomorphized stdlib bodies re-run SA post-lowering) still sees the
@@ -378,7 +435,9 @@ internal sealed class GenericCallLoweringPass : AstRewriter
             LoweringKind = gmc.LoweringKind,
             ConstructedType = gmc.ConstructedType,
             ResolvedRoutine = gmc.ResolvedRoutine,
-            TypeArguments = gmc.TypeArguments.Count > 0 ? gmc.TypeArguments : null,
+            TypeArguments = gmc.TypeArguments.Count > 0
+                ? gmc.TypeArguments
+                : null,
             ResolvedType = gmc.ResolvedType,
             IsInFlight = gmc.IsInFlight
         };
@@ -391,16 +450,14 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     private CallExpression LowerMemberRoutineCall(GenericMemberRoutineCallExpression gmc,
         List<Expression> loweredArgs)
     {
-        Expression loweredObj = VisitExpression(gmc.Object);
+        Expression loweredObj = VisitExpression(expr: gmc.Object);
 
         return new CallExpression(
-            Callee: new MemberExpression(
-                Object: loweredObj,
+            Callee: new MemberExpression(Object: loweredObj,
                 MemberName: gmc.MemberRoutineName,
                 Location: gmc.Location)
             {
-                ResolvedType = gmc.Object.ResolvedType,
-                IsFailable = gmc.IsMemoryOperation
+                ResolvedType = gmc.Object.ResolvedType, IsFailable = gmc.IsMemoryOperation
             },
             Arguments: loweredArgs,
             Location: gmc.Location)
@@ -409,7 +466,9 @@ internal sealed class GenericCallLoweringPass : AstRewriter
             LoweringKind = gmc.LoweringKind,
             ConstructedType = gmc.ConstructedType,
             ResolvedRoutine = gmc.ResolvedRoutine,
-            TypeArguments = gmc.TypeArguments.Count > 0 ? gmc.TypeArguments : null,
+            TypeArguments = gmc.TypeArguments.Count > 0
+                ? gmc.TypeArguments
+                : null,
             ResolvedType = gmc.ResolvedType,
             IsInFlight = gmc.IsInFlight
         };
@@ -420,16 +479,18 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// arguments when it is still a generic definition (or owned by one). Returns the original
     /// routine when it is already concrete or the type args can't be resolved.
     /// </summary>
-    private RoutineInfo? ConcretizeMemberRoutineGenericRoutine(GenericMemberRoutineCallExpression gmc)
+    private RoutineInfo? ConcretizeMemberRoutineGenericRoutine(
+        GenericMemberRoutineCallExpression gmc)
     {
         RoutineInfo? routine = gmc.ResolvedRoutine;
-        if (!IsUnconcretizedMemberRoutineGeneric(routine))
+        if (!IsUnconcretizedMemberRoutineGeneric(routine: routine))
         {
             return routine;
         }
+
         RoutineInfo genDef = routine!.GenericDefinition ?? routine;
-        if (!genDef.IsGenericDefinition || genDef.GenericParameters is not { Count: > 0 } gp
-            || gp.Count != gmc.TypeArguments.Count)
+        if (!genDef.IsGenericDefinition || genDef.GenericParameters is not { Count: > 0 } gp ||
+            gp.Count != gmc.TypeArguments.Count)
         {
             return routine;
         }
@@ -440,12 +501,16 @@ internal sealed class GenericCallLoweringPass : AstRewriter
             TypeInfo? arg = te.ResolvedType is { } rt and not ErrorTypeInfo
                 ? rt
                 : _registry.LookupType(name: te.Name);
-            if (arg == null || arg is ErrorTypeInfo || ContainsGenericParam(arg))
+            if (arg == null || arg is ErrorTypeInfo || ContainsGenericParam(t: arg))
+            {
                 return routine;
+            }
+
             args.Add(item: arg);
         }
-        return _registry.GetOrCreateRoutineResolution(genericDef: genDef, typeArguments: args)
-               ?? routine;
+
+        return _registry.GetOrCreateRoutineResolution(genericDef: genDef, typeArguments: args) ??
+               routine;
     }
 
     /// <summary>
@@ -456,37 +521,57 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// </summary>
     private static bool IsUnconcretizedMemberRoutineGeneric(RoutineInfo? routine)
     {
-        if (routine is null or { IsGenericDefinition: true } or { OwnerType.IsGenericDefinition: true })
+        if (routine is null or { IsGenericDefinition: true } or
+            { OwnerType.IsGenericDefinition: true })
+        {
             return routine != null;
-        if (routine.ReturnType != null && ContainsGenericParam(routine.ReturnType))
+        }
+
+        if (routine.ReturnType != null && ContainsGenericParam(t: routine.ReturnType))
+        {
             return true;
-        return routine.Parameters.Any(p => p.Type != null && ContainsGenericParam(p.Type));
+        }
+
+        return routine.Parameters.Any(predicate: p =>
+            p.Type != null && ContainsGenericParam(t: p.Type));
     }
 
     private static bool ContainsGenericParam(TypeInfo t)
     {
-        if (t is GenericParameterTypeInfo) return true;
-        if (t is { IsGenericDefinition: true, GenericParameters.Count: > 0 }) return true;
-        return t.TypeArguments is { Count: > 0 } a && a.Any(x => ContainsGenericParam(t: x));
+        if (t is GenericParameterTypeInfo)
+        {
+            return true;
+        }
+
+        if (t is { IsGenericDefinition: true, GenericParameters.Count: > 0 })
+        {
+            return true;
+        }
+
+        return t.TypeArguments is { Count: > 0 } a &&
+               a.Any(predicate: x => ContainsGenericParam(t: x));
     }
 
     /// <summary>
     /// Falls through to just lowering the children of an un-lowerable
     /// <see cref="GenericMemberRoutineCallExpression"/>.
     /// </summary>
-    private GenericMemberRoutineCallExpression LowerGenericCallChildren(GenericMemberRoutineCallExpression gmc)
+    private GenericMemberRoutineCallExpression LowerGenericCallChildren(
+        GenericMemberRoutineCallExpression gmc)
     {
-        Expression loweredObj = VisitExpression(gmc.Object);
+        Expression loweredObj = VisitExpression(expr: gmc.Object);
         bool argsChanged = false;
         var args = new List<Expression>(capacity: gmc.Arguments.Count);
         foreach (Expression arg in gmc.Arguments)
         {
-            Expression lowered = VisitExpression(arg);
-            args.Add(lowered);
-            argsChanged |= !ReferenceEquals(lowered, arg);
+            Expression lowered = VisitExpression(expr: arg);
+            args.Add(item: lowered);
+            argsChanged |= !ReferenceEquals(objA: lowered, objB: arg);
         }
 
-        bool changed = !ReferenceEquals(loweredObj, gmc.Object) || argsChanged;
-        return changed ? gmc with { Object = loweredObj, Arguments = args } : gmc;
+        bool changed = !ReferenceEquals(objA: loweredObj, objB: gmc.Object) || argsChanged;
+        return changed
+            ? gmc with { Object = loweredObj, Arguments = args }
+            : gmc;
     }
 }

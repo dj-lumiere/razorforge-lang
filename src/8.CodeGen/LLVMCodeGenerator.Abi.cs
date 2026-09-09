@@ -41,11 +41,19 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>The ABI passing decision for one type. A lightweight discriminated union.</summary>
-    internal readonly record struct AbiPassing(AbiKind Kind, string? DirectType = null,
+    internal readonly record struct AbiPassing(
+        AbiKind Kind,
+        string? DirectType = null,
         string? CoerceType = null)
     {
-        public static AbiPassing Direct(string llvm) => new(Kind: AbiKind.Direct, DirectType: llvm);
-        public static AbiPassing Coerce(string llvm) => new(Kind: AbiKind.Coerce, CoerceType: llvm);
+        public static AbiPassing Direct(string llvm)
+        {
+            return new AbiPassing(Kind: AbiKind.Direct, DirectType: llvm);
+        }
+        public static AbiPassing Coerce(string llvm)
+        {
+            return new AbiPassing(Kind: AbiKind.Coerce, CoerceType: llvm);
+        }
         public static readonly AbiPassing Indirect = new(Kind: AbiKind.Indirect);
     }
 
@@ -53,13 +61,16 @@ public partial class LlvmCodeGenerator
     private const string LlvmDouble = "double";
 
     /// <summary>The integer width (<c>i8/i16/i32/i64</c>) covering a chunk of <paramref name="bytes"/>.</summary>
-    private static string ChunkIntType(int bytes) => bytes switch
+    private static string ChunkIntType(int bytes)
     {
-        <= 1 => "i8",
-        <= 2 => "i16",
-        <= 4 => "i32",
-        _ => "i64"
-    };
+        return bytes switch
+        {
+            <= 1 => "i8",
+            <= 2 => "i16",
+            <= 4 => "i32",
+            _ => "i64"
+        };
+    }
 
     /// <summary>
     /// Whether <paramref name="type"/> (a struct record) contains a floating-point field, directly
@@ -74,9 +85,9 @@ public partial class LlvmCodeGenerator
             return false;
         }
 
-        return members.Any(m =>
+        return members.Any(predicate: m =>
             GetLlvmType(type: m.Type) is "half" or LlvmFloat or LlvmDouble or "fp128" ||
-            (m.Type is RecordTypeInfo { BackendType: null } && StructHasFloatField(type: m.Type)));
+            m.Type is RecordTypeInfo { BackendType: null } && StructHasFloatField(type: m.Type));
     }
 
     /// <summary>
@@ -86,11 +97,13 @@ public partial class LlvmCodeGenerator
     /// <c>RecordTypeInfo</c> with item0..itemN fields. Excludes <c>@llvm</c> scalar/aggregate
     /// records, entities, wrappers, protocols, and generic definitions.
     /// </summary>
-    private static bool IsByValueStructRecord(TypeInfo type) =>
-        type is RecordTypeInfo
+    private static bool IsByValueStructRecord(TypeInfo type)
+    {
+        return type is RecordTypeInfo
         {
             BackendType: null, IsGenericDefinition: false, CarrierKind: CarrierKind.None
         };
+    }
 
     /// <summary>
     /// Classifies how <paramref name="type"/> crosses a call boundary on the current target.
@@ -137,7 +150,8 @@ public partial class LlvmCodeGenerator
         // other composite (all-integer OR non-HFA float-mixed) rides GP integer registers as chunks.
         if (_target.TargetArch == "aarch64")
         {
-            return StructHasFloatField(type: type) && TryClassifyHfa(type: type, coerce: out string hfa)
+            return StructHasFloatField(type: type) &&
+                   TryClassifyHfa(type: type, coerce: out string hfa)
                 ? AbiPassing.Coerce(llvm: hfa)
                 : IntegerChunks(size: size);
         }
@@ -165,7 +179,9 @@ public partial class LlvmCodeGenerator
         CollectLeafMemberVariables(type: type, baseOffset: 0, leaves: leaves);
         if (size <= 8)
         {
-            return AbiPassing.Coerce(llvm: EightbyteType(leaves: leaves, start: 0, chunkBytes: size));
+            return AbiPassing.Coerce(llvm: EightbyteType(leaves: leaves,
+                start: 0,
+                chunkBytes: size));
         }
 
         string t0 = EightbyteType(leaves: leaves, start: 0, chunkBytes: 8);
@@ -202,15 +218,20 @@ public partial class LlvmCodeGenerator
     private void CollectLeafMemberVariables(TypeInfo type, int baseOffset,
         List<(int Off, int Size, string Llvm)> leaves)
     {
-        if (IsByValueStructRecord(type: type) && type is RecordTypeInfo { MemberVariables: { } members })
+        if (IsByValueStructRecord(type: type) && type is RecordTypeInfo
+            {
+                MemberVariables: { } members
+            })
         {
             int size = 0;
-            foreach (TypeInfo mvType in members.Select(mv => mv.Type))
+            foreach (TypeInfo mvType in members.Select(selector: mv => mv.Type))
             {
                 int memberSize = GetTypeSize(type: mvType);
                 int alignment = mvType.Alignment(pointerSize: _pointerSizeBytes);
                 size = AlignTo(size: size, alignment: alignment);
-                CollectLeafMemberVariables(type: mvType, baseOffset: baseOffset + size, leaves: leaves);
+                CollectLeafMemberVariables(type: mvType,
+                    baseOffset: baseOffset + size,
+                    leaves: leaves);
                 size += memberSize;
             }
 
@@ -221,7 +242,10 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>Whether an llvm type name is a floating-point (SSE-class) scalar.</summary>
-    private static bool IsFpLlvm(string llvm) => llvm is "half" or LlvmFloat or LlvmDouble or "fp128";
+    private static bool IsFpLlvm(string llvm)
+    {
+        return llvm is "half" or LlvmFloat or LlvmDouble or "fp128";
+    }
 
     /// <summary>
     /// The ABI register type for the eightbyte <c>[start, start+8)</c> of a struct given its leaf fields:
@@ -256,8 +280,16 @@ public partial class LlvmCodeGenerator
             return ChunkIntType(bytes: chunkBytes);
         }
 
-        if (chunkBytes <= 2) return "half";
-        if (chunkBytes <= 4) return LlvmFloat;
+        if (chunkBytes <= 2)
+        {
+            return "half";
+        }
+
+        if (chunkBytes <= 4)
+        {
+            return LlvmFloat;
+        }
+
         return LlvmDouble;
     }
 
@@ -320,8 +352,8 @@ public partial class LlvmCodeGenerator
         // routine is a UNIVERSAL derive (OwnerType = generic param), whose raw ReturnType is still `T`.
         // Classifying the raw `T` would trip GetLlvmType; the concrete call/callee use the substituted type.
         TypeInfo? rt = overrideReturnType ?? routine.ReturnType;
-        return rt != null
-               && AbiClassify(type: rt).Kind == AbiKind.Indirect;
+        return rt != null && AbiClassify(type: rt)
+           .Kind == AbiKind.Indirect;
     }
 
     /// <summary>
@@ -350,7 +382,9 @@ public partial class LlvmCodeGenerator
         }
 
         AbiPassing p = AbiClassify(type: routine.ReturnType);
-        return p.Kind == AbiKind.Coerce ? p.CoerceType : null;
+        return p.Kind == AbiKind.Coerce
+            ? p.CoerceType
+            : null;
     }
 
     /// <summary>
@@ -396,8 +430,11 @@ public partial class LlvmCodeGenerator
     /// races that injected store: trivially-Assignable args get no <c>store</c>, so byval is the only
     /// duplication and it is sound.
     /// </summary>
-    private bool IsTriviallyAssignableRecord(TypeInfo type) =>
-        _registry.GetLifecycle(type: type).Store == null;
+    private bool IsTriviallyAssignableRecord(TypeInfo type)
+    {
+        return _registry.GetLifecycle(type: type)
+                        .Store == null;
+    }
 
     /// <summary>
     /// Whether the explicit value parameter <paramref name="paramType"/> of <paramref name="routine"/>
@@ -410,10 +447,11 @@ public partial class LlvmCodeGenerator
     /// at that boundary mismatches the worker's value-typed parameter. Callers consult this only AFTER
     /// excluding by-ref receivers (<c>me</c>) and thread-shareable args.
     /// </summary>
-    private bool ParameterPassedByval(RoutineInfo routine, TypeInfo paramType) =>
-        !routine.IsAsync
-        && AbiClassify(type: paramType).Kind == AbiKind.Indirect
-        && IsTriviallyAssignableRecord(type: paramType);
+    private bool ParameterPassedByval(RoutineInfo routine, TypeInfo paramType)
+    {
+        return !routine.IsAsync && AbiClassify(type: paramType)
+           .Kind == AbiKind.Indirect && IsTriviallyAssignableRecord(type: paramType);
+    }
 
     /// <summary>
     /// The ABI register type a value parameter is COERCED to (e.g. <c>i64</c> / <c>{ i64, i32 }</c>),
@@ -431,7 +469,9 @@ public partial class LlvmCodeGenerator
         }
 
         AbiPassing p = AbiClassify(type: paramType);
-        return p.Kind == AbiKind.Coerce ? p.CoerceType : null;
+        return p.Kind == AbiKind.Coerce
+            ? p.CoerceType
+            : null;
     }
 
     /// <summary>
@@ -450,8 +490,10 @@ public partial class LlvmCodeGenerator
             return false;
         }
 
-        newValue = CoerceStructToAbi(sb: sb, structValue: argValue,
-            structLlvm: GetLlvmType(type: parameterType), abiType: coerce);
+        newValue = CoerceStructToAbi(sb: sb,
+            structValue: argValue,
+            structLlvm: GetLlvmType(type: parameterType),
+            abiType: coerce);
         newType = coerce;
         return true;
     }
@@ -464,7 +506,8 @@ public partial class LlvmCodeGenerator
     /// The alloca goes in the entry block; the store is emitted at the call site.
     /// </summary>
     private bool TryCoerceArgToByval(StringBuilder sb, string argValue, TypeInfo actualType,
-        TypeInfo parameterType, RoutineInfo callee, out string newValue, out string newType)
+        TypeInfo parameterType, RoutineInfo callee, out string newValue,
+        out string newType)
     {
         newValue = argValue;
         newType = GetParameterLlvmType(type: parameterType);

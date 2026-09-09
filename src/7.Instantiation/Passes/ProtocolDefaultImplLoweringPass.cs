@@ -63,9 +63,12 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         do
         {
             var freshBodies = EnumerateLiveRoutineBodies()
-                .Where(predicate: b => !_walkedBodies.Contains(item: b))
-                .ToList();
-            if (freshBodies.Count == 0) break;
+                             .Where(predicate: b => !_walkedBodies.Contains(item: b))
+                             .ToList();
+            if (freshBodies.Count == 0)
+            {
+                break;
+            }
 
             changed = DiscoverAndSynthesize(bodies: freshBodies);
             if (changed)
@@ -73,8 +76,13 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
                 synthesizedAny = true;
                 RewriteCallSites(bodies: freshBodies);
             }
-            foreach (Statement b in freshBodies) _walkedBodies.Add(item: b);
+
+            foreach (Statement b in freshBodies)
+            {
+                _walkedBodies.Add(item: b);
+            }
         } while (changed);
+
         return synthesizedAny;
     }
 
@@ -89,12 +97,16 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         bool added = false;
         foreach (Statement body in bodies)
         {
-            AstWalker.WalkExpressions(root: body, visit: expr =>
-            {
-                if (SynthesizeForCallExpression(expr: expr))
-                    added = true;
-            });
+            AstWalker.WalkExpressions(root: body,
+                visit: expr =>
+                {
+                    if (SynthesizeForCallExpression(expr: expr))
+                    {
+                        added = true;
+                    }
+                });
         }
+
         return added;
     }
 
@@ -110,13 +122,21 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         // GenericMemberRoutineCallExpression because GenericCallLoweringPass runs AFTER PDIL. Without
         // this its per-implementer body (List[S64].select_many) is never synthesized.
         if (!TryGetProtocolDefaultCallParts(expr: expr,
-                resolvedRoutine: out RoutineInfo? rr0, receiverType: out TypeInfo? recvType0,
+                resolvedRoutine: out RoutineInfo? rr0,
+                receiverType: out TypeInfo? recvType0,
                 rebind: out _))
+        {
             return false;
-        if (!TryResolveProtocolDefaultImpl(resolvedRoutine: rr0, receiverResolvedType: recvType0,
+        }
+
+        if (!TryResolveProtocolDefaultImpl(resolvedRoutine: rr0,
+                receiverResolvedType: recvType0,
                 protoRoutine: out RoutineInfo? pr,
                 implementer: out TypeInfo? implOrNull) || pr == null || implOrNull == null)
+        {
             return false;
+        }
+
         TypeInfo impl = implOrNull;
 
         // memberRoutine-generic resolution (e.g. `List[Text].zip[S64, List[S64]]`): the call already
@@ -134,7 +154,9 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
             pr.GenericParameters is { Count: > 0 } allParams &&
             memberRoutineArgs.Count <= allParams.Count)
         {
-            return SynthesizeMemberGenericBody(pr: pr, impl: impl, memberRoutineArgs: memberRoutineArgs,
+            return SynthesizeMemberGenericBody(pr: pr,
+                impl: impl,
+                memberRoutineArgs: memberRoutineArgs,
                 allParams: allParams);
         }
 
@@ -149,31 +171,43 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         List<TypeInfo> memberRoutineArgs, List<string> allParams)
     {
         Dictionary<string, TypeInfo> fullSubs = BuildProtocolGenericSubs(
-            protocolRoutine: pr, implementer: impl);
+            protocolRoutine: pr,
+            implementer: impl);
         int offset = allParams.Count - memberRoutineArgs.Count;
         for (int i = 0; i < memberRoutineArgs.Count; i++)
+        {
             fullSubs[key: allParams[index: offset + i]] = memberRoutineArgs[index: i];
+        }
 
         // Build the per-implementer routine with Me + the memberRoutine generics substituted in
         // its signature (rr's own ReturnType still carries ProtocolSelf `Me`, which would
         // trip codegen's ContainsGenericParameter guard and silently skip emission). Carry
         // rr.TypeArguments so it mangles to the same symbol the call site emits.
-        RoutineInfo mgInfo = SynthesizePerImplementer(protocolRoutine: pr, implementer: impl,
-            protoSubs: fullSubs, typeArguments: memberRoutineArgs);
+        RoutineInfo mgInfo = SynthesizePerImplementer(protocolRoutine: pr,
+            implementer: impl,
+            protoSubs: fullSubs,
+            typeArguments: memberRoutineArgs);
 
         // Guard on the key we actually store under (mgInfo's), or the fixed-point loop
         // never converges (re-adding every iteration).
-        if (ctx.InstantiatedGenericBodies.ContainsKey(key: mgInfo.RegistryKey)) return false;
+        if (ctx.InstantiatedGenericBodies.ContainsKey(key: mgInfo.RegistryKey))
+        {
+            return false;
+        }
 
-        Statement? mgBody = CloneProtocolRoutineBody(protocolRoutine: pr, implementer: impl,
-            synthesized: mgInfo, protoSubs: fullSubs);
-        if (mgBody == null) return false;
+        Statement? mgBody = CloneProtocolRoutineBody(protocolRoutine: pr,
+            implementer: impl,
+            synthesized: mgInfo,
+            protoSubs: fullSubs);
+        if (mgBody == null)
+        {
+            return false;
+        }
 
         ctx.LiveRoutineKeys.Add(item: mgInfo.RegistryKey);
-        var mgSubs = new Dictionary<string, TypeInfo>(fullSubs)
+        var mgSubs = new Dictionary<string, TypeInfo>(dictionary: fullSubs)
         {
-            ["me"] = impl,
-            ["Me"] = impl
+            [key: "me"] = impl, [key: "Me"] = impl
         };
         ctx.InstantiatedGenericBodies[key: mgInfo.RegistryKey] = new MonomorphizedBody(
             Ast: WrapInShellDecl(name: mgInfo.Name, body: mgBody, info: mgInfo),
@@ -192,8 +226,11 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     /// </summary>
     private bool SynthesizeStandardBody(RoutineInfo pr, TypeInfo impl)
     {
-        var key = (pr.RegistryKey, impl.FullName);
-        if (_synthesized.ContainsKey(key: key)) return false;
+        (string RegistryKey, string FullName) key = (pr.RegistryKey, impl.FullName);
+        if (_synthesized.ContainsKey(key: key))
+        {
+            return false;
+        }
 
         // Bind the protocol's own generic params (e.g. Iterable[T].enumerate's `T`) from the
         // implementer's conformance (`List[Text] obeys Iterable[Text]` ⇒ T=Text), so the
@@ -201,12 +238,18 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         Dictionary<string, TypeInfo> protoSubs =
             BuildProtocolGenericSubs(protocolRoutine: pr, implementer: impl);
 
-        RoutineInfo synthesized = SynthesizePerImplementer(protocolRoutine: pr, implementer: impl,
+        RoutineInfo synthesized = SynthesizePerImplementer(protocolRoutine: pr,
+            implementer: impl,
             protoSubs: protoSubs);
 
-        Statement? clonedBody = CloneProtocolRoutineBody(protocolRoutine: pr, implementer: impl,
-            synthesized: synthesized, protoSubs: protoSubs);
-        if (clonedBody == null) return false;
+        Statement? clonedBody = CloneProtocolRoutineBody(protocolRoutine: pr,
+            implementer: impl,
+            synthesized: synthesized,
+            protoSubs: protoSubs);
+        if (clonedBody == null)
+        {
+            return false;
+        }
 
         _synthesized[key: key] = synthesized;
         ctx.Registry.RegisterRoutine(routine: synthesized);
@@ -222,10 +265,9 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         // "me" is the receiver value binding; "Me" maps ProtocolSelf (Name "Me") to the
         // implementer so codegen's type substitution resolves `Me`-typed constructions
         // (e.g. `EnumerateIterator[T, Me]`) instead of leaking ProtocolSelf.
-        var bodySubs = new Dictionary<string, TypeInfo>(protoSubs)
+        var bodySubs = new Dictionary<string, TypeInfo>(dictionary: protoSubs)
         {
-            ["me"] = impl,
-            ["Me"] = impl
+            [key: "me"] = impl, [key: "Me"] = impl
         };
         ctx.InstantiatedGenericBodies[key: synthesized.RegistryKey] = new MonomorphizedBody(
             Ast: WrapInShellDecl(name: synthesized.Name, body: clonedBody, info: synthesized),
@@ -248,30 +290,43 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     /// </summary>
     private void SeedConstructorCallees(Statement body)
     {
-        AstWalker.WalkExpressions(root: body, visit: expr =>
-        {
-            // A no-arg construction in a cloned collector body — e.g. `Set[T]()` / `List[T]()` —
-            // reaches here as a GenericMemberRoutineCallExpression (or CreatorExpression) carrying a concrete
-            // ConstructedType after the T→implementer substitution. Codegen emits a `<Type>.create`
-            // call by mangled name; mark it live so the body GMP monomorphizes survives the gate.
-            TypeInfo? ct = expr switch
+        AstWalker.WalkExpressions(root: body,
+            visit: expr =>
             {
-                CreatorExpression cre => cre.ConstructedType,
-                GenericMemberRoutineCallExpression gmc => gmc.ConstructedType,
-                CallExpression { Arguments.Count: 0 } ce => ce.ConstructedType,
-                _ => null
-            };
-            if (ct is null || !IsConcreteType(t: ct)) return;
-            ctx.LiveRoutineKeys.Add(item: $"{ct.FullName}.create");
-        });
+                // A no-arg construction in a cloned collector body — e.g. `Set[T]()` / `List[T]()` —
+                // reaches here as a GenericMemberRoutineCallExpression (or CreatorExpression) carrying a concrete
+                // ConstructedType after the T→implementer substitution. Codegen emits a `<Type>.create`
+                // call by mangled name; mark it live so the body GMP monomorphizes survives the gate.
+                TypeInfo? ct = expr switch
+                {
+                    CreatorExpression cre => cre.ConstructedType,
+                    GenericMemberRoutineCallExpression gmc => gmc.ConstructedType,
+                    CallExpression { Arguments.Count: 0 } ce => ce.ConstructedType,
+                    _ => null
+                };
+                if (ct is null || !IsConcreteType(t: ct))
+                {
+                    return;
+                }
+
+                ctx.LiveRoutineKeys.Add(item: $"{ct.FullName}.create");
+            });
     }
 
     /// <summary>True when <paramref name="t"/> carries no unresolved generic parameter (so its
     /// <c>create</c> mangles to a real symbol, not e.g. <c>ExcludeIterator[T, Me, SO].create</c>).</summary>
     private static bool IsConcreteType(TypeInfo t)
     {
-        if (t is GenericParameterTypeInfo or ProtocolTypeInfo) return false;
-        if (t is { IsGenericDefinition: true, GenericParameters.Count: > 0 }) return false;
+        if (t is GenericParameterTypeInfo or ProtocolTypeInfo)
+        {
+            return false;
+        }
+
+        if (t is { IsGenericDefinition: true, GenericParameters.Count: > 0 })
+        {
+            return false;
+        }
+
         return t.TypeArguments is not { Count: > 0 } args || args.All(predicate: IsConcreteType);
     }
 
@@ -285,22 +340,31 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     {
         foreach (Statement body in bodies)
         {
-            AstWalker.WalkExpressions(root: body, visit: expr =>
-            {
-                if (!TryGetProtocolDefaultCallParts(expr: expr,
-                        resolvedRoutine: out RoutineInfo? rr, receiverType: out TypeInfo? recvType,
-                        rebind: out Action<RoutineInfo> rebind))
-                    return;
-                if (!TryResolveProtocolDefaultImpl(resolvedRoutine: rr, receiverResolvedType: recvType,
-                        protoRoutine: out RoutineInfo? pr,
-                        implementer: out TypeInfo? impl) || pr == null || impl == null)
-                    return;
-                if (_synthesized.TryGetValue(key: (pr.RegistryKey, impl.FullName),
-                        value: out RoutineInfo? newRoutine))
+            AstWalker.WalkExpressions(root: body,
+                visit: expr =>
                 {
-                    rebind(newRoutine);
-                }
-            });
+                    if (!TryGetProtocolDefaultCallParts(expr: expr,
+                            resolvedRoutine: out RoutineInfo? rr,
+                            receiverType: out TypeInfo? recvType,
+                            rebind: out Action<RoutineInfo> rebind))
+                    {
+                        return;
+                    }
+
+                    if (!TryResolveProtocolDefaultImpl(resolvedRoutine: rr,
+                            receiverResolvedType: recvType,
+                            protoRoutine: out RoutineInfo? pr,
+                            implementer: out TypeInfo? impl) || pr == null || impl == null)
+                    {
+                        return;
+                    }
+
+                    if (_synthesized.TryGetValue(key: (pr.RegistryKey, impl.FullName),
+                            value: out RoutineInfo? newRoutine))
+                    {
+                        rebind(obj: newRoutine);
+                    }
+                });
         }
     }
 
@@ -317,7 +381,8 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     /// <param name="receiverType">On success, the concrete receiver type the call dispatches on.</param>
     /// <param name="rebind">On success, a callback to replace the call's resolved routine with the synthesized one.</param>
     private static bool TryGetProtocolDefaultCallParts(Expression expr,
-        out RoutineInfo? resolvedRoutine, out TypeInfo? receiverType, out Action<RoutineInfo> rebind)
+        out RoutineInfo? resolvedRoutine, out TypeInfo? receiverType,
+        out Action<RoutineInfo> rebind)
     {
         switch (expr)
         {
@@ -344,7 +409,10 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     {
         protoRoutine = null;
         implementer = null;
-        if (resolvedRoutine is not { } rr) return false;
+        if (resolvedRoutine is not { } rr)
+        {
+            return false;
+        }
 
         // Walk the GenericDefinition chain to find a protocol-owned default-impl body.
         // One level covers the re-homed owner-resolved form; a member-routine-generic
@@ -359,7 +427,10 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
             }
         }
 
-        if (proto == null) return false;
+        if (proto == null)
+        {
+            return false;
+        }
 
         // Pick the implementer. When the resolved routine is ALREADY re-homed onto a concrete owner
         // (e.g. `me.transform(x).List()` monomorphized to `List[S64].List`), `rr.OwnerType` IS the
@@ -370,12 +441,22 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         // protocol-owned (not yet re-homed, e.g. an `Iterable[T].Set()` call).
         TypeInfo? impl;
         if (rr.OwnerType is RecordTypeInfo or EntityTypeInfo)
+        {
             impl = rr.OwnerType;
+        }
         else if (receiverResolvedType is { } recvType)
+        {
             impl = UnwrapWrappers(t: recvType);
+        }
         else
+        {
             impl = null;
-        if (impl is null or ProtocolTypeInfo or GenericParameterTypeInfo) return false;
+        }
+
+        if (impl is null or ProtocolTypeInfo or GenericParameterTypeInfo)
+        {
+            return false;
+        }
 
         protoRoutine = proto;
         implementer = impl;
@@ -388,13 +469,20 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     /// <c>Iterable[Text]</c>), returns <c>{ T → Text }</c>. Empty when the protocol is non-generic
     /// or no matching conformance is found.
     /// </summary>
-    private static Dictionary<string, TypeInfo> BuildProtocolGenericSubs(RoutineInfo protocolRoutine,
-        TypeInfo implementer)
+    private static Dictionary<string, TypeInfo> BuildProtocolGenericSubs(
+        RoutineInfo protocolRoutine, TypeInfo implementer)
     {
         var subs = new Dictionary<string, TypeInfo>();
-        if (protocolRoutine.OwnerType is not ProtocolTypeInfo protoOwner) return subs;
+        if (protocolRoutine.OwnerType is not ProtocolTypeInfo protoOwner)
+        {
+            return subs;
+        }
+
         ProtocolTypeInfo protoDef = protoOwner.GenericDefinition ?? protoOwner;
-        if (protoDef.GenericParameters is not { Count: > 0 } pParams) return subs;
+        if (protoDef.GenericParameters is not { Count: > 0 } pParams)
+        {
+            return subs;
+        }
 
         List<TypeInfo>? protocols = implementer switch
         {
@@ -402,21 +490,32 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
             RecordTypeInfo r => r.ImplementedProtocols,
             _ => null
         };
-        if (protocols == null) return subs;
+        if (protocols == null)
+        {
+            return subs;
+        }
 
         foreach (TypeInfo p in protocols)
         {
             // CheckAndAdvance the conformance to the same protocol by generic-definition identity (no name
             // string-munging): `Iterable[Text]`'s def is the same `Iterable` def the routine owns.
             TypeInfo pDef = GenericDefOf(t: p) ?? p;
-            if (!ReferenceEquals(objA: pDef, objB: protoDef) && pDef.Name != protoDef.Name) continue;
+            if (!ReferenceEquals(objA: pDef, objB: protoDef) && pDef.Name != protoDef.Name)
+            {
+                continue;
+            }
+
             if (p.TypeArguments is { Count: > 0 } args)
             {
                 for (int i = 0; i < pParams.Count && i < args.Count; i++)
+                {
                     subs[key: pParams[index: i]] = args[index: i];
+                }
             }
+
             break;
         }
+
         return subs;
     }
 
@@ -430,12 +529,16 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         foreach ((Program prog, _, _) in ctx.UserPrograms)
         {
             foreach (Statement s in WalkDeclarationsForBodies(prog: prog))
+            {
                 yield return s;
+            }
         }
+
         foreach (Statement s in ctx.RoutineBodies.Values)
         {
             yield return s;
         }
+
         // Snapshot: DiscoverAndSynthesize adds to ctx.InstantiatedGenericBodies as it walks, which
         // would invalidate a live enumerator (this matters on the post-GMP PDIL re-run, when the map
         // is already populated). New bodies from this pass are picked up by the outer fixed-point loop.
@@ -458,11 +561,17 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
                     break;
                 case EntityDeclaration ed:
                     foreach (Statement body in MemberRoutineBodies(members: ed.Members))
+                    {
                         yield return body;
+                    }
+
                     break;
                 case RecordDeclaration rd:
                     foreach (Statement body in MemberRoutineBodies(members: rd.Members))
+                    {
                         yield return body;
+                    }
+
                     break;
                 case Statement topLevel:
                     yield return topLevel;
@@ -478,7 +587,9 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         foreach (SyntaxTree.Declaration m in members)
         {
             if (m is RoutineDeclaration mr)
+            {
                 yield return mr.Body;
+            }
         }
     }
 
@@ -489,20 +600,36 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     /// templates live only in the latter — see its doc).
     /// </summary>
     private bool RoutineHasDefaultImplBody(RoutineInfo routine)
-        => HasTemplateBody(key: routine.RegistryKey)
-           || (routine.GenericDefinition != null && HasTemplateBody(key: routine.GenericDefinition.RegistryKey));
+    {
+        return HasTemplateBody(key: routine.RegistryKey) || routine.GenericDefinition != null &&
+            HasTemplateBody(key: routine.GenericDefinition.RegistryKey);
+    }
 
     private bool HasTemplateBody(string key)
-        => ctx.RoutineBodies.ContainsKey(key: key) || ctx.StdlibTemplateBodies.ContainsKey(key: key);
+    {
+        return ctx.RoutineBodies.ContainsKey(key: key) ||
+               ctx.StdlibTemplateBodies.ContainsKey(key: key);
+    }
 
     private Statement? GetDefaultImplBody(RoutineInfo routine)
-        => GetTemplateBody(key: routine.RegistryKey)
-           ?? (routine.GenericDefinition != null ? GetTemplateBody(key: routine.GenericDefinition.RegistryKey) : null);
+    {
+        return GetTemplateBody(key: routine.RegistryKey) ?? (routine.GenericDefinition != null
+            ? GetTemplateBody(key: routine.GenericDefinition.RegistryKey)
+            : null);
+    }
 
     private Statement? GetTemplateBody(string key)
     {
-        if (ctx.RoutineBodies.TryGetValue(key: key, value: out Statement? b)) return b;
-        if (ctx.StdlibTemplateBodies.TryGetValue(key: key, value: out b)) return b;
+        if (ctx.RoutineBodies.TryGetValue(key: key, value: out Statement? b))
+        {
+            return b;
+        }
+
+        if (ctx.StdlibTemplateBodies.TryGetValue(key: key, value: out b))
+        {
+            return b;
+        }
+
         return null;
     }
 
@@ -514,6 +641,7 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         {
             t = w.InnerType;
         }
+
         return t;
     }
 
@@ -527,10 +655,13 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         // protoSubs also carries the bound memberRoutine generics and <paramref name="typeArguments"/> the
         // concrete memberRoutine args, so the synthesized routine mangles identically to the call site's
         // resolution symbol (e.g. `List[Text].zip[S64,List[S64]](List[S64])`).
-        var subs = new Dictionary<string, TypeInfo>(protoSubs) { ["Me"] = implementer };
+        var subs =
+            new Dictionary<string, TypeInfo>(dictionary: protoSubs) { [key: "Me"] = implementer };
         var newParams = protocolRoutine.Parameters
-            .Select(selector: p => p.WithSubstitutedType(newType: SubstituteMe(t: p.Type, subs: subs)))
-            .ToList();
+                                       .Select(selector: p =>
+                                            p.WithSubstitutedType(
+                                                newType: SubstituteMe(t: p.Type, subs: subs)))
+                                       .ToList();
 
         TypeInfo? newRet = protocolRoutine.ReturnType != null
             ? SubstituteMe(t: protocolRoutine.ReturnType, subs: subs)
@@ -556,7 +687,9 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     {
         Statement? originalBody = GetDefaultImplBody(routine: protocolRoutine);
         if (originalBody == null)
+        {
             return null;
+        }
 
         // GenericAstRewriter sets ctx.ParamTypes["me"] from enclosingRoutine.OwnerType, so passing
         // the synthesized routine (OwnerType = implementer) automatically rebinds `me` (the receiver)
@@ -564,12 +697,15 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         // calls in the body then re-resolve against the implementer's memberRoutines. The protocol's own
         // generic params (e.g. T→Text) are folded in so body types like EnumerateIterator[T] become
         // concrete (EnumerateIterator[Text]) and don't leak the element param into codegen.
-        var typeSubs = new Dictionary<string, TypeInfo>(protoSubs) { ["Me"] = implementer };
+        var typeSubs =
+            new Dictionary<string, TypeInfo>(dictionary: protoSubs) { [key: "Me"] = implementer };
         var stringSubs = typeSubs.ToDictionary(keySelector: kv => kv.Key,
             elementSelector: kv => kv.Value.FullName);
-        Statement cloned = GenericAstRewriter.RewriteStatement(
-            stmt: originalBody, subs: stringSubs, typeSubs: typeSubs,
-            registry: ctx.Registry, enclosingRoutine: synthesized);
+        Statement cloned = GenericAstRewriter.RewriteStatement(stmt: originalBody,
+            subs: stringSubs,
+            typeSubs: typeSubs,
+            registry: ctx.Registry,
+            enclosingRoutine: synthesized);
 
         // Stdlib bodies are stored raw (no SA annotation). `me` identifiers therefore have
         // ResolvedType=null after cloning, which blocks downstream lowering: ControlFlowLowering
@@ -582,30 +718,46 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
 
     private static void AnnotateMeReferences(object? node, TypeInfo implementer)
     {
-        AstWalker.WalkExpressions(root: node, visit: expr =>
-        {
-            if (expr is IdentifierExpression { Name: "me" } id)
+        AstWalker.WalkExpressions(root: node,
+            visit: expr =>
             {
-                id.ResolvedType = implementer;
-            }
-        });
+                if (expr is IdentifierExpression { Name: "me" } id)
+                {
+                    id.ResolvedType = implementer;
+                }
+            });
     }
 
-    private static RoutineDeclaration WrapInShellDecl(string name, Statement body, RoutineInfo info)
-        => new(Name: name, Parameters: [], ReturnType: null, Body: body,
-            Visibility: VisibilityModifier.Open, Annotations: [],
-            Location: info.Location ?? new SourceLocation(FileName: "", Line: 0, Column: 0, Position: 0));
+    private static RoutineDeclaration WrapInShellDecl(string name, Statement body,
+        RoutineInfo info)
+    {
+        return new RoutineDeclaration(Name: name,
+            Parameters: [],
+            ReturnType: null,
+            Body: body,
+            Visibility: VisibilityModifier.Open,
+            Annotations: [],
+            Location: info.Location ?? new SourceLocation(FileName: "",
+                Line: 0,
+                Column: 0,
+                Position: 0));
+    }
 
     private TypeInfo SubstituteMe(TypeInfo t, Dictionary<string, TypeInfo> subs)
     {
-        if (t is GenericParameterTypeInfo gp && subs.TryGetValue(key: gp.Name, value: out TypeInfo? sub))
+        if (t is GenericParameterTypeInfo gp &&
+            subs.TryGetValue(key: gp.Name, value: out TypeInfo? sub))
+        {
             return sub;
+        }
 
         // `Me` in a protocol-default-impl signature/body resolves to ProtocolSelf; bind it to the
         // implementer (subs["Me"]). Without this, a return type like `?EnumerateIterator[T, Me]`
         // keeps ProtocolSelf, which ContainsGenericParameter flags, making codegen skip the body.
         if (t is ProtocolSelfTypeInfo && subs.TryGetValue(key: "Me", value: out TypeInfo? meSub))
+        {
             return meSub;
+        }
 
         // RoutineTypeInfo keeps its parameter/return types in dedicated properties, NOT in
         // TypeArguments, so the generic recursion below misses them. Substitute each explicitly so
@@ -613,7 +765,9 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         // Without this the synthesized routine mangles to `...select(Routine[(T,), U])` and never
         // matches the call site's `...select(Routine[(S64,), S64])` — "undefined symbol" at codegen.
         if (t is RoutineTypeInfo rt)
+        {
             return SubstituteRoutineType(rt: rt, subs: subs);
+        }
 
         // Recurse into composite types (e.g. EnumerateIterator[T] → EnumerateIterator[Text],
         // List[Me] → List[List[Text]]) so the substituted param doesn't survive in a type argument.
@@ -621,11 +775,12 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     }
 
     /// <summary>Substitutes generic parameters within a <see cref="RoutineTypeInfo"/>'s parameter and return types.</summary>
-    private RoutineTypeInfo SubstituteRoutineType(RoutineTypeInfo rt, Dictionary<string, TypeInfo> subs)
+    private RoutineTypeInfo SubstituteRoutineType(RoutineTypeInfo rt,
+        Dictionary<string, TypeInfo> subs)
     {
         var newParamTypes = rt.ParameterTypes
-            .Select(selector: p => SubstituteMe(t: p, subs: subs))
-            .ToList();
+                              .Select(selector: p => SubstituteMe(t: p, subs: subs))
+                              .ToList();
         TypeInfo? newReturn = rt.ReturnType != null
             ? SubstituteMe(t: rt.ReturnType, subs: subs)
             : null;
@@ -639,7 +794,9 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     private TypeInfo SubstituteTypeArguments(TypeInfo t, Dictionary<string, TypeInfo> subs)
     {
         if (t.TypeArguments is not { Count: > 0 } args)
+        {
             return t;
+        }
 
         bool changed = false;
         var newArgs = new List<TypeInfo>(capacity: args.Count);
@@ -649,22 +806,30 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
             changed |= !ReferenceEquals(objA: na, objB: a);
             newArgs.Add(item: na);
         }
+
         if (changed)
         {
-            TypeInfo? def = GenericDefOf(t: t) ?? (t.IsGenericDefinition ? t : null);
+            TypeInfo? def = GenericDefOf(t: t) ?? (t.IsGenericDefinition
+                ? t
+                : null);
             if (def != null)
+            {
                 return ctx.Registry.GetOrCreateResolution(genericDef: def, typeArguments: newArgs);
+            }
         }
+
         return t;
     }
 
     /// <summary>Generic definition of a type, which lives on the concrete subtypes, not base TypeInfo.</summary>
-    private static TypeInfo? GenericDefOf(TypeInfo t) => t switch
+    private static TypeInfo? GenericDefOf(TypeInfo t)
     {
-        RecordTypeInfo r => r.GenericDefinition,
-        EntityTypeInfo e => e.GenericDefinition,
-        ProtocolTypeInfo p => p.GenericDefinition,
-        _ => null
-    };
-
+        return t switch
+        {
+            RecordTypeInfo r => r.GenericDefinition,
+            EntityTypeInfo e => e.GenericDefinition,
+            ProtocolTypeInfo p => p.GenericDefinition,
+            _ => null
+        };
+    }
 }

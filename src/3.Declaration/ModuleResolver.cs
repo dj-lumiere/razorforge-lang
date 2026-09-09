@@ -48,13 +48,18 @@ public sealed class ModuleResolver
     public void SeedIndex(IReadOnlyDictionary<string, string> entries)
     {
         foreach ((string key, string path) in entries)
+        {
             _index.TryAdd(key: key, value: path);
+        }
     }
 
     /// <summary>Returns an immutable copy of the current import index (module/symbol → declaring file), for
     /// daemon-side caching + reuse via <see cref="SeedIndex"/>.</summary>
-    public IReadOnlyDictionary<string, string> IndexSnapshot() =>
-        new Dictionary<string, string>(dictionary: _index, comparer: StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyDictionary<string, string> IndexSnapshot()
+    {
+        return new Dictionary<string, string>(dictionary: _index,
+            comparer: StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Registers a parsed file into the import index so its module and exported type/routine names
@@ -116,10 +121,17 @@ public sealed class ModuleResolver
         var result = new List<string>();
         foreach (string key in _index.Keys)
         {
-            if (key.Contains(value: '.')) continue; // symbol key, not a module
+            if (key.Contains(value: '.'))
+            {
+                continue; // symbol key, not a module
+            }
+
             if (key.StartsWith(value: needle, comparisonType: StringComparison.OrdinalIgnoreCase))
+            {
                 result.Add(item: key);
+            }
         }
+
         result.Sort(comparer: StringComparer.Ordinal);
         return result;
     }
@@ -140,8 +152,7 @@ public sealed class ModuleResolver
 
         if (resolved is null)
         {
-            _errors.Add(item: new SemanticError(
-                Code: SemanticDiagnosticCode.ModuleNotFound,
+            _errors.Add(item: new SemanticError(Code: SemanticDiagnosticCode.ModuleNotFound,
                 Message: $"Cannot resolve import '{importPath}'. Module not found.",
                 Location: location));
         }
@@ -230,8 +241,12 @@ public sealed class ModuleResolver
         // "IO/Console.show"    -> module="IO/Console",   symbol="show"
         // "Collections"        -> module="Collections",  symbol=null
         int lastDot = importPath.LastIndexOf(value: '.');
-        string modulePart = lastDot >= 0 ? importPath[..lastDot] : importPath;
-        string? symbolPart = lastDot >= 0 ? importPath[(lastDot + 1)..] : null;
+        string modulePart = lastDot >= 0
+            ? importPath[..lastDot]
+            : importPath;
+        string? symbolPart = lastDot >= 0
+            ? importPath[(lastDot + 1)..]
+            : null;
 
         // Only '/' is a hierarchy separator; convert to OS path separator.
         string relPath = modulePart.Replace(oldChar: '/', newChar: Path.DirectorySeparatorChar);
@@ -243,12 +258,13 @@ public sealed class ModuleResolver
             _projectRoot,
             .. _libraryRoots,
             Path.Combine(path1: _stdlibRoot, path2: "RazorForge"),
-            Path.Combine(path1: _stdlibRoot, path2: "Suflae"),
+            Path.Combine(path1: _stdlibRoot, path2: "Suflae")
         ];
 
         foreach (string root in roots)
         {
-            string? found = TryFilesystemRoot(root: root, relPath: relPath, symbolPart: symbolPart);
+            string? found =
+                TryFilesystemRoot(root: root, relPath: relPath, symbolPart: symbolPart);
             if (found != null)
             {
                 return found;
@@ -267,38 +283,55 @@ public sealed class ModuleResolver
     {
         // Try: root/module.rf  or  .sf
         string modRf = Path.Combine(path1: root, path2: relPath + ".rf");
-        if (File.Exists(path: modRf)) return modRf;
+        if (File.Exists(path: modRf))
+        {
+            return modRf;
+        }
 
         string modSf = Path.Combine(path1: root, path2: relPath + ".sf");
-        if (File.Exists(path: modSf)) return modSf;
+        if (File.Exists(path: modSf))
+        {
+            return modSf;
+        }
 
         // Try: root/module/symbol.rf  (type-per-file convention)
         if (symbolPart is not null)
         {
-            string symRf = Path.Combine(path1: root, path2: relPath,
-                path3: symbolPart + ".rf");
-            if (File.Exists(path: symRf)) return symRf;
+            string symRf = Path.Combine(path1: root, path2: relPath, path3: symbolPart + ".rf");
+            if (File.Exists(path: symRf))
+            {
+                return symRf;
+            }
 
-            string symSf = Path.Combine(path1: root, path2: relPath,
-                path3: symbolPart + ".sf");
-            if (File.Exists(path: symSf)) return symSf;
+            string symSf = Path.Combine(path1: root, path2: relPath, path3: symbolPart + ".sf");
+            if (File.Exists(path: symSf))
+            {
+                return symSf;
+            }
         }
 
         // Try: root/module/index.rf
         string idxRf = Path.Combine(path1: root, path2: relPath, path3: "index.rf");
-        if (File.Exists(path: idxRf)) return idxRf;
+        if (File.Exists(path: idxRf))
+        {
+            return idxRf;
+        }
 
         // Try: root/module/module.rf (same-name-as-directory convention, e.g., BuilderQuery/BuilderQuery.rf)
         string dirName = Path.GetFileName(path: relPath);
         if (!string.IsNullOrEmpty(value: dirName))
         {
-            string sameNameRf = Path.Combine(path1: root, path2: relPath,
-                path3: dirName + ".rf");
-            if (File.Exists(path: sameNameRf)) return sameNameRf;
+            string sameNameRf = Path.Combine(path1: root, path2: relPath, path3: dirName + ".rf");
+            if (File.Exists(path: sameNameRf))
+            {
+                return sameNameRf;
+            }
 
-            string sameNameSf = Path.Combine(path1: root, path2: relPath,
-                path3: dirName + ".sf");
-            if (File.Exists(path: sameNameSf)) return sameNameSf;
+            string sameNameSf = Path.Combine(path1: root, path2: relPath, path3: dirName + ".sf");
+            if (File.Exists(path: sameNameSf))
+            {
+                return sameNameSf;
+            }
         }
 
         return null;

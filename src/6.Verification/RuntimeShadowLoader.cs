@@ -21,7 +21,10 @@ public static class RuntimeShadowLoader
     /// </summary>
     public static void Install()
     {
-        if (Interlocked.Exchange(location1: ref _initialized, value: 1) != 0) return;
+        if (Interlocked.Exchange(location1: ref _initialized, value: 1) != 0)
+        {
+            return;
+        }
 
         if (!OperatingSystem.IsWindows())
         {
@@ -31,7 +34,10 @@ public static class RuntimeShadowLoader
 
         string canonical = Path.Combine(path1: AppContext.BaseDirectory,
             path2: $"{RuntimeLib}.dll");
-        if (!File.Exists(path: canonical)) return;
+        if (!File.Exists(path: canonical))
+        {
+            return;
+        }
 
         string tempDir = Path.GetTempPath();
         string shadow = Path.Combine(path1: tempDir,
@@ -48,28 +54,35 @@ public static class RuntimeShadowLoader
 
         _shadowPath = shadow;
 
-        NativeLibrary.SetDllImportResolver(
-            assembly: typeof(NumericLiteralParser).Assembly,
+        NativeLibrary.SetDllImportResolver(assembly: typeof(NumericLiteralParser).Assembly,
             resolver: Resolve);
 
         AppDomain.CurrentDomain.ProcessExit += (_, _) => Cleanup();
     }
 
-    private static IntPtr Resolve(string libraryName, Assembly assembly,
+    private static nint Resolve(string libraryName, Assembly assembly,
         DllImportSearchPath? searchPath)
     {
-        if (libraryName == RuntimeLib && _shadowPath != null
-            && NativeLibrary.TryLoad(libraryPath: _shadowPath, handle: out IntPtr handle))
+        if (libraryName == RuntimeLib && _shadowPath != null &&
+            NativeLibrary.TryLoad(libraryPath: _shadowPath, handle: out nint handle))
         {
             return handle;
         }
-        return IntPtr.Zero;
+
+        return nint.Zero;
     }
 
     private static void Cleanup()
     {
-        if (_shadowPath == null) return;
+        if (_shadowPath == null)
+        {
+            return;
+        }
+
         try { File.Delete(path: _shadowPath); }
-        catch { /* best-effort */ }
+        catch
+        {
+            /* best-effort */
+        }
     }
 }

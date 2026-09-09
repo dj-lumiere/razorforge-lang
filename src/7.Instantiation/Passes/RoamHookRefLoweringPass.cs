@@ -42,10 +42,12 @@ internal sealed class RoamHookRefLoweringPass
     {
         foreach (string key in bodies.Keys.ToList())
         {
-            MonomorphizedBody mb = bodies[key];
+            MonomorphizedBody mb = bodies[key: key];
             Statement nb = RewriteStmt(stmt: mb.Ast.Body);
-            if (!ReferenceEquals(nb, mb.Ast.Body))
-                bodies[key] = mb with { Ast = mb.Ast with { Body = nb } };
+            if (!ReferenceEquals(objA: nb, objB: mb.Ast.Body))
+            {
+                bodies[key: key] = mb with { Ast = mb.Ast with { Body = nb } };
+            }
         }
     }
 
@@ -58,7 +60,10 @@ internal sealed class RoamHookRefLoweringPass
             case BlockStatement block:
                 return RewriteBlock(block: block);
 
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: { } init } vd } ds:
+            case DeclarationStatement
+            {
+                Declaration: VariableDeclaration { Initializer: { } init } vd
+            } ds:
                 return RewriteDeclStmt(ds: ds, vd: vd, init: init);
 
             case ExpressionStatement es:
@@ -90,46 +95,61 @@ internal sealed class RoamHookRefLoweringPass
         }
     }
 
-    private DeclarationStatement RewriteDeclStmt(DeclarationStatement ds, VariableDeclaration vd, Expression init)
+    private DeclarationStatement RewriteDeclStmt(DeclarationStatement ds, VariableDeclaration vd,
+        Expression init)
     {
         Expression n = RewriteExpr(expr: init);
-        return ReferenceEquals(n, init) ? ds : ds with { Declaration = vd with { Initializer = n } };
+        return ReferenceEquals(objA: n, objB: init)
+            ? ds
+            : ds with { Declaration = vd with { Initializer = n } };
     }
 
     private ExpressionStatement RewriteExprStmt(ExpressionStatement es)
     {
         Expression n = RewriteExpr(expr: es.Expression);
-        return ReferenceEquals(n, es.Expression) ? es : es with { Expression = n };
+        return ReferenceEquals(objA: n, objB: es.Expression)
+            ? es
+            : es with { Expression = n };
     }
 
     private ReturnStatement RewriteReturnStmt(ReturnStatement ret, Expression rv)
     {
         Expression n = RewriteExpr(expr: rv);
-        return ReferenceEquals(n, rv) ? ret : ret with { Value = n };
+        return ReferenceEquals(objA: n, objB: rv)
+            ? ret
+            : ret with { Value = n };
     }
 
     private AssignmentStatement RewriteAssignStmt(AssignmentStatement asg)
     {
         Expression nv = RewriteExpr(expr: asg.Value);
-        return ReferenceEquals(nv, asg.Value) ? asg : asg with { Value = nv };
+        return ReferenceEquals(objA: nv, objB: asg.Value)
+            ? asg
+            : asg with { Value = nv };
     }
 
     private LoopStatement RewriteLoopStmt(LoopStatement loop)
     {
         Statement b = RewriteStmt(stmt: loop.Body);
-        return ReferenceEquals(b, loop.Body) ? loop : loop with { Body = b };
+        return ReferenceEquals(objA: b, objB: loop.Body)
+            ? loop
+            : loop with { Body = b };
     }
 
     private WhileStatement RewriteWhileStmt(WhileStatement w)
     {
         Statement b = RewriteStmt(stmt: w.Body);
-        return ReferenceEquals(b, w.Body) ? w : w with { Body = b };
+        return ReferenceEquals(objA: b, objB: w.Body)
+            ? w
+            : w with { Body = b };
     }
 
     private DangerStatement RewriteDangerStmt(DangerStatement d)
     {
         Statement b = RewriteStmt(stmt: d.Body);
-        return ReferenceEquals(b, d.Body) ? d : d with { Body = (BlockStatement)b };
+        return ReferenceEquals(objA: b, objB: d.Body)
+            ? d
+            : d with { Body = (BlockStatement)b };
     }
 
     private BlockStatement RewriteBlock(BlockStatement block)
@@ -140,16 +160,25 @@ internal sealed class RoamHookRefLoweringPass
         {
             Statement n = RewriteStmt(stmt: s);
             stmts.Add(item: n);
-            if (!ReferenceEquals(n, s)) changed = true;
+            if (!ReferenceEquals(objA: n, objB: s))
+            {
+                changed = true;
+            }
         }
-        return changed ? block with { Statements = stmts } : block;
+
+        return changed
+            ? block with { Statements = stmts }
+            : block;
     }
 
     private IfStatement RewriteIf(IfStatement ifs)
     {
         Statement then = RewriteStmt(stmt: ifs.ThenStatement);
-        Statement? elseS = ifs.ElseStatement != null ? RewriteStmt(stmt: ifs.ElseStatement) : null;
-        return !ReferenceEquals(then, ifs.ThenStatement) || !ReferenceEquals(elseS, ifs.ElseStatement)
+        Statement? elseS = ifs.ElseStatement != null
+            ? RewriteStmt(stmt: ifs.ElseStatement)
+            : null;
+        return !ReferenceEquals(objA: then, objB: ifs.ThenStatement) ||
+               !ReferenceEquals(objA: elseS, objB: ifs.ElseStatement)
             ? ifs with { ThenStatement = then, ElseStatement = elseS }
             : ifs;
     }
@@ -161,10 +190,18 @@ internal sealed class RoamHookRefLoweringPass
         foreach (WhenClause c in when.Clauses)
         {
             Statement b = RewriteStmt(stmt: c.Body);
-            clauses.Add(item: ReferenceEquals(b, c.Body) ? c : c with { Body = b });
-            if (!ReferenceEquals(b, c.Body)) changed = true;
+            clauses.Add(item: ReferenceEquals(objA: b, objB: c.Body)
+                ? c
+                : c with { Body = b });
+            if (!ReferenceEquals(objA: b, objB: c.Body))
+            {
+                changed = true;
+            }
         }
-        return changed ? when with { Clauses = clauses } : when;
+
+        return changed
+            ? when with { Clauses = clauses }
+            : when;
     }
 
     // Expression rewrite: replaces a matching hook call with a routine-value reference when it
@@ -174,7 +211,10 @@ internal sealed class RoamHookRefLoweringPass
     private Expression RewriteExpr(Expression expr)
     {
         Expression? lowered = TryLowerHookCall(expr: expr);
-        if (lowered != null) return lowered;
+        if (lowered != null)
+        {
+            return lowered;
+        }
 
         switch (expr)
         {
@@ -184,13 +224,17 @@ internal sealed class RoamHookRefLoweringPass
             case CallExpression call:
                 return call with
                 {
-                    Arguments = call.Arguments.Select(selector: RewriteExpr).ToList()
+                    Arguments = call.Arguments
+                                    .Select(selector: RewriteExpr)
+                                    .ToList()
                 };
 
             case NamedArgumentExpression na:
             {
                 Expression n = RewriteExpr(expr: na.Value);
-                return ReferenceEquals(n, na.Value) ? na : na with { Value = n };
+                return ReferenceEquals(objA: n, objB: na.Value)
+                    ? na
+                    : na with { Value = n };
             }
 
             default:
@@ -201,14 +245,21 @@ internal sealed class RoamHookRefLoweringPass
     private CreatorExpression RewriteCreator(CreatorExpression cr)
     {
         bool changed = false;
-        var members = new List<(string Name, Expression Value)>(capacity: cr.MemberVariables.Count);
+        var members =
+            new List<(string Name, Expression Value)>(capacity: cr.MemberVariables.Count);
         foreach ((string name, Expression value) in cr.MemberVariables)
         {
             Expression n = RewriteExpr(expr: value);
             members.Add(item: (name, n));
-            if (!ReferenceEquals(n, value)) changed = true;
+            if (!ReferenceEquals(objA: n, objB: value))
+            {
+                changed = true;
+            }
         }
-        return changed ? cr with { MemberVariables = members } : cr;
+
+        return changed
+            ? cr with { MemberVariables = members }
+            : cr;
     }
 
     /// <summary>
@@ -217,27 +268,45 @@ internal sealed class RoamHookRefLoweringPass
     /// </summary>
     private IdentifierExpression? TryLowerHookCall(Expression expr)
     {
-        if (expr is not CallExpression { Arguments.Count: 0, Callee: MemberExpression member } call)
+        if (expr is not CallExpression
+            {
+                Arguments.Count: 0, Callee: MemberExpression member
+            } call)
+        {
             return null;
-        if (member.MemberName is not (TraceRef or FreeRef)) return null;
+        }
+
+        if (member.MemberName is not (TraceRef or FreeRef))
+        {
+            return null;
+        }
 
         TypeInfo? recv = member.Object.ResolvedType;
-        if (recv is not EntityTypeInfo ent) return null;
+        if (recv is not EntityTypeInfo ent)
+        {
+            return null;
+        }
 
-        string implName = member.MemberName == TraceRef ? TraceImpl : FreeImpl;
+        string implName = member.MemberName == TraceRef
+            ? TraceImpl
+            : FreeImpl;
         RoutineInfo? impl = _registry.LookupMemberRoutine(type: ent, memberRoutineName: implName);
-        if (impl is not { Parameters.Count: 0 }) return null;
+        if (impl is not { Parameters.Count: 0 })
+        {
+            return null;
+        }
 
         // A routine-value reference: bare name + ResolvedRoutine (codegen's pre-resolved path).
         // ResolvedType is the matching RoutineTypeInfo so the closure ABI is materialized correctly.
-        RoutineTypeInfo routineType = _registry.GetOrCreateRoutineType(
-            parameterTypes: impl.Parameters.Select(selector: p => p.Type).ToList(),
+        RoutineTypeInfo routineType = _registry.GetOrCreateRoutineType(parameterTypes: impl
+               .Parameters
+               .Select(selector: p => p.Type)
+               .ToList(),
             returnType: impl.ReturnType,
             isFailable: impl.IsFailable);
         return new IdentifierExpression(Name: impl.Name, Location: call.Location)
         {
-            ResolvedRoutine = impl,
-            ResolvedType = routineType
+            ResolvedRoutine = impl, ResolvedType = routineType
         };
     }
 }

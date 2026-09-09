@@ -37,7 +37,9 @@ namespace Compiler.Instantiation;
 /// </summary>
 public sealed class WiredRoutinePass(DesugaringContext ctx)
 {
-    private const string RepresentMemberRoutineName = Declaration.RuntimeContract.Display.Represent;
+    private const string RepresentMemberRoutineName =
+        Declaration.RuntimeContract.Display.Represent;
+
     private const string DiagnoseMemberRoutineName = Declaration.RuntimeContract.Display.Diagnose;
     private const string SerializeMemberRoutineName = Declaration.RuntimeContract.Serialize;
     private const string HashMemberRoutineName = "hash";
@@ -58,9 +60,13 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         Position: 0);
 
     private readonly record struct WiredTypeBundle(
-        TypeInfo TextType, TypeInfo BoolType,
-        TypeInfo? U64Type, TypeInfo? S32Type,
-        TypeInfo? LogicBreachedErrorType, TypeInfo? ListTypeDef, TypeInfo? ListTextType);
+        TypeInfo TextType,
+        TypeInfo BoolType,
+        TypeInfo? U64Type,
+        TypeInfo? S32Type,
+        TypeInfo? LogicBreachedErrorType,
+        TypeInfo? ListTypeDef,
+        TypeInfo? ListTextType);
 
     /// <summary>Synthesizes and registers all wired routines for the current program.</summary>
     public void RunGlobal()
@@ -76,11 +82,17 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 typeArguments: [textType])
             : null;
         if (textType == null || boolType == null)
+        {
             return;
+        }
 
-        RunForConcreteRoutines(textType: textType, boolType: boolType, u64Type: u64Type,
-            s32Type: s32Type, logicBreachedErrorType: logicBreachedErrorType,
-            listTypeDef: listTypeDef, listTextType: listTextType);
+        RunForConcreteRoutines(textType: textType,
+            boolType: boolType,
+            u64Type: u64Type,
+            s32Type: s32Type,
+            logicBreachedErrorType: logicBreachedErrorType,
+            listTypeDef: listTypeDef,
+            listTextType: listTextType);
         RunForTupleTypes(textType: textType, s32Type: s32Type);
         RunForRoutineValueTypes(textType: textType);
 
@@ -106,18 +118,32 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// per-kind synthesizer dispatch for every <c>IsSynthesized</c> routine.
     /// </summary>
     private void RunForConcreteRoutines(TypeInfo textType, TypeInfo boolType, TypeInfo? u64Type,
-        TypeInfo? s32Type, TypeInfo? logicBreachedErrorType,
-        TypeInfo? listTypeDef, TypeInfo? listTextType)
+        TypeInfo? s32Type, TypeInfo? logicBreachedErrorType, TypeInfo? listTypeDef,
+        TypeInfo? listTextType)
     {
         // Base build: build derive bodies for ALL concrete types, not just live ones (so the precompiled
         // stdlib base defines every routine it references). Normal builds keep the liveness filter.
-        foreach (RoutineInfo routine in ctx.Registry.GetAllRoutines(requireLive: !ctx.SynthesizeAllDerives))
+        foreach (RoutineInfo routine in ctx.Registry.GetAllRoutines(
+                     requireLive: !ctx.SynthesizeAllDerives))
         {
-            if (!routine.IsSynthesized) continue;
-            if (SynthesizedBodyAlreadyPresent(routine: routine)) continue;
+            if (!routine.IsSynthesized)
+            {
+                continue;
+            }
+
+            if (SynthesizedBodyAlreadyPresent(routine: routine))
+            {
+                continue;
+            }
+
             HandleConcreteRoutine(routine: routine,
-                types: new WiredTypeBundle(textType, boolType, u64Type, s32Type,
-                    logicBreachedErrorType, listTypeDef, listTextType));
+                types: new WiredTypeBundle(TextType: textType,
+                    BoolType: boolType,
+                    U64Type: u64Type,
+                    S32Type: s32Type,
+                    LogicBreachedErrorType: logicBreachedErrorType,
+                    ListTypeDef: listTypeDef,
+                    ListTextType: listTextType));
         }
     }
 
@@ -125,18 +151,23 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// Returns true when a body for <paramref name="routine"/> is already registered in either
     /// <c>RoutineBodies</c> or <c>VariantBodies</c> — no further synthesis is needed.
     /// </summary>
-    private bool SynthesizedBodyAlreadyPresent(RoutineInfo routine) =>
-        ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey)
-        || ctx.VariantBodies.ContainsKey(key: routine.RegistryKey);
+    private bool SynthesizedBodyAlreadyPresent(RoutineInfo routine)
+    {
+        return ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey) ||
+               ctx.VariantBodies.ContainsKey(key: routine.RegistryKey);
+    }
 
     /// <summary>
     /// Returns true when the owner type already declares an explicit (non-synthesized) routine with
     /// the same name, preventing a synthesized body from overriding it (e.g. Witnessed[T,P].represent).
     /// </summary>
-    private bool HasExplicitOverride(RoutineInfo routine) =>
-        routine.OwnerType != null
-        && ctx.Registry.GetMemberRoutinesForType(type: routine.OwnerType)
-                       .Any(r => r.Name == routine.Name && !r.IsSynthesized);
+    private bool HasExplicitOverride(RoutineInfo routine)
+    {
+        return routine.OwnerType != null && ctx.Registry
+                                               .GetMemberRoutinesForType(type: routine.OwnerType)
+                                               .Any(predicate: r => r.Name == routine.Name &&
+                                                    !r.IsSynthesized);
+    }
 
     /// <summary>
     /// Applies the concrete-routine synthesis pipeline to a single synthesized routine,
@@ -144,7 +175,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// </summary>
     private void HandleConcreteRoutine(RoutineInfo routine, WiredTypeBundle types)
     {
-        var (textType, boolType, u64Type, s32Type, logicBreachedErrorType, listTypeDef, listTextType) = types;
+        (TypeInfo textType, TypeInfo boolType, TypeInfo? u64Type, TypeInfo? s32Type,
+                TypeInfo? logicBreachedErrorType, TypeInfo? listTypeDef, TypeInfo? listTextType) =
+            types;
         // Auto-generated variant arm constructors (handled before the by-NAME explicit-impl skip
         // below): an extractor Arm.create(from: V) shares the name "create" with the arm type's
         // other constructors, so a name-only skip would wrongly drop it. This hook is overload-precise
@@ -158,22 +191,38 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // Skip if an explicit (non-synthesized) implementation already exists in the registry.
         // This prevents synthesized bodies from overriding custom stdlib implementations
         // such as Witnessed[T,P].represent / diagnose defined in Witnessed.rf.
-        if (HasExplicitOverride(routine: routine)) return;
+        if (HasExplicitOverride(routine: routine))
+        {
+            return;
+        }
 
         // BuilderQuery constant routines apply to all owner types; check by name first.
         if (routine.OwnerType != null && TryHandleBuilderQueryConstant(routine: routine,
-                textType: textType, u64Type: u64Type, boolType: boolType, listTextType: listTextType))
+                textType: textType,
+                u64Type: u64Type,
+                boolType: boolType,
+                listTextType: listTextType))
+        {
             return;
+        }
 
         // Standalone BuilderQuery constants (no owner type): page_size, target_os, etc.
         if (routine.OwnerType == null && TryHandleStandaloneBuilderQueryConstant(
-                routine: routine, textType: textType, u64Type: u64Type))
+                routine: routine,
+                textType: textType,
+                u64Type: u64Type))
+        {
             return;
+        }
 
         // Cycle-collector per-type hooks + unified destructor + owner-type dispatch.
-        TrySynthesizeHookOrDispatch(routine: routine, textType: textType, boolType: boolType,
-            u64Type: u64Type, s32Type: s32Type,
-            logicBreachedErrorType: logicBreachedErrorType, listTypeDef: listTypeDef);
+        TrySynthesizeHookOrDispatch(routine: routine,
+            textType: textType,
+            boolType: boolType,
+            u64Type: u64Type,
+            s32Type: s32Type,
+            logicBreachedErrorType: logicBreachedErrorType,
+            listTypeDef: listTypeDef);
     }
 
     /// <summary>
@@ -186,14 +235,32 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     {
         foreach (TypeInfo type in ctx.Registry.GetTypesWithMemberRoutines())
         {
-            if (type is not TupleTypeInfo tuple) continue;
-            foreach (RoutineInfo routine in ctx.Registry.GetMemberRoutinesForType(type))
+            if (type is not TupleTypeInfo tuple)
             {
-                if (!routine.IsSynthesized) continue;
-                if (ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey)) continue;
-                if (ctx.VariantBodies.ContainsKey(key: routine.RegistryKey)) continue;
-                HandleTuple(routine: routine, tuple: tuple,
-                    textType: textType, s32Type: s32Type);
+                continue;
+            }
+
+            foreach (RoutineInfo routine in ctx.Registry.GetMemberRoutinesForType(type: type))
+            {
+                if (!routine.IsSynthesized)
+                {
+                    continue;
+                }
+
+                if (ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey))
+                {
+                    continue;
+                }
+
+                if (ctx.VariantBodies.ContainsKey(key: routine.RegistryKey))
+                {
+                    continue;
+                }
+
+                HandleTuple(routine: routine,
+                    tuple: tuple,
+                    textType: textType,
+                    s32Type: s32Type);
             }
         }
     }
@@ -208,13 +275,28 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     {
         foreach (TypeInfo type in ctx.Registry.GetResolvedRoutineTypes())
         {
-            foreach (RoutineInfo routine in ctx.Registry.GetMemberRoutinesForType(type))
+            foreach (RoutineInfo routine in ctx.Registry.GetMemberRoutinesForType(type: type))
             {
-                if (routine.Name != SerializeMemberRoutineName) continue;
-                if (ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey)) continue;
-                if (ctx.VariantBodies.ContainsKey(key: routine.RegistryKey)) continue;
+                if (routine.Name != SerializeMemberRoutineName)
+                {
+                    continue;
+                }
+
+                if (ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey))
+                {
+                    continue;
+                }
+
+                if (ctx.VariantBodies.ContainsKey(key: routine.RegistryKey))
+                {
+                    continue;
+                }
+
                 Statement? body = BuildSerializeBody(owner: type, fields: [], textType: textType);
-                if (body != null) ctx.VariantBodies[key: routine.RegistryKey] = body;
+                if (body != null)
+                {
+                    ctx.VariantBodies[key: routine.RegistryKey] = body;
+                }
             }
         }
     }
@@ -224,9 +306,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// unified <c>destroy</c> destructor, and — for anything else — the owner-type dispatch to the
     /// per-kind <c>HandleX</c> synthesizers.
     /// </summary>
-    private void TrySynthesizeHookOrDispatch(RoutineInfo routine, TypeInfo textType, TypeInfo boolType,
-        TypeInfo? u64Type, TypeInfo? s32Type, TypeInfo? logicBreachedErrorType,
-        TypeInfo? listTypeDef)
+    private void TrySynthesizeHookOrDispatch(RoutineInfo routine, TypeInfo textType,
+        TypeInfo boolType, TypeInfo? u64Type, TypeInfo? s32Type,
+        TypeInfo? logicBreachedErrorType, TypeInfo? listTypeDef)
     {
         switch (routine)
         {
@@ -245,17 +327,21 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // A routine VALUE is a trivially-destructible leaf (a fat pointer over non-owned code/env); its
             // `destroy` (registered in GetOrCreateRoutineType so a record/entity field-walk over a routine-typed
             // field resolves + links) is a bare return — there is no universal derive template to clone for it.
-            case { Name: DestroyMemberRoutineName, Parameters.Count: 0 } when routine.OwnerType is RoutineTypeInfo:
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    new BlockStatement(Statements: [new ReturnStatement(Value: null, Location: _synthLoc)],
-                        Location: _synthLoc);
+            case { Name: DestroyMemberRoutineName, Parameters.Count: 0 }
+                when routine.OwnerType is RoutineTypeInfo:
+                ctx.VariantBodies[key: routine.RegistryKey] = new BlockStatement(Statements:
+                    [new ReturnStatement(Value: null, Location: _synthLoc)],
+                    Location: _synthLoc);
                 break;
-            case { Name: DestroyMemberRoutineName, Parameters.Count: 0 } when routine.OwnerType is { } destroyOwner:
+            case { Name: DestroyMemberRoutineName, Parameters.Count: 0 }
+                when routine.OwnerType is { } destroyOwner:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: destroyOwner, synthesized: routine,
-                        memberRoutineName: DestroyMemberRoutineName)
-                    ?? throw new InvalidOperationException(
-                        message: $"destroy derive could not be cloned for '{destroyOwner.FullName}'.");
+                    CloneUniversalDeriveBody(ownerType: destroyOwner,
+                        synthesized: routine,
+                        memberRoutineName: DestroyMemberRoutineName) ??
+                    throw new InvalidOperationException(
+                        message:
+                        $"destroy derive could not be cloned for '{destroyOwner.FullName}'.");
                 break;
             // Derived comparison operators (lt/le/gt/ge) delegate to the type's own `cmp` — the DeriveText
             // templates spell `return me.cmp(you) == ME_SMALL` etc. Like `destroy`, they apply to EVERY
@@ -264,13 +350,18 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // DerivedOperatorPass used to generate these; the everywhere-derive registers the stub (guarded on
             // a template existing — AutoWiredRegistrationPass), and this materializes its body so the demand
             // collector and codegen see a definition (else `a < b` links to an undefined `<Type>.lt`).
-            case { Name: "lt" or "le" or "gt" or "ge", Parameters.Count: 1 } when routine.OwnerType is { } cmpOwner
-                    && ctx.Registry.GetDeriveTemplate(name: routine.Name, arity: 1, forType: cmpOwner) is not null:
+            case { Name: "lt" or "le" or "gt" or "ge", Parameters.Count: 1 }
+                when routine.OwnerType is { } cmpOwner &&
+                     ctx.Registry.GetDeriveTemplate(name: routine.Name,
+                         arity: 1,
+                         forType: cmpOwner) is not null:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: cmpOwner, synthesized: routine,
-                        memberRoutineName: routine.Name)
-                    ?? throw new InvalidOperationException(
-                        message: $"{routine.Name} derive could not be cloned for '{cmpOwner.FullName}'.");
+                    CloneUniversalDeriveBody(ownerType: cmpOwner,
+                        synthesized: routine,
+                        memberRoutineName: routine.Name) ??
+                    throw new InvalidOperationException(
+                        message:
+                        $"{routine.Name} derive could not be cloned for '{cmpOwner.FullName}'.");
                 break;
             default:
                 DispatchByOwnerType(routine: routine,
@@ -343,15 +434,19 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     boolType: boolType);
                 break;
 
-            case RoutineTypeInfo routineOwner
-                when routine.Name == SerializeMemberRoutineName && !routineOwner.IsGenericDefinition:
+            case RoutineTypeInfo routineOwner when routine.Name == SerializeMemberRoutineName &&
+                                                   !routineOwner.IsGenericDefinition:
                 // A routine VALUE boxes its `represent()` signature Text as its serialize (the
                 // zero-field path) — a resolved CreatorExpression, unlike the RF template's
                 // `SerialValue(...)` which doesn't re-resolve when cloned for a structural type.
+            {
+                Statement? routineSerBody =
+                    BuildSerializeBody(owner: routineOwner, fields: [], textType: textType);
+                if (routineSerBody != null)
                 {
-                    Statement? routineSerBody = BuildSerializeBody(owner: routineOwner, fields: [], textType: textType);
-                    if (routineSerBody != null) ctx.VariantBodies[key: routine.RegistryKey] = routineSerBody;
+                    ctx.VariantBodies[key: routine.RegistryKey] = routineSerBody;
                 }
+            }
                 break;
         }
     }
@@ -361,12 +456,28 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     {
         foreach (TypeInfo type in ctx.Registry.GetTypesWithMemberRoutines())
         {
-            if (!type.IsGenericDefinition) continue;
-            foreach (RoutineInfo routine in ctx.Registry.GetMemberRoutinesForType(type))
+            if (!type.IsGenericDefinition)
             {
-                if (!routine.IsSynthesized) continue;
-                if (!BuilderInfoProvider.IsBuilderQueryRoutine(name: routine.Name)) continue;
-                if (ctx.VariantBodies.ContainsKey(key: routine.RegistryKey)) continue;
+                continue;
+            }
+
+            foreach (RoutineInfo routine in ctx.Registry.GetMemberRoutinesForType(type: type))
+            {
+                if (!routine.IsSynthesized)
+                {
+                    continue;
+                }
+
+                if (!BuilderInfoProvider.IsBuilderQueryRoutine(name: routine.Name))
+                {
+                    continue;
+                }
+
+                if (ctx.VariantBodies.ContainsKey(key: routine.RegistryKey))
+                {
+                    continue;
+                }
+
                 TryHandleBuilderQueryConstant(routine: routine,
                     textType: textType,
                     u64Type: u64Type,
@@ -382,18 +493,38 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
         foreach (TypeInfo type in ctx.Registry.GetTypesWithMemberRoutines())
         {
-            if (!type.IsGenericDefinition) continue;
+            if (!type.IsGenericDefinition)
+            {
+                continue;
+            }
+
             var memberRoutines = ctx.Registry
-                             .GetMemberRoutinesForType(type)
-                             .ToList();
+                                    .GetMemberRoutinesForType(type: type)
+                                    .ToList();
             foreach (RoutineInfo routine in memberRoutines)
             {
-                if (!routine.IsSynthesized) continue;
-                if (ctx.VariantBodies.ContainsKey(key: routine.RegistryKey)) continue;
+                if (!routine.IsSynthesized)
+                {
+                    continue;
+                }
+
+                if (ctx.VariantBodies.ContainsKey(key: routine.RegistryKey))
+                {
+                    continue;
+                }
+
                 // Source-defined override wins — skip synthesized names with an explicit body.
-                if (memberRoutines.Any(r => r.Name == routine.Name && !r.IsSynthesized)) continue;
-                SynthesizeGenericDefWiredRoutine(routine: routine, type: type,
-                    textType: textType, boolType: boolType, s32Type: s32Type, u64Type: u64Type);
+                if (memberRoutines.Any(predicate: r => r.Name == routine.Name && !r.IsSynthesized))
+                {
+                    continue;
+                }
+
+                SynthesizeGenericDefWiredRoutine(routine: routine,
+                    type: type,
+                    textType: textType,
+                    boolType: boolType,
+                    s32Type: s32Type,
+                    u64Type: u64Type);
             }
         }
     }
@@ -404,7 +535,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// to monomorphize onto each concrete instance (destroy/roam hooks, cmp derives, wired routines).
     /// </summary>
     private void SynthesizeGenericDefWiredRoutine(RoutineInfo routine, TypeInfo type,
-        TypeInfo textType, TypeInfo boolType, TypeInfo? s32Type, TypeInfo? u64Type)
+        TypeInfo textType, TypeInfo boolType, TypeInfo? s32Type,
+        TypeInfo? u64Type)
     {
         // Unified destructor for generic-def entity/record types (e.g. ListEmitter[T],
         // DictEntry[K,V]). GetAllRoutines() excludes generic-def owners, so without this their
@@ -412,10 +544,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         if (routine is { Name: DestroyMemberRoutineName, Parameters.Count: 0 })
         {
             ctx.VariantBodies[key: routine.RegistryKey] =
-                CloneUniversalDeriveBody(ownerType: routine.OwnerType!, synthesized: routine,
-                    memberRoutineName: DestroyMemberRoutineName)
-                ?? throw new InvalidOperationException(
-                    message: $"destroy derive could not be cloned for '{routine.OwnerType?.FullName}'.");
+                CloneUniversalDeriveBody(ownerType: routine.OwnerType!,
+                    synthesized: routine,
+                    memberRoutineName: DestroyMemberRoutineName) ??
+                throw new InvalidOperationException(
+                    message:
+                    $"destroy derive could not be cloned for '{routine.OwnerType?.FullName}'.");
             return;
         }
 
@@ -436,15 +570,18 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // Derived comparison operators on a generic DEF (e.g. Array[T, N].lt) — clone the DeriveText
         // template body here so GMP/the collector has a def body to monomorphize onto each concrete
         // instance. Mirrors the concrete-type case in TrySynthesizeHookOrDispatch.
-        if (routine is { Name: "lt" or "le" or "gt" or "ge", Parameters.Count: 1 }
-            && routine.OwnerType is { } cmpDefOwner
-            && ctx.Registry.GetDeriveTemplate(name: routine.Name, arity: 1, forType: cmpDefOwner) is not null)
+        if (routine is { Name: "lt" or "le" or "gt" or "ge", Parameters.Count: 1 } &&
+            routine.OwnerType is { } cmpDefOwner &&
+            ctx.Registry.GetDeriveTemplate(name: routine.Name, arity: 1, forType: cmpDefOwner) is
+                not null)
         {
             ctx.VariantBodies[key: routine.RegistryKey] =
-                CloneUniversalDeriveBody(ownerType: cmpDefOwner, synthesized: routine,
-                    memberRoutineName: routine.Name)
-                ?? throw new InvalidOperationException(
-                    message: $"{routine.Name} derive could not be cloned for '{cmpDefOwner.FullName}'.");
+                CloneUniversalDeriveBody(ownerType: cmpDefOwner,
+                    synthesized: routine,
+                    memberRoutineName: routine.Name) ??
+                throw new InvalidOperationException(
+                    message:
+                    $"{routine.Name} derive could not be cloned for '{cmpDefOwner.FullName}'.");
             return;
         }
 
@@ -475,17 +612,23 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         {
             case RepresentMemberRoutineName:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: entity, synthesized: routine,
-                        memberRoutineName: RepresentMemberRoutineName)
-                    ?? BuildTextBody(ownerType: entity, fields: entity.MemberVariables,
-                        textType: textType, diagnose: false);
+                    CloneUniversalDeriveBody(ownerType: entity,
+                        synthesized: routine,
+                        memberRoutineName: RepresentMemberRoutineName) ??
+                    BuildTextBody(ownerType: entity,
+                        fields: entity.MemberVariables,
+                        textType: textType,
+                        diagnose: false);
                 break;
             case DiagnoseMemberRoutineName:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: entity, synthesized: routine,
-                        memberRoutineName: DiagnoseMemberRoutineName)
-                    ?? BuildTextBody(ownerType: entity, fields: entity.MemberVariables,
-                        textType: textType, diagnose: true);
+                    CloneUniversalDeriveBody(ownerType: entity,
+                        synthesized: routine,
+                        memberRoutineName: DiagnoseMemberRoutineName) ??
+                    BuildTextBody(ownerType: entity,
+                        fields: entity.MemberVariables,
+                        textType: textType,
+                        diagnose: true);
                 break;
             case "eq":
                 ctx.VariantBodies[key: routine.RegistryKey] = entity.MemberVariables.Count == 0
@@ -495,13 +638,13 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                         boolType: boolType);
                 break;
             case HashMemberRoutineName when entity.MemberVariables.Count > 0 && u64Type != null &&
-                                     routine.Parameters.Count == 0:
+                                            routine.Parameters.Count == 0:
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildHashBody(ownerType: entity,
                     fields: entity.MemberVariables,
                     u64Type: u64Type);
                 break;
             case HashMemberRoutineName when entity.MemberVariables.Count > 0 && u64Type != null &&
-                                     routine.Parameters.Count == 2:
+                                            routine.Parameters.Count == 2:
                 ctx.VariantBodies[key: routine.RegistryKey] =
                     BuildSecureHashBody(ownerType: entity,
                         fields: entity.MemberVariables,
@@ -571,19 +714,29 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // S64.create(from: Choice) -> sign_extend; U64.create(from: Flags) -> reinterpret_bits.
         // Must be checked before the HasDirectBackendType guard because these live on S64/U64.
         if (TryHandleNumericCreate(routine: routine, record: record))
+        {
             return;
+        }
 
         // `store` / `clone` bodies are field-independent (`return me` / `return me.assign()`), so
         // synthesize them BEFORE the opaque-backend skip — @llvm primitives (S64, Bool, …) need real
         // (trivial, LLVM-inlined) bodies so explicit `clone()`/`store()` calls link. Only synth stubs
         // reach here; user-written copies (e.g. Text.store, which retains) keep their own body.
         if (TryHandleRecordCopyOrSerialize(routine: routine, record: record, textType: textType))
+        {
             return;
+        }
 
-        if (record.BackendType != null) return;
+        if (record.BackendType != null)
+        {
+            return;
+        }
 
-        HandleRecordFieldWiredRoutine(routine: routine, record: record, textType: textType,
-            boolType: boolType, s32Type: s32Type);
+        HandleRecordFieldWiredRoutine(routine: routine,
+            record: record,
+            textType: textType,
+            boolType: boolType,
+            s32Type: s32Type);
     }
 
     /// <summary>
@@ -634,6 +787,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 return true;
             }
         }
+
         return false;
     }
 
@@ -648,20 +802,23 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         switch (routine.Name)
         {
             case AssignMemberRoutineName:
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    (record.IsGenericDefinition
-                        ? null
-                        : CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
-                            memberRoutineName: AssignMemberRoutineName))
-                    ?? BuildRecordCopyBody(record: record);
+                ctx.VariantBodies[key: routine.RegistryKey] = (record.IsGenericDefinition
+                                                                  ? null
+                                                                  : CloneUniversalDeriveBody(
+                                                                      ownerType: record,
+                                                                      synthesized: routine,
+                                                                      memberRoutineName:
+                                                                      AssignMemberRoutineName)) ??
+                                                              BuildRecordCopyBody(record: record);
                 return true;
             case DuplicateMemberRoutineName:
                 // Deep `copy` forwards to `store` — cloned from the `@overridable routine T.copy()`
                 // derive template (`return me.assign()`); falls back to the C# builder.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
-                        memberRoutineName: DuplicateMemberRoutineName)
-                    ?? BuildCloneViaCopyBody(ownerType: record);
+                    CloneUniversalDeriveBody(ownerType: record,
+                        synthesized: routine,
+                        memberRoutineName: DuplicateMemberRoutineName) ??
+                    BuildCloneViaCopyBody(ownerType: record);
                 return true;
             case SerializeMemberRoutineName when !record.IsGenericDefinition:
                 // A COMPOSITE record clones the universal `@overridable routine T.serialize()` derive
@@ -671,17 +828,23 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // @llvm records self-box, not field-walk (an empty `expand` would wrongly yield `{}`).
                 // "Composite" = has RF fields, no direct @llvm backend, AND no scalar arm of its own.
                 bool serializeComposite = record.BackendType == null &&
-                    record.MemberVariables.Count > 0 &&
-                    ctx.Registry.LookupType(name: "SerialValue") is VariantTypeInfo serialValueDef &&
-                    FindScalarArm(serialValue: serialValueDef, fieldType: record) == null;
-                Statement? recSer =
-                    (serializeComposite
-                        ? CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
-                            memberRoutineName: SerializeMemberRoutineName)
-                        : null)
-                    ?? BuildSerializeBody(owner: record, fields: record.MemberVariables,
-                        textType: textType);
-                if (recSer != null) ctx.VariantBodies[key: routine.RegistryKey] = recSer;
+                                          record.MemberVariables.Count > 0 &&
+                                          ctx.Registry.LookupType(name: "SerialValue") is
+                                              VariantTypeInfo serialValueDef &&
+                                          FindScalarArm(serialValue: serialValueDef,
+                                              fieldType: record) == null;
+                Statement? recSer = (serializeComposite
+                    ? CloneUniversalDeriveBody(ownerType: record,
+                        synthesized: routine,
+                        memberRoutineName: SerializeMemberRoutineName)
+                    : null) ?? BuildSerializeBody(owner: record,
+                    fields: record.MemberVariables,
+                    textType: textType);
+                if (recSer != null)
+                {
+                    ctx.VariantBodies[key: routine.RegistryKey] = recSer;
+                }
+
                 return true;
             default:
                 return false;
@@ -702,26 +865,37 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             {
                 // eq generation requires knowing the concrete field types at body-gen time.
                 // Generic definitions are handled per concrete instantiation via GMP.
-                if (record.IsGenericDefinition) break;
+                if (record.IsGenericDefinition)
+                {
+                    break;
+                }
+
                 // The record's eq body is CLONED from the universal `@overridable routine T.eq()`
                 // RazorForge derive template (comptime `expand` field-walk), moving the logic out of
                 // C#. Falls back to the C# builder if the template isn't present.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
-                        memberRoutineName: "eq")
-                    ?? BuildEqBody(ownerType: record, fields: record.MemberVariables,
+                    CloneUniversalDeriveBody(ownerType: record,
+                        synthesized: routine,
+                        memberRoutineName: "eq") ?? BuildEqBody(ownerType: record,
+                        fields: record.MemberVariables,
                         boolType: boolType);
                 break;
             }
 
             case "cmp":
             {
-                if (s32Type == null) break;
+                if (s32Type == null)
+                {
+                    break;
+                }
+
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
-                        memberRoutineName: "cmp")
-                    ?? BuildCmpBody(ownerType: record, fields: record.MemberVariables,
-                        s32Type: s32Type, boolType: boolType);
+                    CloneUniversalDeriveBody(ownerType: record,
+                        synthesized: routine,
+                        memberRoutineName: "cmp") ?? BuildCmpBody(ownerType: record,
+                        fields: record.MemberVariables,
+                        s32Type: s32Type,
+                        boolType: boolType);
                 break;
             }
 
@@ -732,10 +906,13 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // T.represent()` RazorForge derive template (comptime `expand` field-walk), moving the
                 // logic out of C#. Falls back to the C# builder if the template isn't present.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
-                        memberRoutineName: RepresentMemberRoutineName)
-                    ?? BuildTextBody(ownerType: record, fields: record.MemberVariables,
-                        textType: textType, diagnose: false);
+                    CloneUniversalDeriveBody(ownerType: record,
+                        synthesized: routine,
+                        memberRoutineName: RepresentMemberRoutineName) ??
+                    BuildTextBody(ownerType: record,
+                        fields: record.MemberVariables,
+                        textType: textType,
+                        diagnose: false);
                 break;
 
             case SerializeMemberRoutineName:
@@ -747,10 +924,13 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
 
             case DiagnoseMemberRoutineName:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
-                        memberRoutineName: DiagnoseMemberRoutineName)
-                    ?? BuildTextBody(ownerType: record, fields: record.MemberVariables,
-                        textType: textType, diagnose: true);
+                    CloneUniversalDeriveBody(ownerType: record,
+                        synthesized: routine,
+                        memberRoutineName: DiagnoseMemberRoutineName) ??
+                    BuildTextBody(ownerType: record,
+                        fields: record.MemberVariables,
+                        textType: textType,
+                        diagnose: true);
                 break;
 
             case HashMemberRoutineName when routine.Parameters.Count == 0:
@@ -759,26 +939,40 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // Concrete records clone the universal `@overridable routine T.hash()` derive
                 // template (comptime `expand` XOR-fold); generic defs stay on the C# builder.
                 TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-                if (u64Type == null) break;
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    (record.IsGenericDefinition
-                        ? null
-                        : CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
-                            memberRoutineName: HashMemberRoutineName))
-                    ?? BuildHashBody(ownerType: record, fields: record.MemberVariables,
-                        u64Type: u64Type);
+                if (u64Type == null)
+                {
+                    break;
+                }
+
+                ctx.VariantBodies[key: routine.RegistryKey] = (record.IsGenericDefinition
+                    ? null
+                    : CloneUniversalDeriveBody(ownerType: record,
+                        synthesized: routine,
+                        memberRoutineName: HashMemberRoutineName)) ?? BuildHashBody(
+                    ownerType: record,
+                    fields: record.MemberVariables,
+                    u64Type: u64Type);
                 break;
             }
 
             case HashMemberRoutineName when routine.Parameters.Count == 2:
             {
-                if (record.IsGenericDefinition) break;
+                if (record.IsGenericDefinition)
+                {
+                    break;
+                }
+
                 TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-                if (u64Type == null) break;
+                if (u64Type == null)
+                {
+                    break;
+                }
+
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
-                        memberRoutineName: HashMemberRoutineName)
-                    ?? BuildSecureHashBody(ownerType: record,
+                    CloneUniversalDeriveBody(ownerType: record,
+                        synthesized: routine,
+                        memberRoutineName: HashMemberRoutineName) ??
+                    BuildSecureHashBody(ownerType: record,
                         fields: record.MemberVariables,
                         u64Type: u64Type);
                 break;
@@ -797,18 +991,24 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // (comptime `expand` field-walk), same as records/tuples; a routine-typed member now
                 // renders its first-class `represent` (the signature) instead of the old `<routine>`.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: entity, synthesized: routine,
-                        memberRoutineName: RepresentMemberRoutineName)
-                    ?? BuildTextBody(ownerType: entity, fields: entity.MemberVariables,
-                        textType: textType, diagnose: false);
+                    CloneUniversalDeriveBody(ownerType: entity,
+                        synthesized: routine,
+                        memberRoutineName: RepresentMemberRoutineName) ??
+                    BuildTextBody(ownerType: entity,
+                        fields: entity.MemberVariables,
+                        textType: textType,
+                        diagnose: false);
                 break;
 
             case DiagnoseMemberRoutineName:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: entity, synthesized: routine,
-                        memberRoutineName: DiagnoseMemberRoutineName)
-                    ?? BuildTextBody(ownerType: entity, fields: entity.MemberVariables,
-                        textType: textType, diagnose: true);
+                    CloneUniversalDeriveBody(ownerType: entity,
+                        synthesized: routine,
+                        memberRoutineName: DiagnoseMemberRoutineName) ??
+                    BuildTextBody(ownerType: entity,
+                        fields: entity.MemberVariables,
+                        textType: textType,
+                        diagnose: true);
                 break;
 
             case SerializeMemberRoutineName:
@@ -817,11 +1017,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
 
             case "eq":
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: entity, synthesized: routine,
-                        memberRoutineName: "eq")
-                    ?? (entity.MemberVariables.Count == 0
+                    CloneUniversalDeriveBody(ownerType: entity,
+                        synthesized: routine,
+                        memberRoutineName: "eq") ?? (entity.MemberVariables.Count == 0
                         ? BuildReturnTrueBody(boolType: boolType)
-                        : BuildEqBody(ownerType: entity, fields: entity.MemberVariables,
+                        : BuildEqBody(ownerType: entity,
+                            fields: entity.MemberVariables,
                             boolType: boolType));
                 break;
 
@@ -836,7 +1037,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 break;
 
             // Text constructor from T -> return from.represent()
-            case RoutineInfo.CreatorName when entity.Name == "Text" && routine.Parameters.Count == 1:
+            case RoutineInfo.CreatorName
+                when entity.Name == "Text" && routine.Parameters.Count == 1:
                 HandleTextCreatorBody(routine: routine, textType: textType);
                 break;
         }
@@ -848,17 +1050,25 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// routine-typed fields); zero-field entities use the C# builder (opaque Text box). Generic
     /// definitions are skipped — GMP monomorphizes the concrete clone.
     /// </summary>
-    private void HandleEntitySerialize(RoutineInfo routine, EntityTypeInfo entity, TypeInfo textType)
+    private void HandleEntitySerialize(RoutineInfo routine, EntityTypeInfo entity,
+        TypeInfo textType)
     {
-        if (entity.IsGenericDefinition) return;
-        Statement? serBody =
-            (entity.MemberVariables.Count > 0
-                ? CloneUniversalDeriveBody(ownerType: entity, synthesized: routine,
-                    memberRoutineName: SerializeMemberRoutineName)
-                : null)
-            ?? BuildSerializeBody(owner: entity, fields: entity.MemberVariables,
-                textType: textType);
-        if (serBody != null) ctx.VariantBodies[key: routine.RegistryKey] = serBody;
+        if (entity.IsGenericDefinition)
+        {
+            return;
+        }
+
+        Statement? serBody = (entity.MemberVariables.Count > 0
+            ? CloneUniversalDeriveBody(ownerType: entity,
+                synthesized: routine,
+                memberRoutineName: SerializeMemberRoutineName)
+            : null) ?? BuildSerializeBody(owner: entity,
+            fields: entity.MemberVariables,
+            textType: textType);
+        if (serBody != null)
+        {
+            ctx.VariantBodies[key: routine.RegistryKey] = serBody;
+        }
     }
 
     /// <summary>
@@ -869,15 +1079,22 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private void HandleEntityHash(RoutineInfo routine, EntityTypeInfo entity, bool secure)
     {
         TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-        if (u64Type == null) return;
+        if (u64Type == null)
+        {
+            return;
+        }
+
         Statement? cloned = entity.IsGenericDefinition
             ? null
-            : CloneUniversalDeriveBody(ownerType: entity, synthesized: routine,
+            : CloneUniversalDeriveBody(ownerType: entity,
+                synthesized: routine,
                 memberRoutineName: HashMemberRoutineName);
         ctx.VariantBodies[key: routine.RegistryKey] = secure
-            ? cloned ?? BuildSecureHashBody(ownerType: entity, fields: entity.MemberVariables,
+            ? cloned ?? BuildSecureHashBody(ownerType: entity,
+                fields: entity.MemberVariables,
                 u64Type: u64Type)
-            : cloned ?? BuildHashBody(ownerType: entity, fields: entity.MemberVariables,
+            : cloned ?? BuildHashBody(ownerType: entity,
+                fields: entity.MemberVariables,
                 u64Type: u64Type);
     }
 
@@ -949,8 +1166,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // to its underlying integer (S32) and compare with `==`, which OperatorLoweringPass lowers
                 // to `S32.eq` (icmp eq i32). This keeps the `is` operator OUT of codegen — no EmitChoiceIs,
                 // no eq->is->eq recursion (the conversion is a reinterpret, the compare is S32's wired eq).
-                TypeInfo underlying = choice.UnderlyingType
-                    ?? ctx.Registry.LookupType(name: "S32")!;
+                TypeInfo underlying =
+                    choice.UnderlyingType ?? ctx.Registry.LookupType(name: "S32")!;
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildNumericEqBodyViaConversion(
                     ownerType: choice,
                     conversionTypeName: underlying.Name,
@@ -981,11 +1198,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // Cloned from the `@overridable … needs T is ChoiceType` DeriveText template (caseof unroll
                 // reconstructing each case via `Me(from: $valueof(c))`); C# BuildAllCasesBody is the fallback.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: choice, synthesized: routine,
-                        memberRoutineName: AllCasesRoutineName)
-                    ?? (listTypeDef != null
-                        ? BuildAllCasesBody(
-                            memberNames: choice.Cases.Select(c => c.Name).ToList(),
+                    CloneUniversalDeriveBody(ownerType: choice,
+                        synthesized: routine,
+                        memberRoutineName: AllCasesRoutineName) ?? (listTypeDef != null
+                        ? BuildAllCasesBody(memberNames: choice.Cases
+                                                               .Select(selector: c => c.Name)
+                                                               .ToList(),
                             elementType: choice,
                             listType: ctx.Registry.GetOrCreateResolution(genericDef: listTypeDef,
                                 typeArguments: [choice]))
@@ -1004,7 +1222,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // Reverse constructor `Choice(from: S32)` — reinterpret the discriminant bits.
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmIntrinsicCallBody(
                     intrinsicName: ReinterpretBitsIntrinsicName,
-                    fromType: routine.Parameters[0].Type!,
+                    fromType: routine.Parameters[index: 0].Type!,
                     toType: choice,
                     paramName: "from");
                 break;
@@ -1013,17 +1231,21 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // Cloned from the `@override … needs T is ChoiceType` derive template (VALUE-dispatch
                 // via `caseof`); falls back to the C# builder.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: choice, synthesized: routine,
-                        memberRoutineName: RepresentMemberRoutineName)
-                    ?? BuildChoiceRepresentBody(choice: choice, textType: textType,
+                    CloneUniversalDeriveBody(ownerType: choice,
+                        synthesized: routine,
+                        memberRoutineName: RepresentMemberRoutineName) ??
+                    BuildChoiceRepresentBody(choice: choice,
+                        textType: textType,
                         logicBreachedErrorType: logicBreachedErrorType);
                 break;
 
             case DiagnoseMemberRoutineName:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: choice, synthesized: routine,
-                        memberRoutineName: DiagnoseMemberRoutineName)
-                    ?? BuildChoiceDiagnoseBody(choice: choice, textType: textType,
+                    CloneUniversalDeriveBody(ownerType: choice,
+                        synthesized: routine,
+                        memberRoutineName: DiagnoseMemberRoutineName) ??
+                    BuildChoiceDiagnoseBody(choice: choice,
+                        textType: textType,
                         logicBreachedErrorType: logicBreachedErrorType);
                 break;
 
@@ -1032,8 +1254,13 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // A `choice` has no serializable payload, so it boxes its `represent()` Text (the zero-field
                 // path of BuildSerializeBody) — the fallback the derived composite's `obeying` else-branch
                 // used to produce, now that serialize is universal.
-                Statement? choiceSerBody = BuildSerializeBody(owner: choice, fields: [], textType: textType);
-                if (choiceSerBody != null) ctx.VariantBodies[key: routine.RegistryKey] = choiceSerBody;
+                Statement? choiceSerBody =
+                    BuildSerializeBody(owner: choice, fields: [], textType: textType);
+                if (choiceSerBody != null)
+                {
+                    ctx.VariantBodies[key: routine.RegistryKey] = choiceSerBody;
+                }
+
                 break;
             }
 
@@ -1077,7 +1304,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         {
             // None fields carry no information — two None values are always equal; skip them
             // to avoid emitting calls to None.eq (void params, illegal in LLVM IR).
-            if (field.Type.IsNone) continue;
+            if (field.Type.IsNone)
+            {
+                continue;
+            }
 
             var lhs = new MemberExpression(
                 Object: new IdentifierExpression(Name: "me", Location: _synthLoc)
@@ -1146,15 +1376,19 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     {
         // @llvm-backed primitives (S64, Bool, …) have no composite fields to recurse into.
         if (record.BackendType != null || record.MemberVariables is null or { Count: 0 })
+        {
             return BuildReturnMeBody(ownerType: record);
+        }
 
         // Only reconstruct when at least one field genuinely needs a retaining copy.
         // Otherwise the shallow byte-copy is both correct and cheaper.
-        var anyRetaining = record.MemberVariables.Any(predicate: f => ctx.Registry
+        bool anyRetaining = record.MemberVariables.Any(predicate: f => ctx.Registry
            .GetLifecycle(type: f.Type)
            .Store is not null);
         if (!anyRetaining)
+        {
             return BuildReturnMeBody(ownerType: record);
+        }
 
         var memberArgs = new List<(string Name, Expression Value)>(
             capacity: record.MemberVariables.Count);
@@ -1206,10 +1440,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             ResolvedType = ownerType
         };
         var copyMember =
-            new MemberExpression(Object: meRef, MemberName: AssignMemberRoutineName, Location: _synthLoc)
-            {
-                ResolvedType = ownerType
-            };
+            new MemberExpression(Object: meRef,
+                MemberName: AssignMemberRoutineName,
+                Location: _synthLoc) { ResolvedType = ownerType };
         var copyCall =
             new CallExpression(Callee: copyMember, Arguments: [], Location: _synthLoc)
             {
@@ -1235,9 +1468,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// <c>caseof</c> unroll + per-case increment. Replaces the DeriveText template for <c>count</c>.
     /// </summary>
     private static ReturnStatement BuildCountBody(int count, TypeInfo u64Type)
-        => new(Value: new LiteralExpression(Value: (ulong)count,
-                LiteralType: TokenType.U64Literal, Location: _synthLoc) { ResolvedType = u64Type },
+    {
+        return new ReturnStatement(Value: new LiteralExpression(Value: (ulong)count,
+                LiteralType: TokenType.U64Literal,
+                Location: _synthLoc) { ResolvedType = u64Type },
             Location: _synthLoc);
+    }
 
     /// <summary>
     /// Builds the body: <c>return me.f1.hash() ^ me.f2.hash() ^ ...</c>.
@@ -1258,8 +1494,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // Pre-resolve U64.bitxor so synthesized CallExpression nodes carry a concrete
         // ResolvedRoutine. Without it, codegen's DirectMemberRoutine path throws when it
         // can't determine the receiver type for the XOR accumulator call.
-        RoutineInfo? u64Bitxor =
-            ctx.Registry.LookupMemberRoutine(type: u64Type, memberRoutineName: BitXorMemberRoutineName);
+        RoutineInfo? u64Bitxor = ctx.Registry.LookupMemberRoutine(type: u64Type,
+            memberRoutineName: BitXorMemberRoutineName);
 
         Expression? accum = null;
         foreach (MemberVariableInfo field in fields)
@@ -1273,13 +1509,13 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 {
                     ResolvedType = field.Type
                 };
-            var hashMemberRoutine = new MemberExpression(
-                Object: fieldAccess,
+            var hashMemberRoutine = new MemberExpression(Object: fieldAccess,
                 MemberName: HashMemberRoutineName,
                 Location: _synthLoc) { ResolvedType = u64Type };
-            RoutineInfo? fieldHashRoutine = ctx.Registry.LookupMemberRoutineOverload(type: field.Type,
-                memberRoutineName: HashMemberRoutineName,
-                argTypes: []);
+            RoutineInfo? fieldHashRoutine =
+                ctx.Registry.LookupMemberRoutineOverload(type: field.Type,
+                    memberRoutineName: HashMemberRoutineName,
+                    argTypes: []);
             Expression fieldHash =
                 new CallExpression(Callee: hashMemberRoutine, Arguments: [], Location: _synthLoc)
                 {
@@ -1335,21 +1571,25 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private static ReturnStatement BuildNumericEqBodyViaConversion(TypeInfo ownerType,
         string conversionTypeName, TypeInfo conversionType, TypeInfo boolType)
     {
-        CreatorExpression Reinterpret(string localName) =>
-            new(TypeName: conversionTypeName,
+        CreatorExpression Reinterpret(string localName)
+        {
+            return new CreatorExpression(TypeName: conversionTypeName,
                 TypeArguments: null,
                 MemberVariables:
                 [
-                    ("from", new IdentifierExpression(Name: localName, Location: _synthLoc)
-                        { ResolvedType = ownerType })
+                    ("from",
+                        new IdentifierExpression(Name: localName, Location: _synthLoc)
+                        {
+                            ResolvedType = ownerType
+                        })
                 ],
                 Location: _synthLoc)
             {
                 ResolvedType = conversionType, LoweringKind = CallLoweringKind.TypeConstructor
             };
+        }
 
-        var cmp = new BinaryExpression(
-            Left: Reinterpret(localName: "me"),
+        var cmp = new BinaryExpression(Left: Reinterpret(localName: "me"),
             Operator: BinaryOperator.Equal,
             Right: Reinterpret(localName: "you"),
             Location: _synthLoc) { ResolvedType = boolType };
@@ -1387,7 +1627,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private static ReturnStatement BuildAllCasesBody(List<string> memberNames,
         TypeInfo elementType, TypeInfo listType)
     {
-        var elements = memberNames.Select(name =>
+        var elements = memberNames.Select(selector: name =>
                                        (Expression)new IdentifierExpression(Name: name,
                                            Location: _synthLoc) { ResolvedType = elementType })
                                   .ToList();
@@ -1456,8 +1696,11 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         {
             ResolvedType = ownerType
         };
-        var typeArgRepr = new TypeExpression(Name: reprType.Name, GenericArguments: null,
-            Location: _synthLoc) { ResolvedType = reprType };
+        var typeArgRepr =
+            new TypeExpression(Name: reprType.Name, GenericArguments: null, Location: _synthLoc)
+            {
+                ResolvedType = reprType
+            };
         var call = new CallExpression(
             Callee: new IdentifierExpression(Name: intrinsicName, Location: _synthLoc)
             {
@@ -1487,14 +1730,16 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         List<MemberVariableInfo> fields, TypeInfo u64Type)
     {
         if (fields.Count == 0)
+        {
             return new ReturnStatement(
                 Value: new LiteralExpression(Value: 0UL,
                     LiteralType: TokenType.U64Literal,
                     Location: _synthLoc) { ResolvedType = u64Type },
                 Location: _synthLoc);
+        }
 
-        RoutineInfo? u64Bitxor =
-            ctx.Registry.LookupMemberRoutine(type: u64Type, memberRoutineName: BitXorMemberRoutineName);
+        RoutineInfo? u64Bitxor = ctx.Registry.LookupMemberRoutine(type: u64Type,
+            memberRoutineName: BitXorMemberRoutineName);
 
         var k0Ref =
             new IdentifierExpression(Name: "k0", Location: _synthLoc) { ResolvedType = u64Type };
@@ -1613,7 +1858,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             Location: _synthLoc) { ResolvedType = s32Type };
 
         if (fields.Count == 0)
+        {
             return new ReturnStatement(Value: zeroS32, Location: _synthLoc);
+        }
 
         var stmts = new List<Statement>(capacity: fields.Count * 2 + 1);
         bool first = true;
@@ -1648,7 +1895,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
 
             if (first)
             {
-                stmts.Add(new DeclarationStatement(Declaration: new VariableDeclaration(Name: "r",
+                stmts.Add(item: new DeclarationStatement(
+                    Declaration: new VariableDeclaration(Name: "r",
                         Type: null,
                         Initializer: cmpCall,
                         Visibility: VisibilityModifier.Open,
@@ -1658,7 +1906,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             }
             else
             {
-                stmts.Add(new AssignmentStatement(
+                stmts.Add(item: new AssignmentStatement(
                     Target: new IdentifierExpression(Name: "r", Location: _synthLoc)
                     {
                         ResolvedType = s32Type
@@ -1678,7 +1926,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     Location: _synthLoc) { ResolvedType = s32Type },
                 Location: _synthLoc) { ResolvedType = boolType };
 
-            stmts.Add(new IfStatement(Condition: isNonZero,
+            stmts.Add(item: new IfStatement(Condition: isNonZero,
                 ThenStatement: new ReturnStatement(
                     Value: new IdentifierExpression(Name: "r", Location: _synthLoc)
                     {
@@ -1689,7 +1937,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 Location: _synthLoc));
         }
 
-        stmts.Add(new ReturnStatement(Value: zeroS32, Location: _synthLoc));
+        stmts.Add(item: new ReturnStatement(Value: zeroS32, Location: _synthLoc));
         return new BlockStatement(Statements: stmts, Location: _synthLoc);
     }
 
@@ -1722,8 +1970,13 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // derive-template store — several same-signature templates coexist there, keyed by gate set.
         (string OwnerParam, Statement Body)? picked =
             ctx.Registry.GetDeriveTemplate(name: memberRoutineName,
-                arity: synthesized.Parameters.Count, forType: ownerType);
-        if (picked is not { } t) return null;
+                arity: synthesized.Parameters.Count,
+                forType: ownerType);
+        if (picked is not { } t)
+        {
+            return null;
+        }
+
         Statement body = t.Body;
 
         // Self-apply a generic-definition owner to its own parameters before substituting the template
@@ -1737,27 +1990,38 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // frame's reachability walk then substitutes that T to the real argument. Concrete owners are not
         // generic definitions, so this is a no-op for them.
         TypeInfo boundOwner = ownerType;
-        if (ownerType.IsGenericDefinition && ownerType.GenericParameters is { Count: > 0 } ownParams)
+        if (ownerType.IsGenericDefinition &&
+            ownerType.GenericParameters is { Count: > 0 } ownParams)
+        {
             boundOwner = ctx.Registry.GetOrCreateResolution(genericDef: ownerType,
-                typeArguments: ownParams.Select(selector: p => (TypeInfo)new GenericParameterTypeInfo(name: p)).ToList());
+                typeArguments: ownParams
+                              .Select(selector: p =>
+                                   (TypeInfo)new GenericParameterTypeInfo(name: p))
+                              .ToList());
+        }
 
         var typeSubs = new Dictionary<string, TypeInfo>
         {
-            [t.OwnerParam] = boundOwner,
-            ["Me"] = boundOwner
+            [key: t.OwnerParam] = boundOwner, [key: "Me"] = boundOwner
         };
         var stringSubs = typeSubs.ToDictionary(keySelector: kv => kv.Key,
             elementSelector: kv => kv.Value.FullName);
-        Statement cloned = GenericAstRewriter.RewriteStatement(stmt: body, subs: stringSubs,
-            typeSubs: typeSubs, registry: ctx.Registry, enclosingRoutine: synthesized);
+        Statement cloned = GenericAstRewriter.RewriteStatement(stmt: body,
+            subs: stringSubs,
+            typeSubs: typeSubs,
+            registry: ctx.Registry,
+            enclosingRoutine: synthesized);
 
         // Stdlib bodies are stored raw (no SA annotation); backfill `me`'s type so downstream
         // lowering/codegen sees the concrete receiver.
-        AstWalker.WalkExpressions(root: cloned, visit: expr =>
-        {
-            if (expr is IdentifierExpression { Name: "me", ResolvedType: null } id)
-                id.ResolvedType = boundOwner;
-        });
+        AstWalker.WalkExpressions(root: cloned,
+            visit: expr =>
+            {
+                if (expr is IdentifierExpression { Name: "me", ResolvedType: null } id)
+                {
+                    id.ResolvedType = boundOwner;
+                }
+            });
         // Resolve bare TYPE CONSTRUCTIONS in the cloned derive body. The universal `serialize` template
         // (`var __sv = Dict[Text, SerialValue]()` … `return SerialValue(steal __sv)`) constructs concrete
         // types, but the template is stored RAW (never SA'd) so those constructions carry no ResolvedRoutine/
@@ -1778,48 +2042,58 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// </summary>
     private void ResolveDeriveConstructions(Statement body)
     {
-        AstWalker.WalkExpressions(root: body, visit: expr =>
-        {
-            switch (expr)
+        AstWalker.WalkExpressions(root: body,
+            visit: expr =>
             {
-                // `Dict[Text, SerialValue]()` — a construction GMCE (Object names the type == MemberRoutineName).
-                // RewriteStatement already concretized ConstructedType; resolve its `create` so
-                // GenericCallLoweringPass can lower the GMCE.
-                case GenericMemberRoutineCallExpression { ResolvedRoutine: null } g
-                    when g.Object is IdentifierExpression oid && oid.Name == g.MemberRoutineName:
+                switch (expr)
                 {
-                    // Build the concrete constructed type: `Dict[Text, SerialValue]()` arrives with
-                    // ConstructedType=null (raw template) and TypeArguments=[Text, SerialValue], so resolve
-                    // the generic def by name + its resolved type args (a concrete `Dict[Text, SerialValue]`).
-                    TypeInfo? ct = g.ConstructedType ?? ResolveConstructedTypeFor(
-                        typeName: g.MemberRoutineName, typeArgs: g.TypeArguments);
-                    if (ct is { IsGenericDefinition: false }
-                        && ctx.Registry.LookupCreator(type: ct) is { } cr)
+                    // `Dict[Text, SerialValue]()` — a construction GMCE (Object names the type == MemberRoutineName).
+                    // RewriteStatement already concretized ConstructedType; resolve its `create` so
+                    // GenericCallLoweringPass can lower the GMCE.
+                    case GenericMemberRoutineCallExpression { ResolvedRoutine: null } g
+                        when g.Object is IdentifierExpression oid &&
+                             oid.Name == g.MemberRoutineName:
                     {
-                        g.ResolvedRoutine = cr;
-                        g.ConstructedType = ct;
-                        g.ResolvedType ??= ct;
+                        // Build the concrete constructed type: `Dict[Text, SerialValue]()` arrives with
+                        // ConstructedType=null (raw template) and TypeArguments=[Text, SerialValue], so resolve
+                        // the generic def by name + its resolved type args (a concrete `Dict[Text, SerialValue]`).
+                        TypeInfo? ct = g.ConstructedType ?? ResolveConstructedTypeFor(
+                            typeName: g.MemberRoutineName,
+                            typeArgs: g.TypeArguments);
+                        if (ct is { IsGenericDefinition: false } &&
+                            ctx.Registry.LookupCreator(type: ct) is { } cr)
+                        {
+                            g.ResolvedRoutine = cr;
+                            g.ConstructedType = ct;
+                            g.ResolvedType ??= ct;
+                        }
+
+                        break;
                     }
-                    break;
+                    // `SerialValue(steal __sv)` — a plain construction CallExpression (callee names a type).
+                    // SerialValue is a non-generic VARIANT: `SerialValue(dict)` wraps the arg into the matching
+                    // arm — there is NO `create` routine, so codegen builds from ConstructedType + the arg's type.
+                    // The RF-S959 gate only needs ConstructedType attached; set it (+ create when one exists,
+                    // e.g. record/entity types). LoweringKind=TypeConstructor so codegen routes to construction.
+                    case CallExpression
+                    {
+                        ResolvedRoutine: null, ConstructedType: null,
+                        Callee: IdentifierExpression cid
+                    } c when ctx.Registry.LookupType(name: cid.Name) is
+                        { IsGenericDefinition: false } ct2:
+                    {
+                        c.ConstructedType = ct2;
+                        c.ResolvedType ??= ct2;
+                        c.LoweringKind = CallLoweringKind.TypeConstructor;
+                        if (ctx.Registry.LookupCreator(type: ct2) is { } cr2)
+                        {
+                            c.ResolvedRoutine = cr2;
+                        }
+
+                        break;
+                    }
                 }
-                // `SerialValue(steal __sv)` — a plain construction CallExpression (callee names a type).
-                // SerialValue is a non-generic VARIANT: `SerialValue(dict)` wraps the arg into the matching
-                // arm — there is NO `create` routine, so codegen builds from ConstructedType + the arg's type.
-                // The RF-S959 gate only needs ConstructedType attached; set it (+ create when one exists,
-                // e.g. record/entity types). LoweringKind=TypeConstructor so codegen routes to construction.
-                case CallExpression { ResolvedRoutine: null, ConstructedType: null,
-                        Callee: IdentifierExpression cid } c
-                    when ctx.Registry.LookupType(name: cid.Name) is { IsGenericDefinition: false } ct2:
-                {
-                    c.ConstructedType = ct2;
-                    c.ResolvedType ??= ct2;
-                    c.LoweringKind = CallLoweringKind.TypeConstructor;
-                    if (ctx.Registry.LookupCreator(type: ct2) is { } cr2)
-                        c.ResolvedRoutine = cr2;
-                    break;
-                }
-            }
-        });
+            });
     }
 
     /// <summary>
@@ -1829,14 +2103,29 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// </summary>
     private TypeInfo? ResolveConstructedTypeFor(string typeName, List<TypeExpression> typeArgs)
     {
-        if (ctx.Registry.LookupType(name: typeName) is not { } baseTy) return null;
-        if (typeArgs.Count == 0) return baseTy is { IsGenericDefinition: false } ? baseTy : null;
+        if (ctx.Registry.LookupType(name: typeName) is not { } baseTy)
+        {
+            return null;
+        }
+
+        if (typeArgs.Count == 0)
+        {
+            return baseTy is { IsGenericDefinition: false }
+                ? baseTy
+                : null;
+        }
+
         var resolved = new List<TypeInfo>(capacity: typeArgs.Count);
         foreach (TypeExpression te in typeArgs)
         {
-            if (ResolveTypeExprToInfo(te: te) is not { } a) return null;
+            if (ResolveTypeExprToInfo(te: te) is not { } a)
+            {
+                return null;
+            }
+
             resolved.Add(item: a);
         }
+
         return ctx.Registry.GetOrCreateResolution(genericDef: baseTy, typeArguments: resolved);
     }
 
@@ -1844,14 +2133,27 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// <see cref="TypeInfo"/> via name lookup + resolution; null if any name is unknown.</summary>
     private TypeInfo? ResolveTypeExprToInfo(TypeExpression te)
     {
-        if (ctx.Registry.LookupType(name: te.Name) is not { } b) return null;
-        if (te.GenericArguments is not { Count: > 0 } ga) return b;
+        if (ctx.Registry.LookupType(name: te.Name) is not { } b)
+        {
+            return null;
+        }
+
+        if (te.GenericArguments is not { Count: > 0 } ga)
+        {
+            return b;
+        }
+
         var args = new List<TypeInfo>(capacity: ga.Count);
         foreach (TypeExpression inner in ga)
         {
-            if (ResolveTypeExprToInfo(te: inner) is not { } x) return null;
+            if (ResolveTypeExprToInfo(te: inner) is not { } x)
+            {
+                return null;
+            }
+
             args.Add(item: x);
         }
+
         return ctx.Registry.GetOrCreateResolution(genericDef: b, typeArguments: args);
     }
 
@@ -1875,10 +2177,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 Location: _synthLoc) { ResolvedType = textType },
             Arguments: [],
             Location: _synthLoc) { ResolvedType = textType };
-        parts.Add(new ExpressionPart(Expression: typeNameCall,
+        parts.Add(item: new ExpressionPart(Expression: typeNameCall,
             FormatSpec: null,
             Location: _synthLoc));
-        parts.Add(new TextPart(Text: "(", Location: _synthLoc));
+        parts.Add(item: new TextPart(Text: "(", Location: _synthLoc));
 
         IEnumerable<MemberVariableInfo> visibleMemberVariables = diagnose
             ? fields
@@ -1889,20 +2191,24 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         foreach (MemberVariableInfo field in visibleMemberVariables)
         {
             if (!first)
-                parts.Add(new TextPart(Text: ", ", Location: _synthLoc));
+            {
+                parts.Add(item: new TextPart(Text: ", ", Location: _synthLoc));
+            }
+
             first = false;
 
             string secretPrefix = diagnose && field.Visibility == VisibilityModifier.Secret
                 ? "[secret] "
                 : "";
-            parts.Add(new TextPart(Text: secretPrefix + field.Name + ": ", Location: _synthLoc));
+            parts.Add(item: new TextPart(Text: secretPrefix + field.Name + ": ",
+                Location: _synthLoc));
 
             // Routine-typed fields (stored lambdas/function pointers in iterator adapters such as
             // WhereIterator's `predicate`) have no represent — emitting one yields an undefined
             // `Routine[...].represent` symbol at link time. Render a stable placeholder instead.
             if (field.Type is RoutineTypeInfo)
             {
-                parts.Add(new TextPart(Text: "<routine>", Location: _synthLoc));
+                parts.Add(item: new TextPart(Text: "<routine>", Location: _synthLoc));
                 continue;
             }
 
@@ -1916,12 +2222,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
 
             // Always use represent for field values, even inside diagnose.
             // Using diagnose recursively would produce exponentially verbose output.
-            parts.Add(new ExpressionPart(Expression: fieldExpr,
+            parts.Add(item: new ExpressionPart(Expression: fieldExpr,
                 FormatSpec: null,
                 Location: _synthLoc));
         }
 
-        parts.Add(new TextPart(Text: ")", Location: _synthLoc));
+        parts.Add(item: new TextPart(Text: ")", Location: _synthLoc));
 
         var fstring =
             new InsertedTextExpression(Parts: parts, IsRaw: false, Location: _synthLoc)
@@ -1944,7 +2250,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         TypeInfo textType)
     {
         if (ctx.Registry.LookupType(name: "SerialValue") is not VariantTypeInfo serialValue)
+        {
             return null;
+        }
 
         // Scalar leaf types (S8..U64, F32/F64, Bool, Moment, Bytes, Text) serialize by boxing THEMSELVES
         // into their own SerialValue arm — not a field walk. This makes `x.serialize()` uniform for every
@@ -2002,7 +2310,11 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // (and Name) directly so the DictLiteral type and the boxing arm are the exact same resolution.
         VariantMemberInfo? dictArm = serialValue.Members.FirstOrDefault(predicate: m =>
             m.Type?.TypeArguments is { Count: 2 });
-        if (dictArm?.Type == null) return null;
+        if (dictArm?.Type == null)
+        {
+            return null;
+        }
+
         TypeInfo dictType = dictArm.Type;
 
         var pairs = new List<(Expression Key, Expression Value)>();
@@ -2037,31 +2349,35 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         return new ReturnStatement(Value: boxed, Location: _synthLoc);
     }
 
-    private Expression BuildSerializeMemberVariableValue(MemberVariableInfo field, Expression meField,
-        VariantTypeInfo serialValue, TypeInfo textType)
+    private Expression BuildSerializeMemberVariableValue(MemberVariableInfo field,
+        Expression meField, VariantTypeInfo serialValue, TypeInfo textType)
     {
         // Direct SerialValue arm (S8..U64 / F32/F64 / Bool / Moment / Bytes / Text) -> box inline.
         VariantMemberInfo? arm = FindScalarArm(serialValue: serialValue, fieldType: field.Type);
         if (arm != null)
+        {
             return new CreatorExpression(TypeName: serialValue.Name,
                 TypeArguments: null,
                 MemberVariables: [(arm.Type!.Name, meField)],
                 Location: _synthLoc) { ResolvedType = serialValue, ConstructedType = serialValue };
+        }
 
         // Aggregate with a REAL synthesized serialize() (not an @llvm primitive record) -> recurse.
         bool recurse = field.Type switch
         {
             RecordTypeInfo r => r.BackendType == null && TypeHasSerialize(type: r),
             EntityTypeInfo e => TypeHasSerialize(type: e),
-            _ => false,
+            _ => false
         };
         if (recurse)
+        {
             return new CallExpression(
                 Callee: new MemberExpression(Object: meField,
                     MemberName: SerializeMemberRoutineName,
                     Location: _synthLoc) { ResolvedType = serialValue },
                 Arguments: [],
                 Location: _synthLoc) { ResolvedType = serialValue };
+        }
 
         // Fallback: Text(field.represent()). Routine-typed fields have no represent -> placeholder.
         Expression textVal = field.Type is RoutineTypeInfo
@@ -2085,22 +2401,36 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     {
         foreach (VariantMemberInfo m in serialValue.Members)
         {
-            if (m.IsNone || m.Type is null) continue;
+            if (m.IsNone || m.Type is null)
+            {
+                continue;
+            }
+
             // List[SerialValue] / Dict[Text, SerialValue] arms are generic (recursion arms), not scalars.
-            if (m.Type.TypeArguments is { Count: > 0 }) continue;
-            if (m.Type.Name == fieldType.Name || m.Type.FullName == fieldType.FullName) return m;
+            if (m.Type.TypeArguments is { Count: > 0 })
+            {
+                continue;
+            }
+
+            if (m.Type.Name == fieldType.Name || m.Type.FullName == fieldType.FullName)
+            {
+                return m;
+            }
         }
 
         return null;
     }
 
-    private bool TypeHasSerialize(TypeInfo type) =>
+    private bool TypeHasSerialize(TypeInfo type)
+    {
         // LookupMemberRoutine resolves through the generic definition, so a concrete instance like
         // `List[S32]` sees the generic `List[T].serialize` (GetMemberRoutinesForType only lists the instance's
         // own already-materialized memberRoutines, which misses it during field-value synthesis).
-        ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: SerializeMemberRoutineName) is not null || ctx.Registry
+        return ctx.Registry.LookupMemberRoutine(type: type,
+            memberRoutineName: SerializeMemberRoutineName) is not null || ctx.Registry
            .GetMemberRoutinesForType(type: type)
            .Any(predicate: m => m.Name == SerializeMemberRoutineName);
+    }
 
     //  represent / diagnose (choice)
 
@@ -2118,7 +2448,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         var clauses = new List<WhenClause>(capacity: choice.Cases.Count + 1);
         foreach (ChoiceCaseInfo c in choice.Cases)
         {
-            clauses.Add(new WhenClause(
+            clauses.Add(item: new WhenClause(
                 Pattern: new LiteralPattern(Value: c.ComputedValue,
                     LiteralType: TokenType.S32Literal,
                     Location: _synthLoc),
@@ -2130,7 +2460,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 Location: _synthLoc));
         }
 
-        clauses.Add(new WhenClause(
+        clauses.Add(item: new WhenClause(
             Pattern: new ElsePattern(VariableName: null, Location: _synthLoc),
             Body: BuildBreachStatement(logicBreachedErrorType: logicBreachedErrorType),
             Location: _synthLoc));
@@ -2155,7 +2485,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         foreach (ChoiceCaseInfo c in choice.Cases)
         {
             string text = $"{prefix}{c.ComputedValue}, {c.Name})";
-            clauses.Add(new WhenClause(
+            clauses.Add(item: new WhenClause(
                 Pattern: new LiteralPattern(Value: c.ComputedValue,
                     LiteralType: TokenType.S32Literal,
                     Location: _synthLoc),
@@ -2167,7 +2497,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 Location: _synthLoc));
         }
 
-        clauses.Add(new WhenClause(
+        clauses.Add(item: new WhenClause(
             Pattern: new ElsePattern(VariableName: null, Location: _synthLoc),
             Body: BuildBreachStatement(logicBreachedErrorType: logicBreachedErrorType),
             Location: _synthLoc));
@@ -2187,7 +2517,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // `.eq()` — never recurses back into this body. ne is derived from eq by DerivedOperatorPass.
             case "eq" when u64Type != null:
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmBinaryIntrinsicCallBody(
-                    intrinsicName: "int_eq", ownerType: flags, reprType: u64Type,
+                    intrinsicName: "int_eq",
+                    ownerType: flags,
+                    reprType: u64Type,
                     resultType: boolType);
                 break;
 
@@ -2195,15 +2527,24 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // Flags-bitwise special-case, no operator recursion.
             case "bitor" when u64Type != null:
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmBinaryIntrinsicCallBody(
-                    intrinsicName: "bit_or", ownerType: flags, reprType: u64Type, resultType: flags);
+                    intrinsicName: "bit_or",
+                    ownerType: flags,
+                    reprType: u64Type,
+                    resultType: flags);
                 break;
             case "bitand" when u64Type != null:
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmBinaryIntrinsicCallBody(
-                    intrinsicName: "bit_and", ownerType: flags, reprType: u64Type, resultType: flags);
+                    intrinsicName: "bit_and",
+                    ownerType: flags,
+                    reprType: u64Type,
+                    resultType: flags);
                 break;
             case "bitxor" when u64Type != null:
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmBinaryIntrinsicCallBody(
-                    intrinsicName: "bit_xor", ownerType: flags, reprType: u64Type, resultType: flags);
+                    intrinsicName: "bit_xor",
+                    ownerType: flags,
+                    reprType: u64Type,
+                    resultType: flags);
                 break;
 
             case HashMemberRoutineName when u64Type != null && routine.Parameters.Count == 0:
@@ -2226,11 +2567,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // Cloned from the `@overridable … needs T is FlagsType` DeriveText template (caseof unroll
                 // reconstructing each member via `Me(from: $valueof(c))`); C# BuildAllCasesBody is the fallback.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: flags, synthesized: routine,
-                        memberRoutineName: AllCasesRoutineName)
-                    ?? (listTypeDef != null
-                        ? BuildAllCasesBody(
-                            memberNames: flags.Members.Select(m => m.Name).ToList(),
+                    CloneUniversalDeriveBody(ownerType: flags,
+                        synthesized: routine,
+                        memberRoutineName: AllCasesRoutineName) ?? (listTypeDef != null
+                        ? BuildAllCasesBody(memberNames: flags.Members
+                                                              .Select(selector: m => m.Name)
+                                                              .ToList(),
                             elementType: flags,
                             listType: ctx.Registry.GetOrCreateResolution(genericDef: listTypeDef,
                                 typeArguments: [flags]))
@@ -2249,7 +2591,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // Reverse constructor `Flags(from: U64)` — reinterpret the bitmask bits.
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmIntrinsicCallBody(
                     intrinsicName: ReinterpretBitsIntrinsicName,
-                    fromType: routine.Parameters[0].Type!,
+                    fromType: routine.Parameters[index: 0].Type!,
                     toType: flags,
                     paramName: "from");
                 break;
@@ -2258,24 +2600,31 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // Cloned from the `@override … needs T is FlagsType` derive template (SUBSET
                 // accumulation via `caseof`); falls back to the C# builder.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: flags, synthesized: routine,
-                        memberRoutineName: RepresentMemberRoutineName)
-                    ?? BuildFlagsRepresentBody(flags: flags, textType: textType, boolType: boolType);
+                    CloneUniversalDeriveBody(ownerType: flags,
+                        synthesized: routine,
+                        memberRoutineName: RepresentMemberRoutineName) ??
+                    BuildFlagsRepresentBody(flags: flags, textType: textType, boolType: boolType);
                 break;
 
             case DiagnoseMemberRoutineName:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: flags, synthesized: routine,
-                        memberRoutineName: DiagnoseMemberRoutineName)
-                    ?? BuildFlagsDiagnoseBody(flags: flags, textType: textType, boolType: boolType);
+                    CloneUniversalDeriveBody(ownerType: flags,
+                        synthesized: routine,
+                        memberRoutineName: DiagnoseMemberRoutineName) ??
+                    BuildFlagsDiagnoseBody(flags: flags, textType: textType, boolType: boolType);
                 break;
 
             case SerializeMemberRoutineName when !flags.IsGenericDefinition:
             {
                 // A `flags` mask boxes its `represent()` Text (zero-field BuildSerializeBody path) — the
                 // universal-serialize fallback that replaces the composite derive's `obeying` else-branch.
-                Statement? flagsSerBody = BuildSerializeBody(owner: flags, fields: [], textType: textType);
-                if (flagsSerBody != null) ctx.VariantBodies[key: routine.RegistryKey] = flagsSerBody;
+                Statement? flagsSerBody =
+                    BuildSerializeBody(owner: flags, fields: [], textType: textType);
+                if (flagsSerBody != null)
+                {
+                    ctx.VariantBodies[key: routine.RegistryKey] = flagsSerBody;
+                }
+
                 break;
             }
 
@@ -2289,7 +2638,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             {
                 ulong mask = 0;
                 foreach (FlagsMemberInfo member in flags.Members)
+                {
                     mask |= 1UL << member.BitPosition;
+                }
+
                 ctx.VariantBodies[key: routine.RegistryKey] = MakeLiteralReturn(
                     value: unchecked((long)mask),
                     returnType: routine.ReturnType ?? flags);
@@ -2356,7 +2708,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             Location: _synthLoc) { ResolvedType = textType };
 
         // var result: Text = ""
-        stmts.Add(new DeclarationStatement(
+        stmts.Add(item: new DeclarationStatement(
             Declaration: new VariableDeclaration(Name: ResultVarName,
                 Type: null,
                 Initializer: emptyText,
@@ -2365,7 +2717,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             Location: _synthLoc));
 
         // var first: Bool = true
-        stmts.Add(new DeclarationStatement(Declaration: new VariableDeclaration(Name: FirstVarName,
+        stmts.Add(item: new DeclarationStatement(
+            Declaration: new VariableDeclaration(Name: FirstVarName,
                 Type: null,
                 Initializer: trueLit,
                 Visibility: VisibilityModifier.Open,
@@ -2375,7 +2728,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         if (computeBits)
         {
             // var bits: Text = "%"
-            stmts.Add(new DeclarationStatement(Declaration: new VariableDeclaration(Name: "bits",
+            stmts.Add(item: new DeclarationStatement(Declaration: new VariableDeclaration(
+                    Name: "bits",
                     Type: null,
                     Initializer: new LiteralExpression(Value: "%",
                         LiteralType: TokenType.TextLiteral,
@@ -2478,7 +2832,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             if (!computeBits)
             {
                 // If the bit is set, run the name-accumulation logic.
-                stmts.Add(new IfStatement(Condition: isSet,
+                stmts.Add(item: new IfStatement(Condition: isSet,
                     ThenStatement: new BlockStatement(Statements:
                         [innerNameIf],
                         Location: _synthLoc),
@@ -2523,7 +2877,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
 
                 // When the bit is set: run name-accumulation logic and append "1" to bits.
                 // Otherwise: append "0" to bits.
-                stmts.Add(new IfStatement(Condition: isSet,
+                stmts.Add(item: new IfStatement(Condition: isSet,
                     ThenStatement: new BlockStatement(Statements:
                         [
                             innerNameIf,
@@ -2552,7 +2906,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         }
 
         // if first { result = "<none>" }
-        stmts.Add(new IfStatement(
+        stmts.Add(item: new IfStatement(
             Condition: new IdentifierExpression(Name: FirstVarName, Location: _synthLoc)
             {
                 ResolvedType = boolType
@@ -2583,11 +2937,13 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     {
         TypeInfo? s64Type = ctx.Registry.LookupType(name: "S64");
         if (s64Type == null)
+        {
             return new ReturnStatement(
                 Value: new LiteralExpression(Value: "<none>",
                     LiteralType: TokenType.TextLiteral,
                     Location: _synthLoc) { ResolvedType = textType },
                 Location: _synthLoc);
+        }
 
         List<Statement> stmts = BuildFlagsComputeBlock(flags: flags,
             textType: textType,
@@ -2595,7 +2951,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             s64Type: s64Type,
             computeBits: false);
 
-        stmts.Add(new ReturnStatement(
+        stmts.Add(item: new ReturnStatement(
             Value: new IdentifierExpression(Name: ResultVarName, Location: _synthLoc)
             {
                 ResolvedType = textType
@@ -2615,11 +2971,13 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     {
         TypeInfo? s64Type = ctx.Registry.LookupType(name: "S64");
         if (s64Type == null)
+        {
             return new ReturnStatement(
                 Value: new LiteralExpression(Value: flags.FullName + "(value: %0, <none>)",
                     LiteralType: TokenType.TextLiteral,
                     Location: _synthLoc) { ResolvedType = textType },
                 Location: _synthLoc);
+        }
 
         List<Statement> stmts = BuildFlagsComputeBlock(flags: flags,
             textType: textType,
@@ -2648,7 +3006,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             IsRaw: false,
             Location: _synthLoc) { ResolvedType = textType };
 
-        stmts.Add(new ReturnStatement(Value: fstring, Location: _synthLoc));
+        stmts.Add(item: new ReturnStatement(Value: fstring, Location: _synthLoc));
 
         return new BlockStatement(Statements: stmts, Location: _synthLoc);
     }
@@ -2723,7 +3081,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         var parts = new List<InsertedTextPart>();
 
         // Open with "Module.TypeName("
-        parts.Add(new TextPart(Text: crashable.FullName + "(", Location: _synthLoc));
+        parts.Add(item: new TextPart(Text: crashable.FullName + "(", Location: _synthLoc));
 
         // First element: crash_message() -> use represent format (no "?")
         var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
@@ -2735,14 +3093,14 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 Location: _synthLoc),
             Arguments: [],
             Location: _synthLoc);
-        parts.Add(new ExpressionPart(Expression: crashMsgCall,
+        parts.Add(item: new ExpressionPart(Expression: crashMsgCall,
             FormatSpec: null,
             Location: _synthLoc));
 
         // Remaining member-variable fields
         foreach (MemberVariableInfo field in crashable.MemberVariables)
         {
-            parts.Add(new TextPart(Text: ", " + field.Name + ": ", Location: _synthLoc));
+            parts.Add(item: new TextPart(Text: ", " + field.Name + ": ", Location: _synthLoc));
 
             var meRef2 = new IdentifierExpression(Name: "me", Location: _synthLoc)
             {
@@ -2754,12 +3112,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     ResolvedType = field.Type
                 };
 
-            parts.Add(new ExpressionPart(Expression: fieldExpr,
+            parts.Add(item: new ExpressionPart(Expression: fieldExpr,
                 FormatSpec: null,
                 Location: _synthLoc));
         }
 
-        parts.Add(new TextPart(Text: ")", Location: _synthLoc));
+        parts.Add(item: new TextPart(Text: ")", Location: _synthLoc));
 
         var fstring =
             new InsertedTextExpression(Parts: parts, IsRaw: false, Location: _synthLoc)
@@ -2781,13 +3139,19 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private bool TryHandleBuilderQueryConstant(RoutineInfo routine, TypeInfo textType,
         TypeInfo? u64Type, TypeInfo? boolType, TypeInfo? listTextType)
     {
-        if (routine.OwnerType == null) return false;
+        if (routine.OwnerType == null)
+        {
+            return false;
+        }
+
         TypeInfo owner = routine.OwnerType;
 
         // Skip compiler-internal/non-synthesizable categories.
         if (owner.Category is TypeCategory.TypeParameter or TypeCategory.Error
             or TypeCategory.ProtocolSelf or TypeCategory.ConstGenericValue)
+        {
             return false;
+        }
 
         // Fold-only constants (type_name/data_size/type_id/...): BuilderQueryInliningPass
         // and GenericAstRewriter fold EVERY call site to a literal computed from TypeInfo, so
@@ -2797,7 +3161,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // unfolded call site surfacing as a linker error indicates a folding bug to fix
         // at the pass layer, not a missing definition.
         if (BuilderQueryInliningPass.IsFoldable(routineName: routine.Name))
+        {
             return true;
+        }
 
         // List-returning per-type CONSTANT reflection (routine_names/protocols/generic_args/annotations/
         // dependencies): 0 runtime params, value is a compile-time-constant List[Text] of the owner type.
@@ -2809,13 +3175,17 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // not survive desugaring as routines). Non-constant BuilderQuery members (member_type_id/
         // protocol_info/routine_info/… — runtime params or entity-list builders) keep their real bodies below.
         if (BuilderInfoProvider.IsListReturningConstantRoutine(name: routine.Name))
+        {
             return true;
+        }
 
         switch (routine.Name)
         {
             case "member_type_id" when u64Type != null && boolType != null:
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildMemberTypeIdBody(owner: owner,
-                    textType: textType, u64Type: u64Type, boolType: boolType);
+                    textType: textType,
+                    u64Type: u64Type,
+                    boolType: boolType);
                 return true;
 
             case "protocols" when listTextType != null:
@@ -2823,10 +3193,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 List<string> names = owner switch
                 {
                     RecordTypeInfo r => r.ImplementedProtocols
-                                         .Select(p => p.Name)
+                                         .Select(selector: p => p.Name)
                                          .ToList(),
                     EntityTypeInfo e => e.ImplementedProtocols
-                                         .Select(p => p.Name)
+                                         .Select(selector: p => p.Name)
                                          .ToList(),
                     _ => []
                 };
@@ -2840,7 +3210,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             {
                 var names = ctx.Registry
                                .GetMemberRoutinesForType(type: owner)
-                               .Select(r => r.Name)
+                               .Select(selector: r => r.Name)
                                .Distinct()
                                .ToList();
                 ctx.VariantBodies[key: routine.RegistryKey] = MakeListReturn(values: names,
@@ -2852,7 +3222,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             case "generic_args" when listTextType != null:
             {
                 List<string> args = owner.TypeArguments
-                                        ?.Select(t => t.Name)
+                                        ?.Select(selector: t => t.Name)
                                          .ToList() ?? owner.GenericParameters?.ToList() ?? [];
                 ctx.VariantBodies[key: routine.RegistryKey] = MakeListReturn(values: args,
                     textType: textType,
@@ -2872,8 +3242,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             case "dependencies" when listTextType != null:
                 // Modules the owner type's declaring module imports (recorded after the Phase-3
                 // declaration sweep). Empty for stdlib/builtin owners whose module has no tracked imports.
-                ctx.VariantBodies[key: routine.RegistryKey] = MakeListReturn(
-                    values: ctx.Registry.GetModuleDependencies(module: owner.Module).ToList(),
+                ctx.VariantBodies[key: routine.RegistryKey] = MakeListReturn(values: ctx.Registry
+                       .GetModuleDependencies(module: owner.Module)
+                       .ToList(),
                     textType: textType,
                     listTextType: listTextType);
                 return true;
@@ -2882,20 +3253,27 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // (ProtocolInfo.routine_names, RoutineInfo.param_types/param_names — all List[Text]). The
             // hoisted nested-list temp is MOVED into the entity creator; ScopeTeardownLoweringPass's
             // entity-creator move-detection (added for exactly this) keeps it from being double-freed.
-            case "protocol_info"
-                when owner is RecordTypeInfo or EntityTypeInfo && boolType != null && listTextType != null:
-                return TryBuildProtocolInfoBody(routine: routine, owner: owner, textType: textType,
-                    boolType: boolType, listTextType: listTextType);
+            case "protocol_info" when owner is RecordTypeInfo or EntityTypeInfo &&
+                                      boolType != null && listTextType != null:
+                return TryBuildProtocolInfoBody(routine: routine,
+                    owner: owner,
+                    textType: textType,
+                    boolType: boolType,
+                    listTextType: listTextType);
 
-            case "routine_info"
-                when owner is RecordTypeInfo or EntityTypeInfo && boolType != null && listTextType != null:
-                return TryBuildRoutineInfoBody(routine: routine, owner: owner, textType: textType,
-                    boolType: boolType, listTextType: listTextType);
+            case "routine_info" when owner is RecordTypeInfo or EntityTypeInfo &&
+                                     boolType != null && listTextType != null:
+                return TryBuildRoutineInfoBody(routine: routine,
+                    owner: owner,
+                    textType: textType,
+                    boolType: boolType,
+                    listTextType: listTextType);
 
-            case "member_variable_info"
-                when owner is RecordTypeInfo or EntityTypeInfo:
-                return TryBuildMemberVariableInfoBody(routine: routine, owner: owner,
-                    textType: textType, u64Type: u64Type);
+            case "member_variable_info" when owner is RecordTypeInfo or EntityTypeInfo:
+                return TryBuildMemberVariableInfoBody(routine: routine,
+                    owner: owner,
+                    textType: textType,
+                    u64Type: u64Type);
 
             default:
                 return false;
@@ -2907,8 +3285,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// first (so the outermost IfStatement checks field[0]), each arm returning that field's type id;
     /// the fallback returns <c>0_u64</c>.
     /// </summary>
-    private static Statement BuildMemberTypeIdBody(TypeInfo owner, TypeInfo textType, TypeInfo u64Type,
-        TypeInfo boolType)
+    private static Statement BuildMemberTypeIdBody(TypeInfo owner, TypeInfo textType,
+        TypeInfo u64Type, TypeInfo boolType)
     {
         List<MemberVariableInfo>? fields = owner switch
         {
@@ -2931,7 +3309,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
 
         for (int i = fields.Count - 1; i >= 0; i--)
         {
-            MemberVariableInfo field = fields[i];
+            MemberVariableInfo field = fields[index: i];
             ulong typeId = TypeIdHelper.ComputeTypeId(fullName: field.Type.FullName);
 
             Expression cond = new CallExpression(
@@ -2970,7 +3348,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         TypeInfo boolType, TypeInfo listTextType)
     {
         if (ResolveEntityListType(elementTypeName: "ProtocolInfo") is not { } piList)
+        {
             return false;
+        }
+
         (TypeInfo protocolInfoType, TypeInfo listProtocolInfo) = piList;
 
         List<TypeInfo> protocols = owner switch
@@ -2980,23 +3361,24 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             _ => []
         };
 
-        var rows = protocols
-            .Select(p => new List<(string, Expression)>
-            {
-                ("name", MakeTextLit(value: p.Name, textType: textType)),
-                ("routine_names",
-                    MakeTextListLiteral(
-                        values: p is ProtocolTypeInfo pt
-                            ? pt.MemberRoutines.Select(m => m.Name)
-                            : Enumerable.Empty<string>(),
-                        textType: textType, listTextType: listTextType)),
-                ("is_generated", MakeBoolLit(value: false, boolType: boolType))
-            })
-            .ToList();
+        var rows = protocols.Select(selector: p => new List<(string, Expression)>
+                             {
+                                 ("name", MakeTextLit(value: p.Name, textType: textType)),
+                                 ("routine_names", MakeTextListLiteral(
+                                     values: p is ProtocolTypeInfo pt
+                                         ? pt.MemberRoutines.Select(selector: m => m.Name)
+                                         : Enumerable.Empty<string>(),
+                                     textType: textType,
+                                     listTextType: listTextType)),
+                                 ("is_generated", MakeBoolLit(value: false, boolType: boolType))
+                             })
+                            .ToList();
 
         ctx.VariantBodies[key: routine.RegistryKey] = MakeEntityInfoListReturn(
-            entityTypeName: "ProtocolInfo", entityType: protocolInfoType,
-            listEntityType: listProtocolInfo, rows: rows);
+            entityTypeName: "ProtocolInfo",
+            entityType: protocolInfoType,
+            listEntityType: listProtocolInfo,
+            rows: rows);
         return true;
     }
 
@@ -3009,30 +3391,44 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         TypeInfo boolType, TypeInfo listTextType)
     {
         if (ResolveEntityListType(elementTypeName: "RoutineInfo") is not { } riList)
+        {
             return false;
+        }
+
         (TypeInfo routineInfoType, TypeInfo listRoutineInfo) = riList;
 
-        var rows = ctx.Registry.GetMemberRoutinesForType(type: owner)
-            .Select(r => new List<(string, Expression)>
-            {
-                ("name", MakeTextLit(value: r.Name, textType: textType)),
-                ("param_types",
-                    MakeTextListLiteral(values: r.Parameters.Select(p => p.Type.ShortTypeName),
-                        textType: textType, listTextType: listTextType)),
-                ("param_names",
-                    MakeTextListLiteral(values: r.Parameters.Select(p => p.Name),
-                        textType: textType, listTextType: listTextType)),
-                ("return_type",
-                    MakeTextLit(value: r.ReturnType?.ShortTypeName ?? "None", textType: textType)),
-                ("is_crashable", MakeBoolLit(value: r.IsFailable, boolType: boolType)),
-                ("is_generated", MakeBoolLit(value: r.IsSynthesized, boolType: boolType)),
-                ("visibility", MakeVisibilityLiteral(visibility: r.Visibility))
-            })
-            .ToList();
+        var rows = ctx.Registry
+                      .GetMemberRoutinesForType(type: owner)
+                      .Select(selector: r => new List<(string, Expression)>
+                       {
+                           ("name", MakeTextLit(value: r.Name, textType: textType)),
+                           ("param_types",
+                               MakeTextListLiteral(
+                                   values:
+                                   r.Parameters.Select(selector: p => p.Type.ShortTypeName),
+                                   textType: textType,
+                                   listTextType: listTextType)),
+                           ("param_names",
+                               MakeTextListLiteral(
+                                   values: r.Parameters.Select(selector: p => p.Name),
+                                   textType: textType,
+                                   listTextType: listTextType)),
+                           ("return_type",
+                               MakeTextLit(value: r.ReturnType?.ShortTypeName ?? "None",
+                                   textType: textType)),
+                           ("is_crashable",
+                               MakeBoolLit(value: r.IsFailable, boolType: boolType)),
+                           ("is_generated",
+                               MakeBoolLit(value: r.IsSynthesized, boolType: boolType)),
+                           ("visibility", MakeVisibilityLiteral(visibility: r.Visibility))
+                       })
+                      .ToList();
 
         ctx.VariantBodies[key: routine.RegistryKey] = MakeEntityInfoListReturn(
-            entityTypeName: "RoutineInfo", entityType: routineInfoType,
-            listEntityType: listRoutineInfo, rows: rows);
+            entityTypeName: "RoutineInfo",
+            entityType: routineInfoType,
+            listEntityType: listRoutineInfo,
+            rows: rows);
         return true;
     }
 
@@ -3041,12 +3437,19 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// (name, type name, visibility, best-effort C-ABI byte offset). Returns <c>false</c> if U64 or the
     /// FieldInfo entity/list types cannot be resolved.
     /// </summary>
-    private bool TryBuildMemberVariableInfoBody(RoutineInfo routine, TypeInfo owner, TypeInfo textType,
-        TypeInfo? u64Type)
+    private bool TryBuildMemberVariableInfoBody(RoutineInfo routine, TypeInfo owner,
+        TypeInfo textType, TypeInfo? u64Type)
     {
-        if (u64Type == null) return false;
-        if (ResolveEntityListType(elementTypeName: "FieldInfo") is not { } fieldList)
+        if (u64Type == null)
+        {
             return false;
+        }
+
+        if (ResolveEntityListType(elementTypeName: "FieldInfo") is not { } fieldList)
+        {
+            return false;
+        }
+
         (TypeInfo fieldInfoType, TypeInfo listFieldInfo) = fieldList;
 
         List<MemberVariableInfo> fields = owner switch
@@ -3072,8 +3475,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         }
 
         ctx.VariantBodies[key: routine.RegistryKey] = MakeEntityInfoListReturn(
-            entityTypeName: "FieldInfo", entityType: fieldInfoType,
-            listEntityType: listFieldInfo, rows: rows);
+            entityTypeName: "FieldInfo",
+            entityType: fieldInfoType,
+            listEntityType: listFieldInfo,
+            rows: rows);
         return true;
     }
 
@@ -3085,29 +3490,35 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// offsets rather than aborting the whole build (offset is documented as "byte offset when
     /// available"). @layout("packed") owner: no inter-field padding, so fields sit at the running cursor.
     /// </summary>
-    private static ulong[] ComputeBestEffortFieldOffsets(TypeInfo owner, List<MemberVariableInfo> fields)
+    private static ulong[] ComputeBestEffortFieldOffsets(TypeInfo owner,
+        List<MemberVariableInfo> fields)
     {
         bool ownerPacked = owner is RecordTypeInfo { IsPacked: true };
-        var offsets = new ulong[fields.Count];
+        ulong[] offsets = new ulong[fields.Count];
         ulong cursor = 0;
         for (int i = 0; i < fields.Count; i++)
         {
             try
             {
-                var align = ownerPacked
+                ulong align = ownerPacked
                     ? 1ul
                     : (ulong)Math.Max(val1: 1,
-                        val2: fields[index: i].Type.Alignment(pointerSize: 8));
+                        val2: fields[index: i]
+                             .Type
+                             .Alignment(pointerSize: 8));
                 cursor = (cursor + align - 1) / align * align;
                 offsets[i] = cursor;
                 cursor += (ulong)Math.Max(val1: 0,
-                    val2: fields[index: i].Type.SizeBytes(pointerSize: 8));
+                    val2: fields[index: i]
+                         .Type
+                         .SizeBytes(pointerSize: 8));
             }
             catch
             {
                 offsets[i] = 0;
             }
         }
+
         return offsets;
     }
 
@@ -3179,17 +3590,21 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                         RfBuildMode.ReleaseTime => "RELEASE_TIME",
                         RfBuildMode.ReleaseSpace => "RELEASE_SPACE",
                         _ => throw new InvalidOperationException(
-                            $"Unhandled RfBuildMode value '{ctx.BuildMode}'.")
+                            message: $"Unhandled RfBuildMode value '{ctx.BuildMode}'.")
                     };
                     ChoiceCaseInfo? found =
-                        buildModeChoice.Cases.FirstOrDefault(c => c.Name == caseName);
-                    if (found == null) return false;
+                        buildModeChoice.Cases.FirstOrDefault(predicate: c => c.Name == caseName);
+                    if (found == null)
+                    {
+                        return false;
+                    }
+
                     // Choice discriminants are S32 — emit an S32 literal (ComputedValue is int), not the
                     // S64 the `long` overload of MakeLiteralReturn would produce.
                     ctx.VariantBodies[key: routine.RegistryKey] = new ReturnStatement(
                         Value: new LiteralExpression(Value: found.ComputedValue,
-                            LiteralType: TokenType.S32Literal, Location: _synthLoc)
-                        { ResolvedType = buildModeChoice },
+                            LiteralType: TokenType.S32Literal,
+                            Location: _synthLoc) { ResolvedType = buildModeChoice },
                         Location: _synthLoc);
                     return true;
                 }
@@ -3226,8 +3641,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private static ReturnStatement MakeListReturn(List<string> values, TypeInfo textType,
         TypeInfo listTextType)
     {
-        var elements = values.Select(v => (Expression)MakeTextLit(value: v, textType: textType))
-                             .ToList();
+        var elements = values
+                      .Select(selector: v => (Expression)MakeTextLit(value: v, textType: textType))
+                      .ToList();
         return new ReturnStatement(
             Value: new ListLiteralExpression(Elements: elements,
                 ElementType: null,
@@ -3238,25 +3654,43 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     //  BuilderQuery entity-list metadata helpers (member_variable_info / protocol_info / routine_info)
 
     /// <summary>Builds a <c>Text</c> literal expression carrying <paramref name="value"/>.</summary>
-    private static LiteralExpression MakeTextLit(string value, TypeInfo textType) =>
-        new(Value: value, LiteralType: TokenType.TextLiteral, Location: _synthLoc)
-        { ResolvedType = textType };
+    private static LiteralExpression MakeTextLit(string value, TypeInfo textType)
+    {
+        return new LiteralExpression(Value: value,
+            LiteralType: TokenType.TextLiteral,
+            Location: _synthLoc) { ResolvedType = textType };
+    }
 
     /// <summary>Builds a <c>U64</c> literal expression carrying <paramref name="value"/>.</summary>
-    private static LiteralExpression MakeU64Lit(ulong value, TypeInfo u64Type) =>
-        new(Value: value, LiteralType: TokenType.U64Literal, Location: _synthLoc)
-        { ResolvedType = u64Type };
+    private static LiteralExpression MakeU64Lit(ulong value, TypeInfo u64Type)
+    {
+        return new LiteralExpression(Value: value,
+            LiteralType: TokenType.U64Literal,
+            Location: _synthLoc) { ResolvedType = u64Type };
+    }
 
     /// <summary>Builds a <c>Bool</c> literal expression carrying <paramref name="value"/>.</summary>
-    private static LiteralExpression MakeBoolLit(bool value, TypeInfo boolType) =>
-        new(Value: value, LiteralType: value ? TokenType.True : TokenType.False, Location: _synthLoc)
-        { ResolvedType = boolType };
+    private static LiteralExpression MakeBoolLit(bool value, TypeInfo boolType)
+    {
+        return new LiteralExpression(Value: value,
+            LiteralType: value
+                ? TokenType.True
+                : TokenType.False,
+            Location: _synthLoc) { ResolvedType = boolType };
+    }
 
     /// <summary>Builds an inline <c>List[Text]</c> literal (for nested <c>routine_names</c>/<c>param_*</c> fields).</summary>
     private static ListLiteralExpression MakeTextListLiteral(IEnumerable<string> values,
-        TypeInfo textType, TypeInfo listTextType) =>
-        new(Elements: values.Select(v => (Expression)MakeTextLit(value: v, textType: textType)).ToList(),
-            ElementType: null, Location: _synthLoc) { ResolvedType = listTextType };
+        TypeInfo textType, TypeInfo listTextType)
+    {
+        return new ListLiteralExpression(Elements: values
+                                                  .Select(selector: v =>
+                                                       (Expression)MakeTextLit(value: v,
+                                                           textType: textType))
+                                                  .ToList(),
+            ElementType: null,
+            Location: _synthLoc) { ResolvedType = listTextType };
+    }
 
     /// <summary>
     /// Maps a compiler <see cref="VisibilityModifier"/> to the corresponding <c>Visibility</c> choice
@@ -3288,13 +3722,15 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         TypeInfo entityType, TypeInfo listEntityType,
         List<List<(string Name, Expression Value)>> rows)
     {
-        var elements = rows
-            .Select(row => (Expression)new CreatorExpression(TypeName: entityTypeName,
-                TypeArguments: null, MemberVariables: row, Location: _synthLoc)
-            { ResolvedType = entityType })
-            .ToList();
+        var elements = rows.Select(selector: row =>
+                                (Expression)new CreatorExpression(TypeName: entityTypeName,
+                                    TypeArguments: null,
+                                    MemberVariables: row,
+                                    Location: _synthLoc) { ResolvedType = entityType })
+                           .ToList();
         return new ReturnStatement(
-            Value: new ListLiteralExpression(Elements: elements, ElementType: null,
+            Value: new ListLiteralExpression(Elements: elements,
+                ElementType: null,
                 Location: _synthLoc) { ResolvedType = listEntityType },
             Location: _synthLoc);
     }
@@ -3305,15 +3741,20 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// entities is typed <c>List[E]</c> directly (no <c>Owned</c> wrapper appears in the surface type —
     /// see the desugared form of a source <c>List[FieldInfo]</c> literal).
     /// </summary>
-    private (TypeInfo entityType, TypeInfo listEntity)? ResolveEntityListType(string elementTypeName)
+    private (TypeInfo entityType, TypeInfo listEntity)? ResolveEntityListType(
+        string elementTypeName)
     {
         // FieldInfo/ProtocolInfo/RoutineInfo live in `module BuilderQuery` — qualify (a bare lookup
         // depended on the cross-module short-name scan; scan-off it missed, the synthesized
         // member_variable_info/protocol_info/routine_info body bailed, and its routine over-pruned).
-        TypeInfo? entityType = ctx.Registry.LookupType(name: $"BuilderQuery.{elementTypeName}")
-                               ?? ctx.Registry.LookupType(name: elementTypeName);
+        TypeInfo? entityType = ctx.Registry.LookupType(name: $"BuilderQuery.{elementTypeName}") ??
+                               ctx.Registry.LookupType(name: elementTypeName);
         TypeInfo? listDef = ctx.Registry.LookupType(name: "List");
-        if (entityType == null || listDef == null) return null;
+        if (entityType == null || listDef == null)
+        {
+            return null;
+        }
+
         TypeInfo listEntity =
             ctx.Registry.GetOrCreateResolution(genericDef: listDef, typeArguments: [entityType]);
         return (entityType, listEntity);
@@ -3329,7 +3770,11 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// <summary>True if <paramref name="t"/> is a <c>Roamed[U]</c> field type (a biased-RC handle).</summary>
     private static bool IsRoamedField(TypeInfo? t)
     {
-        if (t == null) return false;
+        if (t == null)
+        {
+            return false;
+        }
+
         string baseName = t switch
         {
             WrapperTypeInfo w => w.Name,
@@ -3352,17 +3797,27 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             ? e.MemberVariables
             : null;
         if (fields is null or { Count: 0 })
+        {
             return noop;
+        }
 
         TypeInfo? noneType = ctx.Registry.LookupType(name: "None");
         var statements = new List<Statement>(capacity: fields.Count + 1);
-        EmitRoamTraceDirectFields(owner: owner, fields: fields, noneType: noneType,
+        EmitRoamTraceDirectFields(owner: owner,
+            fields: fields,
+            noneType: noneType,
             statements: statements);
-        EmitRoamTraceNestedEntityFields(owner: owner, fields: fields, noneType: noneType,
+        EmitRoamTraceNestedEntityFields(owner: owner,
+            fields: fields,
+            noneType: noneType,
             statements: statements);
-        EmitRoamTraceDenseBuffer(owner: owner, fields: fields, noneType: noneType,
+        EmitRoamTraceDenseBuffer(owner: owner,
+            fields: fields,
+            noneType: noneType,
             statements: statements);
-        EmitRoamTraceSparseBuffer(owner: owner, fields: fields, noneType: noneType,
+        EmitRoamTraceSparseBuffer(owner: owner,
+            fields: fields,
+            noneType: noneType,
             statements: statements);
         statements.Add(item: noop);
         return new BlockStatement(Statements: statements, Location: _synthLoc);
@@ -3379,7 +3834,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         foreach (MemberVariableInfo field in fields)
         {
             if (!IsRoamedField(t: field.Type))
+            {
                 continue;
+            }
+
             var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
             {
                 ResolvedType = owner
@@ -3406,18 +3864,26 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// container overlay's <c>inner: RF::Core.List[T]</c>). Bare entity fields form acyclic
     /// single-owner containment — infinite recursion is impossible here.
     /// </summary>
-    private static void EmitRoamTraceNestedEntityFields(TypeInfo? owner, List<MemberVariableInfo> fields,
-        TypeInfo? noneType, List<Statement> statements)
+    private static void EmitRoamTraceNestedEntityFields(TypeInfo? owner,
+        List<MemberVariableInfo> fields, TypeInfo? noneType, List<Statement> statements)
     {
         foreach (MemberVariableInfo field in fields)
         {
             if (IsRoamedField(t: field.Type) || field.Type is not EntityTypeInfo)
+            {
                 continue;
+            }
+
             var fieldRef = new MemberExpression(
-                Object: new IdentifierExpression(Name: "me", Location: _synthLoc) { ResolvedType = owner },
-                MemberName: field.Name, Location: _synthLoc) { ResolvedType = field.Type };
+                Object: new IdentifierExpression(Name: "me", Location: _synthLoc)
+                {
+                    ResolvedType = owner
+                },
+                MemberName: field.Name,
+                Location: _synthLoc) { ResolvedType = field.Type };
             var traceImplCall = new CallExpression(
-                Callee: new MemberExpression(Object: fieldRef, MemberName: "roam_trace_impl",
+                Callee: new MemberExpression(Object: fieldRef,
+                    MemberName: "roam_trace_impl",
                     Location: _synthLoc) { ResolvedType = noneType },
                 Arguments: [],
                 Location: _synthLoc) { ResolvedType = noneType };
@@ -3434,20 +3900,31 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private static void EmitRoamTraceDenseBuffer(TypeInfo? owner, List<MemberVariableInfo> fields,
         TypeInfo? noneType, List<Statement> statements)
     {
-        List<MemberVariableInfo> buffers =
-            fields.Where(predicate: f => IsHijackedField(t: f.Type)).ToList();
-        MemberVariableInfo? countField =
-            fields.FirstOrDefault(predicate: f => f.Name == "count");
+        var buffers = fields.Where(predicate: f => IsHijackedField(t: f.Type))
+                            .ToList();
+        MemberVariableInfo? countField = fields.FirstOrDefault(predicate: f => f.Name == "count");
         if (buffers is not [{ } buffer] || countField == null)
+        {
             return;
+        }
+
         var bufRef = new MemberExpression(
-            Object: new IdentifierExpression(Name: "me", Location: _synthLoc) { ResolvedType = owner },
-            MemberName: buffer.Name, Location: _synthLoc) { ResolvedType = buffer.Type };
+            Object: new IdentifierExpression(Name: "me", Location: _synthLoc)
+            {
+                ResolvedType = owner
+            },
+            MemberName: buffer.Name,
+            Location: _synthLoc) { ResolvedType = buffer.Type };
         var countRef = new MemberExpression(
-            Object: new IdentifierExpression(Name: "me", Location: _synthLoc) { ResolvedType = owner },
-            MemberName: "count", Location: _synthLoc) { ResolvedType = countField.Type };
+            Object: new IdentifierExpression(Name: "me", Location: _synthLoc)
+            {
+                ResolvedType = owner
+            },
+            MemberName: "count",
+            Location: _synthLoc) { ResolvedType = countField.Type };
         var traceCall = new CallExpression(
-            Callee: new MemberExpression(Object: bufRef, MemberName: "cyclic_trace_buffer",
+            Callee: new MemberExpression(Object: bufRef,
+                MemberName: "cyclic_trace_buffer",
                 Location: _synthLoc) { ResolvedType = noneType },
             Arguments: [countRef],
             Location: _synthLoc) { ResolvedType = noneType };
@@ -3464,39 +3941,66 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         TypeInfo? noneType, List<Statement> statements)
     {
         MemberVariableInfo? entryLiveField =
-            fields.FirstOrDefault(predicate: f => f.Name == "entry_live" && IsHijackedField(t: f.Type));
+            fields.FirstOrDefault(predicate: f =>
+                f.Name == "entry_live" && IsHijackedField(t: f.Type));
         MemberVariableInfo? entriesUsedField =
             fields.FirstOrDefault(predicate: f => f.Name == "entries_used");
         if (entryLiveField == null || entriesUsedField == null)
+        {
             return;
-        MemberExpression MeField(string name, TypeInfo? type) => new(
-            Object: new IdentifierExpression(Name: "me", Location: _synthLoc) { ResolvedType = owner },
-            MemberName: name, Location: _synthLoc) { ResolvedType = type };
+        }
+
+        MemberExpression MeField(string name, TypeInfo? type)
+        {
+            return new MemberExpression(
+                Object: new IdentifierExpression(Name: "me", Location: _synthLoc)
+                {
+                    ResolvedType = owner
+                },
+                MemberName: name,
+                Location: _synthLoc) { ResolvedType = type };
+        }
+
         foreach (MemberVariableInfo field in fields)
         {
-            if (!IsHijackedField(t: field.Type) || ReferenceEquals(objA: field, objB: entryLiveField))
+            if (!IsHijackedField(t: field.Type) ||
+                ReferenceEquals(objA: field, objB: entryLiveField))
+            {
                 continue;
+            }
+
             if (HijackedInnerType(t: field.Type) == null)
+            {
                 continue;
+            }
+
             var sparseCall = new CallExpression(
-                Callee: new MemberExpression(Object: MeField(field.Name, field.Type),
-                    MemberName: "cyclic_trace_sparse_buffer", Location: _synthLoc) { ResolvedType = noneType },
+                Callee: new MemberExpression(Object: MeField(name: field.Name, type: field.Type),
+                    MemberName: "cyclic_trace_sparse_buffer",
+                    Location: _synthLoc) { ResolvedType = noneType },
                 Arguments:
                 [
                     new NamedArgumentExpression(Name: "live",
-                        Value: MeField("entry_live", entryLiveField.Type), Location: _synthLoc),
+                        Value: MeField(name: "entry_live", type: entryLiveField.Type),
+                        Location: _synthLoc),
                     new NamedArgumentExpression(Name: "used",
-                        Value: MeField("entries_used", entriesUsedField.Type), Location: _synthLoc)
+                        Value: MeField(name: "entries_used", type: entriesUsedField.Type),
+                        Location: _synthLoc)
                 ],
                 Location: _synthLoc) { ResolvedType = noneType };
-            statements.Add(item: new ExpressionStatement(Expression: sparseCall, Location: _synthLoc));
+            statements.Add(
+                item: new ExpressionStatement(Expression: sparseCall, Location: _synthLoc));
         }
     }
 
     /// <summary>True if <paramref name="t"/> is a <c>Hijacked[U]</c> raw-buffer field type.</summary>
     private static bool IsHijackedField(TypeInfo? t)
     {
-        if (t == null) return false;
+        if (t == null)
+        {
+            return false;
+        }
+
         string baseName = t switch
         {
             WrapperTypeInfo w => w.Name,
@@ -3509,11 +4013,16 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// <summary>The element type <c>U</c> of a <c>Hijacked[U]</c> field type, or null. Used by the
     /// sparse-container roam-trace to tell an element buffer (generic <c>keys</c>/<c>vals</c>/<c>slots</c>)
     /// from a scalar metadata buffer (<c>Hijacked[U8]</c>/<c>Hijacked[U64]</c> ctrl/indices/entry_live).</summary>
-    private static TypeInfo? HijackedInnerType(TypeInfo? t) => t switch
+    private static TypeInfo? HijackedInnerType(TypeInfo? t)
     {
-        WrapperTypeInfo w => w.InnerType,
-        _ => t?.TypeArguments is { Count: > 0 } args ? args[index: 0] : null
-    };
+        return t switch
+        {
+            WrapperTypeInfo w => w.InnerType,
+            _ => t?.TypeArguments is { Count: > 0 } args
+                ? args[index: 0]
+                : null
+        };
+    }
 
     /// <summary>
     /// Builds the cycle-collector free hook <c>roam_free_impl()</c> for an entity: tears down each
@@ -3536,7 +4045,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             foreach (MemberVariableInfo field in fields)
             {
                 if (IsRoamedField(t: field.Type))
+                {
                     continue;
+                }
+
                 var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
                 {
                     ResolvedType = owner
@@ -3557,7 +4069,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         }
 
         if (owner is EntityTypeInfo)
+        {
             statements.Add(item: BuildEntitySelfFree(owner: owner!, noneType: noneType));
+        }
 
         statements.Add(item: noop);
         return new BlockStatement(Statements: statements, Location: _synthLoc);
@@ -3595,26 +4109,32 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         return new ExpressionStatement(Expression: invalidateCall, Location: _synthLoc);
     }
 
-    private static ReturnStatement MakeLiteralReturn(string value, TypeInfo returnType) =>
-        new ReturnStatement(
+    private static ReturnStatement MakeLiteralReturn(string value, TypeInfo returnType)
+    {
+        return new ReturnStatement(
             Value: new LiteralExpression(Value: value,
                 LiteralType: TokenType.TextLiteral,
                 Location: _synthLoc) { ResolvedType = returnType },
             Location: _synthLoc);
+    }
 
-    private static ReturnStatement MakeLiteralReturn(ulong value, TypeInfo returnType) =>
-        new ReturnStatement(
+    private static ReturnStatement MakeLiteralReturn(ulong value, TypeInfo returnType)
+    {
+        return new ReturnStatement(
             Value: new LiteralExpression(Value: value,
                 LiteralType: TokenType.U64Literal,
                 Location: _synthLoc) { ResolvedType = returnType },
             Location: _synthLoc);
+    }
 
-    private static ReturnStatement MakeLiteralReturn(long value, TypeInfo returnType) =>
-        new ReturnStatement(
+    private static ReturnStatement MakeLiteralReturn(long value, TypeInfo returnType)
+    {
+        return new ReturnStatement(
             Value: new LiteralExpression(Value: value,
                 LiteralType: TokenType.S64Literal,
                 Location: _synthLoc) { ResolvedType = returnType },
             Location: _synthLoc);
+    }
 
     //  represent / diagnose (tuple)
 
@@ -3629,10 +4149,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // `T.destroy()` derive (the `expand allmemvarof` field-walk) here so owned elements
                 // (e.g. a `Text`) are torn down — otherwise the ScopeTeardownLoweringPass call is undefined.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: tuple, synthesized: routine,
-                        memberRoutineName: DestroyMemberRoutineName)
-                    ?? throw new InvalidOperationException(
-                        message: $"destroy derive could not be cloned for tuple '{tuple.FullName}'.");
+                    CloneUniversalDeriveBody(ownerType: tuple,
+                        synthesized: routine,
+                        memberRoutineName: DestroyMemberRoutineName) ??
+                    throw new InvalidOperationException(
+                        message:
+                        $"destroy derive could not be cloned for tuple '{tuple.FullName}'.");
                 break;
 
             // Tuples have a SPECIAL text format — represent `(1, 2)` (no type name / field names),
@@ -3640,16 +4162,18 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // template (NOT the universal `TypeName(field: value, …)` shape); falls back to the C# builder.
             case RepresentMemberRoutineName:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: tuple, synthesized: routine,
-                        memberRoutineName: RepresentMemberRoutineName)
-                    ?? BuildTupleTextBody(tuple: tuple, textType: textType, diagnose: false);
+                    CloneUniversalDeriveBody(ownerType: tuple,
+                        synthesized: routine,
+                        memberRoutineName: RepresentMemberRoutineName) ??
+                    BuildTupleTextBody(tuple: tuple, textType: textType, diagnose: false);
                 break;
 
             case DiagnoseMemberRoutineName:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: tuple, synthesized: routine,
-                        memberRoutineName: DiagnoseMemberRoutineName)
-                    ?? BuildTupleTextBody(tuple: tuple, textType: textType, diagnose: true);
+                    CloneUniversalDeriveBody(ownerType: tuple,
+                        synthesized: routine,
+                        memberRoutineName: DiagnoseMemberRoutineName) ??
+                    BuildTupleTextBody(tuple: tuple, textType: textType, diagnose: true);
                 break;
 
             case SerializeMemberRoutineName:
@@ -3657,17 +4181,27 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // A generic tuple (`Tuple[U64, T]`) has no concrete body — its serialize is cloned per
                 // CONCRETE instantiation during monomorphization; synthesizing one here would send the
                 // template's `SerialValue(…)` constructor to codegen with the unresolved `T` (RF-S959).
-                if (tuple.ElementTypes.Any(predicate: e => e is GenericParameterTypeInfo)) break;
+                if (tuple.ElementTypes.Any(predicate: e => e is GenericParameterTypeInfo))
+                {
+                    break;
+                }
+
                 // Field-walk item0/item1/… into a `Dict[Text, SerialValue]` via the SAME universal
                 // serialize derive template as records/entities (routine elements box their
                 // `represent` signature via the template's `m.is_routine` branch). Registered in
                 // GetOrCreateTupleType only when every element is serializable-or-routine.
                 Statement? tupSer =
-                    CloneUniversalDeriveBody(ownerType: tuple, synthesized: routine,
-                        memberRoutineName: SerializeMemberRoutineName)
-                    ?? BuildSerializeBody(owner: tuple, fields: tuple.MemberVariables,
+                    CloneUniversalDeriveBody(ownerType: tuple,
+                        synthesized: routine,
+                        memberRoutineName: SerializeMemberRoutineName) ??
+                    BuildSerializeBody(owner: tuple,
+                        fields: tuple.MemberVariables,
                         textType: textType);
-                if (tupSer != null) ctx.VariantBodies[key: routine.RegistryKey] = tupSer;
+                if (tupSer != null)
+                {
+                    ctx.VariantBodies[key: routine.RegistryKey] = tupSer;
+                }
+
                 break;
             }
 
@@ -3683,11 +4217,16 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             case "eq":
             {
                 TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
-                if (boolType == null) break;
+                if (boolType == null)
+                {
+                    break;
+                }
+
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: tuple, synthesized: routine,
-                        memberRoutineName: "eq")
-                    ?? BuildEqBody(ownerType: tuple, fields: tuple.MemberVariables,
+                    CloneUniversalDeriveBody(ownerType: tuple,
+                        synthesized: routine,
+                        memberRoutineName: "eq") ?? BuildEqBody(ownerType: tuple,
+                        fields: tuple.MemberVariables,
                         boolType: boolType);
                 break;
             }
@@ -3695,28 +4234,38 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             case "cmp":
             {
                 TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
-                if (s32Type == null || boolType == null) break;
+                if (s32Type == null || boolType == null)
+                {
+                    break;
+                }
+
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: tuple, synthesized: routine,
-                        memberRoutineName: "cmp")
-                    ?? BuildCmpBody(ownerType: tuple, fields: tuple.MemberVariables,
-                        s32Type: s32Type, boolType: boolType);
+                    CloneUniversalDeriveBody(ownerType: tuple,
+                        synthesized: routine,
+                        memberRoutineName: "cmp") ?? BuildCmpBody(ownerType: tuple,
+                        fields: tuple.MemberVariables,
+                        s32Type: s32Type,
+                        boolType: boolType);
                 break;
             }
 
             case HashMemberRoutineName:
             {
                 TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-                if (u64Type == null) break;
+                if (u64Type == null)
+                {
+                    break;
+                }
+
                 // The 0-param `hash()` clones the universal derive template (comptime `expand`
                 // XOR-fold); the keyed `hash(k0, k1)` keeps the C# builder unchanged.
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    (routine.Parameters.Count == 0
-                        ? CloneUniversalDeriveBody(ownerType: tuple, synthesized: routine,
-                            memberRoutineName: HashMemberRoutineName)
-                        : null)
-                    ?? BuildHashBody(ownerType: tuple, fields: tuple.MemberVariables,
-                        u64Type: u64Type);
+                ctx.VariantBodies[key: routine.RegistryKey] = (routine.Parameters.Count == 0
+                    ? CloneUniversalDeriveBody(ownerType: tuple,
+                        synthesized: routine,
+                        memberRoutineName: HashMemberRoutineName)
+                    : null) ?? BuildHashBody(ownerType: tuple,
+                    fields: tuple.MemberVariables,
+                    u64Type: u64Type);
                 break;
             }
         }
@@ -3736,18 +4285,22 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
 
         if (diagnose)
         {
-            parts.Add(new TextPart(Text: $"{tuple.QualifiedTypeName}(", Location: _synthLoc));
+            parts.Add(item: new TextPart(Text: $"{tuple.QualifiedTypeName}(",
+                Location: _synthLoc));
         }
         else
         {
-            parts.Add(new TextPart(Text: "(", Location: _synthLoc));
+            parts.Add(item: new TextPart(Text: "(", Location: _synthLoc));
         }
 
         bool first = true;
         foreach (MemberVariableInfo field in tuple.MemberVariables)
         {
             if (!first)
-                parts.Add(new TextPart(Text: ", ", Location: _synthLoc));
+            {
+                parts.Add(item: new TextPart(Text: ", ", Location: _synthLoc));
+            }
+
             first = false;
 
             var fieldExpr = new MemberExpression(
@@ -3758,12 +4311,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 MemberName: field.Name,
                 Location: _synthLoc) { ResolvedType = field.Type };
 
-            parts.Add(new ExpressionPart(Expression: fieldExpr,
+            parts.Add(item: new ExpressionPart(Expression: fieldExpr,
                 FormatSpec: null,
                 Location: _synthLoc));
         }
 
-        parts.Add(new TextPart(Text: ")", Location: _synthLoc));
+        parts.Add(item: new TextPart(Text: ")", Location: _synthLoc));
 
         var fstring =
             new InsertedTextExpression(Parts: parts, IsRaw: false, Location: _synthLoc)
@@ -3779,7 +4332,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private void HandleVariant(RoutineInfo routine, VariantTypeInfo variant, TypeInfo textType)
     {
         // Skip generic definitions -> no concrete member types to dispatch on.
-        if (variant.IsGenericDefinition) return;
+        if (variant.IsGenericDefinition)
+        {
+            return;
+        }
 
         // Synthesize the per-arm EXTRACTORS (`Arm.create!(from: V)`) here. They are owned by the arm
         // type; for a GENERIC-instance arm (e.g. `Dict[Text, SerialValue]`) the main synthesis loop's
@@ -3795,27 +4351,30 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // The `@override needs T is variant` derive template (arm-dispatch via `branchof`) is
                 // selected for a variant; falls back to the C# builder if absent.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: variant, synthesized: routine,
-                        memberRoutineName: RepresentMemberRoutineName)
-                    ?? BuildVariantRepresentBody(variant: variant, textType: textType);
+                    CloneUniversalDeriveBody(ownerType: variant,
+                        synthesized: routine,
+                        memberRoutineName: RepresentMemberRoutineName) ??
+                    BuildVariantRepresentBody(variant: variant, textType: textType);
                 break;
 
             case DiagnoseMemberRoutineName:
                 // TAG-dispatch from the `@override … needs T is VariantType` derive template
                 // (`branchof` + `m.type_id` + `v.diagnose()`); falls back to the C# builder.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: variant, synthesized: routine,
-                        memberRoutineName: DiagnoseMemberRoutineName)
-                    ?? BuildVariantDiagnoseBody(variant: variant, textType: textType);
+                    CloneUniversalDeriveBody(ownerType: variant,
+                        synthesized: routine,
+                        memberRoutineName: DiagnoseMemberRoutineName) ??
+                    BuildVariantDiagnoseBody(variant: variant, textType: textType);
                 break;
 
             case DuplicateMemberRoutineName:
                 // TAG-dispatch deep copy from the `@override … needs T is VariantType` derive
                 // template (arm reconstruction `is ${m.type} v => Me(from: v.copy())`); C# fallback.
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: variant, synthesized: routine,
-                        memberRoutineName: DuplicateMemberRoutineName)
-                    ?? BuildVariantCopyBody(variant: variant);
+                    CloneUniversalDeriveBody(ownerType: variant,
+                        synthesized: routine,
+                        memberRoutineName: DuplicateMemberRoutineName) ??
+                    BuildVariantCopyBody(variant: variant);
                 break;
         }
     }
@@ -3841,12 +4400,16 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         foreach (VariantMemberInfo member in variant.Members)
         {
             if (member.IsNone || member.Type is null)
+            {
                 continue;
+            }
 
             Declaration.TypeRegistry.Lifecycle armLc =
                 ctx.Registry.GetLifecycle(type: member.Type);
             if (armLc.IsBorrow)
+            {
                 continue; // borrow-tier arm — cannot copy; the else branch bitwise-forwards it.
+            }
             // NOTE: do NOT skip on `armLc.Destroy is null`. A generic ENTITY-instance arm
             // (Dict[Text, SerialValue], List[SerialValue]) reports a null destructor here because
             // its instance memberRoutines aren't materialized at Phase-6 synthesis time — yet it is a heap
@@ -3867,10 +4430,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 ResolvedType = member.Type
             };
             var copyCall = new CallExpression(
-                Callee: new MemberExpression(Object: vRef, MemberName: DuplicateMemberRoutineName, Location: _synthLoc)
-                {
-                    ResolvedType = member.Type
-                },
+                Callee: new MemberExpression(Object: vRef,
+                    MemberName: DuplicateMemberRoutineName,
+                    Location: _synthLoc) { ResolvedType = member.Type },
                 Arguments: [],
                 Location: _synthLoc) { ResolvedType = member.Type };
 
@@ -3934,9 +4496,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         }
 
         // Failable extract: `from` is a variant, owner is one of its arms. (Creator kind confirmed above.)
-        if (routine.IsFailable &&
-            fromParam.Type is VariantTypeInfo fromVariant && routine.OwnerType is { } armOwner &&
-            FindArmByType(variant: fromVariant, armType: armOwner) is { Type: { } })
+        if (routine.IsFailable && fromParam.Type is VariantTypeInfo fromVariant &&
+            routine.OwnerType is { } armOwner &&
+            FindArmByType(variant: fromVariant, armType: armOwner) is { Type: not null })
         {
             var fromRef = new IdentifierExpression(Name: "from", Location: _synthLoc)
             {
@@ -3958,10 +4520,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // GetLifecycle here because a generic-instance arm (Dict[..]/List[..]) reports a null
             // destructor at synth time (not-yet-live), which is exactly the arm that MUST be copied.
             Expression extracted = new CallExpression(
-                Callee: new MemberExpression(Object: vRef, MemberName: DuplicateMemberRoutineName, Location: _synthLoc)
-                {
-                    ResolvedType = armOwner
-                },
+                Callee: new MemberExpression(Object: vRef,
+                    MemberName: DuplicateMemberRoutineName,
+                    Location: _synthLoc) { ResolvedType = armOwner },
                 Arguments: [],
                 Location: _synthLoc) { ResolvedType = armOwner };
             var matchClause = new WhenClause(
@@ -4018,10 +4579,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     }
 
     /// <summary>Finds the variant arm whose payload type matches <paramref name="armType"/> by full name.</summary>
-    private static VariantMemberInfo? FindArmByType(VariantTypeInfo variant, TypeInfo armType) =>
-        variant.Members.FirstOrDefault(predicate: m =>
+    private static VariantMemberInfo? FindArmByType(VariantTypeInfo variant, TypeInfo armType)
+    {
+        return variant.Members.FirstOrDefault(predicate: m =>
             !m.IsNone && m.Type is not null &&
             (m.Type.FullName == armType.FullName || m.Type.Name == armType.Name));
+    }
 
     /// <summary>
     /// Builds: <c>when me { is None => return "None", is T as v => return v.represent(), ... }</c>.
@@ -4113,10 +4676,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 clauseBody = new ReturnStatement(Value: fstring, Location: _synthLoc);
             }
 
-            clauses.Add(new WhenClause(Pattern: pattern, Body: clauseBody, Location: _synthLoc));
+            clauses.Add(item: new WhenClause(Pattern: pattern,
+                Body: clauseBody,
+                Location: _synthLoc));
         }
 
-        clauses.Add(new WhenClause(
+        clauses.Add(item: new WhenClause(
             Pattern: new ElsePattern(VariableName: null, Location: _synthLoc),
             Body: new ReturnStatement(
                 Value: new LiteralExpression(Value: $"{variant.ShortTypeName}(<error>)",
@@ -4222,10 +4787,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 clauseBody = new ReturnStatement(Value: fstring, Location: _synthLoc);
             }
 
-            clauses.Add(new WhenClause(Pattern: pattern, Body: clauseBody, Location: _synthLoc));
+            clauses.Add(item: new WhenClause(Pattern: pattern,
+                Body: clauseBody,
+                Location: _synthLoc));
         }
 
-        clauses.Add(new WhenClause(
+        clauses.Add(item: new WhenClause(
             Pattern: new ElsePattern(VariableName: null, Location: _synthLoc),
             Body: new ReturnStatement(
                 Value: new LiteralExpression(

@@ -72,7 +72,8 @@ public sealed class BuildDriver
     {
         _projectRoot = projectRoot;
         _libraryRoots = libraryRoots ?? [];
-        _resolver = new ModuleResolver(projectRoot: projectRoot, stdlibRoot: stdlibRoot,
+        _resolver = new ModuleResolver(projectRoot: projectRoot,
+            stdlibRoot: stdlibRoot,
             libraryRoots: _libraryRoots);
         _stdlibRoot = stdlibRoot;
         _language = language;
@@ -86,11 +87,13 @@ public sealed class BuildDriver
     /// and returns an immutable snapshot for daemon-side caching. Subsequent <see cref="BuildDriver"/>s reuse
     /// it via the <c>cachedStdlibIndex</c> ctor arg, skipping the per-request re-parse.
     /// </summary>
-    public static IReadOnlyDictionary<string, string> BuildStdlibIndex(string stdlibRoot, Language language,
-        IReadOnlyList<string>? libraryRoots = null)
+    public static IReadOnlyDictionary<string, string> BuildStdlibIndex(string stdlibRoot,
+        Language language, IReadOnlyList<string>? libraryRoots = null)
     {
-        var driver = new BuildDriver(projectRoot: stdlibRoot, stdlibRoot: stdlibRoot,
-            language: language, libraryRoots: libraryRoots);
+        var driver = new BuildDriver(projectRoot: stdlibRoot,
+            stdlibRoot: stdlibRoot,
+            language: language,
+            libraryRoots: libraryRoots);
         driver.PreRegisterStdlib();
         return driver._resolver.IndexSnapshot();
     }
@@ -128,9 +131,14 @@ public sealed class BuildDriver
         // cached index — built once at startup — so warm requests skip stdlib re-parsing; a cold build
         // has no cache and parses as before.
         if (_cachedStdlibIndex != null)
+        {
             _resolver.SeedIndex(entries: _cachedStdlibIndex);
+        }
         else
+        {
             PreRegisterStdlib();
+        }
+
         // Pre-register external library dependencies ([target] library) the same way —
         // their modules declare names in `module` headers, not file-path conventions.
         PreRegisterLibraryRoots();
@@ -150,7 +158,10 @@ public sealed class BuildDriver
                 continue;
             }
 
-            ProcessFile(filePath: sourceFile, fromFile: null, importLocation: null, importPathString: null);
+            ProcessFile(filePath: sourceFile,
+                fromFile: null,
+                importLocation: null,
+                importPathString: null);
         }
 
         // Collect errors from resolver and dependency graph
@@ -185,7 +196,8 @@ public sealed class BuildDriver
     /// <summary>
     /// Processes a single file: parses it, extracts imports, and recursively processes dependencies.
     /// </summary>
-    private void ProcessFile(string filePath, string? fromFile, SourceLocation? importLocation, string? importPathString)
+    private void ProcessFile(string filePath, string? fromFile, SourceLocation? importLocation,
+        string? importPathString)
     {
         // Normalize the path
         filePath = Path.GetFullPath(path: filePath);
@@ -226,8 +238,7 @@ public sealed class BuildDriver
             // (BitList is a type, not a submodule).
             if (importPathString != null && importLocation != null)
             {
-                ValidateSlashFormImport(
-                    importPathString: importPathString,
+                ValidateSlashFormImport(importPathString: importPathString,
                     actualModule: modulePath,
                     importLocation: importLocation);
             }
@@ -278,11 +289,10 @@ public sealed class BuildDriver
         SourceLocation? importLocation, string? importPathString)
     {
         // Even if already built, validate the `/`-form import path against the file's actual module.
-        if (fromFile != null && importPathString != null && importLocation != null
-            && _compiledUnits.TryGetValue(key: filePath, value: out FileBuildUnit? existing))
+        if (fromFile != null && importPathString != null && importLocation != null &&
+            _compiledUnits.TryGetValue(key: filePath, value: out FileBuildUnit? existing))
         {
-            ValidateSlashFormImport(
-                importPathString: importPathString,
+            ValidateSlashFormImport(importPathString: importPathString,
                 actualModule: existing.Module ?? Path.GetFileNameWithoutExtension(path: filePath),
                 importLocation: importLocation);
         }
@@ -302,7 +312,8 @@ public sealed class BuildDriver
         {
             string fromModule = GetModuleForFile(filePath: fromFile);
 
-            bool isMemberImport = importPathString != null && importPathString.Contains(value: '.');
+            bool isMemberImport =
+                importPathString != null && importPathString.Contains(value: '.');
             bool isSelfMemberImport = isMemberImport && fromModule == modulePath;
             bool isCoreAutoImport = modulePath == "Core";
 
@@ -363,18 +374,20 @@ public sealed class BuildDriver
             {
                 string? subPath = _resolver.TryResolveImport(importPath: submodule);
                 if (subPath != null)
+                {
                     ProcessFile(filePath: subPath,
                         fromFile: filePath,
                         importLocation: import.Location,
                         importPathString: submodule);
+                }
             }
+
             return;
         }
 
         // Truly unresolved — report it (TryResolveImport, unlike ResolveImport, records
         // no error of its own).
-        _errors.Add(item: new SemanticError(
-            Code: SemanticDiagnosticCode.ModuleNotFound,
+        _errors.Add(item: new SemanticError(Code: SemanticDiagnosticCode.ModuleNotFound,
             Message: $"Cannot resolve import '{import.ModulePath}'. Module not found.",
             Location: import.Location));
     }
@@ -400,9 +413,10 @@ public sealed class BuildDriver
 
         // Cheap `module` line scan (no full parse) so an unrelated or broken file living in the
         // directory is neither parsed nor pulled in.
-        List<string> matched = candidates
-            .Where(predicate: candidate => ReadDeclaredModule(filePath: candidate) == moduleName)
-            .ToList();
+        var matched = candidates
+                     .Where(predicate: candidate =>
+                          ReadDeclaredModule(filePath: candidate) == moduleName)
+                     .ToList();
 
         if (matched.Count == 0)
         {
@@ -450,9 +464,10 @@ public sealed class BuildDriver
 
             // Skip the current file and anything already built or in-flight (the latter guards
             // against re-entrancy when siblings reference each other).
-            if (fullCandidate.Equals(value: filePath, comparisonType: StringComparison.OrdinalIgnoreCase)
-                || _compiledUnits.ContainsKey(key: fullCandidate)
-                || _processingFiles.Contains(item: fullCandidate))
+            if (fullCandidate.Equals(value: filePath,
+                    comparisonType: StringComparison.OrdinalIgnoreCase) ||
+                _compiledUnits.ContainsKey(key: fullCandidate) ||
+                _processingFiles.Contains(item: fullCandidate))
             {
                 continue;
             }
@@ -508,14 +523,16 @@ public sealed class BuildDriver
             // realm split. The `.rf` file is parsed with the RazorForge grammar below, so its entities
             // stay RF-realm (bare, not auto-roamed) — an SF↔RF boundary reference, same as `RF::`.
             // (Importing a non-stdlib `.rf` from SF was blocked; lifted to wire the SF→RF-module handoff.)
-            bool isStdlibFile = Path.GetFullPath(path: filePath).StartsWith(
-                value: Path.GetFullPath(path: _stdlibRoot), comparisonType: StringComparison.OrdinalIgnoreCase);
+            bool isStdlibFile = Path.GetFullPath(path: filePath)
+                                    .StartsWith(value: Path.GetFullPath(path: _stdlibRoot),
+                                         comparisonType: StringComparison.OrdinalIgnoreCase);
 
             // Tokenize
             Language language = isSuflae
                 ? Language.Suflae
                 : Language.RazorForge;
-            var tokenizer = new Tokenizer.Tokenizer(source: code, fileName: filePath, language: language);
+            var tokenizer =
+                new Tokenizer.Tokenizer(source: code, fileName: filePath, language: language);
             List<Token> tokens = tokenizer.Tokenize();
 
             // Parse
@@ -524,7 +541,8 @@ public sealed class BuildDriver
             List<BuildWarning> warnings = parser.GetWarnings();
 
             // Extract module and imports (deriving + inserting a synthetic module header when absent).
-            string modulePath = ExtractModuleAndImports(ast: ast, filePath: filePath,
+            string modulePath = ExtractModuleAndImports(ast: ast,
+                filePath: filePath,
                 imports: out List<ImportDeclaration> imports);
 
             // Suflae prelude: inject the always-available SF modules (no explicit `import` needed).
@@ -547,8 +565,12 @@ public sealed class BuildDriver
             _errors.Add(item: new SemanticError(Code: SemanticDiagnosticCode.ParseError,
                 Message: $"[{ex.Code.ToCodeString(language: ex.Language)}] {ex.RawMessage}",
                 Location: new SourceLocation(FileName: ex.FileName,
-                    Line: ex.Line > 0 ? ex.Line : 1,
-                    Column: ex.Column > 0 ? ex.Column : 1,
+                    Line: ex.Line > 0
+                        ? ex.Line
+                        : 1,
+                    Column: ex.Column > 0
+                        ? ex.Column
+                        : 1,
                     Position: 0)));
             return null;
         }
@@ -594,9 +616,12 @@ public sealed class BuildDriver
         if (modulePath == null)
         {
             modulePath = DeriveModuleFromPath(filePath: filePath);
-            ast.Declarations.Insert(index: 0, item: new ModuleDeclaration(
-                Path: modulePath,
-                Location: new SourceLocation(FileName: filePath, Line: 0, Column: 0, Position: 0)));
+            ast.Declarations.Insert(index: 0,
+                item: new ModuleDeclaration(Path: modulePath,
+                    Location: new SourceLocation(FileName: filePath,
+                        Line: 0,
+                        Column: 0,
+                        Position: 0)));
         }
 
         return modulePath;
@@ -634,10 +659,18 @@ public sealed class BuildDriver
         int insertAt = 1; // Module declaration is guaranteed at index 0 by now.
         foreach ((string preludeModule, string[]? symbols) in preludeModules)
         {
-            if (imports.Any(predicate: i => i.ModulePath == preludeModule)) continue;
-            var preludeImport = new ImportDeclaration(ModulePath: preludeModule, Alias: null,
+            if (imports.Any(predicate: i => i.ModulePath == preludeModule))
+            {
+                continue;
+            }
+
+            var preludeImport = new ImportDeclaration(ModulePath: preludeModule,
+                Alias: null,
                 SpecificImports: symbols?.ToList(),
-                Location: new SourceLocation(FileName: filePath, Line: 1, Column: 1, Position: 0));
+                Location: new SourceLocation(FileName: filePath,
+                    Line: 1,
+                    Column: 1,
+                    Position: 0));
             imports.Add(item: preludeImport);
             ast.Declarations.Insert(index: insertAt++, item: preludeImport);
         }
@@ -653,10 +686,11 @@ public sealed class BuildDriver
     private string DeriveModuleFromPath(string filePath)
     {
         string rel = Path.GetRelativePath(relativeTo: _projectRoot, path: filePath);
-        List<string> segments = rel
-            .Split(separator: ['/', '\\'], options: StringSplitOptions.RemoveEmptyEntries)
-            .Where(predicate: s => s != "." && s != "..")
-            .ToList();
+        var segments = rel.Split(separator:
+                               ['/', '\\'],
+                               options: StringSplitOptions.RemoveEmptyEntries)
+                          .Where(predicate: s => s != "." && s != "..")
+                          .ToList();
 
         if (segments.Count == 0)
         {
@@ -665,8 +699,7 @@ public sealed class BuildDriver
 
         // Strip the extension from the final segment (the file name).
         segments[^1] = Path.GetFileNameWithoutExtension(path: segments[^1]);
-        return string.Join(separator: '/',
-            values: segments.Select(selector: PascalCaseSegment));
+        return string.Join(separator: '/', values: segments.Select(selector: PascalCaseSegment));
     }
 
     /// <summary>
@@ -686,7 +719,7 @@ public sealed class BuildDriver
         var sb = new System.Text.StringBuilder();
         foreach (string w in words)
         {
-            sb.Append(value: char.ToUpperInvariant(c: w[0]));
+            sb.Append(value: char.ToUpperInvariant(c: w[index: 0]));
             if (w.Length > 1)
             {
                 sb.Append(value: w[1..]);
@@ -703,7 +736,8 @@ public sealed class BuildDriver
     /// the caller should have used `import Foo.Bar` instead.
     /// Member-form imports (paths containing `.`) skip this check.
     /// </summary>
-    private void ValidateSlashFormImport(string importPathString, string actualModule, SourceLocation importLocation)
+    private void ValidateSlashFormImport(string importPathString, string actualModule,
+        SourceLocation importLocation)
     {
         // Member-form imports are not subject to module-path equality.
         if (importPathString.Contains(value: '.'))
@@ -716,10 +750,10 @@ public sealed class BuildDriver
             return;
         }
 
-        _errors.Add(item: new SemanticError(
-            Code: SemanticDiagnosticCode.ModuleNotFound,
-            Message: $"No module '{importPathString}'. The file resolved to module '{actualModule}'. " +
-                     $"Use 'import {actualModule}.{importPathString[(importPathString.LastIndexOf(value: '/') + 1)..]}' if you meant to import a member.",
+        _errors.Add(item: new SemanticError(Code: SemanticDiagnosticCode.ModuleNotFound,
+            Message:
+            $"No module '{importPathString}'. The file resolved to module '{actualModule}'. " +
+            $"Use 'import {actualModule}.{importPathString[(importPathString.LastIndexOf(value: '/') + 1)..]}' if you meant to import a member.",
             Location: importLocation));
     }
 
@@ -766,9 +800,10 @@ public sealed class BuildDriver
         // register in different orders per platform, making memberRoutine/overload resolution
         // order-dependent — the root of the Linux/macOS-only UnpackedFloat resolution failures.
         foreach (string filePath in Directory.GetFiles(path: dirPath,
-                     searchPattern: extension,
-                     searchOption: SearchOption.AllDirectories)
-                 .OrderBy(keySelector: p => p, comparer: StringComparer.Ordinal))
+                                                  searchPattern: extension,
+                                                  searchOption: SearchOption.AllDirectories)
+                                             .OrderBy(keySelector: p => p,
+                                                  comparer: StringComparer.Ordinal))
         {
             // File-granularity conditional compilation: skip files gated out for this target.
             if (!Targeting.TargetGate.ShouldCompile(filePath: filePath))
@@ -792,7 +827,8 @@ public sealed class BuildDriver
                 }
             }
 
-            moduleName ??= DeriveModuleNameFromPath(filePath: filePath, languageSubdir: subdirectory);
+            moduleName ??=
+                DeriveModuleNameFromPath(filePath: filePath, languageSubdir: subdirectory);
             _resolver.RegisterFile(filePath: filePath, moduleName: moduleName, ast: ast);
         }
     }
@@ -808,7 +844,9 @@ public sealed class BuildDriver
         foreach (string libraryRoot in _libraryRoots)
         {
             if (!Directory.Exists(path: libraryRoot))
+            {
                 continue;
+            }
 
             PreRegisterLibraryRoot(libraryRoot: libraryRoot);
         }
@@ -823,9 +861,10 @@ public sealed class BuildDriver
         foreach (string pattern in (string[])["*.rf", "*.sf"])
         {
             foreach (string filePath in Directory.GetFiles(path: libraryRoot,
-                         searchPattern: pattern,
-                         searchOption: SearchOption.AllDirectories)
-                     .OrderBy(keySelector: p => p, comparer: StringComparer.Ordinal))
+                                                      searchPattern: pattern,
+                                                      searchOption: SearchOption.AllDirectories)
+                                                 .OrderBy(keySelector: p => p,
+                                                      comparer: StringComparer.Ordinal))
             {
                 TryRegisterLibraryFile(filePath: filePath);
             }
@@ -840,11 +879,15 @@ public sealed class BuildDriver
     {
         // File-granularity conditional compilation: skip files gated out for this target.
         if (!Targeting.TargetGate.ShouldCompile(filePath: filePath))
+        {
             return;
+        }
 
         Program? ast = ParseAstOnly(filePath: filePath);
         if (ast is null)
+        {
             return;
+        }
 
         foreach (ISyntaxTreeNode node in ast.Declarations)
         {
@@ -867,8 +910,11 @@ public sealed class BuildDriver
             string code = File.ReadAllText(path: filePath);
             bool isSuflae = filePath.EndsWith(value: ".sf",
                 comparisonType: StringComparison.OrdinalIgnoreCase);
-            Language language = isSuflae ? Language.Suflae : Language.RazorForge;
-            var tokenizer = new Tokenizer.Tokenizer(source: code, fileName: filePath, language: language);
+            Language language = isSuflae
+                ? Language.Suflae
+                : Language.RazorForge;
+            var tokenizer =
+                new Tokenizer.Tokenizer(source: code, fileName: filePath, language: language);
             List<Token> tokens = tokenizer.Tokenize();
             var parser = new Parser.Parser(tokens: tokens, language: language, fileName: filePath);
             return parser.Parse();
@@ -892,19 +938,24 @@ public sealed class BuildDriver
             foreach (string line in File.ReadLines(path: filePath))
             {
                 string trimmed = line.Trim();
-                if (!trimmed.StartsWith(value: "module ", comparisonType: StringComparison.Ordinal))
+                if (!trimmed.StartsWith(value: "module ",
+                        comparisonType: StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                string name = trimmed["module ".Length..].Trim();
+                string name = trimmed["module ".Length..]
+                   .Trim();
                 int commentIdx = name.IndexOf(value: '#');
                 if (commentIdx >= 0)
                 {
-                    name = name[..commentIdx].Trim();
+                    name = name[..commentIdx]
+                       .Trim();
                 }
 
-                return name.Length == 0 ? null : name;
+                return name.Length == 0
+                    ? null
+                    : name;
             }
         }
         catch (IOException)

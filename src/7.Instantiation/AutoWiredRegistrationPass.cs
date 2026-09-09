@@ -72,14 +72,22 @@ internal sealed class AutoWiredRegistrationPass
         // List[RoutineInfo]) are only resolved when the user program actually imports BuilderQuery.
         // Otherwise GMP would drag in the full BTreeListNode/Owned/Array/ArrayIterator closure for
         // every type via the metadata routines registered on each type.
-        (TypeSymbol? listFieldInfoType, TypeSymbol? listProtocolInfoType, TypeSymbol? listRoutineInfoType) =
-            ResolveBuilderInfoTypes(builderServiceImported: builderServiceImported, listDef: listDef);
+        (TypeSymbol? listFieldInfoType, TypeSymbol? listProtocolInfoType,
+                TypeSymbol? listRoutineInfoType) =
+            ResolveBuilderInfoTypes(builderServiceImported: builderServiceImported,
+                listDef: listDef);
 
-        var bundle = new AutoWiredTypeBundle(
-            TextType: textType, BoolType: boolType, U64Type: u64Type, S64Type: s64Type,
-            NoneType: noneType, SerialValueType: serialValueType, ListDef: listDef,
-            ListTextType: listTextType, ListFieldInfoType: listFieldInfoType,
-            ListProtocolInfoType: listProtocolInfoType, ListRoutineInfoType: listRoutineInfoType,
+        var bundle = new AutoWiredTypeBundle(TextType: textType,
+            BoolType: boolType,
+            U64Type: u64Type,
+            S64Type: s64Type,
+            NoneType: noneType,
+            SerialValueType: serialValueType,
+            ListDef: listDef,
+            ListTextType: listTextType,
+            ListFieldInfoType: listFieldInfoType,
+            ListProtocolInfoType: listProtocolInfoType,
+            ListRoutineInfoType: listRoutineInfoType,
             ByteSizeType: byteSizeType);
 
         foreach (TypeSymbol type in _registry.GetTypesWithMemberRoutines())
@@ -132,10 +140,12 @@ internal sealed class AutoWiredRegistrationPass
             ? _registry.GetOrCreateResolution(genericDef: listDef, typeArguments: [fieldInfoType])
             : null;
         TypeSymbol? listProtocolInfoType = listDef != null && protocolInfoType != null
-            ? _registry.GetOrCreateResolution(genericDef: listDef, typeArguments: [protocolInfoType])
+            ? _registry.GetOrCreateResolution(genericDef: listDef,
+                typeArguments: [protocolInfoType])
             : null;
         TypeSymbol? listRoutineInfoType = listDef != null && routineInfoType != null
-            ? _registry.GetOrCreateResolution(genericDef: listDef, typeArguments: [routineInfoType])
+            ? _registry.GetOrCreateResolution(genericDef: listDef,
+                typeArguments: [routineInfoType])
             : null;
 
         return (listFieldInfoType, listProtocolInfoType, listRoutineInfoType);
@@ -147,7 +157,8 @@ internal sealed class AutoWiredRegistrationPass
     /// </summary>
     private void RegisterForType(TypeSymbol type, AutoWiredTypeBundle bundle)
     {
-        var existingMemberRoutines = _registry.GetMemberRoutinesForType(type: type).ToList();
+        var existingMemberRoutines = _registry.GetMemberRoutinesForType(type: type)
+                                              .ToList();
 
         // All types: represent(), diagnose() — auto-generated, overridable
         if (bundle.TextType != null)
@@ -164,9 +175,9 @@ internal sealed class AutoWiredRegistrationPass
 
         // Serializable: serialize() -> SerialValue is UNIVERSAL — every value has one so the derived
         // composite walk can call field.serialize() unconditionally (no obeying gate).
-        if (bundle.SerialValueType != null &&
-            type.Category is TypeCategory.Record or TypeCategory.Entity or TypeCategory.Variant
-                or TypeCategory.Choice or TypeCategory.Flags)
+        if (bundle.SerialValueType != null && type.Category is TypeCategory.Record
+                or TypeCategory.Entity or TypeCategory.Variant or TypeCategory.Choice
+                or TypeCategory.Flags)
         {
             MaybeRegisterWired(owner: type,
                 name: RuntimeContract.Serialize,
@@ -177,16 +188,22 @@ internal sealed class AutoWiredRegistrationPass
         // Unified destructor: every non-wrapper type gets a dangerous destroy().
         if (bundle.NoneType != null && !IsWrapperType(type: type))
         {
-            MaybeRegisterDestroy(owner: type, noneType: bundle.NoneType,
+            MaybeRegisterDestroy(owner: type,
+                noneType: bundle.NoneType,
                 existingMemberRoutines: existingMemberRoutines);
         }
 
         // Cycle-collector per-type hooks for non-wrapper entities.
-        if (bundle.NoneType != null && type.Category == TypeCategory.Entity && !IsWrapperType(type: type))
+        if (bundle.NoneType != null && type.Category == TypeCategory.Entity &&
+            !IsWrapperType(type: type))
         {
-            MaybeRegisterRoamHook(owner: type, name: "roam_trace_impl", noneType: bundle.NoneType,
+            MaybeRegisterRoamHook(owner: type,
+                name: "roam_trace_impl",
+                noneType: bundle.NoneType,
                 existingMemberRoutines: existingMemberRoutines);
-            MaybeRegisterRoamHook(owner: type, name: "roam_free_impl", noneType: bundle.NoneType,
+            MaybeRegisterRoamHook(owner: type,
+                name: "roam_free_impl",
+                noneType: bundle.NoneType,
                 existingMemberRoutines: existingMemberRoutines);
         }
 
@@ -194,41 +211,55 @@ internal sealed class AutoWiredRegistrationPass
         BuilderInfoProvider.RegisterRoutinesOnType(type: type,
             existingMemberRoutines: existingMemberRoutines,
             registry: _registry,
-            types: new BuilderQueryTypeSet(TextType: bundle.TextType, BoolType: bundle.BoolType,
-                U64Type: bundle.U64Type, S64Type: bundle.S64Type, ListTextType: bundle.ListTextType,
-                ListFieldInfoType: bundle.ListFieldInfoType, ListProtocolInfoType: bundle.ListProtocolInfoType,
-                ListRoutineInfoType: bundle.ListRoutineInfoType, ByteSizeType: bundle.ByteSizeType));
+            types: new BuilderQueryTypeSet(TextType: bundle.TextType,
+                BoolType: bundle.BoolType,
+                U64Type: bundle.U64Type,
+                S64Type: bundle.S64Type,
+                ListTextType: bundle.ListTextType,
+                ListFieldInfoType: bundle.ListFieldInfoType,
+                ListProtocolInfoType: bundle.ListProtocolInfoType,
+                ListRoutineInfoType: bundle.ListRoutineInfoType,
+                ByteSizeType: bundle.ByteSizeType));
 
         switch (type.Category)
         {
             case TypeCategory.Record:
-                HandleRecordCategory(type: type, u64Type: bundle.U64Type,
+                HandleRecordCategory(type: type,
+                    u64Type: bundle.U64Type,
                     existingMemberRoutines: existingMemberRoutines);
                 break;
 
             case TypeCategory.Entity:
-                HandleEntityCategory(type: type,
-                    existingMemberRoutines: existingMemberRoutines);
+                HandleEntityCategory(type: type, existingMemberRoutines: existingMemberRoutines);
                 break;
 
             case TypeCategory.Choice:
-                HandleChoiceCategory(type: type, u64Type: bundle.U64Type, boolType: bundle.BoolType,
-                    s64Type: bundle.S64Type, textType: bundle.TextType, listDef: bundle.ListDef,
+                HandleChoiceCategory(type: type,
+                    u64Type: bundle.U64Type,
+                    boolType: bundle.BoolType,
+                    s64Type: bundle.S64Type,
+                    textType: bundle.TextType,
+                    listDef: bundle.ListDef,
                     existingMemberRoutines: existingMemberRoutines);
                 break;
 
             case TypeCategory.Crashable:
-                HandleCrashableCategory(type: type, textType: bundle.TextType,
+                HandleCrashableCategory(type: type,
+                    textType: bundle.TextType,
                     existingMemberRoutines: existingMemberRoutines);
                 break;
 
             case TypeCategory.Flags:
-                HandleFlagsCategory(type: type, u64Type: bundle.U64Type, boolType: bundle.BoolType,
-                    listDef: bundle.ListDef, existingMemberRoutines: existingMemberRoutines);
+                HandleFlagsCategory(type: type,
+                    u64Type: bundle.U64Type,
+                    boolType: bundle.BoolType,
+                    listDef: bundle.ListDef,
+                    existingMemberRoutines: existingMemberRoutines);
                 break;
 
             case TypeCategory.Variant:
-                HandleVariantCategory(type: type, textType: bundle.TextType,
+                HandleVariantCategory(type: type,
+                    textType: bundle.TextType,
                     existingMemberRoutines: existingMemberRoutines);
                 break;
         }
@@ -245,8 +276,8 @@ internal sealed class AutoWiredRegistrationPass
     private void RegisterTextFromCreators(TypeSymbol textType)
     {
         var textCreateMemberRoutines = _registry.GetMemberRoutinesForType(type: textType)
-            .Where(predicate: m => m.IsCreator)
-            .ToList();
+                                                .Where(predicate: m => m.IsCreator)
+                                                .ToList();
 
         foreach (TypeSymbol type in _registry.GetAllTypes())
         {
@@ -265,8 +296,7 @@ internal sealed class AutoWiredRegistrationPass
             }
 
             bool alreadyDefined = textCreateMemberRoutines.Any(predicate: m =>
-                m.Parameters.Count == 1 &&
-                m.Parameters[index: 0].Type.FullName == type.FullName);
+                m.Parameters.Count == 1 && m.Parameters[index: 0].Type.FullName == type.FullName);
             if (alreadyDefined)
             {
                 continue;
@@ -299,10 +329,15 @@ internal sealed class AutoWiredRegistrationPass
         BuilderInfoProvider.RegisterRoutinesOnType(type: tParam,
             existingMemberRoutines: universalExisting,
             registry: _registry,
-            types: new BuilderQueryTypeSet(TextType: bundle.TextType, BoolType: bundle.BoolType,
-                U64Type: bundle.U64Type, S64Type: bundle.S64Type, ListTextType: bundle.ListTextType,
-                ListFieldInfoType: bundle.ListFieldInfoType, ListProtocolInfoType: bundle.ListProtocolInfoType,
-                ListRoutineInfoType: bundle.ListRoutineInfoType, ByteSizeType: bundle.ByteSizeType));
+            types: new BuilderQueryTypeSet(TextType: bundle.TextType,
+                BoolType: bundle.BoolType,
+                U64Type: bundle.U64Type,
+                S64Type: bundle.S64Type,
+                ListTextType: bundle.ListTextType,
+                ListFieldInfoType: bundle.ListFieldInfoType,
+                ListProtocolInfoType: bundle.ListProtocolInfoType,
+                ListRoutineInfoType: bundle.ListRoutineInfoType,
+                ByteSizeType: bundle.ByteSizeType));
         if (bundle.TextType != null)
         {
             MaybeRegisterWired(owner: tParam,
@@ -318,7 +353,8 @@ internal sealed class AutoWiredRegistrationPass
         // destroy as a universal member routine so v.destroy() resolves on a generic T.
         if (bundle.NoneType != null)
         {
-            MaybeRegisterDestroy(owner: tParam, noneType: bundle.NoneType,
+            MaybeRegisterDestroy(owner: tParam,
+                noneType: bundle.NoneType,
                 existingMemberRoutines: universalExisting);
         }
     }
@@ -337,8 +373,7 @@ internal sealed class AutoWiredRegistrationPass
         // WiredRoutinePass would generate wrong bodies (returns 0 / returns true).
         bool isWrapper = type is RecordTypeInfo &&
                          WrapperForwardingPass.WrapperTypeNames.Contains(
-                             item: (type as RecordTypeInfo)?.GenericDefinition?.Name
-                                   ?? type.Name);
+                             item: (type as RecordTypeInfo)?.GenericDefinition?.Name ?? type.Name);
         // DECISION (2026-06-14): records do NOT auto-derive eq / hash. `obeys Equatable`
         // / `Hashable` on a record is a PROMISE the author fulfils by HAND-WRITING the
         // memberRoutine — field-delegated synthesis is fragile (breaks when a field type lacks the
@@ -364,7 +399,8 @@ internal sealed class AutoWiredRegistrationPass
         if (!type.IsNone && !isWrapper && u64Type != null &&
             ObeysProtocol(type: type, protocolName: "Hashable"))
         {
-            MaybeRegisterKeyedHash(owner: type, u64Type: u64Type,
+            MaybeRegisterKeyedHash(owner: type,
+                u64Type: u64Type,
                 existingMemberRoutines: existingMemberRoutines);
         }
     }
@@ -384,19 +420,21 @@ internal sealed class AutoWiredRegistrationPass
         // Always synthesize the all-fields overload unless an exact match already exists,
         // so field construction inside user-defined create overloads works too.
         // Skip generic definitions (their resolved instances get synthesis).
-        if (type is EntityTypeInfo entityForCreate &&
-            !type.IsGenericDefinition &&
+        if (type is EntityTypeInfo entityForCreate && !type.IsGenericDefinition &&
             !existingMemberRoutines.Any(predicate: m =>
-                m.IsCreator &&
-                m.Parameters.Count == entityForCreate.MemberVariables.Count &&
-                entityForCreate.MemberVariables.Select(selector: mv => mv.Name)
-                               .SequenceEqual(second: m.Parameters.Select(selector: p => p.Name)) &&
+                m.IsCreator && m.Parameters.Count == entityForCreate.MemberVariables.Count &&
+                entityForCreate.MemberVariables
+                               .Select(selector: mv => mv.Name)
+                               .SequenceEqual(
+                                    second: m.Parameters.Select(selector: p => p.Name)) &&
                 // An overload's identity is its PARAMETER TYPES, not just names — a user
                 // `create(tag: S32)` must NOT suppress the all-fields memberwise `create(tag: S64)`
                 // when the field type differs, else field construction inside that user create
                 // (`Tracer(tag: S64(...))`) finds no matching creator.
-                entityForCreate.MemberVariables.Select(selector: mv => mv.Type.FullName)
-                               .SequenceEqual(second: m.Parameters.Select(selector: p => p.Type.FullName))))
+                entityForCreate.MemberVariables
+                               .Select(selector: mv => mv.Type.FullName)
+                               .SequenceEqual(
+                                    second: m.Parameters.Select(selector: p => p.Type.FullName))))
         {
             _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
@@ -404,8 +442,7 @@ internal sealed class AutoWiredRegistrationPass
                 OwnerType = type,
                 Parameters = entityForCreate.MemberVariables
                                             .Select(selector: mv =>
-                                                 new ParameterInfo(name: mv.Name,
-                                                     type: mv.Type))
+                                                 new ParameterInfo(name: mv.Name, type: mv.Type))
                                             .ToList(),
                 ReturnType = type,
                 IsFailable = false,
@@ -434,7 +471,8 @@ internal sealed class AutoWiredRegistrationPass
                 name: "hash",
                 returnType: u64Type,
                 existingMemberRoutines: existingMemberRoutines);
-            MaybeRegisterKeyedHash(owner: type, u64Type: u64Type,
+            MaybeRegisterKeyedHash(owner: type,
+                u64Type: u64Type,
                 existingMemberRoutines: existingMemberRoutines);
         }
 
@@ -460,8 +498,7 @@ internal sealed class AutoWiredRegistrationPass
 
         // S64.create(from: ChoiceType) — choice_val.S64() desugars to S64.create(from: choice_val)
         if (s64Type != null && !type.IsGenericDefinition &&
-            _registry.LookupCreatorOverload(type: s64Type,
-                argTypes: [type]) == null)
+            _registry.LookupCreatorOverload(type: s64Type, argTypes: [type]) == null)
         {
             _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
@@ -482,8 +519,7 @@ internal sealed class AutoWiredRegistrationPass
         // discriminants via S32.eq (icmp eq i32), so the `is` operator never reaches codegen.
         TypeSymbol? s32ChoiceType = _registry.LookupType(name: "S32");
         if (s32ChoiceType != null && !type.IsGenericDefinition &&
-            _registry.LookupCreatorOverload(type: s32ChoiceType,
-                argTypes: [type]) == null)
+            _registry.LookupCreatorOverload(type: s32ChoiceType, argTypes: [type]) == null)
         {
             _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
@@ -525,17 +561,18 @@ internal sealed class AutoWiredRegistrationPass
 
         // count() — number of declared cases.
         if (u64Type != null)
+        {
             MaybeRegisterWired(owner: type,
                 name: "count",
                 returnType: u64Type,
                 existingMemberRoutines: existingMemberRoutines);
+        }
 
         // from-S32 reverse constructor (build a choice value from its discriminant, used by the all_cases
         // derive to reconstruct each case from `$valueof(c)`). Mirrors the forward `S64.create(from: choice)`.
         TypeSymbol? s32Type = _registry.LookupType(name: "S32");
         if (s32Type != null && !type.IsGenericDefinition &&
-            _registry.LookupCreatorOverload(type: type,
-                argTypes: [s32Type]) == null)
+            _registry.LookupCreatorOverload(type: type, argTypes: [s32Type]) == null)
         {
             _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
@@ -601,13 +638,11 @@ internal sealed class AutoWiredRegistrationPass
         // Auto-add Crashable protocol conformance (implicit from the crashable keyword)
         TypeSymbol? crashableProto = _registry.LookupType(name: "Crashable");
         if (crashableProto != null && type is CrashableTypeInfo crashableInfo &&
-            crashableInfo.ImplementedProtocols.All(predicate: p =>
-                p.Name != "Crashable"))
+            crashableInfo.ImplementedProtocols.All(predicate: p => p.Name != "Crashable"))
         {
             var protocols = crashableInfo.ImplementedProtocols.ToList();
             protocols.Add(item: crashableProto);
-            _registry.UpdateCrashableProtocols(typeName: type.FullName,
-                protocols: protocols);
+            _registry.UpdateCrashableProtocols(typeName: type.FullName, protocols: protocols);
         }
     }
 
@@ -624,7 +659,8 @@ internal sealed class AutoWiredRegistrationPass
                 name: "hash",
                 returnType: u64Type,
                 existingMemberRoutines: existingMemberRoutines);
-            MaybeRegisterKeyedHash(owner: type, u64Type: u64Type,
+            MaybeRegisterKeyedHash(owner: type,
+                u64Type: u64Type,
                 existingMemberRoutines: existingMemberRoutines);
         }
 
@@ -642,7 +678,12 @@ internal sealed class AutoWiredRegistrationPass
         // symmetry). WiredRoutinePass.HandleFlags synthesizes the bodies as @llvm_ir
         // intrinsic calls on the underlying i64 repr; OperatorLoweringPass then lowers
         // `BitwiseOr`/`BitwiseAnd`/`BitwiseXor` on a Flags receiver to these calls.
-        foreach (string bitOp in new[] { "bitand", "bitor", "bitxor" })
+        foreach (string bitOp in new[]
+                 {
+                     "bitand",
+                     "bitor",
+                     "bitxor"
+                 })
         {
             MaybeRegisterWiredWithParam(owner: type,
                 name: bitOp,
@@ -664,8 +705,7 @@ internal sealed class AutoWiredRegistrationPass
 
         // U64.create(from: FlagsType) — flags_val.U64() desugars to U64.create(from: flags_val)
         if (u64Type != null && !type.IsGenericDefinition &&
-            _registry.LookupCreatorOverload(type: u64Type,
-                argTypes: [type]) == null)
+            _registry.LookupCreatorOverload(type: u64Type, argTypes: [type]) == null)
         {
             _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
@@ -709,8 +749,7 @@ internal sealed class AutoWiredRegistrationPass
                 returnType: u64Type,
                 existingMemberRoutines: existingMemberRoutines);
             if (!type.IsGenericDefinition &&
-                _registry.LookupCreatorOverload(type: type,
-                    argTypes: [u64Type]) == null)
+                _registry.LookupCreatorOverload(type: type, argTypes: [u64Type]) == null)
             {
                 _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
                 {
@@ -976,7 +1015,8 @@ internal sealed class AutoWiredRegistrationPass
         // and gets assign/copy), while Equatable/Comparable/Hashable are NOT auto-conferred (so only a type
         // that explicitly `obeys` them appears here and gets eq/cmp/hash). Marker protocols (RecordType/…)
         // also appear but are filtered below — they carry no `everywhere` self-constraint.
-        var explicitClosure = new Dictionary<string, ProtocolTypeInfo>(comparer: StringComparer.Ordinal);
+        var explicitClosure =
+            new Dictionary<string, ProtocolTypeInfo>(comparer: StringComparer.Ordinal);
         foreach (TypeSymbol protoRef in obeyed)
         {
             if (_registry.LookupType(name: protoRef.Name) is ProtocolTypeInfo obeyedProto)
@@ -997,12 +1037,15 @@ internal sealed class AutoWiredRegistrationPass
             // it applies only to field-walk BASE derives (cmp/eq/hash/assign), NOT to delegation derives
             // (lt/le/gt/ge), which simply call the type's own base op and are valid whenever the type obeys
             // P (already true — p came from the obeyed-protocol closure).
-            bool everywhereObeys = isGenericDef || _registry.EverywhereObeys(type: type, protocol: p.Name);
+            bool everywhereObeys =
+                isGenericDef || _registry.EverywhereObeys(type: type, protocol: p.Name);
 
             foreach (ProtocolMemberRoutineInfo member in p.MemberRoutines)
             {
-                RegisterEverywhereDeriveMember(type: type, member: member,
-                    memberCount: memberCount, everywhereObeys: everywhereObeys);
+                RegisterEverywhereDeriveMember(type: type,
+                    member: member,
+                    memberCount: memberCount,
+                    everywhereObeys: everywhereObeys);
             }
         }
     }
@@ -1014,8 +1057,9 @@ internal sealed class AutoWiredRegistrationPass
     /// provides a concrete implementation. Extracted from
     /// <see cref="RegisterEverywhereDeriveMembers"/> to reduce its cognitive complexity.
     /// </summary>
-    private bool ShouldSkipEverywhereDeriveMember(TypeSymbol type, ProtocolMemberRoutineInfo member,
-        int memberCount, bool everywhereObeys, out bool isDerivedOperator)
+    private bool ShouldSkipEverywhereDeriveMember(TypeSymbol type,
+        ProtocolMemberRoutineInfo member, int memberCount, bool everywhereObeys,
+        out bool isDerivedOperator)
     {
         isDerivedOperator = false;
 
@@ -1042,7 +1086,9 @@ internal sealed class AutoWiredRegistrationPass
             // DerivedOperatorPass bodies did not survive the collector/warm codegen path. Delegation
             // derives WITHOUT a template (ne, notcontains) are still produced by DerivedOperatorPass,
             // so we skip them here rather than register stubs the collector cannot materialize.
-            return _registry.GetDeriveTemplate(name: member.Name, arity: memberArity, forType: type) is null;
+            return _registry.GetDeriveTemplate(name: member.Name,
+                arity: memberArity,
+                forType: type) is null;
         }
 
         // A field-walk BASE derive is only VALID when every member obeys P (its body field-walks into
@@ -1092,8 +1138,11 @@ internal sealed class AutoWiredRegistrationPass
     private void RegisterEverywhereDeriveMember(TypeSymbol type, ProtocolMemberRoutineInfo member,
         int memberCount, bool everywhereObeys)
     {
-        if (ShouldSkipEverywhereDeriveMember(type: type, member: member, memberCount: memberCount,
-                everywhereObeys: everywhereObeys, isDerivedOperator: out _))
+        if (ShouldSkipEverywhereDeriveMember(type: type,
+                member: member,
+                memberCount: memberCount,
+                everywhereObeys: everywhereObeys,
+                isDerivedOperator: out _))
         {
             return;
         }
@@ -1105,7 +1154,9 @@ internal sealed class AutoWiredRegistrationPass
             TypeSymbol pt = member.ParameterTypes[index: i] is ProtocolSelfTypeInfo
                 ? type
                 : member.ParameterTypes[index: i];
-            string pn = i < member.ParameterNames.Count ? member.ParameterNames[index: i] : $"arg{i}";
+            string pn = i < member.ParameterNames.Count
+                ? member.ParameterNames[index: i]
+                : $"arg{i}";
             parameters.Add(item: new ParameterInfo(name: pn, type: pt));
         }
 
@@ -1170,9 +1221,11 @@ internal sealed class AutoWiredRegistrationPass
             TypeSymbol armType = arm.Type;
 
             // V.create(from: Arm) -> V
-            bool ctorExists = _registry.GetMemberRoutinesForType(type: variant).Any(predicate: m =>
-                m is { IsCreator: true, Parameters.Count: 1 } &&
-                m.Parameters[index: 0].Type?.FullName == armType.FullName);
+            bool ctorExists = _registry.GetMemberRoutinesForType(type: variant)
+                                       .Any(predicate: m =>
+                                            m is { IsCreator: true, Parameters.Count: 1 } &&
+                                            m.Parameters[index: 0].Type?.FullName ==
+                                            armType.FullName);
             if (!ctorExists)
             {
                 _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
@@ -1191,9 +1244,14 @@ internal sealed class AutoWiredRegistrationPass
 
             // Arm.create!(from: V) -> Arm  (name "create" + IsFailable; a `.create!(…)` call resolves
             // against "create" and the `from: V` param type disambiguates from numeric conversions).
-            bool extractExists = _registry.GetMemberRoutinesForType(type: armType).Any(predicate: m =>
-                m is { IsCreator: true, Parameters.Count: 1, IsFailable: true } &&
-                m.Parameters[index: 0].Type?.FullName == variant.FullName);
+            bool extractExists = _registry.GetMemberRoutinesForType(type: armType)
+                                          .Any(predicate: m =>
+                                               m is
+                                               {
+                                                   IsCreator: true, Parameters.Count: 1,
+                                                   IsFailable: true
+                                               } && m.Parameters[index: 0].Type?.FullName ==
+                                               variant.FullName);
             if (!extractExists)
             {
                 _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
@@ -1253,25 +1311,32 @@ internal sealed class AutoWiredRegistrationPass
         }
 
         var seen = new HashSet<string>();
-        return implemented.Any(p => CheckProtocol(p, protocolName, seen));
+        return implemented.Any(predicate: p =>
+            CheckProtocol(candidate: p, targetName: protocolName, seen: seen));
     }
 
     private bool CheckProtocol(TypeSymbol candidate, string targetName, HashSet<string> seen)
     {
-        if (!seen.Add(candidate.Name))
+        if (!seen.Add(item: candidate.Name))
         {
             return false;
         }
+
         if (candidate.Name == targetName)
         {
             return true;
         }
+
         // Resolve the latest version from the registry — ImplementedProtocols entries
         // can be stale (immutable type updates). The fully-populated parent list lives
         // on the registry's current ProtocolTypeInfo.
         TypeSymbol latest = _registry.LookupType(name: candidate.Name) ?? candidate;
         if (latest is ProtocolTypeInfo proto)
-            return proto.ParentProtocols.Any(parent => CheckProtocol(parent, targetName, seen));
+        {
+            return proto.ParentProtocols.Any(predicate: parent =>
+                CheckProtocol(candidate: parent, targetName: targetName, seen: seen));
+        }
+
         return false;
     }
 }

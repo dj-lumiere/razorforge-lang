@@ -26,28 +26,31 @@ public partial class Parser
     /// (<c>obeys Serializable</c>) or an identity/const-generic (<c>N is U64</c>). Written as
     /// <c>T is &lt;Name&gt;Type</c> in a constraint; the old <c>within &lt;Name&gt;</c> spelling and the
     /// bare lowercase <c>is record</c>/<c>is variant</c> forms are gone — this is the single surface.</summary>
-    private static readonly Dictionary<string, ConstraintKind> TypeKindNames = new(StringComparer.Ordinal)
-    {
-        ["RoutineType"] = ConstraintKind.RoutineType,
-        ["TupleType"] = ConstraintKind.TupleType,
-        ["RecordType"] = ConstraintKind.RecordType,
-        ["ChoiceType"] = ConstraintKind.ChoiceType,
-        ["FlagsType"] = ConstraintKind.FlagsType,
-        ["VariantType"] = ConstraintKind.VariantType,
-        ["EntityType"] = ConstraintKind.EntityType,
-        ["CrashableType"] = ConstraintKind.Crashable,
-        // `RedirectType` = an `@llvm("…")` primitive that redirects to its raw LLVM repr.
-        ["RedirectType"] = ConstraintKind.RedirectType,
-        // `AnyType` = an unconstrained generic type parameter (satisfied by any type) — the classifier for
-        // `[AnyType T]` / `needs AnyType T`.
-        ["AnyType"] = ConstraintKind.AnyType
-    };
+    private static readonly Dictionary<string, ConstraintKind> TypeKindNames =
+        new(comparer: StringComparer.Ordinal)
+        {
+            [key: "RoutineType"] = ConstraintKind.RoutineType,
+            [key: "TupleType"] = ConstraintKind.TupleType,
+            [key: "RecordType"] = ConstraintKind.RecordType,
+            [key: "ChoiceType"] = ConstraintKind.ChoiceType,
+            [key: "FlagsType"] = ConstraintKind.FlagsType,
+            [key: "VariantType"] = ConstraintKind.VariantType,
+            [key: "EntityType"] = ConstraintKind.EntityType,
+            [key: "CrashableType"] = ConstraintKind.Crashable,
+            // `RedirectType` = an `@llvm("…")` primitive that redirects to its raw LLVM repr.
+            [key: "RedirectType"] = ConstraintKind.RedirectType,
+            // `AnyType` = an unconstrained generic type parameter (satisfied by any type) — the classifier for
+            // `[AnyType T]` / `needs AnyType T`.
+            [key: "AnyType"] = ConstraintKind.AnyType
+        };
 
     /// <summary>Recognizes a <c>T is &lt;Name&gt;Type</c> type-kind constraint. When the identifier after
     /// <c>is</c> is a known kind-group name, yields its <see cref="ConstraintKind"/>; otherwise the
     /// <c>is</c> target is an identity / const-generic type (<c>N is U64</c>).</summary>
-    private static bool TryGetTypeKindConstraint(string name, out ConstraintKind kind) =>
-        TypeKindNames.TryGetValue(key: name, value: out kind);
+    private static bool TryGetTypeKindConstraint(string name, out ConstraintKind kind)
+    {
+        return TypeKindNames.TryGetValue(key: name, value: out kind);
+    }
 
     /// <summary>True when the cursor sits on the NEW classifier-first generic-parameter declaration form
     /// — two consecutive identifiers <c>&lt;Kind&gt; &lt;name&gt;</c> (<c>AnyType T</c>, <c>ChoiceType T</c>,
@@ -55,8 +58,11 @@ public partial class Parser
     /// <c>in</c>/<c>everywhere</c>) or a delimiter (<c>,</c>/<c>]</c>) as the second token — a bare
     /// <c>ident ident</c> pair never occurred in a bracket or <c>needs</c> clause before. Both surfaces
     /// coexist during the migration off <c>needs T is TypeName</c> → <c>[AnyType T]</c>.</summary>
-    private bool IsClassifierFirstParamDecl() =>
-        Check(type: TokenType.Identifier) && PeekToken(offset: 1).Type == TokenType.Identifier;
+    private bool IsClassifierFirstParamDecl()
+    {
+        return Check(type: TokenType.Identifier) && PeekToken(offset: 1)
+           .Type == TokenType.Identifier;
+    }
 
     /// <summary>Parses one NEW classifier-first generic parameter <c>&lt;Kind&gt; &lt;name&gt;</c> (cursor
     /// already confirmed by <see cref="IsClassifierFirstParamDecl"/>). A known kind keyword
@@ -71,22 +77,23 @@ public partial class Parser
             errorMessage: "Expected a type-kind or type before the generic parameter name");
         string paramName = ConsumeIdentifier(errorMessage: "Expected generic parameter name");
 
-        if (TryGetTypeKindConstraint(name: classifier, out ConstraintKind kind))
+        if (TryGetTypeKindConstraint(name: classifier, kind: out ConstraintKind kind))
         {
-            return (paramName, new GenericConstraintDeclaration(
-                ParameterName: paramName,
-                ConstraintType: kind,
-                ConstraintTypes: null,
-                Location: location));
+            return (paramName,
+                new GenericConstraintDeclaration(ParameterName: paramName,
+                    ConstraintType: kind,
+                    ConstraintTypes: null,
+                    Location: location));
         }
 
         // Concrete-type classifier → const-generic: `U64 N` means N is a build-time U64 value.
-        var constType = new TypeExpression(Name: classifier, GenericArguments: null, Location: location);
-        return (paramName, new GenericConstraintDeclaration(
-            ParameterName: paramName,
-            ConstraintType: ConstraintKind.ConstGeneric,
-            ConstraintTypes: [constType],
-            Location: location));
+        var constType =
+            new TypeExpression(Name: classifier, GenericArguments: null, Location: location);
+        return (paramName,
+            new GenericConstraintDeclaration(ParameterName: paramName,
+                ConstraintType: ConstraintKind.ConstGeneric,
+                ConstraintTypes: [constType],
+                Location: location));
     }
 
     private const string TypeKindNamesHint =
@@ -99,14 +106,14 @@ public partial class Parser
     /// const-generic / identity constraint. Guarded by the inline (<c>[T is …]</c>) and <c>needs</c> sites
     /// so both accept exactly the same surface. NOTE: the runtime <c>is Crashable e</c> error-catch
     /// PATTERN is a different parse site (expression position) and is unaffected.</summary>
-    private GenericConstraintDeclaration ParseIsConstraint(string paramName, SourceLocation location)
+    private GenericConstraintDeclaration ParseIsConstraint(string paramName,
+        SourceLocation location)
     {
         if (Check(type: TokenType.Identifier) &&
-            TryGetTypeKindConstraint(name: CurrentToken.Text, out ConstraintKind kind))
+            TryGetTypeKindConstraint(name: CurrentToken.Text, kind: out ConstraintKind kind))
         {
             Advance();
-            return new GenericConstraintDeclaration(
-                ParameterName: paramName,
+            return new GenericConstraintDeclaration(ParameterName: paramName,
                 ConstraintType: kind,
                 ConstraintTypes: null,
                 Location: location);
@@ -116,8 +123,7 @@ public partial class Parser
         {
             // Const-generic / identity: `N is U64`. Validation is deferred to semantic analysis.
             TypeExpression constType = ParseType();
-            return new GenericConstraintDeclaration(
-                ParameterName: paramName,
+            return new GenericConstraintDeclaration(ParameterName: paramName,
                 ConstraintType: ConstraintKind.ConstGeneric,
                 ConstraintTypes: [constType],
                 Location: location);
@@ -170,16 +176,19 @@ public partial class Parser
             // then each following segment is an associated-type projection).
             if (Check(type: TokenType.Slash))
             {
-                var meSb = new System.Text.StringBuilder("Me");
+                var meSb = new System.Text.StringBuilder(value: "Me");
                 while (CheckAndAdvance(type: TokenType.Slash))
                 {
-                    meSb.Append('/');
-                    meSb.Append(ConsumeIdentifier(
+                    meSb.Append(value: '/');
+                    meSb.Append(value: ConsumeIdentifier(
                         errorMessage: "Expected associated-type name after '/' in projection"));
                 }
-                return new TypeExpression(Name: meSb.ToString(), GenericArguments: null,
+
+                return new TypeExpression(Name: meSb.ToString(),
+                    GenericArguments: null,
                     Location: location);
             }
+
             return new TypeExpression(Name: "Me", GenericArguments: null, Location: location);
         }
 
@@ -201,15 +210,26 @@ public partial class Parser
         if (CheckAndAdvance(type: TokenType.SpliceOpen))
         {
             Expression spliced = ParseExpression();
-            Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' to close '${...}' splice");
+            Consume(type: TokenType.RightBrace,
+                errorMessage: "Expected '}' to close '${...}' splice");
             // `${handle.type}` — a comptime TYPE splice of an expand handle's member type.
-            if (spliced is MemberExpression { Object: IdentifierExpression handleId, MemberName: "type" })
-                return new TypeExpression(Name: "splice", GenericArguments: null, Location: location,
+            if (spliced is MemberExpression
+                {
+                    Object: IdentifierExpression handleId, MemberName: "type"
+                })
+            {
+                return new TypeExpression(Name: "splice",
+                    GenericArguments: null,
+                    Location: location,
                     SpliceHandle: handleId.Name);
+            }
+
             // Otherwise a comptime VALUE splice used as a const-generic argument, e.g. the carrier
             // payload size `Array[U8, ${max(T.data_size().byte_size(), 8)}]`. Carry the expression for
             // the monomorphizer to fold into a ConstGenericValueTypeInfo.
-            return new TypeExpression(Name: "splice_value", GenericArguments: null, Location: location,
+            return new TypeExpression(Name: "splice_value",
+                GenericArguments: null,
+                Location: location,
                 ComptimeValue: spliced);
         }
 
@@ -223,9 +243,16 @@ public partial class Parser
                     Callee: IdentifierExpression { Name: "typeof" },
                     Arguments: [IdentifierExpression handle]
                 })
-                return new TypeExpression(Name: "splice", GenericArguments: null, Location: location,
+            {
+                return new TypeExpression(Name: "splice",
+                    GenericArguments: null,
+                    Location: location,
                     SpliceHandle: handle.Name);
-            return new TypeExpression(Name: "splice_value", GenericArguments: null, Location: location,
+            }
+
+            return new TypeExpression(Name: "splice_value",
+                GenericArguments: null,
+                Location: location,
                 ComptimeValue: spliced);
         }
 
@@ -320,7 +347,10 @@ public partial class Parser
         // ─────────────────────────────────────────────────────────────────────
         if (!CheckAndAdvance(type: TokenType.LeftBracket))
         {
-            return new TypeExpression(Name: name, GenericArguments: null, Location: location, Realm: realm);
+            return new TypeExpression(Name: name,
+                GenericArguments: null,
+                Location: location,
+                Realm: realm);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -335,7 +365,10 @@ public partial class Parser
 
         Consume(type: TokenType.RightBracket, errorMessage: "Expected ']' after type arguments");
 
-        return new TypeExpression(Name: name, GenericArguments: typeArgs, Location: location, Realm: realm);
+        return new TypeExpression(Name: name,
+            GenericArguments: typeArgs,
+            Location: location,
+            Realm: realm);
     }
 
     /// <summary>
@@ -357,16 +390,23 @@ public partial class Parser
 
         string realm = name;
         var realmSb = new System.Text.StringBuilder(
-            ConsumeIdentifier(errorMessage: "Expected type name after realm qualifier '::'"));
+            value: ConsumeIdentifier(
+                errorMessage: "Expected type name after realm qualifier '::'"));
         while (Check(type: TokenType.Dot) || Check(type: TokenType.Slash))
         {
-            char sep = CheckAndAdvance(type: TokenType.Dot) ? '.' : '/';
+            char sep = CheckAndAdvance(type: TokenType.Dot)
+                ? '.'
+                : '/';
             if (sep == '/')
+            {
                 CheckAndAdvance(type: TokenType.Slash);
-            realmSb.Append(sep);
-            realmSb.Append(ConsumeIdentifier(
+            }
+
+            realmSb.Append(value: sep);
+            realmSb.Append(value: ConsumeIdentifier(
                 errorMessage: "Expected name component after '.'/'/' in realm-qualified type"));
         }
+
         name = realmSb.ToString();
         return realm;
     }
@@ -378,17 +418,20 @@ public partial class Parser
     /// </summary>
     private string ReadQualifiedTypePath(string head)
     {
-        var nameSb = new System.Text.StringBuilder(head);
+        var nameSb = new System.Text.StringBuilder(value: head);
         while (CheckAndAdvance(type: TokenType.Slash))
         {
-            nameSb.Append('/');
-            nameSb.Append(ConsumeIdentifier(errorMessage: "Expected module path component after '/'"));
+            nameSb.Append(value: '/');
+            nameSb.Append(
+                value: ConsumeIdentifier(
+                    errorMessage: "Expected module path component after '/'"));
 
             // Dot separates the type name from the slash-based module path: razorforge/Core.Bool
             if (CheckAndAdvance(type: TokenType.Dot))
             {
-                nameSb.Append('.');
-                nameSb.Append(ConsumeIdentifier(errorMessage: "Expected type name after '.'"));
+                nameSb.Append(value: '.');
+                nameSb.Append(
+                    value: ConsumeIdentifier(errorMessage: "Expected type name after '.'"));
                 break; // Dot marks the end of the path (rest is the type name)
             }
         }
@@ -543,12 +586,14 @@ public partial class Parser
             // ─────────────────────────────────────────────────────────────────────
             if (IsClassifierFirstParamDecl())
             {
-                (string clsParam, GenericConstraintDeclaration clsConstraint) = ParseClassifierFirstParam();
+                (string clsParam, GenericConstraintDeclaration clsConstraint) =
+                    ParseClassifierFirstParam();
                 genericParams.Add(item: clsParam);
                 if (clsConstraint.ConstraintType != ConstraintKind.AnyType)
                 {
                     inlineConstraints.Add(item: clsConstraint);
                 }
+
                 continue;
             }
 
@@ -575,7 +620,8 @@ public partial class Parser
             // Const generic: N is S32 (N is a build-time S32 value)
             else if (CheckAndAdvance(type: TokenType.Is))
             {
-                inlineConstraints.Add(item: ParseIsConstraint(paramName: paramName, location: location));
+                inlineConstraints.Add(item: ParseIsConstraint(paramName: paramName,
+                    location: location));
             }
             // ─────────────────────────────────────────────────────────────────────
             // CONSTRAINT TYPE 3: in - type equality (must be one of listed types)
@@ -633,11 +679,9 @@ public partial class Parser
             equalityTypes.Add(item: ParseType());
         } while (CheckAndAdvance(type: TokenType.Comma));
 
-        Consume(type: TokenType.RightBracket,
-            errorMessage: "Expected ']' after type list");
+        Consume(type: TokenType.RightBracket, errorMessage: "Expected ']' after type list");
 
-        return new GenericConstraintDeclaration(
-            ParameterName: paramName,
+        return new GenericConstraintDeclaration(ParameterName: paramName,
             ConstraintType: ConstraintKind.TypeEquality,
             ConstraintTypes: equalityTypes,
             Location: location);
@@ -670,7 +714,10 @@ public partial class Parser
     {
         TypeExpression proto = ParseType();
         if (CheckAndAdvance(type: TokenType.OnlyIf))
+        {
             proto.ConformanceConditions = ParseOnlyIfConditions();
+        }
+
         return proto;
     }
 
@@ -689,15 +736,19 @@ public partial class Parser
                 {
                     // Skip newlines between comma-separated onlyif conditions.
                 }
+
                 conds.Add(item: ParseOneOnlyIfCondition());
             } while (CheckAndAdvance(type: TokenType.Comma));
-            Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after 'onlyif' conditions");
+
+            Consume(type: TokenType.RightParen,
+                errorMessage: "Expected ')' after 'onlyif' conditions");
         }
         else
         {
             // Bare single condition — a following comma belongs to the outer obeys list, not here.
             conds.Add(item: ParseOneOnlyIfCondition());
         }
+
         return conds;
     }
 
@@ -708,8 +759,7 @@ public partial class Parser
         string paramName =
             ConsumeIdentifier(errorMessage: "Expected type parameter name in 'onlyif' condition");
         Consume(type: TokenType.Obeys, errorMessage: "Expected 'obeys' in 'onlyif' condition");
-        return new GenericConstraintDeclaration(
-            ParameterName: paramName,
+        return new GenericConstraintDeclaration(ParameterName: paramName,
             ConstraintType: ConstraintKind.Obeys,
             ConstraintTypes: [ParseType()],
             Location: loc);
@@ -740,7 +790,7 @@ public partial class Parser
         }
 
         List<GenericConstraintDeclaration> constraints = existingConstraints != null
-            ? [..existingConstraints]
+            ? [.. existingConstraints]
             : [];
 
         // ═══════════════════════════════════════════════════════════════════════════
@@ -761,7 +811,8 @@ public partial class Parser
                 // constraint is what folds T into the routine's GenericParameters downstream.
                 if (IsClassifierFirstParamDecl())
                 {
-                    (string _, GenericConstraintDeclaration clsConstraint) = ParseClassifierFirstParam();
+                    (string _, GenericConstraintDeclaration clsConstraint) =
+                        ParseClassifierFirstParam();
                     constraints.Add(item: clsConstraint);
                     continue;
                 }
@@ -798,8 +849,7 @@ public partial class Parser
         {
             // T obeys Protocol1, Protocol2
             List<TypeExpression> constraintTypes = ParseNeedsObeysProtocolList();
-            return new GenericConstraintDeclaration(
-                ParameterName: paramName,
+            return new GenericConstraintDeclaration(ParameterName: paramName,
                 ConstraintType: ConstraintKind.Obeys,
                 ConstraintTypes: constraintTypes,
                 Location: location);
@@ -822,11 +872,9 @@ public partial class Parser
                 equalityTypes.Add(item: ParseType());
             } while (CheckAndAdvance(type: TokenType.Comma));
 
-            Consume(type: TokenType.RightBracket,
-                errorMessage: "Expected ']' after type list");
+            Consume(type: TokenType.RightBracket, errorMessage: "Expected ']' after type list");
 
-            return new GenericConstraintDeclaration(
-                ParameterName: paramName,
+            return new GenericConstraintDeclaration(ParameterName: paramName,
                 ConstraintType: ConstraintKind.TypeEquality,
                 ConstraintTypes: equalityTypes,
                 Location: location);
@@ -838,13 +886,11 @@ public partial class Parser
             // obeys the protocol IFF every member (allmemvarof/branchof/caseof, per kind) obeys it.
             // There is no explicit subject; the identifier just consumed as `paramName` is
             // actually the protocol name, and the subject is implicitly `Me`.
-            return new GenericConstraintDeclaration(
-                ParameterName: "Me",
+            return new GenericConstraintDeclaration(ParameterName: "Me",
                 ConstraintType: ConstraintKind.Everywhere,
                 ConstraintTypes:
                 [
-                    new TypeExpression(Name: paramName, GenericArguments: null,
-                        Location: location)
+                    new TypeExpression(Name: paramName, GenericArguments: null, Location: location)
                 ],
                 Location: location);
         }
@@ -869,14 +915,15 @@ public partial class Parser
             // (the old bug) dropped the next constraint, e.g. the `U obeys B` in
             // `needs T obeys A, U obeys B`, on routines and types alike.
             int peek = 1;
-            while (PeekToken(offset: peek).Type == TokenType.Newline)
+            while (PeekToken(offset: peek)
+                      .Type == TokenType.Newline)
             {
                 peek++;
             }
 
-            if (PeekToken(offset: peek).Type == TokenType.Identifier &&
-                PeekToken(offset: peek + 1).Type is TokenType.Obeys or TokenType.Is
-                    or TokenType.In)
+            if (PeekToken(offset: peek)
+                   .Type == TokenType.Identifier && PeekToken(offset: peek + 1)
+                   .Type is TokenType.Obeys or TokenType.Is or TokenType.In)
             {
                 break;
             }
@@ -886,6 +933,7 @@ public partial class Parser
             {
                 // Skip newlines between comma-separated constraint types.
             }
+
             constraintTypes.Add(item: ParseType());
         }
 
@@ -904,7 +952,9 @@ public partial class Parser
     private List<AssociatedTypeDeclaration>? ParseRelatesClauses(
         List<AssociatedTypeDeclaration>? existing = null)
     {
-        List<AssociatedTypeDeclaration> related = existing != null ? [..existing] : [];
+        List<AssociatedTypeDeclaration> related = existing != null
+            ? [.. existing]
+            : [];
 
         // Each clause may be preceded by doc comments and blank lines (a slot is often
         // documented just like a member). Only commit to consuming that trivia once a
@@ -913,12 +963,14 @@ public partial class Parser
         while (true)
         {
             int offset = 0;
-            while (PeekToken(offset: offset).Type is TokenType.Newline or TokenType.DocComment)
+            while (PeekToken(offset: offset)
+                      .Type is TokenType.Newline or TokenType.DocComment)
             {
                 offset++;
             }
 
-            if (PeekToken(offset: offset).Type != TokenType.Relates)
+            if (PeekToken(offset: offset)
+                   .Type != TokenType.Relates)
             {
                 break;
             }
@@ -927,6 +979,7 @@ public partial class Parser
             {
                 // Skip newlines and doc-comments between relates clauses.
             }
+
             CheckAndAdvance(type: TokenType.Relates);
 
             SourceLocation location = GetLocation();
@@ -939,8 +992,7 @@ public partial class Parser
             {
                 // Constrained slot declaration: `relates Iter obeys Iterator[T]`.
                 TypeExpression constraint = ParseType();
-                related.Add(item: new AssociatedTypeDeclaration(
-                    Name: first.Name,
+                related.Add(item: new AssociatedTypeDeclaration(Name: first.Name,
                     Constraint: constraint,
                     Binding: null,
                     Location: location));
@@ -950,8 +1002,7 @@ public partial class Parser
                 // Implementer binding: `relates ListEmitter[T] as Iter`.
                 string slotName = ConsumeIdentifier(
                     errorMessage: "Expected associated-type name after 'as' in 'relates' clause");
-                related.Add(item: new AssociatedTypeDeclaration(
-                    Name: slotName,
+                related.Add(item: new AssociatedTypeDeclaration(Name: slotName,
                     Constraint: null,
                     Binding: first,
                     Location: location));
@@ -960,16 +1011,15 @@ public partial class Parser
             {
                 // Bare slot declaration: `relates Key` — an associated type with no
                 // constraint and no binding (the implementer supplies it via `relates ... as`).
-                related.Add(item: new AssociatedTypeDeclaration(
-                    Name: first.Name,
+                related.Add(item: new AssociatedTypeDeclaration(Name: first.Name,
                     Constraint: null,
                     Binding: null,
                     Location: location));
             }
         }
 
-        return related.Count > 0 ? related : null;
+        return related.Count > 0
+            ? related
+            : null;
     }
-
-
 }

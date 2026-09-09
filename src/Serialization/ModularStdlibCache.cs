@@ -33,7 +33,8 @@ public static class ModularStdlibCache
     public const string Builtin = "«builtin»";
 
     /// <summary>Pseudo-module label for body entries whose routine key cannot be attributed to any known module.</summary>
-    public const string Misc = "«misc»"; // body entries whose routine key resolves to no known module
+    public const string
+        Misc = "«misc»"; // body entries whose routine key resolves to no known module
 
     private const string IndexFile = "index.pbrf";
 
@@ -44,17 +45,37 @@ public static class ModularStdlibCache
         switch (o)
         {
             case TypeInfo t:
-                if (t.TypeArguments is { Count: > 0 }) return Inst;
+                if (t.TypeArguments is { Count: > 0 })
+                {
+                    return Inst;
+                }
+
                 if (t is RoutineTypeInfo or TupleTypeInfo or GenericParameterTypeInfo
-                    or ProtocolSelfTypeInfo or ConstGenericValueTypeInfo or ComptimeConstGenericTypeInfo
-                    or AssociatedProjectionTypeInfo) return Builtin;
-                return string.IsNullOrEmpty(t.Module) ? Builtin : t.Module!;
+                    or ProtocolSelfTypeInfo or ConstGenericValueTypeInfo
+                    or ComptimeConstGenericTypeInfo or AssociatedProjectionTypeInfo)
+                {
+                    return Builtin;
+                }
+
+                return string.IsNullOrEmpty(value: t.Module)
+                    ? Builtin
+                    : t.Module!;
             case RoutineInfo r:
-                if (r.TypeArguments is { Count: > 0 }) return Inst;
+                if (r.TypeArguments is { Count: > 0 })
+                {
+                    return Inst;
+                }
+
                 TypeInfo? owner = r.OwnerType;
-                if (owner is { TypeArguments: { Count: > 0 } }) return Inst;
+                if (owner is { TypeArguments: { Count: > 0 } })
+                {
+                    return Inst;
+                }
+
                 string? m = owner?.Module ?? r.Module;
-                return string.IsNullOrEmpty(m) ? Builtin : m!;
+                return string.IsNullOrEmpty(value: m)
+                    ? Builtin
+                    : m!;
             case VariableInfo:
                 return Builtin;
             default:
@@ -62,7 +83,10 @@ public static class ModularStdlibCache
         }
     }
 
-    private static bool IsSymbol(object o) => o is TypeInfo or RoutineInfo or VariableInfo;
+    private static bool IsSymbol(object o)
+    {
+        return o is TypeInfo or RoutineInfo or VariableInfo;
+    }
 
     // ---- per-module container (a slice of every sliceable CompiledStdlibState/Snapshot dict) ---------
 
@@ -97,7 +121,11 @@ public static class ModularStdlibCache
         public Dictionary<string, RoutineInfo> RoutinesByQualifiedName { get; set; } = new();
 
         /// <summary>Routines grouped by owner type name, then by routine name, as a list of overloads.</summary>
-        public Dictionary<string, Dictionary<string, List<RoutineInfo>>> RoutinesByOwner { get; set; } = new();
+        public Dictionary<string, Dictionary<string, List<RoutineInfo>>> RoutinesByOwner
+        {
+            get;
+            set;
+        } = new();
 
         /// <summary>Routine resolution table (short/alias key → RoutineInfo) for this module.</summary>
         public Dictionary<string, RoutineInfo> RoutineResolutions { get; set; } = new();
@@ -118,7 +146,8 @@ public static class ModularStdlibCache
         public Dictionary<string, Statement> VariantBodies { get; set; } = new();
 
         /// <summary>Monomorphized generic routine bodies attributed to the inst pseudo-module.</summary>
-        public Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies { get; set; } = new();
+        public Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies { get; set; } =
+            new();
 
         /// <summary>Regular routine bodies attributed to this module.</summary>
         public Dictionary<string, Statement> RoutineBodies { get; set; } = new();
@@ -190,7 +219,12 @@ public static class ModularStdlibCache
         // Sanitize the label into a filename ('/' in IO/File, '«»' sentinels).
         var sb = new System.Text.StringBuilder();
         foreach (char c in moduleLabel)
-            sb.Append(char.IsLetterOrDigit(c) || c is '.' or '-' or '_' ? c : '_');
+        {
+            sb.Append(value: char.IsLetterOrDigit(c: c) || c is '.' or '-' or '_'
+                ? c
+                : '_');
+        }
+
         return sb.ToString() + ".pbrf";
     }
 
@@ -198,44 +232,65 @@ public static class ModularStdlibCache
 
     /// <summary>Partition <paramref name="state"/> into per-module artifacts written under
     /// <paramref name="dir"/> (created if missing). Returns the module labels written.</summary>
-    public static IReadOnlyList<string> Serialize(SemanticVerifier.CompiledStdlibState state, string dir)
+    public static IReadOnlyList<string> Serialize(SemanticVerifier.CompiledStdlibState state,
+        string dir)
     {
         Directory.CreateDirectory(path: dir);
         TypeRegistry.StdlibSnapshot reg = state.Registry;
 
         // 1. Collect every symbol reachable in the graph, bucketed by owning module (guarantees every extern
         //    has a shell), and build a routine-key → module map for attributing body-dict entries.
-        var symbolsByModule = new Dictionary<string, List<object>>(StringComparer.Ordinal);
-        var keyToModule = new Dictionary<string, string>(StringComparer.Ordinal);
+        var symbolsByModule =
+            new Dictionary<string, List<object>>(comparer: StringComparer.Ordinal);
+        var keyToModule = new Dictionary<string, string>(comparer: StringComparer.Ordinal);
         // Each collected symbol gets a globally-unique id → extern identity == object identity (no reliance
         // on name uniqueness; two distinct symbols with the same FullName never collide).
-        var ids = new Dictionary<object, long>(ReferenceEqualityComparer.Instance);
-        CollectSymbols(state, symbolsByModule, keyToModule, ids);
+        var ids = new Dictionary<object, long>(comparer: ReferenceEqualityComparer.Instance);
+        CollectSymbols(state: state,
+            symbolsByModule: symbolsByModule,
+            keyToModule: keyToModule,
+            ids: ids);
 
         // 2. Slice every dict per module.
-        var slices = new Dictionary<string, ModuleSlice>(StringComparer.Ordinal);
-        SliceAllDictionaries(state, reg, keyToModule, slices);
+        var slices = new Dictionary<string, ModuleSlice>(comparer: StringComparer.Ordinal);
+        SliceAllDictionaries(state: state,
+            reg: reg,
+            keyToModule: keyToModule,
+            slices: slices);
 
         // 3. Every module label that has symbols OR a slice becomes an artifact.
-        var labels = new HashSet<string>(symbolsByModule.Keys, StringComparer.Ordinal);
-        labels.UnionWith(slices.Keys);
+        var labels = new HashSet<string>(collection: symbolsByModule.Keys,
+            comparer: StringComparer.Ordinal);
+        labels.UnionWith(other: slices.Keys);
 
-        PbrfSerializer.SymbolIdentity idOf = o =>
-            IsSymbol(o) ? (ModuleOf(o), ids[o].ToString()) : ((string, string)?)null;
+        PbrfSerializer.SymbolIdentity idOf = o => IsSymbol(o: o)
+            ? (ModuleOf(o: o), ids[key: o]
+               .ToString())
+            : ((string, string)?)null;
 
-        WriteArtifacts(dir, labels, symbolsByModule, slices, idOf);
+        WriteArtifacts(dir: dir,
+            labels: labels,
+            symbolsByModule: symbolsByModule,
+            slices: slices,
+            idOf: idOf);
 
         // 4. Index.
         var index = new Index
         {
             Language = reg.Language,
-            LoadedModules = new HashSet<string>(reg.LoadedModules, StringComparer.OrdinalIgnoreCase),
-            ModuleNames = new Dictionary<string, string>(reg.ModuleNames, StringComparer.OrdinalIgnoreCase),
+            LoadedModules =
+                new HashSet<string>(collection: reg.LoadedModules,
+                    comparer: StringComparer.OrdinalIgnoreCase),
+            ModuleNames =
+                new Dictionary<string, string>(dictionary: reg.ModuleNames,
+                    comparer: StringComparer.OrdinalIgnoreCase),
             StdlibRootPath = reg.StdlibRootPath,
-            Modules = labels.ToList(),
+            Modules = labels.ToList()
         };
-        using (var fs = File.Create(Path.Combine(dir, IndexFile)))
+        using (FileStream fs = File.Create(path: Path.Combine(path1: dir, path2: IndexFile)))
+        {
             PbrfSerializer.Serialize(stream: fs, root: index);
+        }
 
         return index.Modules;
     }
@@ -248,12 +303,16 @@ public static class ModularStdlibCache
     {
         ModuleSlice Slice(string m)
         {
-            if (!slices.TryGetValue(m, out var s)) slices[m] = s = new ModuleSlice();
+            if (!slices.TryGetValue(key: m, value: out ModuleSlice? s))
+            {
+                slices[key: m] = s = new ModuleSlice();
+            }
+
             return s;
         }
 
-        SliceRegistryDictionaries(reg, Slice);
-        SliceBodyDictionaries(state, keyToModule, Slice);
+        SliceRegistryDictionaries(reg: reg, getSlice: Slice);
+        SliceBodyDictionaries(state: state, keyToModule: keyToModule, getSlice: Slice);
     }
 
     /// <summary>Slices the type-registry symbol dictionaries from <paramref name="reg"/> into per-module slices
@@ -261,27 +320,89 @@ public static class ModularStdlibCache
     private static void SliceRegistryDictionaries(TypeRegistry.StdlibSnapshot reg,
         Func<string, ModuleSlice> getSlice)
     {
-        foreach (var kv in reg.Types) getSlice(ModuleOf(kv.Value)).Types[kv.Key] = kv.Value;
-        foreach (var kv in reg.Resolutions) getSlice(ModuleOf(kv.Value)).Resolutions[kv.Key] = kv.Value;
-        foreach (var kv in reg.WrapperResolutions) getSlice(ModuleOf(kv.Value)).WrapperResolutions[kv.Key] = kv.Value;
-        foreach (var kv in reg.EntitySpecializations) getSlice(ModuleOf(kv.Value)).EntitySpecializations[kv.Key] = kv.Value;
-        foreach (var kv in reg.TypesByShortName) getSlice(ModuleOf(kv.Value)).TypesByShortName[kv.Key] = kv.Value;
-        foreach (var kv in reg.Routines) getSlice(ModuleOf(kv.Value)).Routines[kv.Key] = kv.Value;
-        foreach (var kv in reg.RoutinesByQualifiedName) getSlice(ModuleOf(kv.Value)).RoutinesByQualifiedName[kv.Key] = kv.Value;
-        foreach (var kv in reg.RoutineResolutions) getSlice(ModuleOf(kv.Value)).RoutineResolutions[kv.Key] = kv.Value;
-        foreach (var kv in reg.Presets) getSlice(Builtin).Presets[kv.Key] = kv.Value;
-        foreach (var kv in reg.PresetsByQualifiedName) getSlice(Builtin).PresetsByQualifiedName[kv.Key] = kv.Value;
-        foreach (var kv in reg.RoutinesByOwner)
+        foreach (KeyValuePair<string, TypeInfo> kv in reg.Types)
         {
-            string m = kv.Value.Values.SelectMany(l => l).Select(ModuleOf).FirstOrDefault() ?? Misc;
-            getSlice(m).RoutinesByOwner[kv.Key] = kv.Value;
+            getSlice(arg: ModuleOf(o: kv.Value))
+               .Types[key: kv.Key] = kv.Value;
         }
-        foreach (var kv in reg.DeferredVariantBases)
-            getSlice(ModuleOf(kv.Value.baseRoutine)).DeferredVariantBases[kv.Key] =
-                new DeferredEntry
-                {
-                    BaseRoutine = kv.Value.baseRoutine, Body = kv.Value.body, Pessimistic = kv.Value.pessimistic
-                };
+
+        foreach (KeyValuePair<string, TypeInfo> kv in reg.Resolutions)
+        {
+            getSlice(arg: ModuleOf(o: kv.Value))
+               .Resolutions[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, WrapperTypeInfo> kv in reg.WrapperResolutions)
+        {
+            getSlice(arg: ModuleOf(o: kv.Value))
+               .WrapperResolutions[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, TypeInfo> kv in reg.EntitySpecializations)
+        {
+            getSlice(arg: ModuleOf(o: kv.Value))
+               .EntitySpecializations[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, TypeInfo> kv in reg.TypesByShortName)
+        {
+            getSlice(arg: ModuleOf(o: kv.Value))
+               .TypesByShortName[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, RoutineInfo> kv in reg.Routines)
+        {
+            getSlice(arg: ModuleOf(o: kv.Value))
+               .Routines[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, RoutineInfo> kv in reg.RoutinesByQualifiedName)
+        {
+            getSlice(arg: ModuleOf(o: kv.Value))
+               .RoutinesByQualifiedName[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, RoutineInfo> kv in reg.RoutineResolutions)
+        {
+            getSlice(arg: ModuleOf(o: kv.Value))
+               .RoutineResolutions[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, VariableInfo> kv in reg.Presets)
+        {
+            getSlice(arg: Builtin)
+               .Presets[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, VariableInfo> kv in reg.PresetsByQualifiedName)
+        {
+            getSlice(arg: Builtin)
+               .PresetsByQualifiedName[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, Dictionary<string, List<RoutineInfo>>> kv in reg
+                    .RoutinesByOwner)
+        {
+            string m = kv.Value
+                         .Values
+                         .SelectMany(selector: l => l)
+                         .Select(selector: ModuleOf)
+                         .FirstOrDefault() ?? Misc;
+            getSlice(arg: m)
+               .RoutinesByOwner[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, (RoutineInfo baseRoutine, Statement body, bool pessimistic)>
+                     kv in reg.DeferredVariantBases)
+        {
+            getSlice(arg: ModuleOf(o: kv.Value.baseRoutine))
+               .DeferredVariantBases[key: kv.Key] = new DeferredEntry
+            {
+                BaseRoutine = kv.Value.baseRoutine,
+                Body = kv.Value.body,
+                Pessimistic = kv.Value.pessimistic
+            };
+        }
     }
 
     /// <summary>Slices the body dictionaries from <paramref name="state"/> into per-module slices
@@ -289,18 +410,43 @@ public static class ModularStdlibCache
     private static void SliceBodyDictionaries(SemanticVerifier.CompiledStdlibState state,
         Dictionary<string, string> keyToModule, Func<string, ModuleSlice> getSlice)
     {
-        foreach (var e in state.StdlibPrograms)
-            getSlice(string.IsNullOrEmpty(e.Module) ? Misc : e.Module)
-                .StdlibPrograms.Add(new ProgramEntry { Program = e.Program, FilePath = e.FilePath, Module = e.Module });
-        foreach (var kv in state.SynthesizedBodies)
-            getSlice(ModuleOf(kv.Value.Routine)).SynthesizedBodies[kv.Key] =
+        foreach ((Program Program, string FilePath, string Module) e in state.StdlibPrograms)
+        {
+            getSlice(arg: string.IsNullOrEmpty(value: e.Module)
+                    ? Misc
+                    : e.Module)
+               .StdlibPrograms
+               .Add(item: new ProgramEntry
+                {
+                    Program = e.Program, FilePath = e.FilePath, Module = e.Module
+                });
+        }
+
+        foreach (KeyValuePair<string, (RoutineInfo Routine, Statement Body)> kv in state
+                    .SynthesizedBodies)
+        {
+            getSlice(arg: ModuleOf(o: kv.Value.Routine))
+                   .SynthesizedBodies[key: kv.Key] =
                 new SynthEntry { Routine = kv.Value.Routine, Body = kv.Value.Body };
-        foreach (var kv in state.VariantBodies)
-            getSlice(keyToModule.GetValueOrDefault(kv.Key, Misc)).VariantBodies[kv.Key] = kv.Value;
-        foreach (var kv in state.RoutineBodies)
-            getSlice(keyToModule.GetValueOrDefault(kv.Key, Misc)).RoutineBodies[kv.Key] = kv.Value;
-        foreach (var kv in state.InstantiatedGenericBodies)
-            getSlice(Inst).InstantiatedGenericBodies[kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, Statement> kv in state.VariantBodies)
+        {
+            getSlice(arg: keyToModule.GetValueOrDefault(key: kv.Key, defaultValue: Misc))
+               .VariantBodies[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, Statement> kv in state.RoutineBodies)
+        {
+            getSlice(arg: keyToModule.GetValueOrDefault(key: kv.Key, defaultValue: Misc))
+               .RoutineBodies[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, MonomorphizedBody> kv in state.InstantiatedGenericBodies)
+        {
+            getSlice(arg: Inst)
+               .InstantiatedGenericBodies[key: kv.Key] = kv.Value;
+        }
     }
 
     /// <summary>Writes one <c>.pbrf</c> artifact per module label under <paramref name="dir"/>: each holds the
@@ -311,12 +457,16 @@ public static class ModularStdlibCache
     {
         foreach (string label in labels)
         {
-            var owned = symbolsByModule.GetValueOrDefault(label) ?? new List<object>();
-            ModuleSlice slice = slices.GetValueOrDefault(label) ?? new ModuleSlice();
-            string path = Path.Combine(dir, ArtifactFileName(label));
-            using var fs = File.Create(path);
-            using var buf = new BufferedStream(fs, 1 << 20);
-            PbrfSerializer.SerializeModule(stream: buf, ownedSymbols: owned, idOf: idOf, container: slice);
+            List<object> owned =
+                symbolsByModule.GetValueOrDefault(key: label) ?? new List<object>();
+            ModuleSlice slice = slices.GetValueOrDefault(key: label) ?? new ModuleSlice();
+            string path = Path.Combine(path1: dir, path2: ArtifactFileName(moduleLabel: label));
+            using FileStream fs = File.Create(path: path);
+            using var buf = new BufferedStream(stream: fs, bufferSize: 1 << 20);
+            PbrfSerializer.SerializeModule(stream: buf,
+                ownedSymbols: owned,
+                idOf: idOf,
+                container: slice);
         }
     }
 
@@ -327,43 +477,55 @@ public static class ModularStdlibCache
     public static SemanticVerifier.CompiledStdlibState Deserialize(string dir)
     {
         Index index;
-        using (var fs = File.OpenRead(Path.Combine(dir, IndexFile)))
-            index = PbrfSerializer.Deserialize<Index>(fs);
+        using (FileStream fs = File.OpenRead(path: Path.Combine(path1: dir, path2: IndexFile)))
+        {
+            index = PbrfSerializer.Deserialize<Index>(stream: fs);
+        }
 
         // Read every artifact into memory (needed for the two passes).
-        var bytes = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var bytes = new Dictionary<string, byte[]>(comparer: StringComparer.Ordinal);
         foreach (string label in index.Modules)
-            bytes[label] = File.ReadAllBytes(Path.Combine(dir, ArtifactFileName(label)));
+        {
+            bytes[key: label] = File.ReadAllBytes(path: Path.Combine(path1: dir,
+                path2: ArtifactFileName(moduleLabel: label)));
+        }
 
         // Phase A: create a shell per exported symbol across ALL artifacts, keyed (module,key).
         var shells = new Dictionary<(string, string), object>();
-        var moduleShells = new Dictionary<string, List<object>>(StringComparer.Ordinal);
+        var moduleShells = new Dictionary<string, List<object>>(comparer: StringComparer.Ordinal);
         foreach (string label in index.Modules)
         {
             var list = new List<object>();
-            using var ms = new MemoryStream(bytes[label], writable: false);
-            foreach (var (key, type) in PbrfSerializer.ReadModuleManifest(ms))
+            using var ms = new MemoryStream(buffer: bytes[key: label], writable: false);
+            foreach ((string key, Type type) in PbrfSerializer.ReadModuleManifest(stream: ms))
             {
-                object shell = RuntimeHelpers.GetUninitializedObject(type);
-                shells[(label, key)] = shell;
-                list.Add(shell);
+                object shell = RuntimeHelpers.GetUninitializedObject(type: type);
+                shells[key: (label, key)] = shell;
+                list.Add(item: shell);
             }
-            moduleShells[label] = list;
+
+            moduleShells[key: label] = list;
         }
 
         PbrfSerializer.ExternResolver resolver = (mod, key) =>
         {
-            if (shells.TryGetValue((mod, key), out var s)) return s;
-            throw new InvalidDataException($"unresolved extern {mod}!{key}");
+            if (shells.TryGetValue(key: (mod, key), value: out object? s))
+            {
+                return s;
+            }
+
+            throw new InvalidDataException(message: $"unresolved extern {mod}!{key}");
         };
 
         // Phase B: fill shells + read each module's container slice, then union all slices.
         var merged = new ModuleSlice();
         foreach (string label in index.Modules)
         {
-            using var ms = new MemoryStream(bytes[label], writable: false);
-            var slice = (ModuleSlice)PbrfSerializer.FillModuleGraph(ms, moduleShells[label], resolver)!;
-            MergeInto(merged, slice);
+            using var ms = new MemoryStream(buffer: bytes[key: label], writable: false);
+            var slice = (ModuleSlice)PbrfSerializer.FillModuleGraph(stream: ms,
+                shells: moduleShells[key: label],
+                externResolver: resolver)!;
+            MergeInto(dst: merged, src: slice);
         }
 
         var snapshot = new TypeRegistry.StdlibSnapshot
@@ -383,8 +545,10 @@ public static class ModularStdlibCache
             LoadedModules = index.LoadedModules,
             ModuleNames = index.ModuleNames,
             StdlibRootPath = index.StdlibRootPath,
-            DeferredVariantBases = merged.DeferredVariantBases
-                .ToDictionary(kv => kv.Key, kv => (kv.Value.BaseRoutine, kv.Value.Body, kv.Value.Pessimistic)),
+            DeferredVariantBases = merged.DeferredVariantBases.ToDictionary(
+                keySelector: kv => kv.Key,
+                elementSelector: kv =>
+                    (kv.Value.BaseRoutine, kv.Value.Body, kv.Value.Pessimistic))
         };
 
         return new SemanticVerifier.CompiledStdlibState
@@ -392,52 +556,116 @@ public static class ModularStdlibCache
             Language = index.Language,
             Registry = snapshot,
             StdlibPrograms = merged.StdlibPrograms
-                .Select(e => (e.Program, e.FilePath, e.Module)).ToList(),
-            SynthesizedBodies = merged.SynthesizedBodies
-                .ToDictionary(kv => kv.Key, kv => (kv.Value.Routine, kv.Value.Body)),
+                                   .Select(selector: e => (e.Program, e.FilePath, e.Module))
+                                   .ToList(),
+            SynthesizedBodies =
+                merged.SynthesizedBodies.ToDictionary(keySelector: kv => kv.Key,
+                    elementSelector: kv => (kv.Value.Routine, kv.Value.Body)),
             VariantBodies = merged.VariantBodies,
             InstantiatedGenericBodies = merged.InstantiatedGenericBodies,
-            RoutineBodies = merged.RoutineBodies,
+            RoutineBodies = merged.RoutineBodies
         };
     }
 
     private static void MergeInto(ModuleSlice dst, ModuleSlice src)
     {
-        MergeTypeDictionaries(dst, src);
-        MergeRoutineDictionaries(dst, src);
-        MergeBodyDictionaries(dst, src);
+        MergeTypeDictionaries(dst: dst, src: src);
+        MergeRoutineDictionaries(dst: dst, src: src);
+        MergeBodyDictionaries(dst: dst, src: src);
     }
 
     /// <summary>Merges type-related dictionary slices from <paramref name="src"/> into <paramref name="dst"/>.</summary>
     private static void MergeTypeDictionaries(ModuleSlice dst, ModuleSlice src)
     {
-        foreach (var kv in src.Types) dst.Types[kv.Key] = kv.Value;
-        foreach (var kv in src.Resolutions) dst.Resolutions[kv.Key] = kv.Value;
-        foreach (var kv in src.WrapperResolutions) dst.WrapperResolutions[kv.Key] = kv.Value;
-        foreach (var kv in src.EntitySpecializations) dst.EntitySpecializations[kv.Key] = kv.Value;
-        foreach (var kv in src.TypesByShortName) dst.TypesByShortName[kv.Key] = kv.Value;
-        foreach (var kv in src.Presets) dst.Presets[kv.Key] = kv.Value;
-        foreach (var kv in src.PresetsByQualifiedName) dst.PresetsByQualifiedName[kv.Key] = kv.Value;
+        foreach (KeyValuePair<string, TypeInfo> kv in src.Types)
+        {
+            dst.Types[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, TypeInfo> kv in src.Resolutions)
+        {
+            dst.Resolutions[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, WrapperTypeInfo> kv in src.WrapperResolutions)
+        {
+            dst.WrapperResolutions[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, TypeInfo> kv in src.EntitySpecializations)
+        {
+            dst.EntitySpecializations[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, TypeInfo> kv in src.TypesByShortName)
+        {
+            dst.TypesByShortName[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, VariableInfo> kv in src.Presets)
+        {
+            dst.Presets[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, VariableInfo> kv in src.PresetsByQualifiedName)
+        {
+            dst.PresetsByQualifiedName[key: kv.Key] = kv.Value;
+        }
     }
 
     /// <summary>Merges routine-related dictionary slices from <paramref name="src"/> into <paramref name="dst"/>.</summary>
     private static void MergeRoutineDictionaries(ModuleSlice dst, ModuleSlice src)
     {
-        foreach (var kv in src.Routines) dst.Routines[kv.Key] = kv.Value;
-        foreach (var kv in src.RoutinesByQualifiedName) dst.RoutinesByQualifiedName[kv.Key] = kv.Value;
-        foreach (var kv in src.RoutinesByOwner) dst.RoutinesByOwner[kv.Key] = kv.Value;
-        foreach (var kv in src.RoutineResolutions) dst.RoutineResolutions[kv.Key] = kv.Value;
+        foreach (KeyValuePair<string, RoutineInfo> kv in src.Routines)
+        {
+            dst.Routines[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, RoutineInfo> kv in src.RoutinesByQualifiedName)
+        {
+            dst.RoutinesByQualifiedName[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, Dictionary<string, List<RoutineInfo>>> kv in src
+                    .RoutinesByOwner)
+        {
+            dst.RoutinesByOwner[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, RoutineInfo> kv in src.RoutineResolutions)
+        {
+            dst.RoutineResolutions[key: kv.Key] = kv.Value;
+        }
     }
 
     /// <summary>Merges body and program-entry slices from <paramref name="src"/> into <paramref name="dst"/>.</summary>
     private static void MergeBodyDictionaries(ModuleSlice dst, ModuleSlice src)
     {
-        dst.StdlibPrograms.AddRange(src.StdlibPrograms);
-        foreach (var kv in src.SynthesizedBodies) dst.SynthesizedBodies[kv.Key] = kv.Value;
-        foreach (var kv in src.VariantBodies) dst.VariantBodies[kv.Key] = kv.Value;
-        foreach (var kv in src.InstantiatedGenericBodies) dst.InstantiatedGenericBodies[kv.Key] = kv.Value;
-        foreach (var kv in src.RoutineBodies) dst.RoutineBodies[kv.Key] = kv.Value;
-        foreach (var kv in src.DeferredVariantBases) dst.DeferredVariantBases[kv.Key] = kv.Value;
+        dst.StdlibPrograms.AddRange(collection: src.StdlibPrograms);
+        foreach (KeyValuePair<string, SynthEntry> kv in src.SynthesizedBodies)
+        {
+            dst.SynthesizedBodies[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, Statement> kv in src.VariantBodies)
+        {
+            dst.VariantBodies[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, MonomorphizedBody> kv in src.InstantiatedGenericBodies)
+        {
+            dst.InstantiatedGenericBodies[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, Statement> kv in src.RoutineBodies)
+        {
+            dst.RoutineBodies[key: kv.Key] = kv.Value;
+        }
+
+        foreach (KeyValuePair<string, DeferredEntry> kv in src.DeferredVariantBases)
+        {
+            dst.DeferredVariantBases[key: kv.Key] = kv.Value;
+        }
     }
 
     // ---- symbol collection (whole-graph walk) ----------------------------------------------------
@@ -447,27 +675,43 @@ public static class ModularStdlibCache
         Dictionary<object, long> ids)
     {
         // Seed routine-key → module from the routine tables (for attributing body-dict entries by key).
-        foreach (var kv in state.Registry.Routines) keyToModule[kv.Key] = ModuleOf(kv.Value);
-        foreach (var kv in state.Registry.RoutineResolutions) keyToModule.TryAdd(kv.Key, ModuleOf(kv.Value));
+        foreach (KeyValuePair<string, RoutineInfo> kv in state.Registry.Routines)
+        {
+            keyToModule[key: kv.Key] = ModuleOf(o: kv.Value);
+        }
+
+        foreach (KeyValuePair<string, RoutineInfo> kv in state.Registry.RoutineResolutions)
+        {
+            keyToModule.TryAdd(key: kv.Key, value: ModuleOf(o: kv.Value));
+        }
 
         long nextId = 0;
-        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var seen = new HashSet<object>(comparer: ReferenceEqualityComparer.Instance);
         var stack = new Stack<object>();
-        stack.Push(state);
+        stack.Push(item: state);
         while (stack.Count > 0)
         {
             object cur = stack.Pop();
-            foreach (object child in Neighbors(cur))
+            foreach (object child in Neighbors(o: cur))
             {
-                if (!seen.Add(child)) continue;
-                if (IsSymbol(child))
+                if (!seen.Add(item: child))
                 {
-                    ids[child] = nextId++;
-                    string m = ModuleOf(child);
-                    if (!symbolsByModule.TryGetValue(m, out var list)) symbolsByModule[m] = list = new();
-                    list.Add(child);
+                    continue;
                 }
-                stack.Push(child);
+
+                if (IsSymbol(o: child))
+                {
+                    ids[key: child] = nextId++;
+                    string m = ModuleOf(o: child);
+                    if (!symbolsByModule.TryGetValue(key: m, value: out List<object>? list))
+                    {
+                        symbolsByModule[key: m] = list = new List<object>();
+                    }
+
+                    list.Add(item: child);
+                }
+
+                stack.Push(item: child);
             }
         }
     }
@@ -476,11 +720,21 @@ public static class ModularStdlibCache
 
     private static FieldInfo[] Fields(Type t)
     {
-        if (_fields.TryGetValue(t, out var c)) return c;
+        if (_fields.TryGetValue(key: t, value: out FieldInfo[]? c))
+        {
+            return c;
+        }
+
         var list = new List<FieldInfo>();
         for (Type? x = t; x != null && x != typeof(object); x = x.BaseType)
-            list.AddRange(x.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
-        return _fields[t] = list.ToArray();
+        {
+            list.AddRange(collection: x.GetFields(bindingAttr: BindingFlags.Instance |
+                                                               BindingFlags.Public |
+                                                               BindingFlags.NonPublic |
+                                                               BindingFlags.DeclaredOnly));
+        }
+
+        return _fields[key: t] = list.ToArray();
     }
 
     private static bool IsInline(object v)
@@ -492,12 +746,18 @@ public static class ModularStdlibCache
     private static IEnumerable<object> Neighbors(object o)
     {
         Type t = o.GetType();
-        if (IsInline(o)) yield break;
+        if (IsInline(v: o))
+        {
+            yield break;
+        }
 
         if (o is IDictionary dict)
         {
-            foreach (object neighbor in NeighborsDictionary(dict))
+            foreach (object neighbor in NeighborsDictionary(dict: dict))
+            {
                 yield return neighbor;
+            }
+
             yield break;
         }
 
@@ -505,15 +765,22 @@ public static class ModularStdlibCache
         {
             foreach (object? e in seq)
             {
-                if (e != null && !IsInline(e)) yield return e;
+                if (e != null && !IsInline(v: e))
+                {
+                    yield return e;
+                }
             }
+
             yield break;
         }
 
-        foreach (FieldInfo f in Fields(t))
+        foreach (FieldInfo f in Fields(t: t))
         {
-            object? v = f.GetValue(o);
-            if (v != null && !IsInline(v)) yield return v;
+            object? v = f.GetValue(obj: o);
+            if (v != null && !IsInline(v: v))
+            {
+                yield return v;
+            }
         }
     }
 
@@ -522,8 +789,15 @@ public static class ModularStdlibCache
     {
         foreach (DictionaryEntry e in dict)
         {
-            if (e.Key != null && !IsInline(e.Key)) yield return e.Key;
-            if (e.Value != null && !IsInline(e.Value)) yield return e.Value;
+            if (e.Key != null && !IsInline(v: e.Key))
+            {
+                yield return e.Key;
+            }
+
+            if (e.Value != null && !IsInline(v: e.Value))
+            {
+                yield return e.Value;
+            }
         }
     }
 }

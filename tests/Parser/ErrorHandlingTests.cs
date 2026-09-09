@@ -10,10 +10,10 @@ using static TestHelpers;
 public class ErrorHandlingTests
 {
     #region Failable Routine Declaration
+
     /// <summary>
     /// Verifies that the parser accepts failable routine with bang.
     /// </summary>
-
     [Fact]
     public void Parse_FailableRoutine_WithBang()
     {
@@ -31,7 +31,6 @@ public class ErrorHandlingTests
     /// <summary>
     /// Verifies that the parser accepts failable routine with parameter.
     /// </summary>
-
     [Fact]
     public void Parse_FailableRoutine_WithParameter()
     {
@@ -49,7 +48,6 @@ public class ErrorHandlingTests
     /// <summary>
     /// Verifies that the parser accepts failable memberRoutine with bang.
     /// </summary>
-
     [Fact]
     public void Parse_FailableMemberRoutine_WithBang()
     {
@@ -72,7 +70,6 @@ public class ErrorHandlingTests
     /// <summary>
     /// Verifies that the parser accepts non failable routine.
     /// </summary>
-
     [Fact]
     public void Parse_NonFailableRoutine()
     {
@@ -90,10 +87,10 @@ public class ErrorHandlingTests
     #endregion
 
     #region Throw Statement
+
     /// <summary>
     /// Verifies that the parser accepts throw statement simple.
     /// </summary>
-
     [Fact]
     public void Parse_ThrowStatement_Simple()
     {
@@ -123,7 +120,6 @@ public class ErrorHandlingTests
     /// <summary>
     /// Verifies that the parser accepts throw statement with expression.
     /// </summary>
-
     [Fact]
     public void Parse_ThrowStatement_WithExpression()
     {
@@ -147,10 +143,10 @@ public class ErrorHandlingTests
     #endregion
 
     #region Absent Statement
+
     /// <summary>
     /// Verifies that the parser accepts absent statement.
     /// </summary>
-
     [Fact]
     public void Parse_AbsentStatement()
     {
@@ -179,7 +175,6 @@ public class ErrorHandlingTests
     /// <summary>
     /// Verifies that the parser accepts absent statement in unless.
     /// </summary>
-
     [Fact]
     public void Parse_AbsentStatement_InUnless()
     {
@@ -211,10 +206,10 @@ public class ErrorHandlingTests
     #endregion
 
     #region Combined Throw and Absent
+
     /// <summary>
     /// Verifies that the parser accepts routine with both throw and absent.
     /// </summary>
-
     [Fact]
     public void Parse_RoutineWithBothThrowAndAbsent()
     {
@@ -254,10 +249,10 @@ public class ErrorHandlingTests
     #endregion
 
     #region Maybe Type (?)
+
     /// <summary>
     /// Verifies that the parser accepts maybe return type.
     /// </summary>
-
     [Fact]
     public void Parse_MaybeReturnType()
     {
@@ -277,7 +272,6 @@ public class ErrorHandlingTests
     /// <summary>
     /// Verifies that the parser accepts maybe parameter.
     /// </summary>
-
     [Fact]
     public void Parse_MaybeParameter()
     {
@@ -295,7 +289,6 @@ public class ErrorHandlingTests
     /// <summary>
     /// Verifies that the parser accepts maybe variable.
     /// </summary>
-
     [Fact]
     public void Parse_MaybeVariable()
     {
@@ -311,10 +304,10 @@ public class ErrorHandlingTests
     #endregion
 
     #region None Coalescing (??)
+
     /// <summary>
     /// Verifies that the parser accepts none coalescing operator.
     /// </summary>
-
     [Fact]
     public void Parse_NoneCoalescingOperator()
     {
@@ -329,7 +322,6 @@ public class ErrorHandlingTests
     /// <summary>
     /// Verifies that the parser accepts chained none coalescing.
     /// </summary>
-
     [Fact]
     public void Parse_ChainedNoneCoalescing()
     {
@@ -347,10 +339,10 @@ public class ErrorHandlingTests
     #endregion
 
     #region Pattern Matching with Error Types
+
     /// <summary>
     /// Verifies that the parser accepts when expression with maybe.
     /// </summary>
-
     [Fact]
     public void Parse_WhenExpression_WithMaybe()
     {
@@ -379,10 +371,10 @@ public class ErrorHandlingTests
     #endregion
 
     #region Error Cases
+
     /// <summary>
     /// Verifies that the parser accepts throw in non failable routine so semantic analysis can validate it.
     /// </summary>
-
     [Fact]
     public void Parse_ThrowInNonFailableRoutine_ShouldParse()
     {
@@ -400,7 +392,6 @@ public class ErrorHandlingTests
     /// <summary>
     /// Verifies that the parser accepts absent in non failable routine so semantic analysis can validate it.
     /// </summary>
-
     [Fact]
     public void Parse_AbsentInNonFailableRoutine_ShouldParse()
     {
@@ -417,7 +408,6 @@ public class ErrorHandlingTests
     /// <summary>
     /// Verifies that the parser accepts throw without expression and fails in the expected way.
     /// </summary>
-
     [Fact]
     public void Parse_ThrowWithoutExpression_Throws()
     {

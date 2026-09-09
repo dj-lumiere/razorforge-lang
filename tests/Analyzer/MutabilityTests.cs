@@ -11,10 +11,10 @@ using static TestHelpers;
 public class MutabilityTests
 {
     #region Var Mutability
+
     /// <summary>
     /// Verifies semantic analysis behavior for var reassignment without immutability errors.
     /// </summary>
-
     [Fact]
     public void Analyze_VarReassignment_NoImmutableError()
     {
@@ -37,7 +37,6 @@ public class MutabilityTests
     /// <summary>
     /// Verifies semantic analysis behavior for var compound assignment without immutability errors.
     /// </summary>
-
     [Fact]
     public void Analyze_VarCompoundAssignment_NoImmutableError()
     {
@@ -56,7 +55,6 @@ public class MutabilityTests
     /// <summary>
     /// Verifies semantic analysis behavior for var reassignment without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_VarReassignment_NoError()
     {
@@ -75,10 +73,10 @@ public class MutabilityTests
     #endregion
 
     #region Entity Field Mutability
+
     /// <summary>
     /// Verifies semantic analysis behavior for var member variable mutation without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_VarMemberVariableMutation_NoError()
     {
@@ -97,7 +95,6 @@ public class MutabilityTests
     /// <summary>
     /// Verifies semantic analysis behavior for writable member variable mutation without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WritableMemberVariableMutation_NoError()
     {
@@ -118,10 +115,10 @@ public class MutabilityTests
     #endregion
 
     #region Readonly vs Writable memberRoutines
+
     /// <summary>
     /// Verifies semantic analysis behavior for readonly memberRoutine mutating and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ReadonlyMemberRoutineMutating_ReportsError()
     {
@@ -141,7 +138,6 @@ public class MutabilityTests
     /// <summary>
     /// Verifies semantic analysis behavior for readonly memberRoutine reading without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ReadonlyMemberRoutineReading_NoError()
     {
@@ -160,7 +156,6 @@ public class MutabilityTests
     /// <summary>
     /// Verifies semantic analysis behavior for writable memberRoutine mutating without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WritableMemberRoutineMutating_NoError()
     {
@@ -180,10 +175,10 @@ public class MutabilityTests
     #endregion
 
     #region Record Field Mutability
+
     /// <summary>
     /// Verifies semantic analysis behavior for record member variables immutable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_RecordMemberVariablesImmutable_NoError()
     {
@@ -205,11 +200,11 @@ public class MutabilityTests
     #endregion
 
     #region Parameter Mutability
+
     /// <summary>
     /// Parameters are mutable locals — reassigning a value-typed parameter is permitted (the
     /// caller's argument is unaffected since value types are passed by value).
     /// </summary>
-
     [Fact]
     public void Analyze_ParameterReassignment_Allowed()
     {
@@ -226,10 +221,10 @@ public class MutabilityTests
     #endregion
 
     #region Index Mutability
+
     /// <summary>
     /// Verifies semantic analysis behavior for index assignment on var without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_IndexAssignmentOnVar_NoError()
     {
@@ -247,10 +242,10 @@ public class MutabilityTests
     #endregion
 
     #region Hijacking Restrictions
+
     /// <summary>
     /// Verifies semantic analysis behavior for nested hijacking and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_NestedHijacking_ReportsError()
     {
@@ -284,10 +279,10 @@ public class MutabilityTests
     #endregion
 
     #region Entity Bare Assignment Prohibition
+
     /// <summary>
     /// Verifies semantic analysis behavior for entity bare assignment and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_EntityBareAssignment_ReportsError()
     {
@@ -302,12 +297,12 @@ public class MutabilityTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.Contains(result.Errors, e => e.Code == SemanticDiagnosticCode.BareEntityAssignment);
+        Assert.Contains(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.BareEntityAssignment);
     }
     /// <summary>
     /// Verifies semantic analysis behavior for entity constructor assignment without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_EntityConstructorAssignment_NoError()
     {
@@ -322,12 +317,12 @@ public class MutabilityTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.DoesNotContain(result.Errors, e => e.Code == SemanticDiagnosticCode.BareEntityAssignment);
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.BareEntityAssignment);
     }
     /// <summary>
     /// Verifies semantic analysis behavior for record bare assignment without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_RecordBareAssignment_NoError()
     {
@@ -343,16 +338,17 @@ public class MutabilityTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.DoesNotContain(result.Errors, e => e.Code == SemanticDiagnosticCode.BareEntityAssignment);
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.BareEntityAssignment);
     }
 
     #endregion
 
     #region Readonly memberRoutine Call Enforcement
+
     /// <summary>
     /// Verifies semantic analysis behavior for readonly memberRoutine calls writable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ReadonlyMemberRoutineCallsWritable_ReportsError()
     {
@@ -371,12 +367,12 @@ public class MutabilityTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.Contains(result.Errors, e => e.Code == SemanticDiagnosticCode.MutationInReadonlyMemberRoutine);
+        Assert.Contains(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.MutationInReadonlyMemberRoutine);
     }
     /// <summary>
     /// Verifies semantic analysis behavior for readonly memberRoutine calls readonly without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ReadonlyMemberRoutineCallsReadonly_NoError()
     {
@@ -394,12 +390,12 @@ public class MutabilityTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.DoesNotContain(result.Errors, e => e.Code == SemanticDiagnosticCode.MutationInReadonlyMemberRoutine);
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.MutationInReadonlyMemberRoutine);
     }
     /// <summary>
     /// Verifies semantic analysis behavior for readonly memberRoutine calls on other without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ReadonlyMemberRoutineCallsOnOther_NoError()
     {
@@ -419,9 +415,10 @@ public class MutabilityTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         // Calling a mutating memberRoutine on 'other' (not 'me') is allowed in @readonly
-        Assert.DoesNotContain(result.Errors,
-            e => e.Code == SemanticDiagnosticCode.MutationInReadonlyMemberRoutine
-                 && e.Message.Contains("increment"));
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e =>
+                e.Code == SemanticDiagnosticCode.MutationInReadonlyMemberRoutine &&
+                e.Message.Contains(value: "increment"));
     }
 
     #endregion
@@ -543,10 +540,10 @@ public class MutabilityTests
     #endregion
 
     #region Posted Member Variable Access
+
     /// <summary>
     /// Verifies semantic analysis behavior for posted member variable write same module without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_PostedMemberVariableWrite_SameModule_NoError()
     {
@@ -561,12 +558,12 @@ public class MutabilityTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.DoesNotContain(result.Errors, e => e.Code == SemanticDiagnosticCode.PostedMemberAccess);
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.PostedMemberAccess);
     }
     /// <summary>
     /// Verifies semantic analysis behavior for posted member variable read without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_PostedMemberVariableRead_NoError()
     {
@@ -581,7 +578,8 @@ public class MutabilityTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.DoesNotContain(result.Errors, e => e.Code == SemanticDiagnosticCode.PostedMemberAccess);
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.PostedMemberAccess);
     }
 
     #endregion

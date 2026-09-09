@@ -25,12 +25,15 @@ public sealed class TupleTypeInfo : RecordTypeInfo
     /// <summary>
     /// Returns <c>true</c> if <paramref name="t"/> is record-like for tuple inference purposes.
     /// </summary>
-    public static bool IsRecordLike(TypeInfo t) => t switch
+    public static bool IsRecordLike(TypeInfo t)
     {
-        TupleTypeInfo tt => tt.IsValueTuple,
-        RecordTypeInfo  => true, // includes VariantTypeInfo (a RecordTypeInfo subclass)
-        _ => false
-    };
+        return t switch
+        {
+            TupleTypeInfo tt => tt.IsValueTuple,
+            RecordTypeInfo => true, // includes VariantTypeInfo (a RecordTypeInfo subclass)
+            _ => false
+        };
+    }
 
     /// <summary>Creates a tuple type whose element types are the supplied list.</summary>
     public TupleTypeInfo(List<TypeInfo> elementTypes) : base(
@@ -61,11 +64,12 @@ public sealed class TupleTypeInfo : RecordTypeInfo
         return $"Tuple[{args}]";
     }
 
- 
+
     /// <inheritdoc/>
     public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
     {
         throw new InvalidOperationException(
+            message:
             "Tuple types cannot be further resolved. Create a new TupleTypeInfo instead.");
     }
 

@@ -27,10 +27,13 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
     private TypeInfo? _carrierReturn;
 
     private Dictionary<string, TypeInfo?>? _returnByKey;
-    private Dictionary<string, TypeInfo?> ReturnByKey => _returnByKey ??=
-        ctx.Registry.GetAllRoutines()
-            .GroupBy(r => r.RegistryKey)
-            .ToDictionary(g => g.Key, g => g.First().ReturnType);
+
+    private Dictionary<string, TypeInfo?> ReturnByKey => _returnByKey ??= ctx.Registry
+       .GetAllRoutines()
+       .GroupBy(keySelector: r => r.RegistryKey)
+       .ToDictionary(keySelector: g => g.Key,
+            elementSelector: g => g.First()
+                                   .ReturnType);
 
     private TypeInfo? _boolType;
     private TypeInfo? BoolType => _boolType ??= ctx.Registry.LookupType(name: "Bool");
@@ -39,48 +42,65 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
     private TypeInfo? U64Type => _u64Type ??= ctx.Registry.LookupType(name: "U64");
 
     /// <summary>A <c>Bool</c>-typed literal for a carrier's <c>present</c> flag.</summary>
-    private LiteralExpression BoolLiteral(bool value, SourceLocation loc) =>
-        new LiteralExpression(Value: value,
-            LiteralType: value ? TokenType.True : TokenType.False,
-            Location: loc)
-        {
-            ResolvedType = BoolType
-        };
+    private LiteralExpression BoolLiteral(bool value, SourceLocation loc)
+    {
+        return new LiteralExpression(Value: value,
+            LiteralType: value
+                ? TokenType.True
+                : TokenType.False,
+            Location: loc) { ResolvedType = BoolType };
+    }
 
     /// <summary>A <c>U64</c>-typed literal (used for a carrier's <c>type_id</c> tag).</summary>
-    private LiteralExpression U64Literal(ulong value, SourceLocation loc) =>
-        new LiteralExpression(Value: value, LiteralType: TokenType.U64Literal, Location: loc)
-        {
-            ResolvedType = U64Type
-        };
+    private LiteralExpression U64Literal(ulong value, SourceLocation loc)
+    {
+        return new LiteralExpression(Value: value,
+            LiteralType: TokenType.U64Literal,
+            Location: loc) { ResolvedType = U64Type };
+    }
 
     /// <summary>Builds `return Carrier(type_id: …, payload: …)` for a Result/Lookup carrier.
     /// A null payload is omitted so the record's memberwise builder zero-fills it (the absent state).</summary>
-    private ReturnStatement MakeCarrierReturn(RecordTypeInfo carrier, ulong typeId, Expression? payload,
-        SourceLocation loc)
+    private ReturnStatement MakeCarrierReturn(RecordTypeInfo carrier, ulong typeId,
+        Expression? payload, SourceLocation loc)
     {
-        var members = new List<(string Name, Expression Value)> { ("type_id", U64Literal(typeId, loc)) };
+        var members =
+            new List<(string Name, Expression Value)>
+            {
+                ("type_id", U64Literal(value: typeId, loc: loc))
+            };
         if (payload != null)
-            members.Add(("payload", payload));
-        return new ReturnStatement(
-            Value: new CreatorExpression(TypeName: carrier.Name, TypeArguments: null,
-                MemberVariables: members, Location: loc) { ResolvedType = carrier },
+        {
+            members.Add(item: ("payload", payload));
+        }
+
+        return new ReturnStatement(Value: new CreatorExpression(TypeName: carrier.Name,
+                TypeArguments: null,
+                MemberVariables: members,
+                Location: loc) { ResolvedType = carrier },
             Location: loc);
     }
 
     /// <summary>Lowers routine bodies in a single program (user file or stdlib file).</summary>
     public void Run(Program program)
-        => BodyDispatch.RunOnProgram(program, lower: LowerRoutineBody);
+    {
+        BodyDispatch.RunOnProgram(program: program, lower: LowerRoutineBody);
+    }
 
     /// <summary>Lowers the synthesized try_/check_/lookup_ variant bodies.</summary>
     public void RunOnVariantBodies()
     {
-        if (_variantBodies == null) return;
-        BodyDispatch.RunOnVariantBodies(_variantBodies, lower: (key, body) =>
+        if (_variantBodies == null)
         {
-            _carrierReturn = ReturnByKey.GetValueOrDefault(key: key);
-            return VisitStatement(stmt: body);
-        });
+            return;
+        }
+
+        BodyDispatch.RunOnVariantBodies(bodies: _variantBodies,
+            lower: (key, body) =>
+            {
+                _carrierReturn = ReturnByKey.GetValueOrDefault(key: key);
+                return VisitStatement(stmt: body);
+            });
     }
 
     /// <summary>
@@ -97,7 +117,11 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
     /// <c>ListEmittable[Character].try_emit</c>), which are not part of the program/variant-body tracks.</summary>
     public void RunOnMonomorphizedBodies()
     {
-        if (ctx.MonomorphizedBodies is not { } bodies) return;
+        if (ctx.MonomorphizedBodies is not { } bodies)
+        {
+            return;
+        }
+
         RunOnInstantiatedGenericBodies(bodies: bodies);
     }
 
@@ -107,20 +131,21 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
     /// and so would otherwise reach codegen with un-lowered <see cref="VariantReturnStatement"/> carriers.</summary>
     public void RunOnInstantiatedGenericBodies(Dictionary<string, MonomorphizedBody> bodies)
     {
-        BodyDispatch.RunOnInstantiatedGenericBodies(bodies: bodies, lower: (_, mono) =>
-        {
-            _carrierReturn = mono.Info.ReturnType;
-            return VisitStatement(stmt: mono.Ast.Body);
-        });
+        BodyDispatch.RunOnInstantiatedGenericBodies(bodies: bodies,
+            lower: (_, mono) =>
+            {
+                _carrierReturn = mono.Info.ReturnType;
+                return VisitStatement(stmt: mono.Ast.Body);
+            });
     }
 
     private static ReturnStatement LowerTryBoolVariant(VariantReturnStatement vr)
     {
         bool present = vr.SiteKind == VariantSiteKind.FromReturn;
-        return new ReturnStatement(
-            Value: new LiteralExpression(
-                Value: present,
-                LiteralType: present ? TokenType.True : TokenType.False,
+        return new ReturnStatement(Value: new LiteralExpression(Value: present,
+                LiteralType: present
+                    ? TokenType.True
+                    : TokenType.False,
                 Location: vr.Location),
             Location: vr.Location);
     }
@@ -130,23 +155,29 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
     private ReturnStatement LowerTryVariant(VariantReturnStatement vr, RecordTypeInfo maybe)
     {
         if (vr.SiteKind == VariantSiteKind.FromVariantPassthrough && vr.Value != null)
+        {
             return new ReturnStatement(Value: vr.Value, Location: vr.Location);
+        }
 
-        bool present = vr.SiteKind == VariantSiteKind.FromReturn
-                       && vr.Value?.ResolvedType is not CrashableTypeInfo;
+        bool present = vr.SiteKind == VariantSiteKind.FromReturn &&
+                       vr.Value?.ResolvedType is not CrashableTypeInfo;
         bool hasValue = present && vr.Value is not null
-                        and not IdentifierExpression { Name: "None" };
+            and not IdentifierExpression { Name: "None" };
 
         var members = new List<(string Name, Expression Value)>
         {
             ("present", BoolLiteral(value: present, loc: vr.Location))
         };
         if (hasValue)
-            members.Add(("value", vr.Value!));
+        {
+            members.Add(item: ("value", vr.Value!));
+        }
 
         return new ReturnStatement(
-            Value: new CreatorExpression(TypeName: maybe.Name, TypeArguments: null,
-                MemberVariables: members, Location: vr.Location) { ResolvedType = maybe },
+            Value: new CreatorExpression(TypeName: maybe.Name,
+                TypeArguments: null,
+                MemberVariables: members,
+                Location: vr.Location) { ResolvedType = maybe },
             Location: vr.Location);
     }
 
@@ -158,19 +189,29 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
         RecordTypeInfo carrier)
     {
         if (vr.SiteKind == VariantSiteKind.FromVariantPassthrough && vr.Value != null)
+        {
             return new ReturnStatement(Value: vr.Value, Location: vr.Location);
+        }
 
-        if (vr.SiteKind == VariantSiteKind.FromAbsent
-            || (vr.SiteKind == VariantSiteKind.FromReturn
-                && vr.Value is null or IdentifierExpression { Name: "None" }))
-            return MakeCarrierReturn(carrier: carrier, typeId: 0, payload: null, loc: vr.Location);
+        if (vr.SiteKind == VariantSiteKind.FromAbsent ||
+            vr.SiteKind == VariantSiteKind.FromReturn &&
+            vr.Value is null or IdentifierExpression { Name: "None" })
+        {
+            return MakeCarrierReturn(carrier: carrier,
+                typeId: 0,
+                payload: null,
+                loc: vr.Location);
+        }
 
         // Any success/error payload: type_id = FNV of the payload type; the value is stored into
         // the CPtr slot (codegen reinterprets a scalar via inttoptr, an entity is already a ptr).
         if (vr.Value is { ResolvedType: { } payloadType })
+        {
             return MakeCarrierReturn(carrier: carrier,
                 typeId: TypeIdHelper.ComputeTypeId(fullName: payloadType.FullName),
-                payload: vr.Value, loc: vr.Location);
+                payload: vr.Value,
+                loc: vr.Location);
+        }
 
         // No resolved type on the value — leave for codegen.
         return statement;
@@ -192,7 +233,8 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
 
             // Try → Maybe[T] (a plain `{present: Bool, value: T}` record) built with a real
             // CreatorExpression: present carries the value; throw / absent / return-a-crashable = absent.
-            case { VariantKind: ErrorHandlingVariantKind.Try } when _carrierReturn is RecordTypeInfo maybe:
+            case { VariantKind: ErrorHandlingVariantKind.Try }
+                when _carrierReturn is RecordTypeInfo maybe:
                 return LowerTryVariant(vr: s, maybe: maybe);
 
             // Check → Result[T] / Lookup → Lookup[T] (record { type_id: U64, payload: CPtr }): build the

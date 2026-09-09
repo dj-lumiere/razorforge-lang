@@ -52,8 +52,7 @@ public sealed class PostprocessingContext
     /// </summary>
     public PostprocessingContext(TypeRegistry registry,
         Dictionary<string, Statement>? variantBodies = null,
-        Dictionary<string, Statement>? synthesizedBodies = null,
-        TargetConfig? target = null,
+        Dictionary<string, Statement>? synthesizedBodies = null, TargetConfig? target = null,
         RfBuildMode buildMode = RfBuildMode.Debug,
         Dictionary<string, Instantiation.MonomorphizedBody>? monomorphizedBodies = null)
     {

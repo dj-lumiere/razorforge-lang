@@ -21,37 +21,37 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
     public void Run(Program program)
     {
         _currentModuleName = program.Declarations
-            .OfType<ModuleDeclaration>()
-            .LastOrDefault()?.Path;
+                                    .OfType<ModuleDeclaration>()
+                                    .LastOrDefault()
+                                   ?.Path;
         _liftedRoutines.Clear();
 
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration routine:
-                    program.Declarations[i] = RewriteRoutine(
-                        routine,
-                        scope: BuildRoutineScope(routine, includeMe: false),
+                    program.Declarations[index: i] = RewriteRoutine(routine: routine,
+                        scope: BuildRoutineScope(routine: routine, includeMe: false),
                         inheritedGenericParameters: routine.GenericParameters,
                         inheritedGenericConstraints: routine.GenericConstraints,
                         includeMe: false);
                     break;
 
                 case EntityDeclaration entity:
-                    RewriteMemberList(entity.Members,
+                    RewriteMemberList(members: entity.Members,
                         ownerGenericParameters: entity.GenericParameters,
                         ownerGenericConstraints: entity.GenericConstraints);
                     break;
 
                 case RecordDeclaration record:
-                    RewriteMemberList(record.Members,
+                    RewriteMemberList(members: record.Members,
                         ownerGenericParameters: record.GenericParameters,
                         ownerGenericConstraints: record.GenericConstraints);
                     break;
 
                 case CrashableDeclaration crashable:
-                    RewriteMemberList(crashable.Members,
+                    RewriteMemberList(members: crashable.Members,
                         ownerGenericParameters: null,
                         ownerGenericConstraints: null);
                     break;
@@ -70,68 +70,65 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
     {
         for (int i = 0; i < members.Count; i++)
         {
-            if (members[i] is not RoutineDeclaration routine)
+            if (members[index: i] is not RoutineDeclaration routine)
             {
                 continue;
             }
 
-            members[i] = RewriteRoutine(
-                routine,
-                scope: BuildRoutineScope(routine, includeMe: true),
-                inheritedGenericParameters: MergeGenericParameters(ownerGenericParameters,
-                    routine.GenericParameters),
-                inheritedGenericConstraints: MergeGenericConstraints(ownerGenericConstraints,
-                    routine.GenericConstraints),
+            members[index: i] = RewriteRoutine(routine: routine,
+                scope: BuildRoutineScope(routine: routine, includeMe: true),
+                inheritedGenericParameters: MergeGenericParameters(a: ownerGenericParameters,
+                    b: routine.GenericParameters),
+                inheritedGenericConstraints: MergeGenericConstraints(a: ownerGenericConstraints,
+                    b: routine.GenericConstraints),
                 includeMe: true);
         }
     }
 
-    private RoutineDeclaration RewriteRoutine(RoutineDeclaration routine,
-        HashSet<string> scope,
+    private RoutineDeclaration RewriteRoutine(RoutineDeclaration routine, HashSet<string> scope,
         List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
-        Statement body = RewriteStatement(
-            routine.Body,
+        Statement body = RewriteStatement(statement: routine.Body,
             scope: scope,
             inheritedGenericParameters: inheritedGenericParameters,
             inheritedGenericConstraints: inheritedGenericConstraints,
             includeMe: includeMe);
 
-        return ReferenceEquals(body, routine.Body)
+        return ReferenceEquals(objA: body, objB: routine.Body)
             ? routine
             : routine with { Body = body };
     }
 
-    private Statement RewriteStatement(Statement statement,
-        HashSet<string> scope,
+    private Statement RewriteStatement(Statement statement, HashSet<string> scope,
         List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
         return statement switch
         {
-            BlockStatement block => RewriteBlock(block,
+            BlockStatement block => RewriteBlock(block: block,
                 scope: scope,
                 inheritedGenericParameters: inheritedGenericParameters,
                 inheritedGenericConstraints: inheritedGenericConstraints,
                 includeMe: includeMe),
             IfStatement ifs => ifs with
             {
-                Condition = RewriteExpression(ifs.Condition,
+                Condition =
+                RewriteExpression(expression: ifs.Condition,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe),
-                ThenStatement = RewriteStatement(ifs.ThenStatement,
-                    scope: new HashSet<string>(scope, StringComparer.Ordinal),
+                ThenStatement = RewriteStatement(statement: ifs.ThenStatement,
+                    scope:
+                    new HashSet<string>(collection: scope, comparer: StringComparer.Ordinal),
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe),
                 ElseStatement = ifs.ElseStatement != null
-                    ? RewriteStatement(ifs.ElseStatement,
-                        scope: new HashSet<string>(scope, StringComparer.Ordinal),
+                    ? RewriteStatement(statement: ifs.ElseStatement,
+                        scope: new HashSet<string>(collection: scope,
+                            comparer: StringComparer.Ordinal),
                         inheritedGenericParameters: inheritedGenericParameters,
                         inheritedGenericConstraints: inheritedGenericConstraints,
                         includeMe: includeMe)
@@ -139,19 +136,22 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             WhileStatement whileStmt => whileStmt with
             {
-                Condition = RewriteExpression(whileStmt.Condition,
+                Condition =
+                RewriteExpression(expression: whileStmt.Condition,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe),
-                Body = RewriteStatement(whileStmt.Body,
-                    scope: new HashSet<string>(scope, StringComparer.Ordinal),
+                Body = RewriteStatement(statement: whileStmt.Body,
+                    scope:
+                    new HashSet<string>(collection: scope, comparer: StringComparer.Ordinal),
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe),
                 ElseBranch = whileStmt.ElseBranch != null
-                    ? RewriteStatement(whileStmt.ElseBranch,
-                        scope: new HashSet<string>(scope, StringComparer.Ordinal),
+                    ? RewriteStatement(statement: whileStmt.ElseBranch,
+                        scope: new HashSet<string>(collection: scope,
+                            comparer: StringComparer.Ordinal),
                         inheritedGenericParameters: inheritedGenericParameters,
                         inheritedGenericConstraints: inheritedGenericConstraints,
                         includeMe: includeMe)
@@ -159,37 +159,38 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             LoopStatement loop => loop with
             {
-                Body = RewriteStatement(loop.Body,
-                    scope: new HashSet<string>(scope, StringComparer.Ordinal),
+                Body = RewriteStatement(statement: loop.Body,
+                    scope: new HashSet<string>(collection: scope,
+                        comparer: StringComparer.Ordinal),
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe)
             },
-            EachStatement eachStmt => RewriteEach(eachStmt,
+            EachStatement eachStmt => RewriteEach(eachStmt: eachStmt,
                 scope: scope,
                 inheritedGenericParameters: inheritedGenericParameters,
                 inheritedGenericConstraints: inheritedGenericConstraints,
                 includeMe: includeMe),
-            WhenStatement whenStmt => RewriteWhen(whenStmt,
+            WhenStatement whenStmt => RewriteWhen(whenStmt: whenStmt,
                 scope: scope,
                 inheritedGenericParameters: inheritedGenericParameters,
                 inheritedGenericConstraints: inheritedGenericConstraints,
                 includeMe: includeMe),
             UsingStatement usingStmt => usingStmt with
             {
-                Resource = RewriteExpression(usingStmt.Resource,
+                Resource = RewriteExpression(expression: usingStmt.Resource,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe),
-                Body = RewriteStatement(usingStmt.Body,
-                    scope: [..scope, usingStmt.Name],
+                Body = RewriteStatement(statement: usingStmt.Body,
+                    scope: [.. scope, usingStmt.Name],
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe),
                 // The fallback branch runs when acquisition fails — the bound name is NOT in scope.
                 FallbackBody = usingStmt.FallbackBody != null
-                    ? RewriteStatement(usingStmt.FallbackBody,
+                    ? RewriteStatement(statement: usingStmt.FallbackBody,
                         scope: scope,
                         inheritedGenericParameters: inheritedGenericParameters,
                         inheritedGenericConstraints: inheritedGenericConstraints,
@@ -198,8 +199,9 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             DangerStatement danger => danger with
             {
-                Body = (BlockStatement)RewriteStatement(danger.Body,
-                    scope: new HashSet<string>(scope, StringComparer.Ordinal),
+                Body = (BlockStatement)RewriteStatement(statement: danger.Body,
+                    scope: new HashSet<string>(collection: scope,
+                        comparer: StringComparer.Ordinal),
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe)
@@ -209,7 +211,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 Declaration = variable.Initializer != null
                     ? variable with
                     {
-                        Initializer = RewriteExpression(variable.Initializer,
+                        Initializer = RewriteExpression(expression: variable.Initializer,
                             scope: scope,
                             inheritedGenericParameters: inheritedGenericParameters,
                             inheritedGenericConstraints: inheritedGenericConstraints,
@@ -219,12 +221,12 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             AssignmentStatement assignment => assignment with
             {
-                Target = RewriteExpression(assignment.Target,
+                Target = RewriteExpression(expression: assignment.Target,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe),
-                Value = RewriteExpression(assignment.Value,
+                Value = RewriteExpression(expression: assignment.Value,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -232,7 +234,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             ReturnStatement { Value: not null } ret => ret with
             {
-                Value = RewriteExpression(ret.Value,
+                Value = RewriteExpression(expression: ret.Value,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -240,7 +242,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             ExpressionStatement exprStmt => exprStmt with
             {
-                Expression = RewriteExpression(exprStmt.Expression,
+                Expression = RewriteExpression(expression: exprStmt.Expression,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -248,7 +250,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             DiscardStatement discard => discard with
             {
-                Expression = RewriteExpression(discard.Expression,
+                Expression = RewriteExpression(expression: discard.Expression,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -256,7 +258,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             BecomesStatement becomes => becomes with
             {
-                Value = RewriteExpression(becomes.Value,
+                Value = RewriteExpression(expression: becomes.Value,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -264,7 +266,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             ThrowStatement throwStmt => throwStmt with
             {
-                Error = RewriteExpression(throwStmt.Error,
+                Error = RewriteExpression(expression: throwStmt.Error,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -272,7 +274,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             VariantReturnStatement { Value: not null } variantReturn => variantReturn with
             {
-                Value = RewriteExpression(variantReturn.Value,
+                Value = RewriteExpression(expression: variantReturn.Value,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -280,7 +282,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             DestructuringStatement destructuring => destructuring with
             {
-                Initializer = RewriteExpression(destructuring.Initializer,
+                Initializer = RewriteExpression(expression: destructuring.Initializer,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -290,61 +292,59 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         };
     }
 
-    private Statement RewriteBlock(BlockStatement block,
-        HashSet<string> scope,
+    private Statement RewriteBlock(BlockStatement block, HashSet<string> scope,
         List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
-        var blockScope = new HashSet<string>(scope, StringComparer.Ordinal);
+        var blockScope = new HashSet<string>(collection: scope, comparer: StringComparer.Ordinal);
         var statements = new List<Statement>(capacity: block.Statements.Count);
 
         foreach (Statement statement in block.Statements)
         {
-            Statement rewritten = RewriteStatement(statement,
+            Statement rewritten = RewriteStatement(statement: statement,
                 scope: blockScope,
                 inheritedGenericParameters: inheritedGenericParameters,
                 inheritedGenericConstraints: inheritedGenericConstraints,
                 includeMe: includeMe);
             statements.Add(item: rewritten);
-            AddStatementBindings(blockScope, rewritten);
+            AddStatementBindings(scope: blockScope, statement: rewritten);
         }
 
         return block with { Statements = statements };
     }
 
-    private Statement RewriteEach(EachStatement eachStmt,
-        HashSet<string> scope,
+    private Statement RewriteEach(EachStatement eachStmt, HashSet<string> scope,
         List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
-        var bodyScope = new HashSet<string>(scope, StringComparer.Ordinal);
+        var bodyScope = new HashSet<string>(collection: scope, comparer: StringComparer.Ordinal);
         if (eachStmt.Variable != null)
         {
             bodyScope.Add(item: eachStmt.Variable);
         }
 
-        foreach (string binding in GetPatternBindings(eachStmt.VariablePattern))
+        foreach (string binding in GetPatternBindings(pattern: eachStmt.VariablePattern))
         {
             bodyScope.Add(item: binding);
         }
 
         return eachStmt with
         {
-            Iterable = RewriteExpression(eachStmt.Iterable,
+            Iterable =
+            RewriteExpression(expression: eachStmt.Iterable,
                 scope: scope,
                 inheritedGenericParameters: inheritedGenericParameters,
                 inheritedGenericConstraints: inheritedGenericConstraints,
                 includeMe: includeMe),
-            Body = RewriteStatement(eachStmt.Body,
+            Body = RewriteStatement(statement: eachStmt.Body,
                 scope: bodyScope,
                 inheritedGenericParameters: inheritedGenericParameters,
                 inheritedGenericConstraints: inheritedGenericConstraints,
                 includeMe: includeMe),
             ElseBranch = eachStmt.ElseBranch != null
-                ? RewriteStatement(eachStmt.ElseBranch,
-                    scope: new HashSet<string>(scope, StringComparer.Ordinal),
+                ? RewriteStatement(statement: eachStmt.ElseBranch,
+                    scope:
+                    new HashSet<string>(collection: scope, comparer: StringComparer.Ordinal),
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe)
@@ -352,30 +352,29 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         };
     }
 
-    private Statement RewriteWhen(WhenStatement whenStmt,
-        HashSet<string> scope,
+    private Statement RewriteWhen(WhenStatement whenStmt, HashSet<string> scope,
         List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
         var clauses = new List<WhenClause>(capacity: whenStmt.Clauses.Count);
 
         foreach (WhenClause clause in whenStmt.Clauses)
         {
-            var clauseScope = new HashSet<string>(scope, StringComparer.Ordinal);
-            foreach (string binding in GetPatternBindings(clause.Pattern))
+            var clauseScope =
+                new HashSet<string>(collection: scope, comparer: StringComparer.Ordinal);
+            foreach (string binding in GetPatternBindings(pattern: clause.Pattern))
             {
                 clauseScope.Add(item: binding);
             }
 
             clauses.Add(item: clause with
             {
-                Pattern = RewritePatternExpressions(clause.Pattern,
+                Pattern = RewritePatternExpressions(pattern: clause.Pattern,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe),
-                Body = RewriteStatement(clause.Body,
+                Body = RewriteStatement(statement: clause.Body,
                     scope: clauseScope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -385,7 +384,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
         return whenStmt with
         {
-            Expression = RewriteExpression(whenStmt.Expression,
+            Expression = RewriteExpression(expression: whenStmt.Expression,
                 scope: scope,
                 inheritedGenericParameters: inheritedGenericParameters,
                 inheritedGenericConstraints: inheritedGenericConstraints,
@@ -394,442 +393,511 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         };
     }
 
-    private Expression RewriteExpression(Expression expression,
-        HashSet<string> scope,
+    private Expression RewriteExpression(Expression expression, HashSet<string> scope,
         List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
         switch (expression)
         {
             case LambdaExpression lambda:
-                return LiftLambda(lambda,
+                return LiftLambda(lambda: lambda,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe);
 
             case BinaryExpression binary:
-                return CopyResolvedType(binary with
-                {
-                    Left = RewriteExpression(binary.Left,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Right = RewriteExpression(binary.Right,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, binary);
+                return CopyResolvedType(rewritten: binary with
+                    {
+                        Left = RewriteExpression(expression: binary.Left,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe),
+                        Right = RewriteExpression(expression: binary.Right,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: binary);
 
             case UnaryExpression unary:
-                return CopyResolvedType(unary with
-                {
-                    Operand = RewriteExpression(unary.Operand,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, unary);
+                return CopyResolvedType(rewritten: unary with
+                    {
+                        Operand = RewriteExpression(expression: unary.Operand,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: unary);
 
-            case CallExpression { Callee: LambdaExpression { Captures.Count: > 0 } capLambda } call:
-                return LiftCapturingLambdaIife(call, capLambda,
+            case CallExpression
+            {
+                Callee: LambdaExpression { Captures.Count: > 0 } capLambda
+            } call:
+                return LiftCapturingLambdaIife(call: call,
+                    lambda: capLambda,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe);
 
             case CallExpression call:
-                return CopyResolvedType(call with
-                {
-                    Callee = RewriteExpression(call.Callee,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Arguments = call.Arguments
-                        .Select(arg => RewriteExpression(arg,
+                return CopyResolvedType(rewritten: call with
+                    {
+                        Callee = RewriteExpression(expression: call.Callee,
                             scope: scope,
                             inheritedGenericParameters: inheritedGenericParameters,
                             inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe))
-                        .ToList()
-                }, call);
+                            includeMe: includeMe),
+                        Arguments = call.Arguments
+                                        .Select(selector: arg => RewriteExpression(expression: arg,
+                                             scope: scope,
+                                             inheritedGenericParameters:
+                                             inheritedGenericParameters,
+                                             inheritedGenericConstraints:
+                                             inheritedGenericConstraints,
+                                             includeMe: includeMe))
+                                        .ToList()
+                    },
+                    original: call);
 
             case MemberExpression member:
-                return CopyResolvedType(member with
-                {
-                    Object = RewriteExpression(member.Object,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, member);
+                return CopyResolvedType(rewritten: member with
+                    {
+                        Object = RewriteExpression(expression: member.Object,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: member);
 
             case OptionalMemberExpression optionalMember:
-                return CopyResolvedType(optionalMember with
-                {
-                    Object = RewriteExpression(optionalMember.Object,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, optionalMember);
+                return CopyResolvedType(rewritten: optionalMember with
+                    {
+                        Object = RewriteExpression(expression: optionalMember.Object,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: optionalMember);
 
             case IndexExpression index:
-                return CopyResolvedType(index with
-                {
-                    Object = RewriteExpression(index.Object,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Index = RewriteExpression(index.Index,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, index);
+                return CopyResolvedType(rewritten: index with
+                    {
+                        Object = RewriteExpression(expression: index.Object,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe),
+                        Index = RewriteExpression(expression: index.Index,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: index);
 
             case ConditionalExpression conditional:
-                return CopyResolvedType(conditional with
-                {
-                    Condition = RewriteExpression(conditional.Condition,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    TrueExpression = RewriteExpression(conditional.TrueExpression,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    FalseExpression = RewriteExpression(conditional.FalseExpression,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, conditional);
+                return CopyResolvedType(rewritten: conditional with
+                    {
+                        Condition =
+                        RewriteExpression(expression: conditional.Condition,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe),
+                        TrueExpression =
+                        RewriteExpression(expression: conditional.TrueExpression,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe),
+                        FalseExpression = RewriteExpression(
+                            expression: conditional.FalseExpression,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: conditional);
 
             case RangeExpression range:
-                return CopyResolvedType(range with
-                {
-                    Start = RewriteExpression(range.Start,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    End = RewriteExpression(range.End,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Step = range.Step != null
-                        ? RewriteExpression(range.Step,
+                return CopyResolvedType(rewritten: range with
+                    {
+                        Start = RewriteExpression(expression: range.Start,
                             scope: scope,
                             inheritedGenericParameters: inheritedGenericParameters,
                             inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                        : null
-                }, range);
-
-            case CreatorExpression creator:
-                return CopyResolvedType(creator with
-                {
-                    MemberVariables = creator.MemberVariables
-                        .Select(mv => (mv.Name,
-                            RewriteExpression(mv.Value,
-                                scope: scope,
-                                inheritedGenericParameters: inheritedGenericParameters,
-                                inheritedGenericConstraints: inheritedGenericConstraints,
-                                includeMe: includeMe)))
-                        .ToList()
-                }, creator);
-
-            case WithExpression withExpr:
-                return CopyResolvedType(withExpr with
-                {
-                    Base = RewriteExpression(withExpr.Base,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Updates = withExpr.Updates
-                        .Select(update => (
-                            update.MemberVariablePath,
-                            update.Index != null
-                                ? RewriteExpression(update.Index,
-                                    scope: scope,
-                                    inheritedGenericParameters: inheritedGenericParameters,
-                                    inheritedGenericConstraints: inheritedGenericConstraints,
-                                    includeMe: includeMe)
-                                : null,
-                            RewriteExpression(update.Value,
-                                scope: scope,
-                                inheritedGenericParameters: inheritedGenericParameters,
-                                inheritedGenericConstraints: inheritedGenericConstraints,
-                                includeMe: includeMe)))
-                        .ToList()
-                }, withExpr);
-
-            case GenericMemberRoutineCallExpression genericCall:
-                return CopyResolvedType(genericCall with
-                {
-                    Object = RewriteExpression(genericCall.Object,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Arguments = genericCall.Arguments
-                        .Select(arg => RewriteExpression(arg,
+                            includeMe: includeMe),
+                        End = RewriteExpression(expression: range.End,
                             scope: scope,
                             inheritedGenericParameters: inheritedGenericParameters,
                             inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe))
-                        .ToList()
-                }, genericCall);
-
-            case GenericMemberExpression genericMember:
-                return CopyResolvedType(genericMember with
-                {
-                    Object = RewriteExpression(genericMember.Object,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, genericMember);
-
-            case NamedArgumentExpression namedArgument:
-                return CopyResolvedType(namedArgument with
-                {
-                    Value = RewriteExpression(namedArgument.Value,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, namedArgument);
-
-            case ListLiteralExpression list:
-                return CopyResolvedType(list with
-                {
-                    Elements = list.Elements
-                        .Select(element => RewriteExpression(element,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe))
-                        .ToList()
-                }, list);
-
-            case SetLiteralExpression set:
-                return CopyResolvedType(set with
-                {
-                    Elements = set.Elements
-                        .Select(element => RewriteExpression(element,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe))
-                        .ToList()
-                }, set);
-
-            case DictLiteralExpression dict:
-                return CopyResolvedType(dict with
-                {
-                    Pairs = dict.Pairs
-                        .Select(pair => (
-                            RewriteExpression(pair.Key,
-                                scope: scope,
-                                inheritedGenericParameters: inheritedGenericParameters,
-                                inheritedGenericConstraints: inheritedGenericConstraints,
-                                includeMe: includeMe),
-                            RewriteExpression(pair.Value,
-                                scope: scope,
-                                inheritedGenericParameters: inheritedGenericParameters,
-                                inheritedGenericConstraints: inheritedGenericConstraints,
-                                includeMe: includeMe)))
-                        .ToList()
-                }, dict);
-
-            case TupleLiteralExpression tuple:
-                return CopyResolvedType(tuple with
-                {
-                    Elements = tuple.Elements
-                        .Select(element => RewriteExpression(element,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe))
-                        .ToList()
-                }, tuple);
-
-            case TypeConversionExpression conversion:
-                return CopyResolvedType(conversion with
-                {
-                    Expression = RewriteExpression(conversion.Expression,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, conversion);
-
-            case ChainedComparisonExpression chained:
-                return CopyResolvedType(chained with
-                {
-                    Operands = chained.Operands
-                        .Select(operand => RewriteExpression(operand,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe))
-                        .ToList()
-                }, chained);
-
-            case BlockExpression block:
-                return CopyResolvedType(block with
-                {
-                    Value = RewriteExpression(block.Value,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, block);
-
-            case DictEntryLiteralExpression dictEntry:
-                return CopyResolvedType(dictEntry with
-                {
-                    Key = RewriteExpression(dictEntry.Key,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Value = RewriteExpression(dictEntry.Value,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, dictEntry);
-
-            case IsPatternExpression isPattern:
-                return CopyResolvedType(isPattern with
-                {
-                    Expression = RewriteExpression(isPattern.Expression,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Pattern = RewritePatternExpressions(isPattern.Pattern,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, isPattern);
-
-            case FlagsTestExpression flagsTest:
-                return CopyResolvedType(flagsTest with
-                {
-                    Subject = RewriteExpression(flagsTest.Subject,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, flagsTest);
-
-            case InsertedTextExpression inserted:
-                return CopyResolvedType(inserted with
-                {
-                    Parts = inserted.Parts
-                        .Select(part => part is ExpressionPart expressionPart
-                            ? expressionPart with
-                            {
-                                Expression = RewriteExpression(expressionPart.Expression,
-                                    scope: scope,
-                                    inheritedGenericParameters: inheritedGenericParameters,
-                                    inheritedGenericConstraints: inheritedGenericConstraints,
-                                    includeMe: includeMe)
-                            }
-                            : part)
-                        .ToList()
-                }, inserted);
-
-            case StealExpression steal:
-                return CopyResolvedType(steal with
-                {
-                    Operand = RewriteExpression(steal.Operand,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, steal);
-
-            case WaitforExpression waitfor:
-                return CopyResolvedType(waitfor with
-                {
-                    Operand = RewriteExpression(waitfor.Operand,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Timeout = waitfor.Timeout != null
-                        ? RewriteExpression(waitfor.Timeout,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                        : null
-                }, waitfor);
-
-            case DependentWaitforExpression dependentWaitfor:
-                return CopyResolvedType(dependentWaitfor with
-                {
-                    Operand = RewriteExpression(dependentWaitfor.Operand,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Dependencies = dependentWaitfor.Dependencies
-                        .Select(dependency => dependency with
-                        {
-                            DependencyExpr = RewriteExpression(dependency.DependencyExpr,
+                            includeMe: includeMe),
+                        Step = range.Step != null
+                            ? RewriteExpression(expression: range.Step,
                                 scope: scope,
                                 inheritedGenericParameters: inheritedGenericParameters,
                                 inheritedGenericConstraints: inheritedGenericConstraints,
                                 includeMe: includeMe)
-                        })
-                        .ToList(),
-                    Timeout = dependentWaitfor.Timeout != null
-                        ? RewriteExpression(dependentWaitfor.Timeout,
+                            : null
+                    },
+                    original: range);
+
+            case CreatorExpression creator:
+                return CopyResolvedType(rewritten: creator with
+                    {
+                        MemberVariables = creator.MemberVariables
+                                                 .Select(selector: mv => (mv.Name,
+                                                      RewriteExpression(expression: mv.Value,
+                                                          scope: scope,
+                                                          inheritedGenericParameters:
+                                                          inheritedGenericParameters,
+                                                          inheritedGenericConstraints:
+                                                          inheritedGenericConstraints,
+                                                          includeMe: includeMe)))
+                                                 .ToList()
+                    },
+                    original: creator);
+
+            case WithExpression withExpr:
+                return CopyResolvedType(rewritten: withExpr with
+                    {
+                        Base = RewriteExpression(expression: withExpr.Base,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe),
+                        Updates = withExpr.Updates
+                                          .Select(selector: update => (update.MemberVariablePath,
+                                               update.Index != null
+                                                   ? RewriteExpression(expression: update.Index,
+                                                       scope: scope,
+                                                       inheritedGenericParameters:
+                                                       inheritedGenericParameters,
+                                                       inheritedGenericConstraints:
+                                                       inheritedGenericConstraints,
+                                                       includeMe: includeMe)
+                                                   : null,
+                                               RewriteExpression(expression: update.Value,
+                                                   scope: scope,
+                                                   inheritedGenericParameters:
+                                                   inheritedGenericParameters,
+                                                   inheritedGenericConstraints:
+                                                   inheritedGenericConstraints,
+                                                   includeMe: includeMe)))
+                                          .ToList()
+                    },
+                    original: withExpr);
+
+            case GenericMemberRoutineCallExpression genericCall:
+                return CopyResolvedType(rewritten: genericCall with
+                    {
+                        Object = RewriteExpression(expression: genericCall.Object,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe),
+                        Arguments = genericCall.Arguments
+                                               .Select(selector: arg =>
+                                                    RewriteExpression(expression: arg,
+                                                        scope: scope,
+                                                        inheritedGenericParameters:
+                                                        inheritedGenericParameters,
+                                                        inheritedGenericConstraints:
+                                                        inheritedGenericConstraints,
+                                                        includeMe: includeMe))
+                                               .ToList()
+                    },
+                    original: genericCall);
+
+            case GenericMemberExpression genericMember:
+                return CopyResolvedType(rewritten: genericMember with
+                    {
+                        Object = RewriteExpression(expression: genericMember.Object,
                             scope: scope,
                             inheritedGenericParameters: inheritedGenericParameters,
                             inheritedGenericConstraints: inheritedGenericConstraints,
                             includeMe: includeMe)
-                        : null
-                }, dependentWaitfor);
+                    },
+                    original: genericMember);
+
+            case NamedArgumentExpression namedArgument:
+                return CopyResolvedType(rewritten: namedArgument with
+                    {
+                        Value = RewriteExpression(expression: namedArgument.Value,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: namedArgument);
+
+            case ListLiteralExpression list:
+                return CopyResolvedType(rewritten: list with
+                    {
+                        Elements = list.Elements
+                                       .Select(selector: element =>
+                                            RewriteExpression(expression: element,
+                                                scope: scope,
+                                                inheritedGenericParameters:
+                                                inheritedGenericParameters,
+                                                inheritedGenericConstraints:
+                                                inheritedGenericConstraints,
+                                                includeMe: includeMe))
+                                       .ToList()
+                    },
+                    original: list);
+
+            case SetLiteralExpression set:
+                return CopyResolvedType(rewritten: set with
+                    {
+                        Elements = set.Elements
+                                      .Select(selector: element =>
+                                           RewriteExpression(expression: element,
+                                               scope: scope,
+                                               inheritedGenericParameters:
+                                               inheritedGenericParameters,
+                                               inheritedGenericConstraints:
+                                               inheritedGenericConstraints,
+                                               includeMe: includeMe))
+                                      .ToList()
+                    },
+                    original: set);
+
+            case DictLiteralExpression dict:
+                return CopyResolvedType(rewritten: dict with
+                    {
+                        Pairs = dict.Pairs
+                                    .Select(selector: pair => (
+                                         RewriteExpression(expression: pair.Key,
+                                             scope: scope,
+                                             inheritedGenericParameters:
+                                             inheritedGenericParameters,
+                                             inheritedGenericConstraints:
+                                             inheritedGenericConstraints,
+                                             includeMe: includeMe),
+                                         RewriteExpression(expression: pair.Value,
+                                             scope: scope,
+                                             inheritedGenericParameters:
+                                             inheritedGenericParameters,
+                                             inheritedGenericConstraints:
+                                             inheritedGenericConstraints,
+                                             includeMe: includeMe)))
+                                    .ToList()
+                    },
+                    original: dict);
+
+            case TupleLiteralExpression tuple:
+                return CopyResolvedType(rewritten: tuple with
+                    {
+                        Elements = tuple.Elements
+                                        .Select(selector: element =>
+                                             RewriteExpression(expression: element,
+                                                 scope: scope,
+                                                 inheritedGenericParameters:
+                                                 inheritedGenericParameters,
+                                                 inheritedGenericConstraints:
+                                                 inheritedGenericConstraints,
+                                                 includeMe: includeMe))
+                                        .ToList()
+                    },
+                    original: tuple);
+
+            case TypeConversionExpression conversion:
+                return CopyResolvedType(rewritten: conversion with
+                    {
+                        Expression = RewriteExpression(expression: conversion.Expression,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: conversion);
+
+            case ChainedComparisonExpression chained:
+                return CopyResolvedType(rewritten: chained with
+                    {
+                        Operands = chained.Operands
+                                          .Select(selector: operand =>
+                                               RewriteExpression(expression: operand,
+                                                   scope: scope,
+                                                   inheritedGenericParameters:
+                                                   inheritedGenericParameters,
+                                                   inheritedGenericConstraints:
+                                                   inheritedGenericConstraints,
+                                                   includeMe: includeMe))
+                                          .ToList()
+                    },
+                    original: chained);
+
+            case BlockExpression block:
+                return CopyResolvedType(rewritten: block with
+                    {
+                        Value = RewriteExpression(expression: block.Value,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: block);
+
+            case DictEntryLiteralExpression dictEntry:
+                return CopyResolvedType(rewritten: dictEntry with
+                    {
+                        Key = RewriteExpression(expression: dictEntry.Key,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe),
+                        Value = RewriteExpression(expression: dictEntry.Value,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: dictEntry);
+
+            case IsPatternExpression isPattern:
+                return CopyResolvedType(rewritten: isPattern with
+                    {
+                        Expression = RewriteExpression(expression: isPattern.Expression,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe),
+                        Pattern = RewritePatternExpressions(pattern: isPattern.Pattern,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: isPattern);
+
+            case FlagsTestExpression flagsTest:
+                return CopyResolvedType(rewritten: flagsTest with
+                    {
+                        Subject = RewriteExpression(expression: flagsTest.Subject,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: flagsTest);
+
+            case InsertedTextExpression inserted:
+                return CopyResolvedType(rewritten: inserted with
+                    {
+                        Parts = inserted.Parts
+                                        .Select(selector: part =>
+                                             part is ExpressionPart expressionPart
+                                                 ? expressionPart with
+                                                 {
+                                                     Expression = RewriteExpression(
+                                                         expression: expressionPart.Expression,
+                                                         scope: scope,
+                                                         inheritedGenericParameters:
+                                                         inheritedGenericParameters,
+                                                         inheritedGenericConstraints:
+                                                         inheritedGenericConstraints,
+                                                         includeMe: includeMe)
+                                                 }
+                                                 : part)
+                                        .ToList()
+                    },
+                    original: inserted);
+
+            case StealExpression steal:
+                return CopyResolvedType(rewritten: steal with
+                    {
+                        Operand = RewriteExpression(expression: steal.Operand,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: steal);
+
+            case WaitforExpression waitfor:
+                return CopyResolvedType(rewritten: waitfor with
+                    {
+                        Operand = RewriteExpression(expression: waitfor.Operand,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe),
+                        Timeout = waitfor.Timeout != null
+                            ? RewriteExpression(expression: waitfor.Timeout,
+                                scope: scope,
+                                inheritedGenericParameters: inheritedGenericParameters,
+                                inheritedGenericConstraints: inheritedGenericConstraints,
+                                includeMe: includeMe)
+                            : null
+                    },
+                    original: waitfor);
+
+            case DependentWaitforExpression dependentWaitfor:
+                return CopyResolvedType(rewritten: dependentWaitfor with
+                    {
+                        Operand = RewriteExpression(expression: dependentWaitfor.Operand,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe),
+                        Dependencies = dependentWaitfor.Dependencies
+                                                       .Select(selector: dependency =>
+                                                            dependency with
+                                                            {
+                                                                DependencyExpr = RewriteExpression(
+                                                                    expression:
+                                                                    dependency.DependencyExpr,
+                                                                    scope: scope,
+                                                                    inheritedGenericParameters:
+                                                                    inheritedGenericParameters,
+                                                                    inheritedGenericConstraints:
+                                                                    inheritedGenericConstraints,
+                                                                    includeMe: includeMe)
+                                                            })
+                                                       .ToList(),
+                        Timeout = dependentWaitfor.Timeout != null
+                            ? RewriteExpression(expression: dependentWaitfor.Timeout,
+                                scope: scope,
+                                inheritedGenericParameters: inheritedGenericParameters,
+                                inheritedGenericConstraints: inheritedGenericConstraints,
+                                includeMe: includeMe)
+                            : null
+                    },
+                    original: dependentWaitfor);
 
             case CarrierPayloadExpression payload:
-                return CopyResolvedType(payload with
-                {
-                    Carrier = RewriteExpression(payload.Carrier,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, payload);
+                return CopyResolvedType(rewritten: payload with
+                    {
+                        Carrier = RewriteExpression(expression: payload.Carrier,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: payload);
 
             case BackIndexExpression backIndex:
-                return CopyResolvedType(backIndex with
-                {
-                    Operand = RewriteExpression(backIndex.Operand,
-                        scope: scope,
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe)
-                }, backIndex);
+                return CopyResolvedType(rewritten: backIndex with
+                    {
+                        Operand = RewriteExpression(expression: backIndex.Operand,
+                            scope: scope,
+                            inheritedGenericParameters: inheritedGenericParameters,
+                            inheritedGenericConstraints: inheritedGenericConstraints,
+                            includeMe: includeMe)
+                    },
+                    original: backIndex);
 
             case WhenExpression whenExpr:
-                return RewriteWhenExpression(whenExpr,
+                return RewriteWhenExpression(whenExpr: whenExpr,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -840,100 +908,105 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         }
     }
 
-    private Expression RewriteWhenExpression(WhenExpression whenExpr,
-        HashSet<string> scope,
+    private Expression RewriteWhenExpression(WhenExpression whenExpr, HashSet<string> scope,
         List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
-        return CopyResolvedType(whenExpr with
-        {
-            Expression = whenExpr.Expression != null
-                ? RewriteExpression(whenExpr.Expression,
-                    scope: scope,
-                    inheritedGenericParameters: inheritedGenericParameters,
-                    inheritedGenericConstraints: inheritedGenericConstraints,
-                    includeMe: includeMe)
-                : null,
-            Clauses = whenExpr.Clauses
-                .Select(clause => clause with
-                {
-                    Pattern = RewritePatternExpressions(clause.Pattern,
+        return CopyResolvedType(rewritten: whenExpr with
+            {
+                Expression = whenExpr.Expression != null
+                    ? RewriteExpression(expression: whenExpr.Expression,
                         scope: scope,
                         inheritedGenericParameters: inheritedGenericParameters,
                         inheritedGenericConstraints: inheritedGenericConstraints,
-                        includeMe: includeMe),
-                    Body = RewriteStatement(clause.Body,
-                        scope: [..scope, ..GetPatternBindings(clause.Pattern)],
-                        inheritedGenericParameters: inheritedGenericParameters,
-                        inheritedGenericConstraints: inheritedGenericConstraints,
                         includeMe: includeMe)
-                })
-                .ToList()
-        }, whenExpr);
+                    : null,
+                Clauses = whenExpr.Clauses
+                                  .Select(selector: clause => clause with
+                                   {
+                                       Pattern = RewritePatternExpressions(pattern: clause.Pattern,
+                                           scope: scope,
+                                           inheritedGenericParameters: inheritedGenericParameters,
+                                           inheritedGenericConstraints:
+                                           inheritedGenericConstraints,
+                                           includeMe: includeMe),
+                                       Body = RewriteStatement(statement: clause.Body,
+                                           scope:
+                                           [
+                                               .. scope,
+                                               .. GetPatternBindings(pattern: clause.Pattern)
+                                           ],
+                                           inheritedGenericParameters: inheritedGenericParameters,
+                                           inheritedGenericConstraints:
+                                           inheritedGenericConstraints,
+                                           includeMe: includeMe)
+                                   })
+                                  .ToList()
+            },
+            original: whenExpr);
     }
 
-    private IdentifierExpression LiftLambda(LambdaExpression lambda,
-        HashSet<string> scope,
+    private IdentifierExpression LiftLambda(LambdaExpression lambda, HashSet<string> scope,
         List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
-        HashSet<string> localCaptures = CollectLocalCaptures(lambda, scope);
+        HashSet<string> localCaptures = CollectLocalCaptures(lambda: lambda, outerScope: scope);
         // Closure conversion: every enclosing-scope variable the body references (the same set SA
         // validated against the `given` clause) travels in a heap closure. Preserve the declared
         // `given` order where present, then append any others. Their types come from the resolved
         // identifier nodes in the body.
-        var captureNameList = lambda.Captures != null
-            ? lambda.Captures.Where(predicate: localCaptures.Contains).ToList()
+        List<string> captureNameList = lambda.Captures != null
+            ? lambda.Captures
+                    .Where(predicate: localCaptures.Contains)
+                    .ToList()
             : localCaptures.ToList();
-        captureNameList.AddRange(localCaptures.Where(capName => !captureNameList.Contains(capName)));
+        captureNameList.AddRange(
+            collection: localCaptures.Where(predicate: capName =>
+                !captureNameList.Contains(item: capName)));
 
         Dictionary<string, TypeInfo> captureTypes =
-            CollectCaptureTypesFromBody(lambda.Body, captureNameList);
-        var closureCaptures = captureNameList
-            .Where(predicate: captureTypes.ContainsKey)
-            .Select(selector: n => (Name: n, Type: captureTypes[key: n]))
-            .ToList();
+            CollectCaptureTypesFromBody(body: lambda.Body, captureNames: captureNameList);
+        var closureCaptures = captureNameList.Where(predicate: captureTypes.ContainsKey)
+                                             .Select(selector: n =>
+                                                  (Name: n, Type: captureTypes[key: n]))
+                                             .ToList();
 
-        if (includeMe && ContainsIdentifier(lambda.Body, "me"))
+        if (includeMe && ContainsIdentifier(expression: lambda.Body, name: "me"))
         {
             throw new InvalidOperationException(
-                "Lambda captures 'me' and requires closure lowering before codegen.");
+                message: "Lambda captures 'me' and requires closure lowering before codegen.");
         }
 
         if (lambda.ResolvedType is not RoutineTypeInfo routineType)
         {
             throw new InvalidOperationException(
+                message:
                 "Lambda expression reached postprocessing without a resolved RoutineTypeInfo.");
         }
 
         string liftedName =
             $"__lambda_{lambda.Location.Line}_{lambda.Location.Column}_{_lambdaCounter++}";
         var genericParameters = inheritedGenericParameters?.ToList();
-        var genericConstraints =
-            inheritedGenericConstraints?.ToList();
+        var genericConstraints = inheritedGenericConstraints?.ToList();
 
-        var lambdaScope = new HashSet<string>(StringComparer.Ordinal);
+        var lambdaScope = new HashSet<string>(comparer: StringComparer.Ordinal);
         foreach (Parameter parameter in lambda.Parameters)
         {
             lambdaScope.Add(item: parameter.Name);
         }
 
-        Expression loweredBody = RewriteExpression(lambda.Body,
+        Expression loweredBody = RewriteExpression(expression: lambda.Body,
             scope: lambdaScope,
             inheritedGenericParameters: genericParameters,
             inheritedGenericConstraints: genericConstraints,
             includeMe: false);
 
-        var liftedRoutine = new RoutineDeclaration(
-            Name: liftedName,
-            Parameters: BuildLiftedParameters(lambda, routineType),
+        var liftedRoutine = new RoutineDeclaration(Name: liftedName,
+            Parameters: BuildLiftedParameters(lambda: lambda, routineType: routineType),
             ReturnType: routineType.ReturnType != null
-                ? TypeInfoToTypeExpression(routineType.ReturnType, lambda.Location)
+                ? TypeInfoToTypeExpression(type: routineType.ReturnType, location: lambda.Location)
                 : null,
-            Body: new BlockStatement(
-                Statements:
+            Body: new BlockStatement(Statements:
                 [
                     new ReturnStatement(Value: loweredBody, Location: lambda.Location)
                 ],
@@ -952,12 +1025,13 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         var liftedInfo = new RoutineInfo(name: liftedName)
         {
             Kind = RoutineKind.Lambda,
-            Parameters = BuildLiftedParameterInfos(lambda, routineType),
+            Parameters = BuildLiftedParameterInfos(lambda: lambda, routineType: routineType),
             ReturnType = routineType.ReturnType,
             Visibility = VisibilityModifier.Secret,
             Location = lambda.Location,
             Module = _currentModuleName,
-            ModulePath = _currentModuleName?.Split('/').ToList(),
+            ModulePath = _currentModuleName?.Split(separator: '/')
+                                            .ToList(),
             GenericParameters = genericParameters,
             GenericConstraints = genericConstraints,
             IsSynthesized = true,
@@ -975,22 +1049,20 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         };
     }
 
-    private Expression LiftCapturingLambdaIife(
-        CallExpression call,
-        LambdaExpression lambda,
-        HashSet<string> scope,
-        List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+    private Expression LiftCapturingLambdaIife(CallExpression call, LambdaExpression lambda,
+        HashSet<string> scope, List<string>? inheritedGenericParameters,
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
         if (lambda.ResolvedType is not RoutineTypeInfo routineType)
         {
             throw new InvalidOperationException(
+                message:
                 "Capturing lambda expression reached postprocessing without a resolved RoutineTypeInfo.");
         }
 
         List<string> captureNames = lambda.Captures!;
-        Dictionary<string, TypeInfo> captureTypes = CollectCaptureTypesFromBody(lambda.Body, captureNames);
+        Dictionary<string, TypeInfo> captureTypes =
+            CollectCaptureTypesFromBody(body: lambda.Body, captureNames: captureNames);
 
         string liftedName =
             $"__lambda_{lambda.Location.Line}_{lambda.Location.Column}_{_lambdaCounter++}";
@@ -1002,47 +1074,53 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         var captureParamInfos = new List<ParameterInfo>(capacity: captureNames.Count);
         foreach (string captureName in captureNames)
         {
-            TypeInfo captureType = captureTypes.GetValueOrDefault(captureName, ErrorTypeInfo.Instance);
-            captureParams.Add(new Parameter(
-                Name: captureName,
-                Type: TypeInfoToTypeExpression(captureType, lambda.Location),
+            TypeInfo captureType = captureTypes.GetValueOrDefault(key: captureName,
+                defaultValue: ErrorTypeInfo.Instance);
+            captureParams.Add(item: new Parameter(Name: captureName,
+                Type: TypeInfoToTypeExpression(type: captureType, location: lambda.Location),
                 DefaultValue: null,
                 Location: lambda.Location));
-            captureParamInfos.Add(new ParameterInfo(name: captureName, type: captureType));
+            captureParamInfos.Add(item: new ParameterInfo(name: captureName, type: captureType));
         }
 
         // Lifted body scope: capture params + lambda params.
-        var lambdaScope = new HashSet<string>(StringComparer.Ordinal);
+        var lambdaScope = new HashSet<string>(comparer: StringComparer.Ordinal);
         foreach (string captureName in captureNames)
+        {
             lambdaScope.Add(item: captureName);
-        foreach (Parameter param in lambda.Parameters)
-            lambdaScope.Add(item: param.Name);
+        }
 
-        Expression loweredBody = RewriteExpression(lambda.Body,
+        foreach (Parameter param in lambda.Parameters)
+        {
+            lambdaScope.Add(item: param.Name);
+        }
+
+        Expression loweredBody = RewriteExpression(expression: lambda.Body,
             scope: lambdaScope,
             inheritedGenericParameters: genericParameters,
             inheritedGenericConstraints: genericConstraints,
             includeMe: false);
 
-        List<Parameter> lambdaParams = BuildLiftedParameters(lambda, routineType);
-        List<ParameterInfo> lambdaParamInfos = BuildLiftedParameterInfos(lambda, routineType);
+        List<Parameter> lambdaParams =
+            BuildLiftedParameters(lambda: lambda, routineType: routineType);
+        List<ParameterInfo> lambdaParamInfos =
+            BuildLiftedParameterInfos(lambda: lambda, routineType: routineType);
 
         var allParams = new List<Parameter>(capacity: captureParams.Count + lambdaParams.Count);
-        allParams.AddRange(captureParams);
-        allParams.AddRange(lambdaParams);
+        allParams.AddRange(collection: captureParams);
+        allParams.AddRange(collection: lambdaParams);
 
-        var allParamInfos = new List<ParameterInfo>(capacity: captureParamInfos.Count + lambdaParamInfos.Count);
-        allParamInfos.AddRange(captureParamInfos);
-        allParamInfos.AddRange(lambdaParamInfos);
+        var allParamInfos =
+            new List<ParameterInfo>(capacity: captureParamInfos.Count + lambdaParamInfos.Count);
+        allParamInfos.AddRange(collection: captureParamInfos);
+        allParamInfos.AddRange(collection: lambdaParamInfos);
 
-        var liftedRoutine = new RoutineDeclaration(
-            Name: liftedName,
+        var liftedRoutine = new RoutineDeclaration(Name: liftedName,
             Parameters: allParams,
             ReturnType: routineType.ReturnType != null
-                ? TypeInfoToTypeExpression(routineType.ReturnType, lambda.Location)
+                ? TypeInfoToTypeExpression(type: routineType.ReturnType, location: lambda.Location)
                 : null,
-            Body: new BlockStatement(
-                Statements:
+            Body: new BlockStatement(Statements:
                 [
                     new ReturnStatement(Value: loweredBody, Location: lambda.Location)
                 ],
@@ -1066,7 +1144,8 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             Visibility = VisibilityModifier.Secret,
             Location = lambda.Location,
             Module = _currentModuleName,
-            ModulePath = _currentModuleName?.Split('/').ToList(),
+            ModulePath = _currentModuleName?.Split(separator: '/')
+                                            .ToList(),
             GenericParameters = genericParameters,
             GenericConstraints = genericConstraints,
             IsSynthesized = true
@@ -1076,9 +1155,8 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         var callArgs = new List<Expression>(capacity: captureNames.Count + call.Arguments.Count);
         foreach (string captureName in captureNames)
         {
-            captureTypes.TryGetValue(captureName, out TypeInfo? capType);
-            callArgs.Add(new NamedArgumentExpression(
-                Name: captureName,
+            captureTypes.TryGetValue(key: captureName, value: out TypeInfo? capType);
+            callArgs.Add(item: new NamedArgumentExpression(Name: captureName,
                 Value: new IdentifierExpression(Name: captureName, Location: lambda.Location)
                 {
                     ResolvedType = capType
@@ -1088,53 +1166,70 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
         foreach (Expression arg in call.Arguments)
         {
-            callArgs.Add(RewriteExpression(arg,
+            callArgs.Add(item: RewriteExpression(expression: arg,
                 scope: scope,
                 inheritedGenericParameters: inheritedGenericParameters,
                 inheritedGenericConstraints: inheritedGenericConstraints,
                 includeMe: includeMe));
         }
 
-        return CopyResolvedType(call with
-        {
-            Callee = new IdentifierExpression(Name: liftedName, Location: lambda.Location),
-            Arguments = callArgs
-        }, call);
+        return CopyResolvedType(rewritten: call with
+            {
+                Callee = new IdentifierExpression(Name: liftedName, Location: lambda.Location),
+                Arguments = callArgs
+            },
+            original: call);
     }
 
-    private static Dictionary<string, TypeInfo> CollectCaptureTypesFromBody(
-        Expression body, List<string> captureNames)
+    private static Dictionary<string, TypeInfo> CollectCaptureTypesFromBody(Expression body,
+        List<string> captureNames)
     {
-        var targets = new HashSet<string>(captureNames, StringComparer.Ordinal);
-        var result = new Dictionary<string, TypeInfo>(StringComparer.Ordinal);
-        ScanExprForIdentifierTypes(body, targets, result);
+        var targets =
+            new HashSet<string>(collection: captureNames, comparer: StringComparer.Ordinal);
+        var result = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
+        ScanExprForIdentifierTypes(expr: body, targets: targets, result: result);
         return result;
     }
 
-    private static void ScanExprForIdentifierTypes(
-        Expression expr, HashSet<string> targets, Dictionary<string, TypeInfo> result)
+    private static void ScanExprForIdentifierTypes(Expression expr, HashSet<string> targets,
+        Dictionary<string, TypeInfo> result)
     {
-        if (result.Count == targets.Count) return;
-
-        if (expr is IdentifierExpression id &&
-            targets.Contains(id.Name) &&
-            id.ResolvedType != null)
+        if (result.Count == targets.Count)
         {
-            result.TryAdd(id.Name, id.ResolvedType);
-            if (result.Count == targets.Count) return;
+            return;
         }
 
-        foreach (Expression child in GetSubExpressions(expr))
+        if (expr is IdentifierExpression id && targets.Contains(item: id.Name) &&
+            id.ResolvedType != null)
         {
-            ScanExprForIdentifierTypes(child, targets, result);
-            if (result.Count == targets.Count) return;
+            result.TryAdd(key: id.Name, value: id.ResolvedType);
+            if (result.Count == targets.Count)
+            {
+                return;
+            }
+        }
+
+        foreach (Expression child in GetSubExpressions(expr: expr))
+        {
+            ScanExprForIdentifierTypes(expr: child, targets: targets, result: result);
+            if (result.Count == targets.Count)
+            {
+                return;
+            }
         }
     }
 
     private static IEnumerable<Expression> GetSubExpressions(Expression expr)
     {
-        foreach (Expression sub in GetSubExpressionsCore(expr)) yield return sub;
-        foreach (Expression sub in GetSubExpressionsExtended(expr)) yield return sub;
+        foreach (Expression sub in GetSubExpressionsCore(expr: expr))
+        {
+            yield return sub;
+        }
+
+        foreach (Expression sub in GetSubExpressionsExtended(expr: expr))
+        {
+            yield return sub;
+        }
     }
 
     private static IEnumerable<Expression> GetSubExpressionsCore(Expression expr)
@@ -1152,7 +1247,11 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 break;
             case CallExpression c:
                 yield return c.Callee;
-                foreach (Expression arg in c.Arguments) yield return arg;
+                foreach (Expression arg in c.Arguments)
+                {
+                    yield return arg;
+                }
+
                 break;
             case MemberExpression m:
                 yield return m.Object;
@@ -1172,10 +1271,18 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             case RangeExpression r:
                 yield return r.Start;
                 yield return r.End;
-                if (r.Step != null) yield return r.Step;
+                if (r.Step != null)
+                {
+                    yield return r.Step;
+                }
+
                 break;
             case CreatorExpression c:
-                foreach ((_, Expression val) in c.MemberVariables) yield return val;
+                foreach ((_, Expression val) in c.MemberVariables)
+                {
+                    yield return val;
+                }
+
                 break;
         }
     }
@@ -1188,16 +1295,33 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 yield return n.Value;
                 break;
             case ListLiteralExpression l:
-                foreach (Expression e in l.Elements) yield return e;
+                foreach (Expression e in l.Elements)
+                {
+                    yield return e;
+                }
+
                 break;
             case SetLiteralExpression s:
-                foreach (Expression e in s.Elements) yield return e;
+                foreach (Expression e in s.Elements)
+                {
+                    yield return e;
+                }
+
                 break;
             case DictLiteralExpression d:
-                foreach ((Expression k, Expression v) in d.Pairs) { yield return k; yield return v; }
+                foreach ((Expression k, Expression v) in d.Pairs)
+                {
+                    yield return k;
+                    yield return v;
+                }
+
                 break;
             case TupleLiteralExpression t:
-                foreach (Expression e in t.Elements) yield return e;
+                foreach (Expression e in t.Elements)
+                {
+                    yield return e;
+                }
+
                 break;
             case BlockExpression b:
                 yield return b.Value;
@@ -1210,38 +1334,54 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 break;
             case GenericMemberRoutineCallExpression g:
                 yield return g.Object;
-                foreach (Expression arg in g.Arguments) yield return arg;
+                foreach (Expression arg in g.Arguments)
+                {
+                    yield return arg;
+                }
+
                 break;
             case GenericMemberExpression g:
                 yield return g.Object;
                 break;
             case InsertedTextExpression ins:
-                foreach (Expression e in GetInsertedTextExpressions(parts: ins.Parts)) yield return e;
+                foreach (Expression e in GetInsertedTextExpressions(parts: ins.Parts))
+                {
+                    yield return e;
+                }
+
                 break;
             case WhenExpression we:
-                if (we.Expression != null) yield return we.Expression;
+                if (we.Expression != null)
+                {
+                    yield return we.Expression;
+                }
+
                 break;
         }
     }
 
     /// <summary>Yields the sub-expressions embedded inside an inserted-text part list.</summary>
-    private static IEnumerable<Expression> GetInsertedTextExpressions(IEnumerable<InsertedTextPart> parts)
+    private static IEnumerable<Expression> GetInsertedTextExpressions(
+        IEnumerable<InsertedTextPart> parts)
     {
         foreach (InsertedTextPart part in parts)
-            if (part is ExpressionPart ep) yield return ep.Expression;
+        {
+            if (part is ExpressionPart ep)
+            {
+                yield return ep.Expression;
+            }
+        }
     }
 
-    private Pattern RewritePatternExpressions(Pattern pattern,
-        HashSet<string> scope,
+    private Pattern RewritePatternExpressions(Pattern pattern, HashSet<string> scope,
         List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
         return pattern switch
         {
             ExpressionPattern expressionPattern => expressionPattern with
             {
-                Expression = RewritePatternExpression(expressionPattern.Expression,
+                Expression = RewritePatternExpression(expression: expressionPattern.Expression,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -1249,7 +1389,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             ComparisonPattern comparison => comparison with
             {
-                Value = RewritePatternExpression(comparison.Value,
+                Value = RewritePatternExpression(expression: comparison.Value,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -1257,12 +1397,12 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             },
             GuardPattern guard => guard with
             {
-                InnerPattern = RewritePatternExpressions(guard.InnerPattern,
+                InnerPattern = RewritePatternExpressions(pattern: guard.InnerPattern,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
                     includeMe: includeMe),
-                Guard = RewritePatternExpression(guard.Guard,
+                Guard = RewritePatternExpression(expression: guard.Guard,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
@@ -1272,13 +1412,11 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         };
     }
 
-    private Expression RewritePatternExpression(Expression expression,
-        HashSet<string> scope,
+    private Expression RewritePatternExpression(Expression expression, HashSet<string> scope,
         List<string>? inheritedGenericParameters,
-        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe)
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
-        return RewriteExpression(expression,
+        return RewriteExpression(expression: expression,
             scope: scope,
             inheritedGenericParameters: inheritedGenericParameters,
             inheritedGenericConstraints: inheritedGenericConstraints,
@@ -1286,8 +1424,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
     }
 
     private static Expression CopyResolvedType<TExpression>(TExpression rewritten,
-        TExpression original)
-        where TExpression : Expression
+        TExpression original) where TExpression : Expression
     {
         rewritten.ResolvedType = original.ResolvedType;
         return rewritten;
@@ -1295,7 +1432,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
     private static HashSet<string> BuildRoutineScope(RoutineDeclaration routine, bool includeMe)
     {
-        var scope = new HashSet<string>(StringComparer.Ordinal);
+        var scope = new HashSet<string>(comparer: StringComparer.Ordinal);
         foreach (Parameter parameter in routine.Parameters)
         {
             scope.Add(item: parameter.Name);
@@ -1318,10 +1455,11 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 break;
 
             case DestructuringStatement destructuring:
-                foreach (string binding in GetPatternBindings(destructuring.Pattern))
+                foreach (string binding in GetPatternBindings(pattern: destructuring.Pattern))
                 {
                     scope.Add(item: binding);
                 }
+
                 break;
         }
     }
@@ -1334,18 +1472,21 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         }
 
         var merged = new List<string>();
-        merged.AddRange((a ?? []).Where(item => !merged.Contains(item)));
-        merged.AddRange((b ?? []).Where(item => !merged.Contains(item)));
+        merged.AddRange(
+            collection: (a ?? []).Where(predicate: item => !merged.Contains(item: item)));
+        merged.AddRange(
+            collection: (b ?? []).Where(predicate: item => !merged.Contains(item: item)));
         return merged;
     }
 
     private static List<GenericConstraintDeclaration> MergeGenericConstraints(
-        List<GenericConstraintDeclaration>? a,
-        List<GenericConstraintDeclaration>? b)
+        List<GenericConstraintDeclaration>? a, List<GenericConstraintDeclaration>? b)
     {
         var merged = new List<GenericConstraintDeclaration>();
-        merged.AddRange((a ?? []).Where(item => !merged.Contains(item)));
-        merged.AddRange((b ?? []).Where(item => !merged.Contains(item)));
+        merged.AddRange(
+            collection: (a ?? []).Where(predicate: item => !merged.Contains(item: item)));
+        merged.AddRange(
+            collection: (b ?? []).Where(predicate: item => !merged.Contains(item: item)));
         return merged;
     }
 
@@ -1355,13 +1496,14 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         var parameters = new List<Parameter>(capacity: lambda.Parameters.Count);
         for (int i = 0; i < lambda.Parameters.Count; i++)
         {
-            Parameter sourceParam = lambda.Parameters[i];
+            Parameter sourceParam = lambda.Parameters[index: i];
             TypeInfo paramType = i < routineType.ParameterTypes.Count
-                ? routineType.ParameterTypes[i]
+                ? routineType.ParameterTypes[index: i]
                 : ErrorTypeInfo.Instance;
             parameters.Add(item: sourceParam with
             {
-                Type = TypeInfoToTypeExpression(paramType, sourceParam.Location),
+                Type = TypeInfoToTypeExpression(type: paramType,
+                    location: sourceParam.Location),
                 DefaultValue = null
             });
         }
@@ -1376,9 +1518,10 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         for (int i = 0; i < lambda.Parameters.Count; i++)
         {
             TypeInfo paramType = i < routineType.ParameterTypes.Count
-                ? routineType.ParameterTypes[i]
+                ? routineType.ParameterTypes[index: i]
                 : ErrorTypeInfo.Instance;
-            parameters.Add(item: new ParameterInfo(name: lambda.Parameters[i].Name, type: paramType));
+            parameters.Add(item: new ParameterInfo(name: lambda.Parameters[index: i].Name,
+                type: paramType));
         }
 
         return parameters;
@@ -1390,12 +1533,17 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         {
             RecordTypeInfo { GenericDefinition: not null } record => record.GenericDefinition.Name,
             EntityTypeInfo { GenericDefinition: not null } entity => entity.GenericDefinition.Name,
-            ProtocolTypeInfo { GenericDefinition: not null } protocol => protocol.GenericDefinition.Name,
-            _ => type.IsGenericResolution ? type.BareName : type.Name
+            ProtocolTypeInfo { GenericDefinition: not null } protocol => protocol.GenericDefinition
+               .Name,
+            _ => type.IsGenericResolution
+                ? type.BareName
+                : type.Name
         };
 
         List<TypeExpression>? args = type.TypeArguments is { Count: > 0 }
-            ? type.TypeArguments.Select(arg => TypeInfoToTypeExpression(arg, location)).ToList()
+            ? type.TypeArguments
+                  .Select(selector: arg => TypeInfoToTypeExpression(type: arg, location: location))
+                  .ToList()
             : null;
         return new TypeExpression(Name: baseName, GenericArguments: args, Location: location);
     }
@@ -1403,25 +1551,26 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
     private static HashSet<string> CollectLocalCaptures(LambdaExpression lambda,
         HashSet<string> outerScope)
     {
-        var captures = new HashSet<string>(StringComparer.Ordinal);
+        var captures = new HashSet<string>(comparer: StringComparer.Ordinal);
         var parameterNames = lambda.Parameters
-            .Select(parameter => parameter.Name)
-            .ToHashSet(StringComparer.Ordinal);
+                                   .Select(selector: parameter => parameter.Name)
+                                   .ToHashSet(comparer: StringComparer.Ordinal);
 
-        CollectLocalCapturesRecursive(lambda.Body, outerScope, parameterNames, captures);
+        CollectLocalCapturesRecursive(expression: lambda.Body,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
         return captures;
     }
 
     private static void CollectLocalCapturesRecursive(Expression expression,
-        HashSet<string> outerScope,
-        HashSet<string> parameterNames,
-        HashSet<string> captures)
+        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
     {
         switch (expression)
         {
-            case IdentifierExpression identifier when
-                outerScope.Contains(identifier.Name) &&
-                !parameterNames.Contains(identifier.Name):
+            case IdentifierExpression identifier when outerScope.Contains(item: identifier.Name) &&
+                                                      !parameterNames.Contains(
+                                                          item: identifier.Name):
                 captures.Add(item: identifier.Name);
                 break;
 
@@ -1429,45 +1578,81 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 return;
 
             case CompoundAssignmentExpression compound:
-                CollectCapturesInCompound(compound, outerScope, parameterNames, captures);
+                CollectCapturesInCompound(compound: compound,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case BinaryExpression binary:
-                CollectLocalCapturesRecursive(binary.Left, outerScope, parameterNames, captures);
-                CollectLocalCapturesRecursive(binary.Right, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: binary.Left,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+                CollectLocalCapturesRecursive(expression: binary.Right,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case UnaryExpression unary:
-                CollectLocalCapturesRecursive(unary.Operand, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: unary.Operand,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case CallExpression call:
-                CollectCapturesInCall(call, outerScope, parameterNames, captures);
+                CollectCapturesInCall(call: call,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case MemberExpression member:
-                CollectLocalCapturesRecursive(member.Object, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: member.Object,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case OptionalMemberExpression optionalMember:
-                CollectLocalCapturesRecursive(optionalMember.Object, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: optionalMember.Object,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case IndexExpression index:
-                CollectLocalCapturesRecursive(index.Object, outerScope, parameterNames, captures);
-                CollectLocalCapturesRecursive(index.Index, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: index.Object,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+                CollectLocalCapturesRecursive(expression: index.Index,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case ConditionalExpression conditional:
-                CollectCapturesInConditional(conditional, outerScope, parameterNames, captures);
+                CollectCapturesInConditional(conditional: conditional,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case RangeExpression range:
-                CollectCapturesInRange(range, outerScope, parameterNames, captures);
+                CollectCapturesInRange(range: range,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             default:
-                CollectLocalCapturesRecursiveExtended(expression, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursiveExtended(expression: expression,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
         }
     }
@@ -1475,144 +1660,279 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
     private static void CollectCapturesInCompound(CompoundAssignmentExpression compound,
         HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
     {
-        CollectLocalCapturesRecursive(compound.Target, outerScope, parameterNames, captures);
-        CollectLocalCapturesRecursive(compound.Value, outerScope, parameterNames, captures);
+        CollectLocalCapturesRecursive(expression: compound.Target,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
+        CollectLocalCapturesRecursive(expression: compound.Value,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
     }
 
-    private static void CollectCapturesInCall(CallExpression call,
-        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
+    private static void CollectCapturesInCall(CallExpression call, HashSet<string> outerScope,
+        HashSet<string> parameterNames, HashSet<string> captures)
     {
-        CollectLocalCapturesRecursive(call.Callee, outerScope, parameterNames, captures);
+        CollectLocalCapturesRecursive(expression: call.Callee,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
         foreach (Expression argument in call.Arguments)
-            CollectLocalCapturesRecursive(argument, outerScope, parameterNames, captures);
+        {
+            CollectLocalCapturesRecursive(expression: argument,
+                outerScope: outerScope,
+                parameterNames: parameterNames,
+                captures: captures);
+        }
     }
 
     private static void CollectCapturesInConditional(ConditionalExpression conditional,
         HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
     {
-        CollectLocalCapturesRecursive(conditional.Condition, outerScope, parameterNames, captures);
-        CollectLocalCapturesRecursive(conditional.TrueExpression, outerScope, parameterNames, captures);
-        CollectLocalCapturesRecursive(conditional.FalseExpression, outerScope, parameterNames, captures);
+        CollectLocalCapturesRecursive(expression: conditional.Condition,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
+        CollectLocalCapturesRecursive(expression: conditional.TrueExpression,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
+        CollectLocalCapturesRecursive(expression: conditional.FalseExpression,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
     }
 
-    private static void CollectCapturesInRange(RangeExpression range,
-        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
+    private static void CollectCapturesInRange(RangeExpression range, HashSet<string> outerScope,
+        HashSet<string> parameterNames, HashSet<string> captures)
     {
-        CollectLocalCapturesRecursive(range.Start, outerScope, parameterNames, captures);
-        CollectLocalCapturesRecursive(range.End, outerScope, parameterNames, captures);
+        CollectLocalCapturesRecursive(expression: range.Start,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
+        CollectLocalCapturesRecursive(expression: range.End,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
         if (range.Step != null)
-            CollectLocalCapturesRecursive(range.Step, outerScope, parameterNames, captures);
+        {
+            CollectLocalCapturesRecursive(expression: range.Step,
+                outerScope: outerScope,
+                parameterNames: parameterNames,
+                captures: captures);
+        }
     }
 
     // Second-tier dispatch for expression kinds that are less common or structurally simpler.
     private static void CollectLocalCapturesRecursiveExtended(Expression expression,
-        HashSet<string> outerScope,
-        HashSet<string> parameterNames,
-        HashSet<string> captures)
+        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
     {
         switch (expression)
         {
             case CreatorExpression creator:
                 foreach ((_, Expression value) in creator.MemberVariables)
-                    CollectLocalCapturesRecursive(value, outerScope, parameterNames, captures);
+                {
+                    CollectLocalCapturesRecursive(expression: value,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
+                }
+
                 break;
 
             case WithExpression withExpr:
-                CollectCapturesInWith(withExpr, outerScope, parameterNames, captures);
+                CollectCapturesInWith(withExpr: withExpr,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case GenericMemberRoutineCallExpression genericCall:
-                CollectLocalCapturesRecursive(genericCall.Object, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: genericCall.Object,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 foreach (Expression argument in genericCall.Arguments)
-                    CollectLocalCapturesRecursive(argument, outerScope, parameterNames, captures);
+                {
+                    CollectLocalCapturesRecursive(expression: argument,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
+                }
+
                 break;
 
             case GenericMemberExpression genericMember:
-                CollectLocalCapturesRecursive(genericMember.Object, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: genericMember.Object,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case NamedArgumentExpression namedArgument:
-                CollectLocalCapturesRecursive(namedArgument.Value, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: namedArgument.Value,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case ListLiteralExpression list:
                 foreach (Expression element in list.Elements)
-                    CollectLocalCapturesRecursive(element, outerScope, parameterNames, captures);
+                {
+                    CollectLocalCapturesRecursive(expression: element,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
+                }
+
                 break;
 
             case SetLiteralExpression set:
                 foreach (Expression element in set.Elements)
-                    CollectLocalCapturesRecursive(element, outerScope, parameterNames, captures);
+                {
+                    CollectLocalCapturesRecursive(expression: element,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
+                }
+
                 break;
 
             case DictLiteralExpression dict:
                 foreach ((Expression key, Expression value) in dict.Pairs)
                 {
-                    CollectLocalCapturesRecursive(key, outerScope, parameterNames, captures);
-                    CollectLocalCapturesRecursive(value, outerScope, parameterNames, captures);
+                    CollectLocalCapturesRecursive(expression: key,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
+                    CollectLocalCapturesRecursive(expression: value,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
                 }
+
                 break;
 
             case TupleLiteralExpression tuple:
                 foreach (Expression element in tuple.Elements)
-                    CollectLocalCapturesRecursive(element, outerScope, parameterNames, captures);
+                {
+                    CollectLocalCapturesRecursive(expression: element,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
+                }
+
                 break;
 
             case TypeConversionExpression conversion:
-                CollectLocalCapturesRecursive(conversion.Expression, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: conversion.Expression,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case ChainedComparisonExpression chained:
                 foreach (Expression operand in chained.Operands)
-                    CollectLocalCapturesRecursive(operand, outerScope, parameterNames, captures);
+                {
+                    CollectLocalCapturesRecursive(expression: operand,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
+                }
+
                 break;
 
             case BlockExpression block:
-                CollectLocalCapturesRecursive(block.Value, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: block.Value,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case DictEntryLiteralExpression dictEntry:
-                CollectLocalCapturesRecursive(dictEntry.Key, outerScope, parameterNames, captures);
-                CollectLocalCapturesRecursive(dictEntry.Value, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: dictEntry.Key,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+                CollectLocalCapturesRecursive(expression: dictEntry.Value,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case IsPatternExpression isPattern:
-                CollectLocalCapturesRecursive(isPattern.Expression, outerScope, parameterNames, captures);
-                CollectLocalCapturesInPattern(isPattern.Pattern, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: isPattern.Expression,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+                CollectLocalCapturesInPattern(pattern: isPattern.Pattern,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case FlagsTestExpression flagsTest:
-                CollectLocalCapturesRecursive(flagsTest.Subject, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: flagsTest.Subject,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case InsertedTextExpression inserted:
-                CollectLocalCapturesInInsertedText(inserted.Parts, outerScope, parameterNames, captures);
+                CollectLocalCapturesInInsertedText(parts: inserted.Parts,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case StealExpression steal:
-                CollectLocalCapturesRecursive(steal.Operand, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: steal.Operand,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case WaitforExpression waitfor:
-                CollectLocalCapturesRecursive(waitfor.Operand, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: waitfor.Operand,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 if (waitfor.Timeout != null)
-                    CollectLocalCapturesRecursive(waitfor.Timeout, outerScope, parameterNames, captures);
+                {
+                    CollectLocalCapturesRecursive(expression: waitfor.Timeout,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
+                }
+
                 break;
 
             case DependentWaitforExpression dependentWaitfor:
-                CollectCapturesInDependentWaitfor(dependentWaitfor, outerScope, parameterNames, captures);
+                CollectCapturesInDependentWaitfor(dependentWaitfor: dependentWaitfor,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case CarrierPayloadExpression payload:
-                CollectLocalCapturesRecursive(payload.Carrier, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: payload.Carrier,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case BackIndexExpression backIndex:
-                CollectLocalCapturesRecursive(backIndex.Operand, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: backIndex.Operand,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
 
             case WhenExpression whenExpr:
-                CollectCapturesInWhenExpression(whenExpr, outerScope, parameterNames, captures);
+                CollectCapturesInWhenExpression(whenExpr: whenExpr,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
         }
     }
@@ -1621,159 +1941,300 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
     /// Collects local captures from expression parts inside an inserted-text expression, visiting
     /// only the sub-expressions embedded in interpolation holes (not plain text parts).
     /// </summary>
-    private static void CollectLocalCapturesInInsertedText(
-        IEnumerable<InsertedTextPart> parts,
-        HashSet<string> outerScope,
-        HashSet<string> parameterNames,
-        HashSet<string> captures)
-    {
-        foreach (InsertedTextPart part in parts)
-            if (part is ExpressionPart expressionPart)
-                CollectLocalCapturesRecursive(expressionPart.Expression, outerScope, parameterNames, captures);
-    }
-
-    private static void CollectCapturesInWith(WithExpression withExpr,
+    private static void CollectLocalCapturesInInsertedText(IEnumerable<InsertedTextPart> parts,
         HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
     {
-        CollectLocalCapturesRecursive(withExpr.Base, outerScope, parameterNames, captures);
-        foreach ((_, Expression? index, Expression value) in withExpr.Updates)
+        foreach (InsertedTextPart part in parts)
         {
-            CollectLocalCapturesRecursive(value, outerScope, parameterNames, captures);
-            if (index != null)
-                CollectLocalCapturesRecursive(index, outerScope, parameterNames, captures);
+            if (part is ExpressionPart expressionPart)
+            {
+                CollectLocalCapturesRecursive(expression: expressionPart.Expression,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+            }
         }
     }
 
-    private static void CollectCapturesInDependentWaitfor(DependentWaitforExpression dependentWaitfor,
-        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
+    private static void CollectCapturesInWith(WithExpression withExpr, HashSet<string> outerScope,
+        HashSet<string> parameterNames, HashSet<string> captures)
     {
-        CollectLocalCapturesRecursive(dependentWaitfor.Operand, outerScope, parameterNames, captures);
+        CollectLocalCapturesRecursive(expression: withExpr.Base,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
+        foreach ((_, Expression? index, Expression value) in withExpr.Updates)
+        {
+            CollectLocalCapturesRecursive(expression: value,
+                outerScope: outerScope,
+                parameterNames: parameterNames,
+                captures: captures);
+            if (index != null)
+            {
+                CollectLocalCapturesRecursive(expression: index,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+            }
+        }
+    }
+
+    private static void CollectCapturesInDependentWaitfor(
+        DependentWaitforExpression dependentWaitfor, HashSet<string> outerScope,
+        HashSet<string> parameterNames, HashSet<string> captures)
+    {
+        CollectLocalCapturesRecursive(expression: dependentWaitfor.Operand,
+            outerScope: outerScope,
+            parameterNames: parameterNames,
+            captures: captures);
         foreach (TaskDependency dependency in dependentWaitfor.Dependencies)
-            CollectLocalCapturesRecursive(dependency.DependencyExpr, outerScope, parameterNames, captures);
+        {
+            CollectLocalCapturesRecursive(expression: dependency.DependencyExpr,
+                outerScope: outerScope,
+                parameterNames: parameterNames,
+                captures: captures);
+        }
+
         if (dependentWaitfor.Timeout != null)
-            CollectLocalCapturesRecursive(dependentWaitfor.Timeout, outerScope, parameterNames, captures);
+        {
+            CollectLocalCapturesRecursive(expression: dependentWaitfor.Timeout,
+                outerScope: outerScope,
+                parameterNames: parameterNames,
+                captures: captures);
+        }
     }
 
     private static void CollectCapturesInWhenExpression(WhenExpression whenExpr,
         HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
     {
         if (whenExpr.Expression != null)
-            CollectLocalCapturesRecursive(whenExpr.Expression, outerScope, parameterNames, captures);
+        {
+            CollectLocalCapturesRecursive(expression: whenExpr.Expression,
+                outerScope: outerScope,
+                parameterNames: parameterNames,
+                captures: captures);
+        }
+
         foreach (WhenClause clause in whenExpr.Clauses)
-            CollectLocalCapturesInStatement(clause.Body, outerScope, parameterNames, captures);
+        {
+            CollectLocalCapturesInStatement(statement: clause.Body,
+                outerScope: outerScope,
+                parameterNames: parameterNames,
+                captures: captures);
+        }
     }
 
     private static void CollectLocalCapturesInStatement(Statement statement,
-        HashSet<string> outerScope,
-        HashSet<string> parameterNames,
-        HashSet<string> captures)
+        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
     {
         switch (statement)
         {
             case BlockStatement block:
                 foreach (Statement child in block.Statements)
                 {
-                    CollectLocalCapturesInStatement(child, outerScope, parameterNames, captures);
+                    CollectLocalCapturesInStatement(statement: child,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
                 }
+
                 break;
             case IfStatement ifs:
-                CollectLocalCapturesRecursive(ifs.Condition, outerScope, parameterNames, captures);
-                CollectLocalCapturesInStatement(ifs.ThenStatement, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: ifs.Condition,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+                CollectLocalCapturesInStatement(statement: ifs.ThenStatement,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 if (ifs.ElseStatement != null)
                 {
-                    CollectLocalCapturesInStatement(ifs.ElseStatement, outerScope, parameterNames, captures);
+                    CollectLocalCapturesInStatement(statement: ifs.ElseStatement,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
                 }
+
                 break;
             case WhileStatement whileStmt:
-                CollectLocalCapturesRecursive(whileStmt.Condition, outerScope, parameterNames, captures);
-                CollectLocalCapturesInStatement(whileStmt.Body, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: whileStmt.Condition,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+                CollectLocalCapturesInStatement(statement: whileStmt.Body,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 if (whileStmt.ElseBranch != null)
                 {
-                    CollectLocalCapturesInStatement(whileStmt.ElseBranch, outerScope, parameterNames, captures);
+                    CollectLocalCapturesInStatement(statement: whileStmt.ElseBranch,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
                 }
+
                 break;
             case LoopStatement loop:
-                CollectLocalCapturesInStatement(loop.Body, outerScope, parameterNames, captures);
+                CollectLocalCapturesInStatement(statement: loop.Body,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case EachStatement eachStmt:
-                CollectLocalCapturesRecursive(eachStmt.Iterable, outerScope, parameterNames, captures);
-                CollectLocalCapturesInStatement(eachStmt.Body, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: eachStmt.Iterable,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+                CollectLocalCapturesInStatement(statement: eachStmt.Body,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 if (eachStmt.ElseBranch != null)
                 {
-                    CollectLocalCapturesInStatement(eachStmt.ElseBranch, outerScope, parameterNames, captures);
+                    CollectLocalCapturesInStatement(statement: eachStmt.ElseBranch,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
                 }
+
                 break;
             case WhenStatement whenStmt:
-                CollectLocalCapturesRecursive(whenStmt.Expression, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: whenStmt.Expression,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 foreach (WhenClause clause in whenStmt.Clauses)
                 {
-                    CollectLocalCapturesInStatement(clause.Body, outerScope, parameterNames, captures);
+                    CollectLocalCapturesInStatement(statement: clause.Body,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
                 }
+
                 break;
             case UsingStatement usingStmt:
-                CollectLocalCapturesRecursive(usingStmt.Resource, outerScope, parameterNames, captures);
-                CollectLocalCapturesInStatement(usingStmt.Body, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: usingStmt.Resource,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+                CollectLocalCapturesInStatement(statement: usingStmt.Body,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 if (usingStmt.FallbackBody != null)
-                    CollectLocalCapturesInStatement(usingStmt.FallbackBody, outerScope, parameterNames, captures);
+                {
+                    CollectLocalCapturesInStatement(statement: usingStmt.FallbackBody,
+                        outerScope: outerScope,
+                        parameterNames: parameterNames,
+                        captures: captures);
+                }
+
                 break;
             case DangerStatement danger:
-                CollectLocalCapturesInStatement(danger.Body, outerScope, parameterNames, captures);
+                CollectLocalCapturesInStatement(statement: danger.Body,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } variable }:
-                CollectLocalCapturesRecursive(variable.Initializer, outerScope, parameterNames, captures);
+            case DeclarationStatement
+            {
+                Declaration: VariableDeclaration { Initializer: not null } variable
+            }:
+                CollectLocalCapturesRecursive(expression: variable.Initializer,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case AssignmentStatement assignment:
-                CollectLocalCapturesRecursive(assignment.Target, outerScope, parameterNames, captures);
-                CollectLocalCapturesRecursive(assignment.Value, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: assignment.Target,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+                CollectLocalCapturesRecursive(expression: assignment.Value,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case ReturnStatement { Value: not null } ret:
-                CollectLocalCapturesRecursive(ret.Value, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: ret.Value,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case ExpressionStatement expressionStatement:
-                CollectLocalCapturesRecursive(expressionStatement.Expression, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: expressionStatement.Expression,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case DiscardStatement discard:
-                CollectLocalCapturesRecursive(discard.Expression, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: discard.Expression,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case BecomesStatement becomes:
-                CollectLocalCapturesRecursive(becomes.Value, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: becomes.Value,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case ThrowStatement throwStmt:
-                CollectLocalCapturesRecursive(throwStmt.Error, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: throwStmt.Error,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case VariantReturnStatement { Value: not null } variantReturn:
-                CollectLocalCapturesRecursive(variantReturn.Value, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: variantReturn.Value,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case DestructuringStatement destructuring:
-                CollectLocalCapturesRecursive(destructuring.Initializer, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: destructuring.Initializer,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
         }
     }
 
-    private static void CollectLocalCapturesInPattern(Pattern pattern,
-        HashSet<string> outerScope,
-        HashSet<string> parameterNames,
-        HashSet<string> captures)
+    private static void CollectLocalCapturesInPattern(Pattern pattern, HashSet<string> outerScope,
+        HashSet<string> parameterNames, HashSet<string> captures)
     {
         switch (pattern)
         {
             case ExpressionPattern expressionPattern:
-                CollectLocalCapturesRecursive(expressionPattern.Expression, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: expressionPattern.Expression,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case ComparisonPattern comparison:
-                CollectLocalCapturesRecursive(comparison.Value, outerScope, parameterNames, captures);
+                CollectLocalCapturesRecursive(expression: comparison.Value,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
             case GuardPattern guard:
-                CollectLocalCapturesInPattern(guard.InnerPattern, outerScope, parameterNames, captures);
-                CollectLocalCapturesRecursive(guard.Guard, outerScope, parameterNames, captures);
+                CollectLocalCapturesInPattern(pattern: guard.InnerPattern,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
+                CollectLocalCapturesRecursive(expression: guard.Guard,
+                    outerScope: outerScope,
+                    parameterNames: parameterNames,
+                    captures: captures);
                 break;
         }
     }
 
     private static bool ContainsIdentifier(Expression expression, string name)
     {
-        var hits = new HashSet<string>(StringComparer.Ordinal);
-        CollectLocalCapturesRecursive(expression,
+        var hits = new HashSet<string>(comparer: StringComparer.Ordinal);
+        CollectLocalCapturesRecursive(expression: expression,
             outerScope: [name],
             parameterNames: [],
             captures: hits);
@@ -1795,17 +2256,21 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
             case TypePattern { VariableName: not null } typePattern:
                 yield return typePattern.VariableName;
-                foreach (string binding in GetDestructuringBindings(typePattern.Bindings))
+                foreach (string binding in
+                         GetDestructuringBindings(bindings: typePattern.Bindings))
                 {
                     yield return binding;
                 }
+
                 break;
 
             case VariantPattern variantPattern:
-                foreach (string binding in GetDestructuringBindings(variantPattern.Bindings))
+                foreach (string binding in GetDestructuringBindings(
+                             bindings: variantPattern.Bindings))
                 {
                     yield return binding;
                 }
+
                 break;
 
             case CrashablePattern { VariableName: not null } crashablePattern:
@@ -1817,17 +2282,20 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 break;
 
             case DestructuringPattern destructuring:
-                foreach (string binding in GetDestructuringBindings(destructuring.Bindings))
+                foreach (string binding in GetDestructuringBindings(
+                             bindings: destructuring.Bindings))
                 {
                     yield return binding;
                 }
+
                 break;
 
             case GuardPattern guard:
-                foreach (string binding in GetPatternBindings(guard.InnerPattern))
+                foreach (string binding in GetPatternBindings(pattern: guard.InnerPattern))
                 {
                     yield return binding;
                 }
+
                 break;
         }
     }
@@ -1849,7 +2317,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
             if (binding.NestedPattern != null)
             {
-                foreach (string nested in GetPatternBindings(binding.NestedPattern))
+                foreach (string nested in GetPatternBindings(pattern: binding.NestedPattern))
                 {
                     yield return nested;
                 }

@@ -30,7 +30,11 @@ public class EntityTypeInfo : TypeInfo
     /// clause, stored on the generic DEFINITION and keyed by the conditionally-obeyed protocol's bare name.
     /// Each entry is the AND-list of <c>(paramName, protocolName)</c> conditions. A concrete instance obeys
     /// that protocol only when every condition holds for its bound type args. Null/absent = unconditional.</summary>
-    public Dictionary<string, List<(string ParamName, string ProtocolName)>>? ConditionalObeys { get; set; }
+    public Dictionary<string, List<(string ParamName, string ProtocolName)>>? ConditionalObeys
+    {
+        get;
+        set;
+    }
 
     /// <summary>
     /// Associated-type bindings declared via <c>relates Concrete as Name</c> — maps a protocol
@@ -56,6 +60,7 @@ public class EntityTypeInfo : TypeInfo
             size = AlignTo(size: size, alignment: alignment);
             size += memberSize;
         }
+
         return AlignTo(size: size, alignment: maxAlignment);
     }
 
@@ -101,7 +106,8 @@ public class EntityTypeInfo : TypeInfo
     private static HashSet<string> CreatingInstances => _creatingInstances ??= [];
 
     /// <summary>Per-thread lazy-initialized map of in-progress entity instances keyed by cycle key.</summary>
-    private static Dictionary<string, EntityTypeInfo> InProgressEntities => _inProgressEntities ??= new();
+    private static Dictionary<string, EntityTypeInfo> InProgressEntities =>
+        _inProgressEntities ??= new Dictionary<string, EntityTypeInfo>();
 
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">Thrown if this is not a generic definition.</exception>
@@ -140,14 +146,15 @@ public class EntityTypeInfo : TypeInfo
             substitution[key: GenericParameters[index: i]] = typeArguments[index: i];
         }
 
-        var substitutedProtocols = ImplementedProtocols
-            .Select(selector: p => (TypeInfo)(ProtocolTypeInfo)RecordTypeInfo.SubstituteType(type: p, substitution: substitution))
-            .ToList();
+        var substitutedProtocols = ImplementedProtocols.Select(selector: p =>
+                                                            (TypeInfo)(ProtocolTypeInfo)
+                                                            RecordTypeInfo.SubstituteType(type: p,
+                                                                substitution: substitution))
+                                                       .ToList();
 
         // Substitute the entity's generic params into each associated-type binding
         // (e.g. `relates ListEmitter[T] as Iter` becomes `Iter -> ListEmitter[S64]`).
-        var substitutedBindings = AssociatedTypeBindings.ToDictionary(
-            keySelector: kv => kv.Key,
+        var substitutedBindings = AssociatedTypeBindings.ToDictionary(keySelector: kv => kv.Key,
             elementSelector: kv =>
                 RecordTypeInfo.SubstituteType(type: kv.Value, substitution: substitution));
 
@@ -158,7 +165,8 @@ public class EntityTypeInfo : TypeInfo
         {
             // Return the partially-built entity if available; a fresh empty shell otherwise
             // (the shell case should not normally occur since we always register below first).
-            return InProgressEntities.TryGetValue(key: cycleKey, value: out EntityTypeInfo? inProgress)
+            return InProgressEntities.TryGetValue(key: cycleKey,
+                value: out EntityTypeInfo? inProgress)
                 ? inProgress
                 : BuildEntityShell(resolvedName: resolvedName,
                     substitutedProtocols: substitutedProtocols,
@@ -169,7 +177,7 @@ public class EntityTypeInfo : TypeInfo
         // Create the entity shell BEFORE substituting member types so that any recursive
         // reference encountered during substitution (cycle detected above) returns this
         // same object — which will have its members populated by the time callers use it.
-        var entity = BuildEntityShell(resolvedName: resolvedName,
+        EntityTypeInfo entity = BuildEntityShell(resolvedName: resolvedName,
             substitutedProtocols: substitutedProtocols,
             substitutedBindings: substitutedBindings,
             typeArguments: typeArguments);
@@ -179,11 +187,11 @@ public class EntityTypeInfo : TypeInfo
         {
             // Substitute types in member variables; self-referential inner types resolve to
             // `entity` via the cycle detection path above rather than an empty shell.
-            entity.MemberVariables = MemberVariables
-                                     .Select(selector: f =>
-                                          SubstituteMemberVariableType(memberVariable: f,
-                                              substitution: substitution))
-                                     .ToList();
+            entity.MemberVariables = MemberVariables.Select(selector: f =>
+                                                         SubstituteMemberVariableType(
+                                                             memberVariable: f,
+                                                             substitution: substitution))
+                                                    .ToList();
 
             return entity;
         }
@@ -208,15 +216,18 @@ public class EntityTypeInfo : TypeInfo
     // the SF entity and self-recurse. Prefix the non-ambient realm to keep the two world-lines distinct.
     private string BuildCycleKey(string resolvedName)
     {
-        string moduleQualified = string.IsNullOrEmpty(value: Module) ? resolvedName : $"{Module}.{resolvedName}";
-        return Realm == "RF" ? moduleQualified : $"{Realm}::{moduleQualified}";
+        string moduleQualified = string.IsNullOrEmpty(value: Module)
+            ? resolvedName
+            : $"{Module}.{resolvedName}";
+        return Realm == "RF"
+            ? moduleQualified
+            : $"{Realm}::{moduleQualified}";
     }
 
     // Builds an empty-membered entity shell carrying this definition's provenance. Used both for the
     // cycle-detected fallback and for the pre-substitution shell (whose members are populated later).
     private EntityTypeInfo BuildEntityShell(string resolvedName,
-        List<TypeInfo> substitutedProtocols,
-        Dictionary<string, TypeInfo> substitutedBindings,
+        List<TypeInfo> substitutedProtocols, Dictionary<string, TypeInfo> substitutedBindings,
         List<TypeInfo> typeArguments)
     {
         return new EntityTypeInfo(name: resolvedName)
@@ -286,21 +297,24 @@ public class EntityTypeInfo : TypeInfo
         if (type is EntityTypeInfo { GenericDefinition: not null } entityType)
         {
             return registry != null
-                ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition, typeArguments: newArgs)
+                ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition,
+                    typeArguments: newArgs)
                 : entityType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
         if (type is RecordTypeInfo { GenericDefinition: not null } recordType)
         {
             return registry != null
-                ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition, typeArguments: newArgs)
+                ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition,
+                    typeArguments: newArgs)
                 : recordType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
         if (type is ProtocolTypeInfo { GenericDefinition: not null } protocolType)
         {
             return registry != null
-                ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition, typeArguments: newArgs)
+                ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition,
+                    typeArguments: newArgs)
                 : protocolType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 

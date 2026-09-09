@@ -14,18 +14,31 @@ public sealed partial class TypeRegistry
     /// <summary>Kind-named creator lookup — resolves the constructor of <paramref name="type"/> without any
     /// call site spelling a name. Creators carry <see cref="RoutineInfo.CreatorName"/> (empty), so this
     /// wraps <see cref="LookupMemberRoutine"/> with that key.</summary>
-    public RoutineInfo? LookupCreator(TypeInfo type, bool? isFailable = null, TypeInfo? forImplementer = null) =>
-        LookupMemberRoutine(type: type, memberRoutineName: RoutineInfo.CreatorName, isFailable: isFailable,
+    public RoutineInfo? LookupCreator(TypeInfo type, bool? isFailable = null,
+        TypeInfo? forImplementer = null)
+    {
+        return LookupMemberRoutine(type: type,
+            memberRoutineName: RoutineInfo.CreatorName,
+            isFailable: isFailable,
             forImplementer: forImplementer);
+    }
 
     /// <summary>Overload-resolving creator lookup. Wraps <see cref="LookupMemberRoutineOverload"/>.</summary>
-    public RoutineInfo? LookupCreatorOverload(TypeInfo type, List<TypeInfo> argTypes) =>
-        LookupMemberRoutineOverload(type: type, memberRoutineName: RoutineInfo.CreatorName, argTypes: argTypes);
+    public RoutineInfo? LookupCreatorOverload(TypeInfo type, List<TypeInfo> argTypes)
+    {
+        return LookupMemberRoutineOverload(type: type,
+            memberRoutineName: RoutineInfo.CreatorName,
+            argTypes: argTypes);
+    }
 
     /// <summary>Collects every creator candidate of <paramref name="type"/> into <paramref name="candidates"/>.
     /// Wraps <see cref="CollectMemberRoutineCandidates"/>.</summary>
-    public void CollectCreatorCandidates(TypeInfo type, List<RoutineInfo> candidates) =>
-        CollectMemberRoutineCandidates(type: type, memberRoutineName: RoutineInfo.CreatorName, candidates: candidates);
+    public void CollectCreatorCandidates(TypeInfo type, List<RoutineInfo> candidates)
+    {
+        CollectMemberRoutineCandidates(type: type,
+            memberRoutineName: RoutineInfo.CreatorName,
+            candidates: candidates);
+    }
 
     /// <summary>
     /// Divergent cross-file duplicate constructors found during registration: two creators sharing a
@@ -45,7 +58,11 @@ public sealed partial class TypeRegistry
     /// </summary>
     public static int? ComputeCreatorBodyHash(Statement? body)
     {
-        if (body is null or PassStatement) return null;
+        if (body is null or PassStatement)
+        {
+            return null;
+        }
+
         return body.Accept(visitor: new Builder.RfSyntaxTreePrinter())
                    .GetHashCode(comparisonType: StringComparison.Ordinal);
     }
@@ -62,8 +79,10 @@ public sealed partial class TypeRegistry
         // Register under RegistryKey for exact overload matching.
         bool keyExisted =
             _routines.TryGetValue(key: registryKey, value: out RoutineInfo? existingByKey);
-        RegisterRoutineByKey(routine: routine, registryKey: registryKey,
-            keyExisted: keyExisted, existingByKey: existingByKey);
+        RegisterRoutineByKey(routine: routine,
+            registryKey: registryKey,
+            keyExisted: keyExisted,
+            existingByKey: existingByKey);
 
         // Also register under base name (first overload wins for unqualified lookup)
         if (!_routines.ContainsKey(key: baseName))
@@ -81,7 +100,9 @@ public sealed partial class TypeRegistry
         // Index by owner type → memberRoutine name → overloads for fast O(1) `owner.MemberRoutine` lookup.
         if (routine.OwnerType != null)
         {
-            RegisterRoutineByOwner(routine: routine, registryKey: registryKey, keyExisted: keyExisted);
+            RegisterRoutineByOwner(routine: routine,
+                registryKey: registryKey,
+                keyExisted: keyExisted);
         }
 
         // Free-function (owner-less) overloads: fold into _routinesByOwner under the canonical FreeOwnerKey.
@@ -109,13 +130,13 @@ public sealed partial class TypeRegistry
             // bodies. Failability must match: a checked `T!(from: X)` and a reinterpret `T(from: X)`
             // legitimately share a signature (they coexist via the owner+IsFailable index) and are NOT a
             // divergent duplicate — only same-failability same-signature different-body pairs are the bug.
-            if (existingByKey is { IsSynthesized: false, BodyHash: { } h1 }
-                && routine is { IsSynthesized: false, BodyHash: { } h2 }
-                && existingByKey.IsFailable == routine.IsFailable
-                && h1 != h2
-                && existingByKey.Location?.FileName is { } f1
-                && routine.Location?.FileName is { } f2
-                && !string.Equals(a: f1, b: f2, comparisonType: StringComparison.OrdinalIgnoreCase))
+            if (existingByKey is { IsSynthesized: false, BodyHash: { } h1 } &&
+                routine is { IsSynthesized: false, BodyHash: { } h2 } &&
+                existingByKey.IsFailable == routine.IsFailable && h1 != h2 &&
+                existingByKey.Location?.FileName is { } f1 &&
+                routine.Location?.FileName is { } f2 && !string.Equals(a: f1,
+                    b: f2,
+                    comparisonType: StringComparison.OrdinalIgnoreCase))
             {
                 DivergentDuplicateCreators.Add(item: (existingByKey, routine));
             }
@@ -123,7 +144,9 @@ public sealed partial class TypeRegistry
             bool existingIsUser = !existingByKey!.IsSynthesized;
             bool incomingIsSynthetic = routine.IsSynthesized;
             if (!(existingIsUser && incomingIsSynthetic))
+            {
                 _routines[key: registryKey] = routine;
+            }
         }
         else
         {
@@ -142,11 +165,13 @@ public sealed partial class TypeRegistry
         string ownerKey = routine.OwnerType is GenericParameterTypeInfo
             ? GenericOwnerKey
             : RealmRegistryKey(type: routine.OwnerType!);
-        if (!_routinesByOwner.TryGetValue(key: ownerKey, value: out Dictionary<string, List<RoutineInfo>>? byName))
+        if (!_routinesByOwner.TryGetValue(key: ownerKey,
+                value: out Dictionary<string, List<RoutineInfo>>? byName))
         {
             byName = new Dictionary<string, List<RoutineInfo>>(comparer: StringComparer.Ordinal);
             _routinesByOwner[key: ownerKey] = byName;
         }
+
         if (!byName.TryGetValue(key: routine.Name, value: out List<RoutineInfo>? list))
         {
             list = [];
@@ -171,9 +196,13 @@ public sealed partial class TypeRegistry
             int existingIdx = list.FindIndex(match: r =>
                 r.RegistryKey == registryKey && SameMeConstraintSet(a: r, b: routine));
             if (existingIdx < 0)
+            {
                 list.Add(item: routine);
+            }
             else if (!(!list[index: existingIdx].IsSynthesized && routine.IsSynthesized))
+            {
                 list[index: existingIdx] = routine;
+            }
         }
         else
         {
@@ -187,24 +216,33 @@ public sealed partial class TypeRegistry
     /// </summary>
     private void RegisterFreeRoutine(RoutineInfo routine, string baseName)
     {
-        if (!_routinesByOwner.TryGetValue(key: FreeOwnerKey, value: out Dictionary<string, List<RoutineInfo>>? freeByName))
+        if (!_routinesByOwner.TryGetValue(key: FreeOwnerKey,
+                value: out Dictionary<string, List<RoutineInfo>>? freeByName))
         {
-            freeByName = new Dictionary<string, List<RoutineInfo>>(comparer: StringComparer.Ordinal);
+            freeByName =
+                new Dictionary<string, List<RoutineInfo>>(comparer: StringComparer.Ordinal);
             _routinesByOwner[key: FreeOwnerKey] = freeByName;
         }
+
         if (!freeByName.TryGetValue(key: baseName, value: out List<RoutineInfo>? overloadList))
         {
             overloadList = [];
             freeByName[key: baseName] = overloadList;
         }
+
         if (!overloadList.Contains(item: routine))
+        {
             overloadList.Add(item: routine);
+        }
     }
 
     /// <summary>
     /// Checks if a routine with the given key is registered.
     /// </summary>
-    public bool HasRoutine(string key) => _routines.ContainsKey(key: key);
+    public bool HasRoutine(string key)
+    {
+        return _routines.ContainsKey(key: key);
+    }
 
     /// <summary>
     /// Looks up a routine overload that matches the given argument types.
@@ -216,10 +254,11 @@ public sealed partial class TypeRegistry
     {
         // Try exact overload match by RegistryKey format.
         // Zero-arg routines register under baseName (no '#' suffix) — match that directly.
-        string paramTypeNames =
-            string.Join(separator: ",",
-                values: argTypes.Select(RoutineInfo.GetTypeIdentity));
-        string registryKey = argTypes.Count == 0 ? baseName : $"{baseName}#{paramTypeNames}";
+        string paramTypeNames = string.Join(separator: ",",
+            values: argTypes.Select(selector: RoutineInfo.GetTypeIdentity));
+        string registryKey = argTypes.Count == 0
+            ? baseName
+            : $"{baseName}#{paramTypeNames}";
         if (_routines.TryGetValue(key: registryKey, value: out RoutineInfo? overload))
         {
             return overload;
@@ -240,7 +279,8 @@ public sealed partial class TypeRegistry
         }
 
         // Try matching generic overloads by reconstructing the generic parameter pattern.
-        if (MatchGenericOverloadByPattern(baseName: baseName, argTypes: argTypes) is { } genericOverload)
+        if (MatchGenericOverloadByPattern(baseName: baseName, argTypes: argTypes) is
+            { } genericOverload)
         {
             return genericOverload;
         }
@@ -248,7 +288,8 @@ public sealed partial class TypeRegistry
         // Structural candidate search: iterate all overloads registered for this base name and
         // match positionally by full type identity (module-qualified, includes generic args).
         // Runs before the first-wins fallback so multi-overload disambiguation is type-correct.
-        if (MatchStructuralFreeOverload(baseName: baseName, argTypes: argTypes) is { } structuralMatch)
+        if (MatchStructuralFreeOverload(baseName: baseName, argTypes: argTypes) is
+            { } structuralMatch)
         {
             return structuralMatch;
         }
@@ -258,7 +299,11 @@ public sealed partial class TypeRegistry
         // first-wins silently picks the WRONG one — the overloads are declared S8, S16, S32, S64, U64… so
         // it always returns the S8 conversion regardless of the argument type (the reported bug). Return
         // null instead; the caller reports ArgumentTypeMismatch rather than emitting a mis-typed call.
-        if (HasMultipleRegisteredOverloads(baseName: baseName)) return null;
+        if (HasMultipleRegisteredOverloads(baseName: baseName))
+        {
+            return null;
+        }
+
         return LookupRoutine(fullName: baseName);
     }
 
@@ -269,9 +314,10 @@ public sealed partial class TypeRegistry
     {
         string prefix = baseName + "#";
         return _routines.Keys
-            .Where(k => k == baseName || k.StartsWith(value: prefix, comparisonType: StringComparison.Ordinal))
-            .Skip(count: 1)
-            .Any();
+                        .Where(predicate: k => k == baseName || k.StartsWith(value: prefix,
+                             comparisonType: StringComparison.Ordinal))
+                        .Skip(count: 1)
+                        .Any();
     }
 
     /// <summary>
@@ -284,8 +330,12 @@ public sealed partial class TypeRegistry
         foreach (TypeInfo argType in argTypes)
         {
             RoutineInfo? hit = MatchGenericOverloadForArg(baseName: baseName, argType: argType);
-            if (hit != null) return hit;
+            if (hit != null)
+            {
+                return hit;
+            }
         }
+
         return null;
     }
 
@@ -295,7 +345,10 @@ public sealed partial class TypeRegistry
     /// </summary>
     private RoutineInfo? MatchGenericOverloadForArg(string baseName, TypeInfo argType)
     {
-        if (!argType.IsGenericResolution) return null;
+        if (!argType.IsGenericResolution)
+        {
+            return null;
+        }
 
         TypeInfo? genericDef = argType switch
         {
@@ -304,15 +357,20 @@ public sealed partial class TypeRegistry
             ProtocolTypeInfo p => p.GenericDefinition,
             _ => null
         };
-        if (genericDef?.GenericParameters == null) return null;
+        if (genericDef?.GenericParameters == null)
+        {
+            return null;
+        }
 
         string genericArgName = RoutineInfo.GetTypeIdentity(type: genericDef);
         string genericRegistryKey = $"{baseName}#{genericArgName}";
-        if (_routines.TryGetValue(key: genericRegistryKey, value: out RoutineInfo? genericOverload) &&
+        if (_routines.TryGetValue(key: genericRegistryKey,
+                value: out RoutineInfo? genericOverload) &&
             !genericOverload.IsVariadic) // Skip variadic overloads — handled by variadic fallback
         {
             return genericOverload;
         }
+
         return null;
     }
 
@@ -325,11 +383,16 @@ public sealed partial class TypeRegistry
     {
         List<RoutineInfo>? overloadCandidates = FreeOverloads(baseName: baseName);
         if (overloadCandidates == null && !baseName.Contains(value: '.'))
+        {
             overloadCandidates = FreeOverloads(baseName: $"Core.{baseName}");
+        }
 
-        if (overloadCandidates is not { Count: > 1 }) return null;
+        if (overloadCandidates is not { Count: > 1 })
+        {
+            return null;
+        }
 
-        return overloadCandidates.FirstOrDefault(candidate =>
+        return overloadCandidates.FirstOrDefault(predicate: candidate =>
             StructuralFreeOverloadMatches(candidate: candidate, argTypes: argTypes));
     }
 
@@ -337,15 +400,23 @@ public sealed partial class TypeRegistry
     /// Returns true when <paramref name="candidate"/>'s parameters match <paramref name="argTypes"/>
     /// by count and full type identity (module-qualified, includes generic args).
     /// </summary>
-    private static bool StructuralFreeOverloadMatches(RoutineInfo candidate, List<TypeInfo> argTypes)
+    private static bool StructuralFreeOverloadMatches(RoutineInfo candidate,
+        List<TypeInfo> argTypes)
     {
-        if (candidate.Parameters.Count != argTypes.Count) return false;
+        if (candidate.Parameters.Count != argTypes.Count)
+        {
+            return false;
+        }
+
         for (int i = 0; i < argTypes.Count; i++)
         {
             if (RoutineInfo.GetTypeIdentity(type: candidate.Parameters[index: i].Type) !=
                 RoutineInfo.GetTypeIdentity(type: argTypes[index: i]))
+            {
                 return false;
+            }
         }
+
         return true;
     }
 
@@ -356,8 +427,12 @@ public sealed partial class TypeRegistry
     /// reserved-variant collision detection needs to compare a generated variant against any
     /// hand-written routine sharing its key.
     /// </summary>
-    public RoutineInfo? GetRoutineByExactKey(string registryKey) =>
-        _routines.TryGetValue(key: registryKey, value: out RoutineInfo? routine) ? routine : null;
+    public RoutineInfo? GetRoutineByExactKey(string registryKey)
+    {
+        return _routines.TryGetValue(key: registryKey, value: out RoutineInfo? routine)
+            ? routine
+            : null;
+    }
 
     /// <summary>
     /// Looks up a routine by its full name. A routine's identity is (owner, bare-name) — the
@@ -372,16 +447,21 @@ public sealed partial class TypeRegistry
     /// <returns>The routine info if found, null otherwise.</returns>
     public RoutineInfo? LookupRoutine(string fullName, bool? isFailable = null)
     {
-        RoutineInfo? routine =
-            _routines.GetValueOrDefault(key: fullName)
-            ?? _routineResolutions.GetValueOrDefault(key: fullName)
-            ?? _routinesByQualifiedName.GetValueOrDefault(key: fullName)
-            ?? (!fullName.Contains(value: '.')
-                ? _routines.GetValueOrDefault(key: $"Core.{fullName}")
-                : null);
+        RoutineInfo? routine = _routines.GetValueOrDefault(key: fullName) ??
+                               _routineResolutions.GetValueOrDefault(key: fullName) ??
+                               _routinesByQualifiedName.GetValueOrDefault(key: fullName) ??
+                               (!fullName.Contains(value: '.')
+                                   ? _routines.GetValueOrDefault(key: $"Core.{fullName}")
+                                   : null);
 
-        if (routine == null) return null;
-        return isFailable != null && routine.IsFailable != isFailable.Value ? null : routine;
+        if (routine == null)
+        {
+            return null;
+        }
+
+        return isFailable != null && routine.IsFailable != isFailable.Value
+            ? null
+            : routine;
     }
 
     /// <summary>
@@ -402,19 +482,20 @@ public sealed partial class TypeRegistry
         // Fast path: the primary _routines index covers the common case; fall back to a Core prefix
         // and finally a targeted linear scan for codegen short-name lookups.
         if (_routines.TryGetValue(key: name, value: out RoutineInfo? found) &&
-            found.OwnerType == null &&
-            (isFailable == null || found.IsFailable == isFailable))
+            found.OwnerType == null && (isFailable == null || found.IsFailable == isFailable))
+        {
             return found;
+        }
 
         if (_routines.TryGetValue(key: $"Core.{name}", value: out found) &&
-            found.OwnerType == null &&
-            (isFailable == null || found.IsFailable == isFailable))
+            found.OwnerType == null && (isFailable == null || found.IsFailable == isFailable))
+        {
             return found;
+        }
 
         // Fallback: targeted linear scan (rare; used only by codegen short-name lookups)
-        return _routines.Values.FirstOrDefault(routine =>
-            routine.Name == name &&
-            routine.OwnerType == null &&
+        return _routines.Values.FirstOrDefault(predicate: routine =>
+            routine.Name == name && routine.OwnerType == null &&
             (isFailable == null || routine.IsFailable == isFailable));
     }
 
@@ -428,15 +509,26 @@ public sealed partial class TypeRegistry
     {
         List<RoutineInfo> candidates = GenericFreeFunctions(name: name);
         if (candidates.Count == 0)
+        {
             return null;
+        }
 
         // Prefer non-variadic overloads matching the preferred arity first.
         RoutineInfo? arityMismatch = null;
         RoutineInfo? variadicFallback = null;
         foreach (RoutineInfo routine in candidates)
         {
-            if (routine.IsVariadic) { variadicFallback ??= routine; continue; }
-            if (preferredArity < 0 || routine.Parameters.Count == preferredArity) return routine;
+            if (routine.IsVariadic)
+            {
+                variadicFallback ??= routine;
+                continue;
+            }
+
+            if (preferredArity < 0 || routine.Parameters.Count == preferredArity)
+            {
+                return routine;
+            }
+
             arityMismatch ??= routine;
         }
 
@@ -448,7 +540,10 @@ public sealed partial class TypeRegistry
     /// Backed by <see cref="GenericFreeFunctions"/>, which scans the FreeOwnerKey store.
     /// </summary>
     public RoutineInfo? LookupVariadicGenericOverload(string name)
-        => GenericFreeFunctions(name: name).FirstOrDefault(routine => routine.IsVariadic);
+    {
+        return GenericFreeFunctions(name: name)
+           .FirstOrDefault(predicate: routine => routine.IsVariadic);
+    }
 
     /// <summary>
     /// Updates a routine with resolved parameters and return type.
@@ -515,24 +610,30 @@ public sealed partial class TypeRegistry
         // Update the routines-by-owner index if this is a memberRoutine
         if (routine.OwnerType != null)
         {
-            UpdateRoutineByOwnerIndex(routine: routine, updatedRoutine: updatedRoutine, baseName: baseName);
+            UpdateRoutineByOwnerIndex(routine: routine,
+                updatedRoutine: updatedRoutine,
+                baseName: baseName);
         }
 
         // Update the free-function overload entry (now under FreeOwnerKey) — replace old instance by reference
         if (updatedRoutine.OwnerType == null)
         {
-            UpdateFreeRoutineOverload(routine: routine, updatedRoutine: updatedRoutine, baseName: baseName);
+            UpdateFreeRoutineOverload(routine: routine,
+                updatedRoutine: updatedRoutine,
+                baseName: baseName);
         }
     }
 
     /// <summary>Replaces the by-owner overload-list entry for a re-resolved member routine in place.</summary>
-    private void UpdateRoutineByOwnerIndex(RoutineInfo routine, RoutineInfo updatedRoutine, string baseName)
+    private void UpdateRoutineByOwnerIndex(RoutineInfo routine, RoutineInfo updatedRoutine,
+        string baseName)
     {
         string ownerKey = routine.OwnerType is GenericParameterTypeInfo
             ? GenericOwnerKey
             : routine.OwnerType!.FullName;
-        if (_routinesByOwner.TryGetValue(key: ownerKey, value: out Dictionary<string, List<RoutineInfo>>? byName)
-            && byName.TryGetValue(key: baseName, value: out List<RoutineInfo>? list))
+        if (_routinesByOwner.TryGetValue(key: ownerKey,
+                value: out Dictionary<string, List<RoutineInfo>>? byName) &&
+            byName.TryGetValue(key: baseName, value: out List<RoutineInfo>? list))
         {
             int index = list.FindIndex(match: r => r.BaseName == baseName);
             if (index >= 0)
@@ -543,15 +644,23 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>Replaces the FreeOwnerKey overload-list entry (by reference) for a re-resolved free routine.</summary>
-    private void UpdateFreeRoutineOverload(RoutineInfo routine, RoutineInfo updatedRoutine, string baseName)
+    private void UpdateFreeRoutineOverload(RoutineInfo routine, RoutineInfo updatedRoutine,
+        string baseName)
     {
         if (FreeOverloads(baseName: baseName) is not { } overloadList)
+        {
             return;
-        int idx = overloadList.FindIndex(match: r => ReferenceEquals(r, routine));
+        }
+
+        int idx = overloadList.FindIndex(match: r => ReferenceEquals(objA: r, objB: routine));
         if (idx >= 0)
+        {
             overloadList[index: idx] = updatedRoutine;
+        }
         else if (!overloadList.Contains(item: updatedRoutine))
+        {
             overloadList.Add(item: updatedRoutine);
+        }
     }
 
     /// <summary>
@@ -563,7 +672,11 @@ public sealed partial class TypeRegistry
     private static void UnifyReceiverGenerics(TypeInfo pattern, TypeInfo concrete,
         List<string>? genericParams, Dictionary<string, TypeInfo> into)
     {
-        if (genericParams is not { Count: > 0 }) return;
+        if (genericParams is not { Count: > 0 })
+        {
+            return;
+        }
+
         if (pattern is GenericParameterTypeInfo gp)
         {
             if (genericParams.Contains(item: gp.Name) && !into.ContainsKey(key: gp.Name) &&
@@ -571,15 +684,19 @@ public sealed partial class TypeRegistry
             {
                 into[key: gp.Name] = concrete;
             }
+
             return;
         }
+
         if (pattern.TypeArguments is { Count: > 0 } pArgs &&
             concrete.TypeArguments is { Count: > 0 } cArgs)
         {
             for (int i = 0; i < pArgs.Count && i < cArgs.Count; i++)
             {
-                UnifyReceiverGenerics(pattern: pArgs[index: i], concrete: cArgs[index: i],
-                    genericParams: genericParams, into: into);
+                UnifyReceiverGenerics(pattern: pArgs[index: i],
+                    concrete: cArgs[index: i],
+                    genericParams: genericParams,
+                    into: into);
             }
         }
     }
@@ -593,13 +710,15 @@ public sealed partial class TypeRegistry
     /// <param name="b">Second routine to compare.</param>
     private static bool SameMeConstraintSet(RoutineInfo a, RoutineInfo b)
     {
-        static List<string> MeGates(RoutineInfo r) =>
-            (r.GenericConstraints ?? [])
-            .Where(predicate: c => c.ParameterName == "Me")
-            .Select(selector: c =>
-                $"{c.ConstraintType}:{string.Join(separator: ",", values: (c.ConstraintTypes ?? []).Select(selector: t => t.Name))}")
-            .OrderBy(keySelector: s => s, comparer: StringComparer.Ordinal)
-            .ToList();
+        static List<string> MeGates(RoutineInfo r)
+        {
+            return (r.GenericConstraints ?? []).Where(predicate: c => c.ParameterName == "Me")
+                                               .Select(selector: c =>
+                                                    $"{c.ConstraintType}:{string.Join(separator: ",", values: (c.ConstraintTypes ?? []).Select(selector: t => t.Name))}")
+                                               .OrderBy(keySelector: s => s,
+                                                    comparer: StringComparer.Ordinal)
+                                               .ToList();
+        }
 
         List<string> ga = MeGates(r: a);
         List<string> gb = MeGates(r: b);
@@ -619,10 +738,9 @@ public sealed partial class TypeRegistry
         int bestScore = -1;
         foreach (RoutineInfo candidate in candidates)
         {
-            List<GenericConstraintDeclaration> meConstraints =
-                candidate.GenericConstraints?
-                    .Where(predicate: c => c.ParameterName == "Me")
-                    .ToList() ?? [];
+            List<GenericConstraintDeclaration> meConstraints = candidate.GenericConstraints
+              ?.Where(predicate: c => c.ParameterName == "Me")
+               .ToList() ?? [];
             if (!meConstraints.All(predicate: c =>
                     ImplementerSatisfiesConstraint(implementer: implementer, constraint: c)))
             {
@@ -654,10 +772,14 @@ public sealed partial class TypeRegistry
     /// gate is permissive by design (like the other kind gates); the concrete type-argument consistency
     /// is enforced by generic inference + body type-checking.
     /// </summary>
-    private static bool SatisfiesMarkerProtocolReflexively(TypeInfo implementer, string protocolName)
+    private static bool SatisfiesMarkerProtocolReflexively(TypeInfo implementer,
+        string protocolName)
     {
         if (!RuntimeContract.IsMarkerProtocol(baseName: protocolName))
+        {
             return false;
+        }
+
         return implementer is not EntityTypeInfo and not ProtocolTypeInfo;
     }
 
@@ -723,28 +845,38 @@ public sealed partial class TypeRegistry
     /// _routinesByOwner — the by-name resolution path that replaced the old separate _universalMemberRoutines index.
     /// First overload wins (matching the prior first-registration-wins TryAdd).</summary>
     private RoutineInfo? DefaultMemberRoutine(string memberRoutineName)
-        => _routinesByOwner.TryGetValue(key: GenericOwnerKey,
-               value: out Dictionary<string, List<RoutineInfo>>? byName)
-           && byName.TryGetValue(key: memberRoutineName, value: out List<RoutineInfo>? list)
-           && list.Count > 0
+    {
+        return _routinesByOwner.TryGetValue(key: GenericOwnerKey,
+                   value: out Dictionary<string, List<RoutineInfo>>? byName) &&
+               byName.TryGetValue(key: memberRoutineName, value: out List<RoutineInfo>? list) &&
+               list.Count > 0
             ? list[index: 0]
             : null;
+    }
 
     /// <summary>The free-function (owner-less) overload list for <paramref name="baseName"/>, or null —
     /// stored under the canonical FreeOwnerKey in _routinesByOwner (replaced the old _routineOverloads).</summary>
     private List<RoutineInfo>? FreeOverloads(string baseName)
-        => _routinesByOwner.TryGetValue(key: FreeOwnerKey, value: out Dictionary<string, List<RoutineInfo>>? byName)
-           && byName.TryGetValue(key: baseName, value: out List<RoutineInfo>? list)
+    {
+        return _routinesByOwner.TryGetValue(key: FreeOwnerKey,
+                   value: out Dictionary<string, List<RoutineInfo>>? byName) &&
+               byName.TryGetValue(key: baseName, value: out List<RoutineInfo>? list)
             ? list
             : null;
+    }
 
     /// <summary>Generic-definition free functions with the bare name <paramref name="name"/> — filtered off
     /// the FreeOwnerKey store (which is keyed by BaseName = Module.Name), replacing the old separate
     /// _genericFreeFunctions by-Name index. Matches the old semantics (all modules' same-named generics).</summary>
     private List<RoutineInfo> GenericFreeFunctions(string name)
-        => _routinesByOwner.TryGetValue(key: FreeOwnerKey, value: out Dictionary<string, List<RoutineInfo>>? byName)
-            ? OwnerMemberRoutines(byName: byName).Where(predicate: r => r.Name == name && r.IsGenericDefinition).ToList()
+    {
+        return _routinesByOwner.TryGetValue(key: FreeOwnerKey,
+            value: out Dictionary<string, List<RoutineInfo>>? byName)
+            ? OwnerMemberRoutines(byName: byName)
+             .Where(predicate: r => r.Name == name && r.IsGenericDefinition)
+             .ToList()
             : [];
+    }
 
     /// <summary>
     /// All non-variadic generic free-routine overloads of <paramref name="name"/> whose parameter
@@ -753,9 +885,11 @@ public sealed partial class TypeRegistry
     /// overload resolution tries each candidate's type-argument inference to pick the one that unifies.
     /// </summary>
     public List<RoutineInfo> GenericOverloadsByArity(string name, int arity)
-        => GenericFreeFunctions(name: name)
-            .Where(predicate: r => !r.IsVariadic && r.Parameters.Count == arity)
-            .ToList();
+    {
+        return GenericFreeFunctions(name: name)
+              .Where(predicate: r => !r.IsVariadic && r.Parameters.Count == arity)
+              .ToList();
+    }
 
     /// <summary>
     /// Registers an auto-derive template body for <paramref name="memberRoutine"/>, keyed by
@@ -772,7 +906,8 @@ public sealed partial class TypeRegistry
         List<GenericConstraintDeclaration>? constraints, Statement body)
     {
         if (!_deriveTemplates.TryGetValue(key: memberRoutine,
-                value: out List<(string, int, List<GenericConstraintDeclaration>, Statement)>? list))
+                value: out
+                List<(string, int, List<GenericConstraintDeclaration>, Statement)>? list))
         {
             list = [];
             _deriveTemplates[key: memberRoutine] = list;
@@ -784,14 +919,20 @@ public sealed partial class TypeRegistry
         // (different gates) and, for `hash`, the fast `hash()` vs keyed `hash(k0, k1)` forms
         // (different arity, same gates).
         if (list.Any(predicate: e => e.Item2 == arity && DeriveGateKey(gates: e.Item3) == gateKey))
+        {
             return; // already captured (re-run across passes)
+        }
+
         list.Add(item: (ownerParam, arity, gates, body));
     }
 
     /// <summary>True when a universal auto-derive template (<c>@overridable routine T.&lt;name&gt;()</c>) is
     /// registered for <paramref name="name"/> — i.e. a body exists for the everywhere-derive registration to
     /// fill. Guards generic stub registration so a member with no universal body is never stubbed.</summary>
-    public bool HasDeriveTemplate(string name) => _deriveTemplates.ContainsKey(key: name);
+    public bool HasDeriveTemplate(string name)
+    {
+        return _deriveTemplates.ContainsKey(key: name);
+    }
 
     /// <summary>
     /// Selects the most-specific auto-derive template for <paramref name="forType"/>: among the
@@ -806,8 +947,11 @@ public sealed partial class TypeRegistry
         TypeInfo forType)
     {
         if (!_deriveTemplates.TryGetValue(key: name,
-                value: out List<(string, int, List<GenericConstraintDeclaration>, Statement)>? list))
+                value: out
+                List<(string, int, List<GenericConstraintDeclaration>, Statement)>? list))
+        {
             return null;
+        }
 
         (string, Statement)? best = null;
         int bestScore = -1;
@@ -815,10 +959,16 @@ public sealed partial class TypeRegistry
                      Statement body) in list)
         {
             if (tArity != arity)
+            {
                 continue;
+            }
+
             if (!gates.All(predicate: g =>
                     ImplementerSatisfiesConstraint(implementer: forType, constraint: g)))
+            {
                 continue;
+            }
+
             if (gates.Count > bestScore)
             {
                 bestScore = gates.Count;
@@ -833,66 +983,94 @@ public sealed partial class TypeRegistry
     /// per-type derive selection. Obeys/other constraints are ignored for gating.</summary>
     private static List<GenericConstraintDeclaration> DeriveKindGates(
         List<GenericConstraintDeclaration>? constraints)
-        => (constraints ?? [])
-            .Where(predicate: c => c.ConstraintType is ConstraintKind.VariantType
-                or ConstraintKind.ChoiceType or ConstraintKind.FlagsType
-                or ConstraintKind.TupleType or ConstraintKind.RecordType
-                or ConstraintKind.EntityType or ConstraintKind.RoutineType
-                or ConstraintKind.Crashable or ConstraintKind.RedirectType)
-            .ToList();
+    {
+        return (constraints ?? []).Where(predicate: c =>
+                                       c.ConstraintType is ConstraintKind.VariantType
+                                           or ConstraintKind.ChoiceType or ConstraintKind.FlagsType
+                                           or ConstraintKind.TupleType or ConstraintKind.RecordType
+                                           or ConstraintKind.EntityType
+                                           or ConstraintKind.RoutineType
+                                           or ConstraintKind.Crashable
+                                           or ConstraintKind.RedirectType)
+                                  .ToList();
+    }
 
     private static string DeriveGateKey(List<GenericConstraintDeclaration> gates)
-        => string.Join(separator: "&",
-            values: gates
-                .Select(selector: c => c.ConstraintType.ToString())
-                .OrderBy(keySelector: s => s, comparer: StringComparer.Ordinal));
+    {
+        return string.Join(separator: "&",
+            values: gates.Select(selector: c => c.ConstraintType.ToString())
+                         .OrderBy(keySelector: s => s, comparer: StringComparer.Ordinal));
+    }
 
     /// <summary>Looks up a memberRoutine on a type, returning a fully-resolved <see cref="RoutineInfo"/> with type parameters substituted for generic owners and protocol memberRoutines.</summary>
     /// <param name="type">The type to search.</param>
     /// <param name="memberRoutineName">The memberRoutine name to look up.</param>
     /// <param name="isFailable">Filter by failability; null = accept either.</param>
     /// <param name="forImplementer">Concrete implementer for protocol memberRoutine substitution.</param>
-    public RoutineInfo? LookupMemberRoutine(TypeInfo type, string memberRoutineName, bool? isFailable = null,
-        TypeInfo? forImplementer = null)
+    public RoutineInfo? LookupMemberRoutine(TypeInfo type, string memberRoutineName,
+        bool? isFailable = null, TypeInfo? forImplementer = null)
     {
         // Transparent-protocol unwrap: Accessing[X] / Controlling[X] are markers that dispatch every
         // memberRoutine to X — recurse on the inner type if matched.
         RoutineInfo? viaMarker = TryLookupViaMarkerProtocol(type: type,
-            memberRoutineName: memberRoutineName, isFailable: isFailable);
-        if (viaMarker != null) return viaMarker;
+            memberRoutineName: memberRoutineName,
+            isFailable: isFailable);
+        if (viaMarker != null)
+        {
+            return viaMarker;
+        }
 
         // First check the type's own memberRoutines (O(1) by name via the nested store)
-        if (LookupOwnMemberRoutine(type: type, memberRoutineName: memberRoutineName,
-                isFailable: isFailable, forImplementer: forImplementer) is { } ownMatch)
+        if (LookupOwnMemberRoutine(type: type,
+                memberRoutineName: memberRoutineName,
+                isFailable: isFailable,
+                forImplementer: forImplementer) is { } ownMatch)
+        {
             return ownMatch;
+        }
 
         // On-demand failable-variant synthesis: placed RIGHT AFTER the own-routine miss and BEFORE the
         // protocol / generic-resolution / wrapper fallbacks below — several of those `return` a (possibly
         // null) result and would short-circuit past a miss handler at the tail.
         RoutineInfo? synthesizedVariant = TryOnDemandVariantSynthesis(type: type,
-            memberRoutineName: memberRoutineName, isFailable: isFailable);
-        if (synthesizedVariant != null) return synthesizedVariant;
+            memberRoutineName: memberRoutineName,
+            isFailable: isFailable);
+        if (synthesizedVariant != null)
+        {
+            return synthesizedVariant;
+        }
 
         // For protocol types, check the protocol's memberRoutine signatures
         if (type is ProtocolTypeInfo proto)
         {
             RoutineInfo? protoResult = LookupProtocolOwnMemberRoutine(proto: proto,
-                memberRoutineName: memberRoutineName, isFailable: isFailable);
-            if (protoResult != null) return protoResult;
+                memberRoutineName: memberRoutineName,
+                isFailable: isFailable);
+            if (protoResult != null)
+            {
+                return protoResult;
+            }
         }
 
         // For resolved generics, check the generic definition's memberRoutines
         if (type.IsGenericResolution)
         {
             RoutineInfo? genericResult = LookupGenericResolutionMemberRoutine(type: type,
-                memberRoutineName: memberRoutineName, isFailable: isFailable);
-            if (genericResult != null) return genericResult;
+                memberRoutineName: memberRoutineName,
+                isFailable: isFailable);
+            if (genericResult != null)
+            {
+                return genericResult;
+            }
         }
 
         // Fallback: a default-impl member routine on a bare generic-param owner (routine T.m()),
         // found under the canonical GenericOwnerKey and substituted onto the concrete receiver.
         if (DefaultMemberRoutine(memberRoutineName: memberRoutineName) is { } defaultMember)
-            return SubstituteMemberRoutineForOwner(memberRoutine: defaultMember, resolvedOwner: type);
+        {
+            return SubstituteMemberRoutineForOwner(memberRoutine: defaultMember,
+                resolvedOwner: type);
+        }
 
         // Generic parameter receivers route through caller-supplied constraints — see
         // LookupMemberRoutineViaConstraints below. The plain LookupMemberRoutine path has no routine
@@ -907,8 +1085,11 @@ public sealed partial class TypeRegistry
         };
         if (protocols != null)
         {
-            return LookupMemberRoutineViaImplementedProtocols(type: type, protocols: protocols,
-                memberRoutineName: memberRoutineName, forImplementer: forImplementer, isFailable: isFailable);
+            return LookupMemberRoutineViaImplementedProtocols(type: type,
+                protocols: protocols,
+                memberRoutineName: memberRoutineName,
+                forImplementer: forImplementer,
+                isFailable: isFailable);
         }
 
         // WrapperTypeInfo (Viewing/Modifying/Consulting/Amending/Guarded/Witnessed)
@@ -924,12 +1105,16 @@ public sealed partial class TypeRegistry
         // not to T directly. Falling through here would dispatch an inner-T memberRoutine with
         // the controller pointer as receiver, corrupting the strong/weak count fields.
         // The forwarder-synthesis path emits the correct double-indirection body instead.
-        if (type is WrapperTypeInfo { Name: RuntimeContract.Viewing
-                or RuntimeContract.Modifying or RuntimeContract.Consulting or RuntimeContract.Amending or RuntimeContract.Guarded or RuntimeContract.Witnessed
+        if (type is WrapperTypeInfo
+            {
+                Name: RuntimeContract.Viewing or RuntimeContract.Modifying
+                or RuntimeContract.Consulting or RuntimeContract.Amending
+                or RuntimeContract.Guarded or RuntimeContract.Witnessed
             } forwardingWrapper)
         {
             return LookupMemberRoutine(type: forwardingWrapper.InnerType,
-                memberRoutineName: memberRoutineName, isFailable: isFailable);
+                memberRoutineName: memberRoutineName,
+                isFailable: isFailable);
         }
 
         return null;
@@ -944,14 +1129,23 @@ public sealed partial class TypeRegistry
     /// iterator at SA time, producing spurious "no resolved member routine" warnings during
     /// generic monomorphization.
     /// </summary>
-    private RoutineInfo? TryLookupViaMarkerProtocol(TypeInfo type, string memberRoutineName, bool? isFailable)
+    private RoutineInfo? TryLookupViaMarkerProtocol(TypeInfo type, string memberRoutineName,
+        bool? isFailable)
     {
         if (type is not ProtocolTypeInfo { TypeArguments: { Count: 1 } markerArgs } markerProto)
+        {
             return null;
+        }
+
         string markerBase = (markerProto.GenericDefinition ?? markerProto).BareName;
-        if (!RuntimeContract.IsMarkerProtocol(baseName: markerBase)) return null;
+        if (!RuntimeContract.IsMarkerProtocol(baseName: markerBase))
+        {
+            return null;
+        }
+
         return LookupMemberRoutine(type: markerArgs[index: 0],
-            memberRoutineName: memberRoutineName, isFailable: isFailable);
+            memberRoutineName: memberRoutineName,
+            isFailable: isFailable);
     }
 
     /// <summary>
@@ -959,18 +1153,26 @@ public sealed partial class TypeRegistry
     /// right prefix and the synthesizer hook is installed. The re-entry guard prevents the
     /// synthesizer's own lookups from recursing into this hook.
     /// </summary>
-    private RoutineInfo? TryOnDemandVariantSynthesis(TypeInfo type, string memberRoutineName, bool? isFailable)
+    private RoutineInfo? TryOnDemandVariantSynthesis(TypeInfo type, string memberRoutineName,
+        bool? isFailable)
     {
-        if (OnDemandVariantSynthesizer == null || _inVariantSynthesis
-            || !HasFailableVariantPrefix(name: memberRoutineName))
+        if (OnDemandVariantSynthesizer == null || _inVariantSynthesis ||
+            !HasFailableVariantPrefix(name: memberRoutineName))
+        {
             return null;
+        }
 
         _inVariantSynthesis = true;
         try
         {
-            RoutineInfo? synthesized = OnDemandVariantSynthesizer(arg1: type, arg2: memberRoutineName);
-            if (synthesized != null && (isFailable == null || synthesized.IsFailable == isFailable))
+            RoutineInfo? synthesized =
+                OnDemandVariantSynthesizer(arg1: type, arg2: memberRoutineName);
+            if (synthesized != null &&
+                (isFailable == null || synthesized.IsFailable == isFailable))
+            {
                 return synthesized;
+            }
+
             return null;
         }
         finally
@@ -988,11 +1190,15 @@ public sealed partial class TypeRegistry
     {
         ProtocolMemberRoutineInfo? protoMemberRoutine =
             proto.MemberRoutines.FirstOrDefault(predicate: m =>
-                m.Name == memberRoutineName &&
-                (isFailable == null || m.IsFailable == isFailable));
-        if (protoMemberRoutine == null) return null;
+                m.Name == memberRoutineName && (isFailable == null || m.IsFailable == isFailable));
+        if (protoMemberRoutine == null)
+        {
+            return null;
+        }
+
         return SynthesizeProtocolMemberRoutine(proto: proto,
-            protoMemberRoutine: protoMemberRoutine, ownerType: proto);
+            protoMemberRoutine: protoMemberRoutine,
+            ownerType: proto);
     }
 
     /// <summary>
@@ -1016,10 +1222,14 @@ public sealed partial class TypeRegistry
             WrapperTypeInfo wt => LookupType(name: wt.Name),
             _ => null
         };
-        if (genericDef == null) return null;
+        if (genericDef == null)
+        {
+            return null;
+        }
 
-        RoutineInfo? genericMemberRoutine =
-            LookupMemberRoutine(type: genericDef, memberRoutineName: memberRoutineName, isFailable: isFailable);
+        RoutineInfo? genericMemberRoutine = LookupMemberRoutine(type: genericDef,
+            memberRoutineName: memberRoutineName,
+            isFailable: isFailable);
         // Skip the generic-def → concrete substitution path when the inner lookup
         // resolved via the universal-memberRoutine fallback (e.g. `T.hijack()`). In that
         // case `genericMemberRoutine` already has its universal T baked to the generic-def
@@ -1032,8 +1242,10 @@ public sealed partial class TypeRegistry
         if (genericMemberRoutine != null &&
             genericMemberRoutine.GenericDefinition?.OwnerType is not GenericParameterTypeInfo)
         {
-            return SubstituteMemberRoutineForOwner(memberRoutine: genericMemberRoutine, resolvedOwner: type);
+            return SubstituteMemberRoutineForOwner(memberRoutine: genericMemberRoutine,
+                resolvedOwner: type);
         }
+
         return null;
     }
 
@@ -1059,9 +1271,11 @@ public sealed partial class TypeRegistry
     private bool _inVariantSynthesis;
 
     private static bool HasFailableVariantPrefix(string name)
-        => name.StartsWith(value: "try_", comparisonType: StringComparison.Ordinal)
-           || name.StartsWith(value: "check_", comparisonType: StringComparison.Ordinal)
-           || name.StartsWith(value: "lookup_", comparisonType: StringComparison.Ordinal);
+    {
+        return name.StartsWith(value: "try_", comparisonType: StringComparison.Ordinal) ||
+               name.StartsWith(value: "check_", comparisonType: StringComparison.Ordinal) ||
+               name.StartsWith(value: "lookup_", comparisonType: StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Resolves a memberRoutine through <paramref name="type"/>'s implemented protocols' default
@@ -1071,7 +1285,8 @@ public sealed partial class TypeRegistry
     /// (the found routine or null) — mirroring the original terminal `return null`.
     /// </summary>
     private RoutineInfo? LookupMemberRoutineViaImplementedProtocols(TypeInfo type,
-        List<TypeInfo> protocols, string memberRoutineName, TypeInfo? forImplementer, bool? isFailable)
+        List<TypeInfo> protocols, string memberRoutineName, TypeInfo? forImplementer,
+        bool? isFailable)
     {
         // Retained/Tracked obey `Controlling[T]`. The recursive LookupMemberRoutine call on a
         // `Controlling[X]` protocol triggers the marker-protocol unwrap at the top of this
@@ -1092,7 +1307,7 @@ public sealed partial class TypeRegistry
         bool skipProtocols = recBaseName is RuntimeContract.Retained or RuntimeContract.Tracked;
         if (!skipProtocols)
         {
-            foreach (var protocol in protocols)
+            foreach (TypeInfo protocol in protocols)
             {
                 // Thread the concrete implementer so a protocol with several `needs`-gated
                 // default bodies dispatches to the kind-matched one (within-dispatch).
@@ -1103,11 +1318,17 @@ public sealed partial class TypeRegistry
                 // `Iterable[T].first` default anyway, shadowing the own method (whose iterating body leaks an
                 // abstract Emittable[T] into codegen). Respecting isFailable makes the probe miss here and the
                 // failable retry find the own method.
-                var res = LookupMemberRoutine(type: protocol, memberRoutineName: memberRoutineName,
-                    forImplementer: forImplementer ?? type, isFailable: isFailable);
-                if (res != null) return res;
+                RoutineInfo? res = LookupMemberRoutine(type: protocol,
+                    memberRoutineName: memberRoutineName,
+                    forImplementer: forImplementer ?? type,
+                    isFailable: isFailable);
+                if (res != null)
+                {
+                    return res;
+                }
             }
         }
+
         return null;
     }
 
@@ -1120,14 +1341,17 @@ public sealed partial class TypeRegistry
     private RoutineInfo? LookupOwnMemberRoutine(TypeInfo type, string memberRoutineName,
         bool? isFailable, TypeInfo? forImplementer)
     {
-        if (!_routinesByOwner.TryGetValue(key: RealmRegistryKey(type: type), value: out Dictionary<string, List<RoutineInfo>>? ownByName)
-            || !ownByName.TryGetValue(key: memberRoutineName, value: out List<RoutineInfo>? memberRoutines))
+        if (!_routinesByOwner.TryGetValue(key: RealmRegistryKey(type: type),
+                value: out Dictionary<string, List<RoutineInfo>>? ownByName) ||
+            !ownByName.TryGetValue(key: memberRoutineName,
+                value: out List<RoutineInfo>? memberRoutines))
         {
             return null;
         }
 
-        List<RoutineInfo> nameMatches = memberRoutines.Where(predicate: m =>
-            isFailable == null || m.IsFailable == isFailable).ToList();
+        var nameMatches = memberRoutines.Where(predicate: m =>
+                                             isFailable == null || m.IsFailable == isFailable)
+                                        .ToList();
 
         // A routine's identity is (declaration-name, parameter-types). NAME ALONE cannot pin a
         // unique overload once >1 same-name routine is registered — so a name-only lookup here must
@@ -1143,22 +1367,27 @@ public sealed partial class TypeRegistry
         if (nameMatches.Count > 1)
         {
             memberRoutine = forImplementer != null
-                ? SelectMostSpecificForImplementer(candidates: nameMatches, implementer: forImplementer)
+                ? SelectMostSpecificForImplementer(candidates: nameMatches,
+                    implementer: forImplementer)
                 : null;
         }
         else
         {
             memberRoutine = nameMatches.FirstOrDefault();
         }
+
         if (memberRoutine != null)
         {
             bool shouldNormalizeConcreteOwner =
-                (type.IsGenericResolution || type is WrapperTypeInfo { TypeArguments: { Count: > 0 } }) &&
-                (memberRoutine.OwnerType is { IsGenericDefinition: true } ||
-                 memberRoutine.IsGenericDefinition);
+                (type.IsGenericResolution || type is WrapperTypeInfo
+                {
+                    TypeArguments: { Count: > 0 }
+                }) && (memberRoutine.OwnerType is { IsGenericDefinition: true } ||
+                       memberRoutine.IsGenericDefinition);
             if (shouldNormalizeConcreteOwner)
             {
-                return SubstituteMemberRoutineForOwner(memberRoutine: memberRoutine, resolvedOwner: type);
+                return SubstituteMemberRoutineForOwner(memberRoutine: memberRoutine,
+                    resolvedOwner: type);
             }
 
             return memberRoutine;
@@ -1180,16 +1409,23 @@ public sealed partial class TypeRegistry
     {
         foreach (GenericConstraintDeclaration c in constraints)
         {
-            if (c.ParameterName != param.Name ||
-                c.ConstraintType != ConstraintKind.Obeys ||
+            if (c.ParameterName != param.Name || c.ConstraintType != ConstraintKind.Obeys ||
                 c.ConstraintTypes == null)
+            {
                 continue;
+            }
+
             foreach (TypeExpression protocolExpr in c.ConstraintTypes)
             {
                 RoutineInfo? hit = LookupMemberRoutineViaProtocolExpr(param: param,
-                    memberRoutineName: memberRoutineName, isFailable: isFailable,
-                    protocolExpr: protocolExpr, protocolResolver: protocolResolver);
-                if (hit != null) return hit;
+                    memberRoutineName: memberRoutineName,
+                    isFailable: isFailable,
+                    protocolExpr: protocolExpr,
+                    protocolResolver: protocolResolver);
+                if (hit != null)
+                {
+                    return hit;
+                }
             }
         }
 
@@ -1201,15 +1437,18 @@ public sealed partial class TypeRegistry
     /// when the expression does not resolve to a protocol or the protocol has no matching member.
     /// </summary>
     private RoutineInfo? LookupMemberRoutineViaProtocolExpr(GenericParameterTypeInfo param,
-        string memberRoutineName, bool? isFailable,
-        TypeExpression protocolExpr, Func<string, TypeInfo?>? protocolResolver)
+        string memberRoutineName, bool? isFailable, TypeExpression protocolExpr,
+        Func<string, TypeInfo?>? protocolResolver)
     {
         // Resolve the constraint's protocol IMPORT-aware (a user protocol like `Greetable`
         // lives in the referring module, not Core) — the bare registry lookup only resolved it
         // via the cross-module short-name scan. Fall back to the bare lookup when no resolver.
-        TypeInfo? proto = protocolResolver?.Invoke(protocolExpr.Name)
-                          ?? LookupType(name: protocolExpr.Name);
-        if (proto is not ProtocolTypeInfo protoInfo) return null;
+        TypeInfo? proto = protocolResolver?.Invoke(arg: protocolExpr.Name) ??
+                          LookupType(name: protocolExpr.Name);
+        if (proto is not ProtocolTypeInfo protoInfo)
+        {
+            return null;
+        }
 
         // Synthesize directly with the generic parameter as ownerType so that
         // Me-self-type slots in the protocol signature substitute to `param`
@@ -1218,21 +1457,26 @@ public sealed partial class TypeRegistry
         // `combine(you: Combinable) -> Combinable` instead of `-> T`.
         ProtocolMemberRoutineInfo? protoMemberRoutine =
             protoInfo.MemberRoutines.FirstOrDefault(predicate: m =>
-                m.Name == memberRoutineName &&
-                (isFailable == null || m.IsFailable == isFailable));
+                m.Name == memberRoutineName && (isFailable == null || m.IsFailable == isFailable));
         if (protoMemberRoutine != null)
+        {
             return SynthesizeProtocolMemberRoutine(proto: protoInfo,
-                protoMemberRoutine: protoMemberRoutine, ownerType: param);
+                protoMemberRoutine: protoMemberRoutine,
+                ownerType: param);
+        }
 
         // Extension memberRoutines (default implementations) declared as
         // `routine Iterable[T].List()` are registered against the protocol's owner
         // table, NOT in `protoInfo.MemberRoutines` (which holds only the abstract signatures).
         // Resolve them through the protocol's generic definition so a generic-parameter
         // receiver (`S obeys Iterable[T]`) can call them.
-        RoutineInfo? extensionMemberRoutine =
-            LookupMemberRoutine(type: protoInfo, memberRoutineName: memberRoutineName, isFailable: isFailable);
+        RoutineInfo? extensionMemberRoutine = LookupMemberRoutine(type: protoInfo,
+            memberRoutineName: memberRoutineName,
+            isFailable: isFailable);
         if (extensionMemberRoutine is { OwnerType: not GenericParameterTypeInfo })
+        {
             return extensionMemberRoutine;
+        }
 
         return null;
     }
@@ -1256,13 +1500,19 @@ public sealed partial class TypeRegistry
             if (RuntimeContract.IsMarkerProtocol(baseName: markerBase))
             {
                 RoutineInfo? viaInner = LookupMemberRoutineOverload(type: markerArgs[index: 0],
-                    memberRoutineName: memberRoutineName, argTypes: argTypes);
-                if (viaInner != null) return viaInner;
+                    memberRoutineName: memberRoutineName,
+                    argTypes: argTypes);
+                if (viaInner != null)
+                {
+                    return viaInner;
+                }
             }
         }
 
         var candidates = new List<RoutineInfo>();
-        CollectMemberRoutineCandidates(type: type, memberRoutineName: memberRoutineName, candidates: candidates);
+        CollectMemberRoutineCandidates(type: type,
+            memberRoutineName: memberRoutineName,
+            candidates: candidates);
 
         // Protocol abstract memberRoutines are never a valid dispatch target on a concrete receiver —
         // RF protocols are abstract-only (no default impls). Including them would let lookup
@@ -1278,7 +1528,9 @@ public sealed partial class TypeRegistry
             return null;
         }
 
-        return MatchMemberOverloadByArgTypes(candidates: candidates, receiverType: type, argTypes: argTypes);
+        return MatchMemberOverloadByArgTypes(candidates: candidates,
+            receiverType: type,
+            argTypes: argTypes);
     }
 
     /// <summary>
@@ -1301,34 +1553,53 @@ public sealed partial class TypeRegistry
         TypeInfo receiverType, List<TypeInfo> argTypes)
     {
         // Tier 1 — exact type-name match (unique by declaration).
-        RoutineInfo? exactMatch = candidates.FirstOrDefault(
-            candidate => OverloadParamsMatch(candidate: candidate, receiverType: receiverType,
-                argTypes: argTypes, match: (arg, param) => param.Name == arg.Name));
+        RoutineInfo? exactMatch = candidates.FirstOrDefault(predicate: candidate =>
+            OverloadParamsMatch(candidate: candidate,
+                receiverType: receiverType,
+                argTypes: argTypes,
+                match: (arg, param) => param.Name == arg.Name));
         if (exactMatch != null)
+        {
             return HomeCandidate(winner: exactMatch, receiverType: receiverType);
+        }
 
         // Tier 2 — assignable match; UNIQUE or null (no first-wins on ambiguity).
         RoutineInfo? assignable = null;
         foreach (RoutineInfo candidate in candidates)
         {
-            if (!OverloadParamsMatch(candidate: candidate, receiverType: receiverType, argTypes: argTypes,
-                    match: (arg, param) => IsMemberRoutineArgumentAssignable(source: arg, target: param)))
+            if (!OverloadParamsMatch(candidate: candidate,
+                    receiverType: receiverType,
+                    argTypes: argTypes,
+                    match: (arg, param) =>
+                        IsMemberRoutineArgumentAssignable(source: arg, target: param)))
+            {
                 continue;
+            }
+
             if (assignable != null && !ReferenceEquals(objA: assignable, objB: candidate))
+            {
                 return null; // ≥2 assignable overloads — genuinely ambiguous.
+            }
+
             assignable = candidate;
         }
-        return assignable != null ? HomeCandidate(winner: assignable, receiverType: receiverType) : null;
+
+        return assignable != null
+            ? HomeCandidate(winner: assignable, receiverType: receiverType)
+            : null;
     }
 
     /// <summary>
     /// Re-homes a universal (generic-param-owner) candidate onto the concrete receiver type.
     /// Non-universal candidates are returned unchanged.
     /// </summary>
-    private RoutineInfo HomeCandidate(RoutineInfo winner, TypeInfo receiverType) =>
-        winner.OwnerType is GenericParameterTypeInfo
-            ? SubstituteMemberRoutineForOwner(memberRoutine: winner, resolvedOwner: receiverType) ?? winner
+    private RoutineInfo HomeCandidate(RoutineInfo winner, TypeInfo receiverType)
+    {
+        return winner.OwnerType is GenericParameterTypeInfo
+            ? SubstituteMemberRoutineForOwner(memberRoutine: winner,
+                resolvedOwner: receiverType) ?? winner
             : winner;
+    }
 
     /// <summary>
     /// Returns true when <paramref name="candidate"/>'s parameters match <paramref name="argTypes"/>
@@ -1338,25 +1609,51 @@ public sealed partial class TypeRegistry
     private static bool OverloadParamsMatch(RoutineInfo candidate, TypeInfo receiverType,
         List<TypeInfo> argTypes, Func<TypeInfo, TypeInfo, bool> match)
     {
-        if (candidate.Parameters.Count != argTypes.Count) return false;
+        if (candidate.Parameters.Count != argTypes.Count)
+        {
+            return false;
+        }
+
         for (int i = 0; i < argTypes.Count; i++)
         {
             TypeInfo paramType = candidate.Parameters[index: i].Type;
-            if (paramType is ProtocolSelfTypeInfo) paramType = receiverType;
-            if (!match(argTypes[index: i], paramType)) return false;
+            if (paramType is ProtocolSelfTypeInfo)
+            {
+                paramType = receiverType;
+            }
+
+            if (!match(arg1: argTypes[index: i], arg2: paramType))
+            {
+                return false;
+            }
         }
+
         return true;
     }
 
     /// <summary>Builds the type-argument substitution map for an instantiated generic protocol (e.g. Iterator[S64]: T→S64). Returns null for non-generic protocols.</summary>
     private static Dictionary<string, TypeInfo>? BuildProtocolSubstitution(ProtocolTypeInfo proto)
     {
-        if (proto.TypeArguments is not { Count: > 0 }) return null;
+        if (proto.TypeArguments is not { Count: > 0 })
+        {
+            return null;
+        }
+
         ProtocolTypeInfo genericDef = proto.GenericDefinition ?? proto;
-        if (genericDef.GenericParameters is not { Count: > 0 }) return null;
+        if (genericDef.GenericParameters is not { Count: > 0 })
+        {
+            return null;
+        }
+
         var substitution = new Dictionary<string, TypeInfo>();
-        for (int i = 0; i < genericDef.GenericParameters.Count && i < proto.TypeArguments.Count; i++)
-            substitution[key: genericDef.GenericParameters[index: i]] = proto.TypeArguments[index: i];
+        for (int i = 0;
+             i < genericDef.GenericParameters.Count && i < proto.TypeArguments.Count;
+             i++)
+        {
+            substitution[key: genericDef.GenericParameters[index: i]] =
+                proto.TypeArguments[index: i];
+        }
+
         return substitution;
     }
 
@@ -1366,27 +1663,45 @@ public sealed partial class TypeRegistry
     {
         TypeInfo? resolvedReturn = protoMemberRoutine.ReturnType;
         if (resolvedReturn != null && substitution != null)
-            resolvedReturn = SubstituteTypeInProtocol(type: resolvedReturn, substitution: substitution);
-        if (resolvedReturn is ProtocolSelfTypeInfo) resolvedReturn = ownerType;
+        {
+            resolvedReturn =
+                SubstituteTypeInProtocol(type: resolvedReturn, substitution: substitution);
+        }
+
+        if (resolvedReturn is ProtocolSelfTypeInfo)
+        {
+            resolvedReturn = ownerType;
+        }
+
         return resolvedReturn;
     }
 
     /// <summary>Builds the parameter list for a synthesized protocol member routine, substituting generics and replacing ProtocolSelf with the concrete owner type.</summary>
-    private List<ParameterInfo> BuildProtocolParameters(ProtocolMemberRoutineInfo protoMemberRoutine,
-        Dictionary<string, TypeInfo>? substitution, TypeInfo ownerType)
+    private List<ParameterInfo> BuildProtocolParameters(
+        ProtocolMemberRoutineInfo protoMemberRoutine, Dictionary<string, TypeInfo>? substitution,
+        TypeInfo ownerType)
     {
         var parameters = new List<ParameterInfo>();
         for (int i = 0; i < protoMemberRoutine.ParameterTypes.Count; i++)
         {
             TypeInfo paramType = protoMemberRoutine.ParameterTypes[index: i];
             if (substitution != null)
+            {
                 paramType = SubstituteTypeInProtocol(type: paramType, substitution: substitution);
-            if (paramType is ProtocolSelfTypeInfo) paramType = ownerType;
+            }
+
+            if (paramType is ProtocolSelfTypeInfo)
+            {
+                paramType = ownerType;
+            }
+
             string paramName = i < protoMemberRoutine.ParameterNames.Count
                 ? protoMemberRoutine.ParameterNames[index: i]
                 : $"arg{i}";
-            parameters.Add(item: new ParameterInfo(name: paramName, type: paramType) { Index = i });
+            parameters.Add(
+                item: new ParameterInfo(name: paramName, type: paramType) { Index = i });
         }
+
         return parameters;
     }
 
@@ -1399,10 +1714,14 @@ public sealed partial class TypeRegistry
         ProtocolMemberRoutineInfo protoMemberRoutine, TypeInfo ownerType)
     {
         Dictionary<string, TypeInfo>? substitution = BuildProtocolSubstitution(proto: proto);
-        TypeInfo? resolvedReturn = ResolveProtocolReturnType(protoMemberRoutine: protoMemberRoutine,
-            substitution: substitution, ownerType: ownerType);
-        List<ParameterInfo> parameters = BuildProtocolParameters(protoMemberRoutine: protoMemberRoutine,
-            substitution: substitution, ownerType: ownerType);
+        TypeInfo? resolvedReturn = ResolveProtocolReturnType(
+            protoMemberRoutine: protoMemberRoutine,
+            substitution: substitution,
+            ownerType: ownerType);
+        List<ParameterInfo> parameters = BuildProtocolParameters(
+            protoMemberRoutine: protoMemberRoutine,
+            substitution: substitution,
+            ownerType: ownerType);
         return new RoutineInfo(name: protoMemberRoutine.Name)
         {
             OwnerType = ownerType,
@@ -1435,18 +1754,22 @@ public sealed partial class TypeRegistry
         };
 
         var substitutedParams = memberRoutine.Parameters
-                                      .Select(selector: p =>
-                                           RoutineInfo.SubstituteParameterType(param: p,
-                                               substitution: substitution))
-                                      .ToList();
+                                             .Select(selector: p =>
+                                                  RoutineInfo.SubstituteParameterType(param: p,
+                                                      substitution: substitution))
+                                             .ToList();
         TypeInfo? substitutedReturn = memberRoutine.ReturnType != null
-            ? RoutineInfo.SubstituteType(type: memberRoutine.ReturnType, substitution: substitution)
+            ? RoutineInfo.SubstituteType(type: memberRoutine.ReturnType,
+                substitution: substitution)
             : null;
-        List<string>? memberRoutineOnlyGenericParams = memberRoutine.GenericParameters?
-            .Where(gp => gp != universalOwner.Name)
-            .ToList();
+        var memberRoutineOnlyGenericParams = memberRoutine.GenericParameters
+                                                         ?.Where(predicate: gp =>
+                                                               gp != universalOwner.Name)
+                                                          .ToList();
         if (memberRoutineOnlyGenericParams?.Count == 0)
+        {
             memberRoutineOnlyGenericParams = null;
+        }
 
         // Keep constraints on the memberRoutine's own generic params, PLUS `in [...]` (TypeEquality)
         // constraints on the OWNER's params (e.g. `Guarded[T, P].amend() needs P in [...]`). The
@@ -1454,12 +1777,17 @@ public sealed partial class TypeRegistry
         // validated here — it is preserved so the call-site verifier can check it against the
         // receiver's bound argument (otherwise a memberRoutine constraint on an inherited param vanishes
         // unchecked).
-        List<GenericConstraintDeclaration>? memberRoutineOnlyConstraints = memberRoutine.GenericConstraints?
-            .Where(c => memberRoutineOnlyGenericParams?.Contains(c.ParameterName) == true
-                || c.ConstraintType == ConstraintKind.TypeEquality)
-            .ToList();
+        var memberRoutineOnlyConstraints = memberRoutine.GenericConstraints
+                                                       ?.Where(predicate: c =>
+                                                             memberRoutineOnlyGenericParams
+                                                               ?.Contains(item: c.ParameterName) ==
+                                                             true || c.ConstraintType ==
+                                                             ConstraintKind.TypeEquality)
+                                                        .ToList();
         if (memberRoutineOnlyConstraints?.Count == 0)
+        {
             memberRoutineOnlyConstraints = null;
+        }
 
         var resolvedUniversalMemberRoutine = new RoutineInfo(name: memberRoutine.Name)
         {
@@ -1484,14 +1812,16 @@ public sealed partial class TypeRegistry
             IsSynthesized = memberRoutine.IsSynthesized,
             TypeArguments = memberRoutine.TypeArguments,
             GenericDefinition = memberRoutine.GenericDefinition ?? memberRoutine,
-            WrapperForwarderInnerMemberRoutine = memberRoutine.WrapperForwarderInnerMemberRoutine,
+            WrapperForwarderInnerMemberRoutine =
+                memberRoutine.WrapperForwarderInnerMemberRoutine,
             WrapperForwarderInnerGenericDef = memberRoutine.WrapperForwarderInnerGenericDef,
             AsyncStatus = memberRoutine.AsyncStatus,
             FailableVariant = memberRoutine.FailableVariant,
             OriginalName = memberRoutine.OriginalName
         };
 
-        return CacheResolvedOwnerMemberRoutine(resolvedMemberRoutine: resolvedUniversalMemberRoutine);
+        return CacheResolvedOwnerMemberRoutine(
+            resolvedMemberRoutine: resolvedUniversalMemberRoutine);
     }
 
     /// <summary>
@@ -1503,17 +1833,17 @@ public sealed partial class TypeRegistry
         TypeInfo resolvedOwner, RoutineInfo innerGenMemberRoutine)
     {
         TypeInfo concreteInner = resolvedOwner.TypeArguments![index: 0];
-        RoutineInfo? concreteInnerMemberRoutine = LookupMemberRoutine(
-            type: concreteInner,
+        RoutineInfo? concreteInnerMemberRoutine = LookupMemberRoutine(type: concreteInner,
             memberRoutineName: innerGenMemberRoutine.Name,
             isFailable: innerGenMemberRoutine.IsFailable);
         if (concreteInnerMemberRoutine != null)
         {
             var fwdParams = concreteInnerMemberRoutine.Parameters
-                .Select(p => p.Name == "me"
-                    ? p.WithSubstitutedType(newType: resolvedOwner)
-                    : p)
-                .ToList();
+                                                      .Select(selector: p => p.Name == "me"
+                                                           ? p.WithSubstitutedType(
+                                                               newType: resolvedOwner)
+                                                           : p)
+                                                      .ToList();
             var resolvedWrapperForwarder = new RoutineInfo(name: memberRoutine.Name)
             {
                 Kind = memberRoutine.Kind,
@@ -1525,7 +1855,7 @@ public sealed partial class TypeRegistry
                 MutationCategory = memberRoutine.MutationCategory,
                 Visibility = memberRoutine.Visibility,
                 Location = memberRoutine.Location,
-            Documentation = memberRoutine.Documentation,
+                Documentation = memberRoutine.Documentation,
                 Module = memberRoutine.Module,
                 ModulePath = memberRoutine.ModulePath,
                 Annotations = memberRoutine.Annotations,
@@ -1542,11 +1872,16 @@ public sealed partial class TypeRegistry
                 OriginalName = memberRoutine.OriginalName,
                 // Propagate memberRoutine-level generic parameters from the concrete inner memberRoutine so
                 // OperatorLoweringPass can monomorphize (e.g. Text.getitem![I] -> [U64]).
-                GenericParameters = concreteInnerMemberRoutine.GenericParameters ?? memberRoutine.GenericParameters,
-                GenericConstraints = concreteInnerMemberRoutine.GenericConstraints ?? memberRoutine.GenericConstraints,
+                GenericParameters =
+                    concreteInnerMemberRoutine.GenericParameters ??
+                    memberRoutine.GenericParameters,
+                GenericConstraints = concreteInnerMemberRoutine.GenericConstraints ??
+                                     memberRoutine.GenericConstraints
             };
-            return CacheResolvedOwnerMemberRoutine(resolvedMemberRoutine: resolvedWrapperForwarder);
+            return CacheResolvedOwnerMemberRoutine(
+                resolvedMemberRoutine: resolvedWrapperForwarder);
         }
+
         // The concrete inner type does not have this forwarded memberRoutine — do not fabricate it.
         return null;
     }
@@ -1555,12 +1890,14 @@ public sealed partial class TypeRegistry
     /// Substitutes the owner type's generic type parameters into a memberRoutine's signature.
     /// For example, List[S32].add(item: T) -> List[S32].add(item: S32).
     /// </summary>
-    internal RoutineInfo? SubstituteMemberRoutineForOwner(RoutineInfo memberRoutine, TypeInfo resolvedOwner)
+    internal RoutineInfo? SubstituteMemberRoutineForOwner(RoutineInfo memberRoutine,
+        TypeInfo resolvedOwner)
     {
         if (memberRoutine.OwnerType is GenericParameterTypeInfo universalOwner)
         {
             return SubstituteUniversalOwnerMemberRoutine(memberRoutine: memberRoutine,
-                resolvedOwner: resolvedOwner, universalOwner: universalOwner);
+                resolvedOwner: resolvedOwner,
+                universalOwner: universalOwner);
         }
 
         // Build substitution map from the resolved owner's generic definition
@@ -1596,8 +1933,10 @@ public sealed partial class TypeRegistry
         // codegen all key on the same name — `Core.List[Agent[S64]].gather`.
         if (memberRoutine.MeType is { } mePattern)
         {
-            UnifyReceiverGenerics(pattern: mePattern, concrete: resolvedOwner,
-                genericParams: memberRoutine.GenericParameters, into: substitution2);
+            UnifyReceiverGenerics(pattern: mePattern,
+                concrete: resolvedOwner,
+                genericParams: memberRoutine.GenericParameters,
+                into: substitution2);
         }
 
         if (substitution2.Count == 0)
@@ -1610,41 +1949,56 @@ public sealed partial class TypeRegistry
         // so {T: List[Character]} would map List[T].getitem!'s T to List[Character], not Character).
         // Note: wrapper types like T may be RecordTypeInfo (declared as `record` in RF),
         // not WrapperTypeInfo, so check TypeArguments.Count rather than the runtime type.
-        if (memberRoutine is { IsSynthesized: true, WrapperForwarderInnerMemberRoutine: { } innerGenMemberRoutine } &&
-            resolvedOwner.TypeArguments is { Count: 1 } && resolvedOwner is not GenericParameterTypeInfo)
+        if (memberRoutine is
+            {
+                IsSynthesized: true, WrapperForwarderInnerMemberRoutine: { } innerGenMemberRoutine
+            } && resolvedOwner.TypeArguments is { Count: 1 } &&
+            resolvedOwner is not GenericParameterTypeInfo)
         {
             return SubstituteWrapperForwarderMemberRoutine(memberRoutine: memberRoutine,
-                resolvedOwner: resolvedOwner, innerGenMemberRoutine: innerGenMemberRoutine);
+                resolvedOwner: resolvedOwner,
+                innerGenMemberRoutine: innerGenMemberRoutine);
         }
 
         // Substitute types in parameters
         var substitutedParams2 = memberRoutine.Parameters
-                                      .Select(selector: p =>
-                                           RoutineInfo.SubstituteParameterType(param: p,
-                                               substitution: substitution2))
-                                      .ToList();
+                                              .Select(selector: p =>
+                                                   RoutineInfo.SubstituteParameterType(param: p,
+                                                       substitution: substitution2))
+                                              .ToList();
 
         // Substitute return type
         TypeInfo? substitutedReturn2 = SubstituteOwnerReturnType(memberRoutine: memberRoutine,
-            genericDef: genericDef, resolvedOwner: resolvedOwner, substitution: substitution2);
+            genericDef: genericDef,
+            resolvedOwner: resolvedOwner,
+            substitution: substitution2);
 
         // Only keep memberRoutine-level generic parameters (owner params are now resolved)
-        List<string>? memberRoutineOnlyGenericParams2 = memberRoutine.GenericParameters?
-            .Where(gp => !substitution2.ContainsKey(gp))
-            .ToList();
+        var memberRoutineOnlyGenericParams2 = memberRoutine.GenericParameters
+                                                          ?.Where(predicate: gp =>
+                                                                !substitution2
+                                                                   .ContainsKey(key: gp))
+                                                           .ToList();
         if (memberRoutineOnlyGenericParams2?.Count == 0)
+        {
             memberRoutineOnlyGenericParams2 = null;
+        }
 
         // Keep memberRoutine-level constraints PLUS owner-param `in [...]` (TypeEquality) constraints, so a
         // memberRoutine constraint on an inherited param (e.g. `Guarded[T, P].amend() needs P in [...]`)
         // survives to be validated at the call site against the receiver's bound argument.
-        List<GenericConstraintDeclaration>? memberRoutineOnlyConstraints2 = memberRoutine
-            .GenericConstraints?
-            .Where(c => memberRoutineOnlyGenericParams2?.Contains(c.ParameterName) == true
-                || c.ConstraintType == ConstraintKind.TypeEquality)
-            .ToList();
+        var memberRoutineOnlyConstraints2 = memberRoutine.GenericConstraints
+                                                        ?.Where(predicate: c =>
+                                                              memberRoutineOnlyGenericParams2
+                                                                ?.Contains(
+                                                                      item: c.ParameterName) ==
+                                                              true || c.ConstraintType ==
+                                                              ConstraintKind.TypeEquality)
+                                                         .ToList();
         if (memberRoutineOnlyConstraints2?.Count == 0)
+        {
             memberRoutineOnlyConstraints2 = null;
+        }
 
         var resolvedOwnerMemberRoutine = new RoutineInfo(name: memberRoutine.Name)
         {
@@ -1690,35 +2044,45 @@ public sealed partial class TypeRegistry
     /// generic definition, returns the concrete owner; otherwise substitutes type arguments and
     /// instantiates any remaining generic-definition return type using the substitution map.
     /// </summary>
-    private static TypeInfo? SubstituteOwnerReturnType(RoutineInfo memberRoutine, TypeInfo? genericDef,
-        TypeInfo resolvedOwner, Dictionary<string, TypeInfo> substitution)
+    private static TypeInfo? SubstituteOwnerReturnType(RoutineInfo memberRoutine,
+        TypeInfo? genericDef, TypeInfo resolvedOwner, Dictionary<string, TypeInfo> substitution)
     {
         // Special case: if return type IS the owner's generic def (e.g. Maybe.store returns Maybe_def),
         // the concrete return type is resolvedOwner itself (Maybe[ListNode[S64]], not Maybe_def).
         TypeInfo? result;
         if (memberRoutine.ReturnType != null && genericDef != null &&
             (ReferenceEquals(objA: memberRoutine.ReturnType, objB: genericDef) ||
-             memberRoutine.ReturnType.Name == genericDef.Name && memberRoutine.ReturnType.IsGenericDefinition))
+             memberRoutine.ReturnType.Name == genericDef.Name &&
+             memberRoutine.ReturnType.IsGenericDefinition))
         {
             result = resolvedOwner;
         }
         else
         {
             result = memberRoutine.ReturnType != null
-                ? RoutineInfo.SubstituteType(type: memberRoutine.ReturnType, substitution: substitution)
+                ? RoutineInfo.SubstituteType(type: memberRoutine.ReturnType,
+                    substitution: substitution)
                 : null;
         }
 
         // If return type is still a generic definition (e.g., track() -> Tracked_def when
         // Tracked[T] was declared), instantiate it using the substitution map.
-        if (result is { IsGenericDefinition: true, GenericParameters: { } retGenericParams } retDef)
+        if (result is
+            { IsGenericDefinition: true, GenericParameters: { } retGenericParams } retDef)
         {
-            var retArgs = retGenericParams
-                .Select(selector: p => substitution.TryGetValue(p, out TypeInfo? subType) ? subType : null)
-                .ToList();
+            var retArgs = retGenericParams.Select(selector: p =>
+                                               substitution.TryGetValue(key: p,
+                                                   value: out TypeInfo? subType)
+                                                   ? subType
+                                                   : null)
+                                          .ToList();
             if (retArgs.All(predicate: a => a != null))
-                result = retDef.CreateInstance(typeArguments: retArgs.Select(selector: a => a!).ToList());
+            {
+                result = retDef.CreateInstance(typeArguments: retArgs.Select(selector: a => a!)
+                   .ToList());
+            }
         }
+
         return result;
     }
 
@@ -1731,7 +2095,9 @@ public sealed partial class TypeRegistry
     /// visible to <c>GenericMonomorphizationPass</c> via <see cref="GetAllRoutineResolutions"/>.
     /// </summary>
     public RoutineInfo RegisterRoutineResolution(RoutineInfo resolvedMemberRoutine)
-        => CacheResolvedOwnerMemberRoutine(resolvedMemberRoutine: resolvedMemberRoutine);
+    {
+        return CacheResolvedOwnerMemberRoutine(resolvedMemberRoutine: resolvedMemberRoutine);
+    }
 
     /// <summary>
     /// Removes a routine resolution entry by its (current) registry key. Used when a
@@ -1740,7 +2106,9 @@ public sealed partial class TypeRegistry
     /// be re-inserted under its new <see cref="RoutineInfo.RegistryKey"/>.
     /// </summary>
     public bool UnregisterRoutineResolution(string oldKey)
-        => _routineResolutions.Remove(key: oldKey);
+    {
+        return _routineResolutions.Remove(key: oldKey);
+    }
 
     private RoutineInfo CacheResolvedOwnerMemberRoutine(RoutineInfo resolvedMemberRoutine)
     {
@@ -1751,8 +2119,8 @@ public sealed partial class TypeRegistry
         // Retained[Node[T_param]]) for subsequent lookups on the resolution. Only honor the cache
         // when the owner type is referentially the same.
         if (_routineResolutions.TryGetValue(key: resolvedMemberRoutine.RegistryKey,
-                value: out RoutineInfo? cached)
-            && ReferenceEquals(objA: cached.OwnerType, objB: resolvedMemberRoutine.OwnerType))
+                value: out RoutineInfo? cached) && ReferenceEquals(objA: cached.OwnerType,
+                objB: resolvedMemberRoutine.OwnerType))
         {
             return cached;
         }
@@ -1770,21 +2138,27 @@ public sealed partial class TypeRegistry
     internal bool HasConcreteMemberOverload(TypeInfo type, string memberRoutineName)
     {
         var candidates = new List<RoutineInfo>();
-        CollectMemberRoutineCandidates(type: type, memberRoutineName: memberRoutineName, candidates: candidates);
+        CollectMemberRoutineCandidates(type: type,
+            memberRoutineName: memberRoutineName,
+            candidates: candidates);
         return candidates.Any(predicate: c => c.OwnerType is not ProtocolTypeInfo);
     }
 
-    internal void CollectMemberRoutineCandidates(TypeInfo type, string memberRoutineName, List<RoutineInfo> candidates)
+    internal void CollectMemberRoutineCandidates(TypeInfo type, string memberRoutineName,
+        List<RoutineInfo> candidates)
     {
-        if (_routinesByOwner.TryGetValue(key: RealmRegistryKey(type: type), value: out Dictionary<string, List<RoutineInfo>>? byName)
-            && byName.TryGetValue(key: memberRoutineName, value: out List<RoutineInfo>? memberRoutines))
+        if (_routinesByOwner.TryGetValue(key: RealmRegistryKey(type: type),
+                value: out Dictionary<string, List<RoutineInfo>>? byName) &&
+            byName.TryGetValue(key: memberRoutineName,
+                value: out List<RoutineInfo>? memberRoutines))
         {
-            candidates.AddRange(memberRoutines);
+            candidates.AddRange(collection: memberRoutines);
         }
 
         if (type is ProtocolTypeInfo proto)
         {
-            foreach (ProtocolMemberRoutineInfo protoMemberRoutine in proto.MemberRoutines.Where(predicate: m => m.Name == memberRoutineName))
+            foreach (ProtocolMemberRoutineInfo protoMemberRoutine in proto.MemberRoutines.Where(
+                         predicate: m => m.Name == memberRoutineName))
             {
                 candidates.Add(item: SynthesizeProtocolMemberRoutine(proto: proto,
                     protoMemberRoutine: protoMemberRoutine,
@@ -1793,7 +2167,11 @@ public sealed partial class TypeRegistry
         }
 
         if (type.IsGenericResolution)
-            CollectGenericResolutionCandidates(type: type, memberRoutineName: memberRoutineName, candidates: candidates);
+        {
+            CollectGenericResolutionCandidates(type: type,
+                memberRoutineName: memberRoutineName,
+                candidates: candidates);
+        }
 
         if (DefaultMemberRoutine(memberRoutineName: memberRoutineName) is { } defaultMember)
         {
@@ -1812,7 +2190,9 @@ public sealed partial class TypeRegistry
         {
             foreach (TypeInfo protocol in protocols)
             {
-                CollectMemberRoutineCandidates(type: protocol, memberRoutineName: memberRoutineName, candidates: candidates);
+                CollectMemberRoutineCandidates(type: protocol,
+                    memberRoutineName: memberRoutineName,
+                    candidates: candidates);
             }
         }
     }
@@ -1832,10 +2212,15 @@ public sealed partial class TypeRegistry
             WrapperTypeInfo wt => LookupType(name: wt.Name),
             _ => null
         };
-        if (genericDef == null) return;
+        if (genericDef == null)
+        {
+            return;
+        }
 
         var genericCandidates = new List<RoutineInfo>();
-        CollectMemberRoutineCandidates(type: genericDef, memberRoutineName: memberRoutineName, candidates: genericCandidates);
+        CollectMemberRoutineCandidates(type: genericDef,
+            memberRoutineName: memberRoutineName,
+            candidates: genericCandidates);
         foreach (RoutineInfo genericCandidate in genericCandidates)
         {
             if (genericCandidate.OwnerType is GenericParameterTypeInfo)
@@ -1844,10 +2229,13 @@ public sealed partial class TypeRegistry
             }
             else
             {
-                RoutineInfo? substituted = SubstituteMemberRoutineForOwner(memberRoutine: genericCandidate,
-                    resolvedOwner: type);
+                RoutineInfo? substituted =
+                    SubstituteMemberRoutineForOwner(memberRoutine: genericCandidate,
+                        resolvedOwner: type);
                 if (substituted != null)
+                {
                     candidates.Add(item: substituted);
+                }
             }
         }
     }
@@ -1871,9 +2259,10 @@ public sealed partial class TypeRegistry
             // when SA emits a call to the wrong overload.
             if (targetProto.TypeArguments is { Count: 1 } pTypeArgs)
             {
-                return pTypeArgs[0].Name == source.Name
-                    || pTypeArgs[0].FullName == source.FullName;
+                return pTypeArgs[index: 0].Name == source.Name ||
+                       pTypeArgs[index: 0].FullName == source.FullName;
             }
+
             return true;
         }
 
@@ -1898,7 +2287,9 @@ public sealed partial class TypeRegistry
         // routines when it actually has ~6.6k.
         IEnumerable<RoutineInfo> all = _prunedGenericBases.Count == 0
             ? _routines.Values.Distinct()
-            : _routines.Values.Distinct().Where(r => !_prunedGenericBases.Contains(r.BaseName));
+            : _routines.Values
+                       .Distinct()
+                       .Where(predicate: r => !_prunedGenericBases.Contains(item: r.BaseName));
         // Exclude four categories of routines from codegen output:
         // - Innate routines: buildtime-only stubs (type_name, module_name, etc.) that
         //   BuilderQueryInliningPass folds to literals; they have no body and must never reach codegen.
@@ -1909,14 +2300,15 @@ public sealed partial class TypeRegistry
         // When requireLive is false (base build): keep every concrete non-generic-def routine regardless
         // of liveness, so the resident base materializes the full stdlib generic closure ahead of time.
         // Normal builds pass requireLive as true for byte-identical output.
-        return all.Where(r =>
-                      !r.Annotations.Contains(value: "innate") &&
-                      (r.OwnerType == null ||
-                       (!r.OwnerType.IsNone &&
-                        !r.OwnerType.IsGenericDefinition &&
-                        (r.OwnerType.TypeArguments == null ||
-                         r.OwnerType.TypeArguments.All(a => !a.IsNone)) &&
-                        (!requireLive || IsConcreteTypeLive(r.OwnerType)))));
+        return all.Where(predicate: r =>
+            !r.Annotations.Contains(value: "innate") && (r.OwnerType == null ||
+                                                         !r.OwnerType.IsNone &&
+                                                         !r.OwnerType.IsGenericDefinition &&
+                                                         (r.OwnerType.TypeArguments == null ||
+                                                          r.OwnerType.TypeArguments.All(
+                                                              predicate: a => !a.IsNone)) &&
+                                                         (!requireLive ||
+                                                          IsConcreteTypeLive(t: r.OwnerType))));
     }
 
     /// <summary>
@@ -1944,15 +2336,21 @@ public sealed partial class TypeRegistry
     /// <summary>Collects base names of all routines that have at least one concrete (non-generic) instance.</summary>
     private HashSet<string> CollectConcreteBasenames()
     {
-        var concreteBases = new HashSet<string>(capacity: _routines.Count + _routineResolutions.Count);
+        var concreteBases =
+            new HashSet<string>(capacity: _routines.Count + _routineResolutions.Count);
         foreach (RoutineInfo r in _routines.Values)
         {
-            if (!r.IsGenericDefinition) concreteBases.Add(r.BaseName);
+            if (!r.IsGenericDefinition)
+            {
+                concreteBases.Add(item: r.BaseName);
+            }
         }
+
         foreach (RoutineInfo r in _routineResolutions.Values)
         {
-            concreteBases.Add(r.BaseName);
+            concreteBases.Add(item: r.BaseName);
         }
+
         return concreteBases;
     }
 
@@ -1961,8 +2359,10 @@ public sealed partial class TypeRegistry
     {
         foreach (RoutineInfo r in _routines.Values)
         {
-            if (r.IsGenericDefinition && !concreteBases.Contains(r.BaseName))
-                _prunedGenericBases.Add(r.BaseName);
+            if (r.IsGenericDefinition && !concreteBases.Contains(item: r.BaseName))
+            {
+                _prunedGenericBases.Add(item: r.BaseName);
+            }
         }
     }
 
@@ -1974,10 +2374,10 @@ public sealed partial class TypeRegistry
     {
         foreach (RoutineInfo r in _routines.Values)
         {
-            if (r.Parameters.Any(p => p.Type.Name.Contains(value: "<error>"))
-                || (r.ReturnType?.Name.Contains(value: "<error>") ?? false))
+            if (r.Parameters.Any(predicate: p => p.Type.Name.Contains(value: "<error>")) ||
+                (r.ReturnType?.Name.Contains(value: "<error>") ?? false))
             {
-                _prunedGenericBases.Add(r.BaseName);
+                _prunedGenericBases.Add(item: r.BaseName);
             }
         }
     }
@@ -1986,7 +2386,10 @@ public sealed partial class TypeRegistry
     /// Returns true if the routine with the given base name was pruned as an unused generic.
     /// Used by the desugaring pipeline to also evict matching entries from the variant-body dictionary.
     /// </summary>
-    public bool IsRoutinePruned(string baseName) => _prunedGenericBases.Contains(baseName);
+    public bool IsRoutinePruned(string baseName)
+    {
+        return _prunedGenericBases.Contains(item: baseName);
+    }
 
     /// <summary>
     /// Gets the memberRoutines registered DIRECTLY on a type's own table (raw). Returns empty for a generic
@@ -1999,7 +2402,8 @@ public sealed partial class TypeRegistry
     /// <returns>An enumerable of all memberRoutines for the type.</returns>
     public IEnumerable<RoutineInfo> GetMemberRoutinesForType(TypeInfo type)
     {
-        return _routinesByOwner.TryGetValue(key: RealmRegistryKey(type: type), value: out Dictionary<string, List<RoutineInfo>>? byName)
+        return _routinesByOwner.TryGetValue(key: RealmRegistryKey(type: type),
+            value: out Dictionary<string, List<RoutineInfo>>? byName)
             ? OwnerMemberRoutines(byName: byName)
             : [];
     }
@@ -2022,19 +2426,27 @@ public sealed partial class TypeRegistry
     /// </summary>
     public IEnumerable<RoutineInfo> GetOwnMemberRoutinesResolved(TypeInfo type)
     {
-        if (_routinesByOwner.TryGetValue(key: RealmRegistryKey(type: type), value: out Dictionary<string, List<RoutineInfo>>? ownByName))
+        if (_routinesByOwner.TryGetValue(key: RealmRegistryKey(type: type),
+                value: out Dictionary<string, List<RoutineInfo>>? ownByName))
+        {
             return OwnerMemberRoutines(byName: ownByName);
+        }
 
-        if (!type.IsGenericResolution ||
-            type.TypeArguments is null ||
-            type.TypeArguments.Any(predicate: a => a is GenericParameterTypeInfo or ErrorTypeInfo || a.IsNone))
+        if (!type.IsGenericResolution || type.TypeArguments is null ||
+            type.TypeArguments.Any(predicate: a =>
+                a is GenericParameterTypeInfo or ErrorTypeInfo || a.IsNone))
+        {
             return [];
+        }
 
         // Cache key is realm-QUALIFIED: RF and SF resolutions share a realm-free FullName
         // (`Core.List[Core.U64]`), so a FullName key would cross-contaminate — the first-computed realm's
         // member set (e.g. SF List's `inner`-forwarders) would be served for the other realm's instance.
-        if (_memberRoutinesForTypeCache.TryGetValue(key: type.RealmQualifiedName, value: out List<RoutineInfo>? cached))
+        if (_memberRoutinesForTypeCache.TryGetValue(key: type.RealmQualifiedName,
+                value: out List<RoutineInfo>? cached))
+        {
             return cached;
+        }
 
         var result = new List<RoutineInfo>();
         TypeInfo? genericDef = type switch
@@ -2046,9 +2458,10 @@ public sealed partial class TypeRegistry
             _ => null
         };
         if (genericDef != null && !ReferenceEquals(objA: genericDef, objB: type) &&
-            _routinesByOwner.TryGetValue(key: RealmRegistryKey(type: genericDef), value: out Dictionary<string, List<RoutineInfo>>? defByName))
+            _routinesByOwner.TryGetValue(key: RealmRegistryKey(type: genericDef),
+                value: out Dictionary<string, List<RoutineInfo>>? defByName))
         {
-            AddResolvedOwnMemberRoutines(type, defByName, result);
+            AddResolvedOwnMemberRoutines(type: type, defByName: defByName, result: result);
         }
 
         _memberRoutinesForTypeCache[key: type.RealmQualifiedName] = result;
@@ -2058,7 +2471,10 @@ public sealed partial class TypeRegistry
     /// <summary>The owned-value lifecycle of a type, resolved through the single unified own-memberRoutine
     /// resolver (<see cref="GetOwnMemberRoutinesResolved"/>) so the teardown and copy passes agree about
     /// generic resolutions like <c>Retained[Tracer]</c> / <c>Maybe[Text]</c>.</summary>
-    public readonly record struct Lifecycle(RoutineInfo? Store, RoutineInfo? Destroy, bool IsBorrow);
+    public readonly record struct Lifecycle(
+        RoutineInfo? Store,
+        RoutineInfo? Destroy,
+        bool IsBorrow);
 
     /// <summary>
     /// Lifecycle and reference are governed by the four wired routines
@@ -2073,8 +2489,10 @@ public sealed partial class TypeRegistry
     /// site by <c>ScopeTeardownLoweringPass.IsViewBinding</c> (keyed on the producing verb, since the
     /// binding's static type is the referent itself, not a borrow wrapper).
     /// </summary>
-    private static bool IsBorrowTier(TypeInfo type) =>
-        type is GenericParameterTypeInfo or ProtocolTypeInfo;
+    private static bool IsBorrowTier(TypeInfo type)
+    {
+        return type is GenericParameterTypeInfo or ProtocolTypeInfo;
+    }
 
     /// <summary>
     /// If <paramref name="type"/> is an RC wrapper (Retained/Tracked/Guarded/Witnessed/Roamed) — matched
@@ -2118,22 +2536,34 @@ public sealed partial class TypeRegistry
     private bool OwnerConstraintsSatisfied(RoutineInfo memberRoutine, TypeInfo ownerType)
     {
         if (memberRoutine.GenericConstraints is not { Count: > 0 } constraints)
+        {
             return true;
+        }
+
         List<string>? paramNames =
-            (ownerType as RecordTypeInfo)?.GenericDefinition?.GenericParameters
-            ?? ownerType.GenericParameters;
+            (ownerType as RecordTypeInfo)?.GenericDefinition?.GenericParameters ??
+            ownerType.GenericParameters;
         List<TypeInfo>? args = ownerType.TypeArguments;
         if (paramNames is null || args is null)
+        {
             return true;
+        }
+
         var subs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
         for (int i = 0; i < paramNames.Count && i < args.Count; i++)
-            subs[key: paramNames[i]] = args[i];
+        {
+            subs[key: paramNames[index: i]] = args[index: i];
+        }
+
         foreach (GenericConstraintDeclaration c in constraints)
         {
-            if (subs.TryGetValue(key: c.ParameterName, value: out TypeInfo? actual)
-                && !ImplementerSatisfiesConstraint(implementer: actual, constraint: c))
+            if (subs.TryGetValue(key: c.ParameterName, value: out TypeInfo? actual) &&
+                !ImplementerSatisfiesConstraint(implementer: actual, constraint: c))
+            {
                 return false;
+            }
         }
+
         return true;
     }
 
@@ -2141,13 +2571,19 @@ public sealed partial class TypeRegistry
     public Lifecycle GetLifecycle(TypeInfo type)
     {
         if (IsBorrowTier(type: type))
+        {
             return new Lifecycle(Store: null, Destroy: null, IsBorrow: true);
+        }
 
-        List<RoutineInfo> own = GetOwnMemberRoutinesResolved(type: type).ToList();
+        var own = GetOwnMemberRoutinesResolved(type: type)
+           .ToList();
         RoutineInfo? destroy = own
-            .Where(predicate: m => m.Name == "destroy" && m.Parameters.Count == 0)
-            .OrderBy(keySelector: m => m.IsSynthesized ? 1 : 0)
-            .FirstOrDefault();
+                              .Where(predicate: m =>
+                                   m.Name == "destroy" && m.Parameters.Count == 0)
+                              .OrderBy(keySelector: m => m.IsSynthesized
+                                   ? 1
+                                   : 0)
+                              .FirstOrDefault();
         RoutineInfo? store = ResolveStoreHook(type: type, own: own);
         return new Lifecycle(Store: store, Destroy: destroy, IsBorrow: false);
     }
@@ -2181,7 +2617,8 @@ public sealed partial class TypeRegistry
         {
             // RC copy verb is `share` (the refcount-bump co-owner mint) — renamed from the STEP-3 unified
             // `store` so it reads as the explicit-share op and is distinct from value-record `store`.
-            return LookupMemberRoutine(type: type, memberRoutineName: RuntimeContract.RefCount.Share);
+            return LookupMemberRoutine(type: type,
+                memberRoutineName: RuntimeContract.RefCount.Share);
         }
 
         if (type is VariantTypeInfo variant && VariantHasDestructibleArm(variant: variant))
@@ -2207,16 +2644,19 @@ public sealed partial class TypeRegistry
             // store whose body can't resolve → over-prune crash. Store=null ⇒ the value is not Assignable
             // and the implicit copy is (correctly) not injected.
             RoutineInfo? store = own.FirstOrDefault(predicate: m =>
-                m.Name == "assign" && m.Parameters.Count == 0 && !m.IsSynthesized
-                && OwnerConstraintsSatisfied(memberRoutine: m, ownerType: type));
+                m.Name == "assign" && m.Parameters.Count == 0 && !m.IsSynthesized &&
+                OwnerConstraintsSatisfied(memberRoutine: m, ownerType: type));
 
             // The synthesized record store is field-delegating (WiredRoutinePass.
             // BuildRecordCopyBody) — symmetric with the field-delegating synthesized destroy.
             // Treat it as a retaining copy iff some field itself needs one, so it gets injected
             // at copy sites and balances the per-field destroy at teardown (else: double-free).
             if (store is null && RecordHasRetainingMemberVariable(record: rec))
+            {
                 store = own.FirstOrDefault(predicate: m =>
                     m.Name == "assign" && m.Parameters.Count == 0);
+            }
+
             return store;
         }
 
@@ -2233,23 +2673,33 @@ public sealed partial class TypeRegistry
     public bool VariantHasDestructibleArm(VariantTypeInfo variant)
     {
         if (variant.IsGenericDefinition)
+        {
             return false;
+        }
 
         foreach (VariantMemberInfo member in variant.Members)
         {
             if (member.IsNone || member.Type is null)
+            {
                 continue;
+            }
 
             Lifecycle armLc = GetLifecycle(type: member.Type);
             if (!armLc.IsBorrow && armLc.Destroy is not null)
+            {
                 return true;
+            }
+
             // An ENTITY arm is a heap reference with a destructor and double-frees on bitwise alias,
             // even when its (generic-instance) destructor isn't materialized yet at this phase — so
             // GetLifecycle reports a null Destroy. Recognize it directly by kind (mirrors the copy
             // body in WiredRoutinePass.BuildVariantCopyBody, which copies every non-borrow arm).
             if (member.Type is EntityTypeInfo)
+            {
                 return true;
+            }
         }
+
         return false;
     }
 
@@ -2263,22 +2713,37 @@ public sealed partial class TypeRegistry
         HashSet<string>? visited = null)
     {
         if (record.BackendType != null || record.MemberVariables is null)
+        {
             return false;
+        }
+
         visited ??= new HashSet<string>();
         if (!visited.Add(item: record.FullName ?? record.Name))
+        {
             return false; // recursive-record cycle guard
+        }
 
         foreach (MemberVariableInfo field in record.MemberVariables)
         {
             if (field.Type is not RecordTypeInfo fieldRec)
+            {
                 continue;
-            List<RoutineInfo> fieldOwn = GetOwnMemberRoutinesResolved(type: fieldRec).ToList();
+            }
+
+            var fieldOwn = GetOwnMemberRoutinesResolved(type: fieldRec)
+               .ToList();
             if (fieldOwn.Any(predicate: m =>
                     m.Name == "assign" && m.Parameters.Count == 0 && !m.IsSynthesized))
+            {
                 return true;
+            }
+
             if (RecordHasRetainingMemberVariable(record: fieldRec, visited: visited))
+            {
                 return true;
+            }
         }
+
         return false;
     }
 
@@ -2368,8 +2833,10 @@ public sealed partial class TypeRegistry
     /// </summary>
     public List<RoutineInfo> GetMemberRoutinesForOwner(TypeInfo ownerType)
     {
-        return _routinesByOwner.TryGetValue(key: RealmRegistryKey(type: ownerType), value: out Dictionary<string, List<RoutineInfo>>? byName)
-            ? OwnerMemberRoutines(byName: byName).ToList()
+        return _routinesByOwner.TryGetValue(key: RealmRegistryKey(type: ownerType),
+            value: out Dictionary<string, List<RoutineInfo>>? byName)
+            ? OwnerMemberRoutines(byName: byName)
+               .ToList()
             : [];
     }
 
@@ -2383,22 +2850,32 @@ public sealed partial class TypeRegistry
     {
         var seen = new HashSet<RoutineInfo>(comparer: ReferenceEqualityComparer.Instance);
         return _routinesByOwner
-            .Where(kvp => kvp.Key != FreeOwnerKey) // free functions are not member routines
-            .SelectMany(kvp => OwnerMemberRoutines(byName: kvp.Value))
-            .Where(r => seen.Add(item: r));
+              .Where(predicate: kvp =>
+                   kvp.Key != FreeOwnerKey) // free functions are not member routines
+              .SelectMany(selector: kvp => OwnerMemberRoutines(byName: kvp.Value))
+              .Where(predicate: r => seen.Add(item: r));
     }
 
     #endregion
-    private void AddResolvedOwnMemberRoutines(TypeInfo type, Dictionary<string, List<RoutineInfo>> defByName, List<RoutineInfo> result)
+
+    private void AddResolvedOwnMemberRoutines(TypeInfo type,
+        Dictionary<string, List<RoutineInfo>> defByName, List<RoutineInfo> result)
     {
         foreach (RoutineInfo m in OwnerMemberRoutines(byName: defByName))
         {
             // Universal (T-owned) memberRoutines are not the type's OWN memberRoutines — skip them so the
             // no-owner T.destroy stub never leaks in for a borrowed referent.
-            if (m.OwnerType is GenericParameterTypeInfo) continue;
-            RoutineInfo? sub = SubstituteMemberRoutineForOwner(memberRoutine: m, resolvedOwner: type);
-            if (sub != null) result.Add(item: sub);
+            if (m.OwnerType is GenericParameterTypeInfo)
+            {
+                continue;
+            }
+
+            RoutineInfo? sub =
+                SubstituteMemberRoutineForOwner(memberRoutine: m, resolvedOwner: type);
+            if (sub != null)
+            {
+                result.Add(item: sub);
+            }
         }
     }
-
 }

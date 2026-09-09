@@ -13,10 +13,10 @@ using static TestHelpers;
 public class ChoiceValidationTests
 {
     #region Valid Choices (no errors expected)
+
     /// <summary>
     /// Verifies semantic analysis behavior for simple choice without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_SimpleChoice_NoErrors()
     {
@@ -37,7 +37,6 @@ public class ChoiceValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for choice with explicit values without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceWithExplicitValues_NoErrors()
     {
@@ -57,7 +56,6 @@ public class ChoiceValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for choice with negative values without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceWithNegativeValues_NoErrors()
     {
@@ -79,7 +77,6 @@ public class ChoiceValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for choice with large values overflow error.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceWithLargeValues_OverflowError()
     {
@@ -99,10 +96,10 @@ public class ChoiceValidationTests
     #endregion
 
     #region Mixed Values (error expected)
+
     /// <summary>
     /// Verifies semantic analysis behavior for choice mixed values and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceMixedValues_ReportsError()
     {
@@ -121,10 +118,10 @@ public class ChoiceValidationTests
     #endregion
 
     #region Duplicate Values (error expected)
+
     /// <summary>
     /// Verifies semantic analysis behavior for choice duplicate explicit values and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceDuplicateExplicitValues_ReportsError()
     {
@@ -143,10 +140,10 @@ public class ChoiceValidationTests
     #endregion
 
     #region Operator Prohibition (choices do not support any operators)
+
     /// <summary>
     /// Verifies semantic analysis behavior for choice addition and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceAddition_ReportsError()
     {
@@ -168,7 +165,6 @@ public class ChoiceValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for choice compound assignment and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceCompoundAssignment_ReportsError()
     {
@@ -190,7 +186,6 @@ public class ChoiceValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for choice bitwise and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceBitwise_ReportsError()
     {
@@ -212,7 +207,6 @@ public class ChoiceValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for choice comparison and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceComparison_ReportsError()
     {
@@ -234,7 +228,6 @@ public class ChoiceValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for choice equality and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ChoiceEquality_ReportsError()
     {
@@ -338,10 +331,10 @@ public class ChoiceValidationTests
     #endregion
 
     #region Member Access (C98)
+
     /// <summary>
     /// Verifies that the test validates member access as value.
     /// </summary>
-
     [Fact]
     public void Choice_MemberAccess_AsValue()
     {
@@ -365,7 +358,6 @@ public class ChoiceValidationTests
     /// <summary>
     /// Verifies that the test validates member access invalid case.
     /// </summary>
-
     [Fact]
     public void Choice_MemberAccess_InvalidCase()
     {
@@ -387,7 +379,6 @@ public class ChoiceValidationTests
     /// <summary>
     /// Verifies that the test validates member access assignment and comparison.
     /// </summary>
-
     [Fact]
     public void Choice_MemberAccess_Assignment_And_Comparison()
     {

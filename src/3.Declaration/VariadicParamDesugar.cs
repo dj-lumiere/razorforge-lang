@@ -41,18 +41,21 @@ public static class VariadicParamDesugar
         }
 
         List<string> generics = routine.GenericParameters?.ToList() ?? [];
-        List<GenericConstraintDeclaration> constraints = routine.GenericConstraints?.ToList() ?? [];
+        List<GenericConstraintDeclaration>
+            constraints = routine.GenericConstraints?.ToList() ?? [];
 
         for (int i = 0; i < routine.Parameters.Count; i++)
         {
             Parameter param = routine.Parameters[index: i];
-            if (!param.IsVariadic || param.Type == null || IsAlreadyDesugared(paramType: param.Type))
+            if (!param.IsVariadic || param.Type == null ||
+                IsAlreadyDesugared(paramType: param.Type))
             {
                 continue;
             }
 
             routine.Parameters[index: i] = DesugarVariadicParam(param: param,
-                generics: generics, constraints: constraints);
+                generics: generics,
+                constraints: constraints);
         }
 
         routine.GenericParameters = generics;
@@ -69,18 +72,22 @@ public static class VariadicParamDesugar
     {
         string arityName = FreshArityName(existing: generics);
         generics.Add(item: arityName);
-        constraints.Add(item: new GenericConstraintDeclaration(
-            ParameterName: arityName,
+        constraints.Add(item: new GenericConstraintDeclaration(ParameterName: arityName,
             ConstraintType: ConstraintKind.ConstGeneric,
-            ConstraintTypes: [new TypeExpression(Name: "U64", GenericArguments: null,
-                Location: param.Location)],
+            ConstraintTypes:
+            [new TypeExpression(Name: "U64", GenericArguments: null, Location: param.Location)],
             Location: param.Location));
 
         // nums: T   ->   nums: Array[T, __VarargN]. Array is a `module Core` primitive (auto-imported),
         // so a bare reference resolves via the import-gated Core prefix in every file.
         var arrayType = new TypeExpression(Name: "Array",
-            GenericArguments: [param.Type!, new TypeExpression(Name: arityName,
-                GenericArguments: null, Location: param.Type!.Location)],
+            GenericArguments:
+            [
+                param.Type!,
+                new TypeExpression(Name: arityName,
+                    GenericArguments: null,
+                    Location: param.Type!.Location)
+            ],
             Location: param.Type.Location);
 
         // Keep IsVariadic = true as the marker that the call site must pack trailing args into
@@ -91,8 +98,8 @@ public static class VariadicParamDesugar
     /// <summary>A variadic param is already desugared when its type is <c>Array[_, __Vararg…]</c>.</summary>
     private static bool IsAlreadyDesugared(TypeExpression paramType)
     {
-        return paramType is { Name: "Array", GenericArguments: [_, { Name: var n }] }
-               && n.StartsWith(value: VarargGenericPrefix);
+        return paramType is { Name: "Array", GenericArguments: [_, { Name: var n }] } &&
+               n.StartsWith(value: VarargGenericPrefix);
     }
 
     private static string FreshArityName(List<string> existing)

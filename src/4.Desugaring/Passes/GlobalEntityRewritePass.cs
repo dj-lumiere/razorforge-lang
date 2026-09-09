@@ -40,9 +40,12 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
         {
             if (!_resolvedSingleton)
             {
-                _singletonType = Registry.LookupVariable(name: Builder.Program.ModuleGlobalsSingletonName)?.Type;
+                _singletonType = Registry
+                                .LookupVariable(name: Builder.Program.ModuleGlobalsSingletonName)
+                               ?.Type;
                 _resolvedSingleton = true;
             }
+
             return _singletonType;
         }
     }
@@ -52,9 +55,13 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
     public void Run(Program program)
     {
         // No globals in this program → the singleton was never synthesized; nothing to do.
-        if (SingletonType == null) return;
+        if (SingletonType == null)
+        {
+            return;
+        }
 
-        foreach (SyntaxTree.Declaration decl in program.Declarations.OfType<SyntaxTree.Declaration>())
+        foreach (SyntaxTree.Declaration decl in
+                 program.Declarations.OfType<SyntaxTree.Declaration>())
         {
             RewriteDeclaration(decl: decl);
         }
@@ -62,17 +69,21 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
         // Drop the original `global` declarations (keep the synthesized singleton). Their storage now
         // lives as fields of __ModuleGlobals; leaving them would emit dead @global cells.
         program.Declarations.RemoveAll(match: node =>
-            node is VariableDeclaration { IsGlobal: true } g
-            && g.Name != Builder.Program.ModuleGlobalsSingletonName);
+            node is VariableDeclaration { IsGlobal: true } g &&
+            g.Name != Builder.Program.ModuleGlobalsSingletonName);
     }
 
     /// <summary>Rewrites global references inside synthesized error-handling variant bodies.</summary>
     public void RunOnVariantBodies()
     {
-        if (SingletonType == null) return;
+        if (SingletonType == null)
+        {
+            return;
+        }
+
         foreach (string key in ctx.VariantBodies.Keys.ToList())
         {
-            ctx.VariantBodies[key] = RewriteStmt(stmt: ctx.VariantBodies[key]);
+            ctx.VariantBodies[key: key] = RewriteStmt(stmt: ctx.VariantBodies[key: key]);
         }
     }
 
@@ -81,16 +92,16 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
         switch (decl)
         {
             case RoutineDeclaration { Body: { } body }:
-                ReplaceBody(body);
+                ReplaceBody(body: body);
                 break;
             case EntityDeclaration e:
-                RewriteMemberRoutines(e.Members);
+                RewriteMemberRoutines(members: e.Members);
                 break;
             case RecordDeclaration rec:
-                RewriteMemberRoutines(rec.Members);
+                RewriteMemberRoutines(members: rec.Members);
                 break;
             case CrashableDeclaration cr:
-                RewriteMemberRoutines(cr.Members);
+                RewriteMemberRoutines(members: cr.Members);
                 break;
         }
     }
@@ -99,8 +110,14 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
     // the routine node identity (which downstream passes hold) is preserved.
     private void ReplaceBody(Statement body)
     {
-        if (body is not BlockStatement block) return;
-        var rewritten = block.Statements.Select(selector: RewriteStmt).ToList();
+        if (body is not BlockStatement block)
+        {
+            return;
+        }
+
+        var rewritten = block.Statements
+                             .Select(selector: RewriteStmt)
+                             .ToList();
         block.Statements.Clear();
         block.Statements.AddRange(collection: rewritten);
     }
@@ -109,7 +126,10 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
     {
         foreach (SyntaxTree.Declaration m in members)
         {
-            if (m is RoutineDeclaration { Body: { } body }) ReplaceBody(body);
+            if (m is RoutineDeclaration { Body: { } body })
+            {
+                ReplaceBody(body: body);
+            }
         }
     }
 
@@ -120,94 +140,113 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
         switch (stmt)
         {
             case ExpressionStatement s:
-                return s with { Expression = RW(s.Expression) };
+                return s with { Expression = RW(e: s.Expression) };
             case DiscardStatement s:
-                return s with { Expression = RW(s.Expression) };
+                return s with { Expression = RW(e: s.Expression) };
             case AssignmentStatement s:
-                return s with { Target = RW(s.Target), Value = RW(s.Value) };
+                return s with { Target = RW(e: s.Target), Value = RW(e: s.Value) };
             case ReturnStatement { Value: not null } s:
-                return s with { Value = RW(s.Value) };
+                return s with { Value = RW(e: s.Value) };
             case BecomesStatement s:
-                return s with { Value = RW(s.Value) };
+                return s with { Value = RW(e: s.Value) };
             case VariantReturnStatement { Value: not null } s:
-                return s with { Value = RW(s.Value) };
+                return s with { Value = RW(e: s.Value) };
             case ThrowStatement s:
-                return s with { Error = RW(s.Error) };
+                return s with { Error = RW(e: s.Error) };
             case DestructuringStatement s:
-                return s with { Initializer = RW(s.Initializer) };
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } v } s:
-                return s with { Declaration = v with { Initializer = RW(v.Initializer) } };
+                return s with { Initializer = RW(e: s.Initializer) };
+            case DeclarationStatement
+            {
+                Declaration: VariableDeclaration { Initializer: not null } v
+            } s:
+                return s with { Declaration = v with { Initializer = RW(e: v.Initializer) } };
             case IfStatement s:
                 return s with
                 {
-                    Condition = RW(s.Condition),
-                    ThenStatement = RewriteStmt(s.ThenStatement),
-                    ElseStatement = s.ElseStatement is null ? null : RewriteStmt(s.ElseStatement)
+                    Condition = RW(e: s.Condition),
+                    ThenStatement = RewriteStmt(stmt: s.ThenStatement),
+                    ElseStatement = s.ElseStatement is null
+                        ? null
+                        : RewriteStmt(stmt: s.ElseStatement)
                 };
             case WhileStatement s:
                 return s with
                 {
-                    Condition = RW(s.Condition),
-                    Body = RewriteStmt(s.Body),
-                    ElseBranch = s.ElseBranch is null ? null : RewriteStmt(s.ElseBranch)
+                    Condition = RW(e: s.Condition),
+                    Body = RewriteStmt(stmt: s.Body),
+                    ElseBranch = s.ElseBranch is null
+                        ? null
+                        : RewriteStmt(stmt: s.ElseBranch)
                 };
             case LoopStatement s:
-                return s with { Body = RewriteStmt(s.Body) };
+                return s with { Body = RewriteStmt(stmt: s.Body) };
             case ExpandStatement s:
-                return s with { Body = RewriteStmt(s.Body) };
+                return s with { Body = RewriteStmt(stmt: s.Body) };
             case EachStatement s:
                 return s with
                 {
-                    Iterable = RW(s.Iterable),
-                    Body = RewriteStmt(s.Body),
-                    ElseBranch = s.ElseBranch is null ? null : RewriteStmt(s.ElseBranch)
+                    Iterable = RW(e: s.Iterable),
+                    Body = RewriteStmt(stmt: s.Body),
+                    ElseBranch = s.ElseBranch is null
+                        ? null
+                        : RewriteStmt(stmt: s.ElseBranch)
                 };
             case WhenStatement s:
                 return s with
                 {
-                    Expression = RW(s.Expression),
+                    Expression = RW(e: s.Expression),
                     Clauses = s.Clauses
-                        .Select(selector: c => c with
-                        {
-                            Pattern = RewritePattern(c.Pattern), Body = RewriteStmt(c.Body)
-                        })
-                        .ToList()
+                               .Select(selector: c => c with
+                                {
+                                    Pattern = RewritePattern(p: c.Pattern),
+                                    Body = RewriteStmt(stmt: c.Body)
+                                })
+                               .ToList()
                 };
             case DangerStatement s:
-                return s with { Body = (BlockStatement)RewriteStmt(s.Body) };
+                return s with { Body = (BlockStatement)RewriteStmt(stmt: s.Body) };
             case UsingStatement s:
                 return s with
                 {
-                    Resource = RW(s.Resource),
-                    Body = RewriteStmt(s.Body),
-                    FallbackBody = s.FallbackBody is null ? null : RewriteStmt(s.FallbackBody)
+                    Resource = RW(e: s.Resource),
+                    Body = RewriteStmt(stmt: s.Body),
+                    FallbackBody = s.FallbackBody is null
+                        ? null
+                        : RewriteStmt(stmt: s.FallbackBody)
                 };
             case BlockStatement s:
-                return s with { Statements = s.Statements.Select(selector: RewriteStmt).ToList() };
+                return s with
+                {
+                    Statements = s.Statements
+                                  .Select(selector: RewriteStmt)
+                                  .ToList()
+                };
             default:
                 return stmt;
         }
     }
 
-    private Pattern RewritePattern(Pattern p) => p switch
+    private Pattern RewritePattern(Pattern p)
     {
-        ExpressionPattern ep => ep with { Expression = RW(ep.Expression) },
-        ComparisonPattern cp => cp with { Value = RW(cp.Value) },
-        GuardPattern gp => gp with
+        return p switch
         {
-            InnerPattern = RewritePattern(gp.InnerPattern), Guard = RW(gp.Guard)
-        },
-        _ => p
-    };
+            ExpressionPattern ep => ep with { Expression = RW(e: ep.Expression) },
+            ComparisonPattern cp => cp with { Value = RW(e: cp.Value) },
+            GuardPattern gp => gp with
+            {
+                InnerPattern = RewritePattern(p: gp.InnerPattern), Guard = RW(e: gp.Guard)
+            },
+            _ => p
+        };
+    }
 
     // ---- Expression rewrite (RW = the recursive transformer) -------------------------------------
 
     private Expression RW(Expression e)
     {
         // The one real substitution: a stamped global reference -> `__globals__.<name>`.
-        if (e is IdentifierExpression id
-            && id.IsModuleGlobal
-            && id.Name != Builder.Program.ModuleGlobalsSingletonName)
+        if (e is IdentifierExpression id && id.IsModuleGlobal &&
+            id.Name != Builder.Program.ModuleGlobalsSingletonName)
         {
             return RewriteGlobalIdentifier(id: id);
         }
@@ -222,10 +261,8 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
     private MemberExpression RewriteGlobalIdentifier(IdentifierExpression id)
     {
         var receiver = new IdentifierExpression(
-            Name: Builder.Program.ModuleGlobalsSingletonName, Location: id.Location)
-        {
-            ResolvedType = SingletonType
-        };
+            Name: Builder.Program.ModuleGlobalsSingletonName,
+            Location: id.Location) { ResolvedType = SingletonType };
         return new MemberExpression(Object: receiver, MemberName: id.Name, Location: id.Location)
         {
             ResolvedType = id.ResolvedType
@@ -241,105 +278,162 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
         switch (e)
         {
             case BinaryExpression x:
-                return x with { Left = RW(x.Left), Right = RW(x.Right) };
+                return x with { Left = RW(e: x.Left), Right = RW(e: x.Right) };
             case UnaryExpression x:
-                return x with { Operand = RW(x.Operand) };
+                return x with { Operand = RW(e: x.Operand) };
             case CallExpression x:
-                return x with { Callee = RW(x.Callee), Arguments = x.Arguments.Select(selector: RW).ToList() };
+                return x with
+                {
+                    Callee = RW(e: x.Callee),
+                    Arguments = x.Arguments
+                                 .Select(selector: RW)
+                                 .ToList()
+                };
             case MemberExpression x:
-                return x with { Object = RW(x.Object) };
+                return x with { Object = RW(e: x.Object) };
             case OptionalMemberExpression x:
-                return x with { Object = RW(x.Object) };
+                return x with { Object = RW(e: x.Object) };
             case NamedArgumentExpression x:
-                return x with { Value = RW(x.Value) };
+                return x with { Value = RW(e: x.Value) };
             case CreatorExpression x:
                 return x with
                 {
                     MemberVariables = x.MemberVariables
-                        .Select(selector: mv => (mv.Name, RW(mv.Value))).ToList()
+                                       .Select(selector: mv => (mv.Name, RW(e: mv.Value)))
+                                       .ToList()
                 };
             case IndexExpression x:
-                return x with { Object = RW(x.Object), Index = RW(x.Index) };
+                return x with { Object = RW(e: x.Object), Index = RW(e: x.Index) };
             case ConditionalExpression x:
                 return x with
                 {
-                    Condition = RW(x.Condition),
-                    TrueExpression = RW(x.TrueExpression),
-                    FalseExpression = RW(x.FalseExpression)
+                    Condition = RW(e: x.Condition),
+                    TrueExpression = RW(e: x.TrueExpression),
+                    FalseExpression = RW(e: x.FalseExpression)
                 };
             case RangeExpression x:
                 return x with
                 {
-                    Start = RW(x.Start), End = RW(x.End),
-                    Step = x.Step is null ? null : RW(x.Step)
+                    Start = RW(e: x.Start),
+                    End = RW(e: x.End),
+                    Step = x.Step is null
+                        ? null
+                        : RW(e: x.Step)
                 };
             case ListLiteralExpression x:
-                return x with { Elements = x.Elements.Select(selector: RW).ToList() };
+                return x with
+                {
+                    Elements = x.Elements
+                                .Select(selector: RW)
+                                .ToList()
+                };
             case SetLiteralExpression x:
-                return x with { Elements = x.Elements.Select(selector: RW).ToList() };
+                return x with
+                {
+                    Elements = x.Elements
+                                .Select(selector: RW)
+                                .ToList()
+                };
             case TupleLiteralExpression x:
-                return x with { Elements = x.Elements.Select(selector: RW).ToList() };
+                return x with
+                {
+                    Elements = x.Elements
+                                .Select(selector: RW)
+                                .ToList()
+                };
             case DictLiteralExpression x:
                 return x with
                 {
-                    Pairs = x.Pairs.Select(selector: pr => (Key: RW(pr.Key), Value: RW(pr.Value))).ToList()
+                    Pairs = x.Pairs
+                             .Select(selector: pr => (Key: RW(e: pr.Key), Value: RW(e: pr.Value)))
+                             .ToList()
                 };
             case StealExpression x:
-                return x with { Operand = RW(x.Operand) };
+                return x with { Operand = RW(e: x.Operand) };
             case TypeConversionExpression x:
-                return x with { Expression = RW(x.Expression) };
+                return x with { Expression = RW(e: x.Expression) };
             case CompoundAssignmentExpression x:
-                return x with { Target = RW(x.Target), Value = RW(x.Value) };
+                return x with { Target = RW(e: x.Target), Value = RW(e: x.Value) };
             case ChainedComparisonExpression x:
-                return x with { Operands = x.Operands.Select(selector: RW).ToList() };
+                return x with
+                {
+                    Operands = x.Operands
+                                .Select(selector: RW)
+                                .ToList()
+                };
             case WithExpression x:
                 return x with
                 {
-                    Base = RW(x.Base),
+                    Base = RW(e: x.Base),
                     Updates = x.Updates
-                        .Select(selector: u => (u.MemberVariablePath,
-                            Index: u.Index is null ? null : RW(u.Index), Value: RW(u.Value)))
-                        .ToList()
+                               .Select(selector: u => (u.MemberVariablePath, Index: u.Index is null
+                                    ? null
+                                    : RW(e: u.Index), Value: RW(e: u.Value)))
+                               .ToList()
                 };
             case IsPatternExpression x:
-                return x with { Expression = RW(x.Expression), Pattern = RewritePattern(x.Pattern) };
+                return x with
+                {
+                    Expression = RW(e: x.Expression), Pattern = RewritePattern(p: x.Pattern)
+                };
             case FlagsTestExpression x:
-                return x with { Subject = RW(x.Subject) };
+                return x with { Subject = RW(e: x.Subject) };
             case WhenExpression x:
                 return x with
                 {
-                    Expression = x.Expression is null ? null : RW(x.Expression),
+                    Expression = x.Expression is null
+                        ? null
+                        : RW(e: x.Expression),
                     Clauses = x.Clauses
-                        .Select(selector: c => c with
-                        {
-                            Pattern = RewritePattern(c.Pattern), Body = RewriteStmt(c.Body)
-                        })
-                        .ToList()
+                               .Select(selector: c => c with
+                                {
+                                    Pattern = RewritePattern(p: c.Pattern),
+                                    Body = RewriteStmt(stmt: c.Body)
+                                })
+                               .ToList()
                 };
             case WaitforExpression x:
-                return x with { Operand = RW(x.Operand), Timeout = x.Timeout is null ? null : RW(x.Timeout) };
+                return x with
+                {
+                    Operand = RW(e: x.Operand),
+                    Timeout = x.Timeout is null
+                        ? null
+                        : RW(e: x.Timeout)
+                };
             case DependentWaitforExpression x:
-                return x with { Operand = RW(x.Operand), Timeout = x.Timeout is null ? null : RW(x.Timeout) };
+                return x with
+                {
+                    Operand = RW(e: x.Operand),
+                    Timeout = x.Timeout is null
+                        ? null
+                        : RW(e: x.Timeout)
+                };
             case BackIndexExpression x:
-                return x with { Operand = RW(x.Operand) };
+                return x with { Operand = RW(e: x.Operand) };
             case CarrierPayloadExpression x:
-                return x with { Carrier = RW(x.Carrier) };
+                return x with { Carrier = RW(e: x.Carrier) };
             case BlockExpression x:
-                return x with { Value = RW(x.Value) };
+                return x with { Value = RW(e: x.Value) };
             case LambdaExpression x:
-                return x with { Body = RW(x.Body) };
+                return x with { Body = RW(e: x.Body) };
             case GenericMemberRoutineCallExpression x:
-                return x with { Object = RW(x.Object), Arguments = x.Arguments.Select(selector: RW).ToList() };
+                return x with
+                {
+                    Object = RW(e: x.Object),
+                    Arguments = x.Arguments
+                                 .Select(selector: RW)
+                                 .ToList()
+                };
             case GenericMemberExpression x:
-                return x with { Object = RW(x.Object) };
+                return x with { Object = RW(e: x.Object) };
             case InsertedTextExpression x:
                 return x with
                 {
                     Parts = x.Parts
-                        .Select(selector: p => p is ExpressionPart ep
-                            ? ep with { Expression = RW(ep.Expression) }
-                            : p)
-                        .ToList()
+                             .Select(selector: p => p is ExpressionPart ep
+                                  ? ep with { Expression = RW(e: ep.Expression) }
+                                  : p)
+                             .ToList()
                 };
             default:
                 return e;

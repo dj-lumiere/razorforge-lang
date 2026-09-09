@@ -33,7 +33,8 @@ public class CompilerPipelineInputEdgeCaseTests
 
         Assert.Empty(collection: result.Errors);
         Assert.Empty(collection: result.Warnings);
-        Assert.Empty(collection: Parse(source: source).Declarations);
+        Assert.Empty(collection: Parse(source: source)
+           .Declarations);
     }
 
     /// <summary>
@@ -67,8 +68,7 @@ public class CompilerPipelineInputEdgeCaseTests
         GrammarException exception = Assert.Throws<GrammarException>(
             testCode: () => Analyze(source: source));
 
-        Assert.Equal(expected: GrammarDiagnosticCode.InvalidCharacter,
-            actual: exception.Code);
+        Assert.Equal(expected: GrammarDiagnosticCode.InvalidCharacter, actual: exception.Code);
     }
 
     /// <summary>
@@ -98,11 +98,12 @@ public class CompilerPipelineInputEdgeCaseTests
     public void Codegen_LineEndingVariants_GenerateNormalizedIr(string lineEnding)
     {
         string source = string.Join(separator: lineEnding,
-        [
-            "routine test()",
-            "  return",
-            ""
-        ]);
+            value:
+            [
+                "routine test()",
+                "  return",
+                ""
+            ]);
 
         string llvmIr = GenerateIr(source: source);
 

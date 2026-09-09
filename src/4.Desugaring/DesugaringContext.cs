@@ -42,7 +42,8 @@ public sealed class DesugaringContext
     /// but still walks the whole tree) so a warm compile only processes the USER-added variants, not the
     /// ~2400 stdlib ones re-seeded each request. Empty on a cold compile → every variant is processed.
     /// </summary>
-    public HashSet<string> RestoredVariantKeys { get; init; } = new(comparer: StringComparer.Ordinal);
+    public HashSet<string> RestoredVariantKeys { get; init; } =
+        new(comparer: StringComparer.Ordinal);
 
     /// <summary>Target platform — drives BuilderQuery platform constants.</summary>
     public TargetConfig Target { get; }
@@ -78,14 +79,14 @@ public sealed class DesugaringContext
     /// <c>InstantiationContext.LiveOwnerTypeNames</c>. GMP skips
     /// <c>ProcessConcreteType</c> for any concrete type not in this set when non-empty.
     /// </summary>
-    public HashSet<string> LiveOwnerTypeNames { get; init; } = new(comparer: StringComparer.Ordinal);
+    public HashSet<string> LiveOwnerTypeNames { get; init; } =
+        new(comparer: StringComparer.Ordinal);
 
     /// <summary>
     /// Initializes shared state for passes that rewrite verified syntax before instantiation.
     /// </summary>
     public DesugaringContext(TypeRegistry registry,
-        IReadOnlyDictionary<string, Statement> routineBodies,
-        TargetConfig? target = null,
+        IReadOnlyDictionary<string, Statement> routineBodies, TargetConfig? target = null,
         RfBuildMode buildMode = RfBuildMode.Debug)
     {
         Registry = registry;

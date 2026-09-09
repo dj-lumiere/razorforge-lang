@@ -396,6 +396,7 @@ public partial class Parser
         {
             _indentationStack.Pop();
         }
+
         _currentIndentationLevel = _indentationStack.Peek();
 
         int depth = 0;
@@ -413,7 +414,11 @@ public partial class Parser
 
             if (t == TokenType.Dedent)
             {
-                if (depth > 0) depth--;
+                if (depth > 0)
+                {
+                    depth--;
+                }
+
                 Advance();
                 first = false;
                 continue;

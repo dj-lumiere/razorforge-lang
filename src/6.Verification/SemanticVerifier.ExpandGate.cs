@@ -22,22 +22,27 @@ public sealed partial class SemanticVerifier
 
     /// <summary>The wired routine a comparison/equality operator lowers to (<c>==</c>/<c>!=</c> → eq,
     /// the ordering operators → cmp), or null for any other operator.</summary>
-    private static string? WiredNameForOperator(BinaryOperator op) => op switch
+    private static string? WiredNameForOperator(BinaryOperator op)
     {
-        BinaryOperator.Equal or BinaryOperator.NotEqual => "eq",
-        BinaryOperator.Less or BinaryOperator.LessEqual
-            or BinaryOperator.Greater or BinaryOperator.GreaterEqual => "cmp",
-        _ => null
-    };
+        return op switch
+        {
+            BinaryOperator.Equal or BinaryOperator.NotEqual => "eq",
+            BinaryOperator.Less or BinaryOperator.LessEqual or BinaryOperator.Greater
+                or BinaryOperator.GreaterEqual => "cmp",
+            _ => null
+        };
+    }
 
     /// <summary>The GATED protocol a wired routine belongs to — i.e. a protocol that declares its own
     /// <c>needs P everywhere</c> self-constraint (Equatable/Comparable/Hashable/…). Returns false for a
     /// universal wired op (represent/diagnose/serialize), whose protocol carries no such gate.</summary>
     private bool TryGetGatedProtocolForWired(string wiredName, out string protocol)
     {
-        foreach (WiredEntry e in WiredRoutineCatalog.All.Where(predicate: e => e.Name == wiredName))
+        foreach (WiredEntry e in
+                 WiredRoutineCatalog.All.Where(predicate: e => e.Name == wiredName))
         {
-            string? p = e.Protocols.FirstOrDefault(predicate: p => ProtocolIsEverywhereGated(protocol: p));
+            string? p =
+                e.Protocols.FirstOrDefault(predicate: p => ProtocolIsEverywhereGated(protocol: p));
             if (p != null)
             {
                 protocol = p;
@@ -51,17 +56,21 @@ public sealed partial class SemanticVerifier
 
     /// <summary>True when protocol <paramref name="protocol"/> declares a <c>needs P everywhere</c>
     /// self-constraint (mirrors <c>ProtocolConformanceAnalyzer.ProtocolHasEverywhereSelfConstraint</c>).</summary>
-    private bool ProtocolIsEverywhereGated(string protocol) =>
-        _registry.LookupType(name: protocol) is ProtocolTypeInfo p
-        && p.GenericConstraints is { } cs
-        && cs.Any(predicate: c => c.ConstraintType == ConstraintKind.Everywhere);
+    private bool ProtocolIsEverywhereGated(string protocol)
+    {
+        return _registry.LookupType(name: protocol) is ProtocolTypeInfo p &&
+               p.GenericConstraints is { } cs &&
+               cs.Any(predicate: c => c.ConstraintType == ConstraintKind.Everywhere);
+    }
 
     /// <summary>True when the routine currently being analyzed declares <c>needs {protocol}
     /// everywhere</c> (a <see cref="ConstraintKind.Everywhere"/> constraint naming the protocol).</summary>
-    private bool CurrentRoutineDeclaresEverywhere(string protocol) =>
-        _currentRoutine?.GenericConstraints is { } cs
-        && cs.Any(predicate: c => c.ConstraintType == ConstraintKind.Everywhere
-                                  && (c.ConstraintTypes?.Any(predicate: t => t.Name == protocol) ?? false));
+    private bool CurrentRoutineDeclaresEverywhere(string protocol)
+    {
+        return _currentRoutine?.GenericConstraints is { } cs && cs.Any(predicate: c =>
+            c.ConstraintType == ConstraintKind.Everywhere &&
+            (c.ConstraintTypes?.Any(predicate: t => t.Name == protocol) ?? false));
+    }
 
     /// <summary>
     /// Requirement gate: a gated wired op (<paramref name="wiredName"/>) applied to a comptime member
@@ -71,10 +80,16 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void EnforceComptimeMemberGate(string wiredName, SourceLocation location)
     {
-        if (!TryGetGatedProtocolForWired(wiredName: wiredName, out string protocol))
+        if (!TryGetGatedProtocolForWired(wiredName: wiredName, protocol: out string protocol))
+        {
             return; // universal wired op — every type has it, no gate needed
+        }
+
         if (CurrentRoutineDeclaresEverywhere(protocol: protocol))
+        {
             return; // gated AND declared — the everywhere gate guarantees every member supports it
+        }
+
         ReportError(code: SemanticDiagnosticCode.ExpandMemberMissingEverywhereGate,
             message: $"You should guarantee all memvars have {wiredName}.",
             location: location);

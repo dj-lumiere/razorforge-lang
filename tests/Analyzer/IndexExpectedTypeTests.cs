@@ -80,7 +80,8 @@ public class IndexExpectedTypeTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.IntegerLiteralOverflow);
+            filter: e =>
+                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.IntegerLiteralOverflow);
     }
 
     /// <summary>Verifies integer literal 0 on a U64 indexer retypes to U64 without overflow.</summary>
@@ -104,11 +105,14 @@ public class IndexExpectedTypeTests
         Assert.Empty(collection: result.Errors);
     }
 
-    private static IndexExpression FindFirstIndexExpression(AnalysisResult result, string routineName)
+    private static IndexExpression FindFirstIndexExpression(AnalysisResult result,
+        string routineName)
     {
-        RoutineDeclaration? decl = result.Registry.UserPrograms
-            .SelectMany(selector: p => p.Program.Declarations.OfType<RoutineDeclaration>())
-            .FirstOrDefault(predicate: d => d.Name == routineName);
+        RoutineDeclaration? decl = result.Registry
+                                         .UserPrograms
+                                         .SelectMany(selector: p =>
+                                              p.Program.Declarations.OfType<RoutineDeclaration>())
+                                         .FirstOrDefault(predicate: d => d.Name == routineName);
         Assert.NotNull(@object: decl);
 
         var found = new List<IndexExpression>();
@@ -119,19 +123,38 @@ public class IndexExpectedTypeTests
 
     private static void Collect(object? node, List<IndexExpression> sink)
     {
-        if (node == null) return;
-        if (node is IndexExpression ix) sink.Add(item: ix);
+        if (node == null)
+        {
+            return;
+        }
+
+        if (node is IndexExpression ix)
+        {
+            sink.Add(item: ix);
+        }
 
         Type t = node.GetType();
-        if (t.IsPrimitive || node is string || t.IsEnum) return;
+        if (t.IsPrimitive || node is string || t.IsEnum)
+        {
+            return;
+        }
 
         foreach (System.Reflection.PropertyInfo prop in t.GetProperties())
         {
-            if (prop.GetIndexParameters().Length > 0) continue;
+            if (prop.GetIndexParameters()
+                    .Length > 0)
+            {
+                continue;
+            }
+
             object? value;
             try { value = prop.GetValue(obj: node); }
             catch { continue; }
-            if (value == null) continue;
+
+            if (value == null)
+            {
+                continue;
+            }
 
             if (value is Expression or Statement or Declaration)
             {
@@ -142,7 +165,9 @@ public class IndexExpectedTypeTests
                 foreach (object? item in en)
                 {
                     if (item is Expression || item is Statement || item is Declaration)
+                    {
                         Collect(node: item, sink: sink);
+                    }
                 }
             }
         }

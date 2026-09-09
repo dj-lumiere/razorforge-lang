@@ -87,8 +87,7 @@ public partial class Parser
         };
         while (CheckAndAdvance(type: TokenType.And))
         {
-            excluded.Add(
-                item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
+            excluded.Add(item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
         }
 
         return excluded;
@@ -131,7 +130,8 @@ public partial class Parser
             }
             else
             {
-                bindings.Add(item: ParseNamedOrPositionalBinding(bindingLocation: bindingLocation));
+                bindings.Add(
+                    item: ParseNamedOrPositionalBinding(bindingLocation: bindingLocation));
             }
         } while (CheckAndAdvance(type: TokenType.Comma));
 
@@ -150,8 +150,7 @@ public partial class Parser
     {
         // Named or positional binding
         string name = ConsumeIdentifier(
-            errorMessage:
-            "Expected member variable name or binding in destructuring pattern");
+            errorMessage: "Expected member variable name or binding in destructuring pattern");
 
         if (CheckAndAdvance(type: TokenType.Colon))
         {
@@ -236,12 +235,12 @@ public partial class Parser
     /// <see cref="ParseNamedOrPositionalBinding"/> only in that a named nested pattern uses a null
     /// BindingName.
     /// </summary>
-    private DestructuringBinding ParseNamedOrPositionalBindingForList(SourceLocation bindingLocation)
+    private DestructuringBinding ParseNamedOrPositionalBindingForList(
+        SourceLocation bindingLocation)
     {
         // Named or positional binding
         string name = ConsumeIdentifier(
-            errorMessage:
-            "Expected member variable name or binding in destructuring pattern");
+            errorMessage: "Expected member variable name or binding in destructuring pattern");
 
         if (CheckAndAdvance(type: TokenType.Colon))
         {
@@ -282,8 +281,8 @@ public partial class Parser
             TokenType.And or TokenType.Or or TokenType.Not or TokenType.Is or TokenType.IsNot
                 or TokenType.In or TokenType.NotIn or TokenType.Obeys or TokenType.Disobeys
                 or TokenType.If or TokenType.Else or TokenType.While or TokenType.Each
-                or TokenType.Return or TokenType.Throw or TokenType.Pierce or TokenType.When or TokenType.Then
-                or TokenType.To or TokenType.Til or TokenType.By => true,
+                or TokenType.Return or TokenType.Throw or TokenType.Pierce or TokenType.When
+                or TokenType.Then or TokenType.To or TokenType.Til or TokenType.By => true,
             _ => false
         };
     }
@@ -450,7 +449,10 @@ public partial class Parser
     {
         Expression expr = ParseUnary();
 
-        if (CheckAndAdvance(TokenType.Power, TokenType.PowerWrap, TokenType.PowerClamp, TokenType.PowerUnchecked))
+        if (CheckAndAdvance(TokenType.Power,
+                TokenType.PowerWrap,
+                TokenType.PowerClamp,
+                TokenType.PowerUnchecked))
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParsePower(); // Recursive call for right-associativity
@@ -534,7 +536,7 @@ public partial class Parser
             if (literal is LiteralExpression { Value: string strVal } litExpr)
             {
                 // Toggle negative sign: if already negative, remove it; otherwise add it
-                string newValue = strVal.StartsWith('-')
+                string newValue = strVal.StartsWith(value: '-')
                     ? strVal[1..]
                     : "-" + strVal;
                 return new LiteralExpression(Value: newValue,

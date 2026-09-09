@@ -43,17 +43,23 @@ public sealed class CrashableTypeInfo : EntityTypeInfo
     public static string SynthesizeCrashTitle(string typeName)
     {
         if (string.IsNullOrEmpty(value: typeName))
+        {
             return typeName;
+        }
 
         var sb = new StringBuilder();
         for (int i = 0; i < typeName.Length; i++)
         {
             if (i > 0 && char.IsUpper(c: typeName[index: i]))
+            {
                 sb.Append(value: ' ');
+            }
+
             sb.Append(value: typeName[index: i]);
         }
 
-        string spaced = sb.ToString().ToLowerInvariant();
-        return char.ToUpperInvariant(c: spaced[0]) + spaced[1..];
+        string spaced = sb.ToString()
+                          .ToLowerInvariant();
+        return char.ToUpperInvariant(c: spaced[index: 0]) + spaced[1..];
     }
 }

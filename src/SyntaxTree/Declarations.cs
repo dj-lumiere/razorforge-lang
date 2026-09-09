@@ -236,7 +236,8 @@ public record RoutineDeclaration(
     /// Generic constraints (incl. implicit <c>obeys</c> constraints synthesized for desugared
     /// protocol parameters). Settable for the same reason as <see cref="GenericParameters"/>.
     /// </summary>
-    public List<GenericConstraintDeclaration>? GenericConstraints { get; set; } = GenericConstraints;
+    public List<GenericConstraintDeclaration>? GenericConstraints { get; set; } =
+        GenericConstraints;
 
     /// <summary>
     /// Variables taken out of scope within this routine via <c>steal</c> / consumption (SA's
@@ -304,7 +305,9 @@ public record RoutineDeclaration(
     /// the sole owner-qualified renderer.)
     /// </summary>
     public string QualifiedName =>
-        RenderedReceiver is { } receiver ? $"{receiver}.{MemberRoutineName}" : Name;
+        RenderedReceiver is { } receiver
+            ? $"{receiver}.{MemberRoutineName}"
+            : Name;
 
     /// <inheritdoc/>
     public override T Accept<T>(ISyntaxTreeVisitor<T> visitor)
@@ -776,9 +779,11 @@ public record RoutineSignature(
 /// <item>Backward compatibility: keep old names working</item>
 /// </list>
 /// </remarks>
-public record DefineDeclaration(string OldName, string NewName, SourceLocation Location,
-    List<string>? Annotations)
-    : Declaration(Location: Location)
+public record DefineDeclaration(
+    string OldName,
+    string NewName,
+    SourceLocation Location,
+    List<string>? Annotations) : Declaration(Location: Location)
 {
     /// <inheritdoc/>
     public override T Accept<T>(ISyntaxTreeVisitor<T> visitor)

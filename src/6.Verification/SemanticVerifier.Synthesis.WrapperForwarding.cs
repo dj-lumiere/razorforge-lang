@@ -1,6 +1,5 @@
 using TypeModel.Symbols;
 using TypeModel.Types;
-
 using Compiler.Instantiation;
 
 namespace Compiler.Verification;
@@ -21,8 +20,9 @@ public sealed partial class SemanticVerifier
 
     private WrapperForwardingPass GetOrCreateWrapperForwardingPass()
     {
-        return _wrapperForwardingPass ??= new WrapperForwardingPass(
-            _registry, _synthesizedBodies, _synthesizedForwarderKeys);
+        return _wrapperForwardingPass ??= new WrapperForwardingPass(registry: _registry,
+            synthesizedBodies: _synthesizedBodies,
+            synthesizedForwarderKeys: _synthesizedForwarderKeys);
     }
 
     /// <summary>
@@ -32,7 +32,8 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void EagerSynthesizeAllWrapperForwarders()
     {
-        GetOrCreateWrapperForwardingPass().RunEager();
+        GetOrCreateWrapperForwardingPass()
+           .RunEager();
     }
 
     /// <summary>
@@ -42,9 +43,9 @@ public sealed partial class SemanticVerifier
     private RoutineInfo? TrySynthesizeWrapperForwarder(TypeSymbol wrapperType,
         string memberRoutineName, bool isFailable)
     {
-        return GetOrCreateWrapperForwardingPass().TrySynthesize(
-            wrapperType: wrapperType,
-            memberRoutineName: memberRoutineName,
-            isFailable: isFailable);
+        return GetOrCreateWrapperForwardingPass()
+           .TrySynthesize(wrapperType: wrapperType,
+                memberRoutineName: memberRoutineName,
+                isFailable: isFailable);
     }
 }

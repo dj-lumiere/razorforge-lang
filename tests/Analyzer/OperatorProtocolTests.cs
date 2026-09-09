@@ -10,10 +10,10 @@ using static TestHelpers;
 public class OperatorProtocolTests
 {
     #region Correct Protocol Conformance
+
     /// <summary>
     /// Verifies semantic analysis behavior for addable with follows without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_AddableWithFollows_NoError()
     {
@@ -37,7 +37,6 @@ public class OperatorProtocolTests
     /// <summary>
     /// Verifies semantic analysis behavior for equatable with follows without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_EquatableWithFollows_NoError()
     {
@@ -61,7 +60,6 @@ public class OperatorProtocolTests
     /// <summary>
     /// Verifies semantic analysis behavior for comparable with follows without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ComparableWithFollows_NoError()
     {
@@ -93,7 +91,6 @@ public class OperatorProtocolTests
     /// <summary>
     /// Verifies semantic analysis behavior for multiple operator protocols without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_MultipleOperatorProtocols_NoError()
     {
@@ -126,10 +123,10 @@ public class OperatorProtocolTests
     #endregion
 
     #region Missing Protocol Conformance
+
     /// <summary>
     /// Verifies semantic analysis behavior for add without addable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_AddWithoutAddable_ReportsError()
     {
@@ -151,15 +148,15 @@ public class OperatorProtocolTests
         Assert.True(condition: result.Errors.Count > 0,
             userMessage: "Expected error for missing Addable protocol");
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Message.Contains(value: "$add",
-                comparisonType: StringComparison.OrdinalIgnoreCase) &&
+            filter: e =>
+                e.Message.Contains(value: "$add",
+                    comparisonType: StringComparison.OrdinalIgnoreCase) &&
                 e.Message.Contains(value: "Addable",
                     comparisonType: StringComparison.OrdinalIgnoreCase));
     }
     /// <summary>
     /// Verifies semantic analysis behavior for eq without equatable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_EqWithoutEquatable_ReportsError()
     {
@@ -181,15 +178,15 @@ public class OperatorProtocolTests
         Assert.True(condition: result.Errors.Count > 0,
             userMessage: "Expected error for missing Equatable protocol");
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Message.Contains(value: "$eq",
-                comparisonType: StringComparison.OrdinalIgnoreCase) &&
+            filter: e =>
+                e.Message.Contains(value: "$eq",
+                    comparisonType: StringComparison.OrdinalIgnoreCase) &&
                 e.Message.Contains(value: "Equatable",
                     comparisonType: StringComparison.OrdinalIgnoreCase));
     }
     /// <summary>
     /// Verifies semantic analysis behavior for cmp without comparable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_CmpWithoutComparable_ReportsError()
     {
@@ -215,8 +212,9 @@ public class OperatorProtocolTests
         Assert.True(condition: result.Errors.Count > 0,
             userMessage: "Expected error for missing Comparable protocol");
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Message.Contains(value: "$cmp",
-                comparisonType: StringComparison.OrdinalIgnoreCase) &&
+            filter: e =>
+                e.Message.Contains(value: "$cmp",
+                    comparisonType: StringComparison.OrdinalIgnoreCase) &&
                 e.Message.Contains(value: "Comparable",
                     comparisonType: StringComparison.OrdinalIgnoreCase));
     }
@@ -308,10 +306,10 @@ public class OperatorProtocolTests
     #endregion
 
     #region Non-Operator memberRoutines (No Protocol Required)
+
     /// <summary>
     /// Verifies semantic analysis behavior for create without protocol without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_CreateWithoutProtocol_NoError()
     {
@@ -330,7 +328,6 @@ public class OperatorProtocolTests
     /// <summary>
     /// Verifies semantic analysis behavior for destroy without protocol without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_DestroyWithoutProtocol_NoError()
     {
@@ -349,7 +346,6 @@ public class OperatorProtocolTests
     /// <summary>
     /// Verifies semantic analysis behavior for regular memberRoutine without protocol without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_RegularMemberRoutineWithoutProtocol_NoError()
     {
@@ -368,5 +364,4 @@ public class OperatorProtocolTests
     }
 
     #endregion
-
 }

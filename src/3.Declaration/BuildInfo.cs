@@ -18,14 +18,17 @@ public static class BuildInfo
     public static string? AssemblyMetadata(string key)
     {
         return typeof(BuildInfo).Assembly
-            .GetCustomAttributes(attributeType: typeof(AssemblyMetadataAttribute), inherit: false)
-            .OfType<AssemblyMetadataAttribute>()
-            .FirstOrDefault(predicate: a => a.Key == key)
-           ?.Value;
+                                .GetCustomAttributes(
+                                     attributeType: typeof(AssemblyMetadataAttribute),
+                                     inherit: false)
+                                .OfType<AssemblyMetadataAttribute>()
+                                .FirstOrDefault(predicate: a => a.Key == key)
+                               ?.Value;
     }
 
     /// <summary>The RazorForge version line (<c>&lt;RazorForgeVersion&gt;</c>); <c>"0.0.0"</c> fallback.</summary>
-    public static string RazorForgeVersion => AssemblyMetadata(key: "RazorForgeVersion") ?? "0.0.0";
+    public static string RazorForgeVersion =>
+        AssemblyMetadata(key: "RazorForgeVersion") ?? "0.0.0";
 
     /// <summary>The Suflae version line (<c>&lt;SuflaeVersion&gt;</c>); <c>"0.0.0"</c> fallback.</summary>
     public static string SuflaeVersion => AssemblyMetadata(key: "SuflaeVersion") ?? "0.0.0";

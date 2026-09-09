@@ -42,10 +42,13 @@ internal sealed class WrapperForwardingPass
     private readonly HashSet<string> _synthesizedForwarderKeys;
 
     /// <summary>Synthetic source location used for compiler-generated AST nodes.</summary>
-    private static readonly SourceLocation _synthLoc = new(FileName: "", Line: 0, Column: 0, Position: 0);
+    private static readonly SourceLocation _synthLoc = new(FileName: "",
+        Line: 0,
+        Column: 0,
+        Position: 0);
 
     private const string LockEnter = "lock_enter";
-    private const string LockExit  = "lock_exit";
+    private const string LockExit = "lock_exit";
 
     /// <summary>
     /// Bundles the call-site parameters that are common across all forwarder-body builder helpers,
@@ -126,18 +129,19 @@ internal sealed class WrapperForwardingPass
     public void RunEager()
     {
         // Collect from both resolution caches: RecordTypeInfo resolutions AND WrapperTypeInfo resolutions.
-        var candidates =
-            _registry.AllConcreteGenericInstances
-                     .Where(predicate: IsWrapperType)
-                     .Concat(_registry.AllConcreteWrapperInstances)
-                     .Distinct()
-                     .ToList();
+        var candidates = _registry.AllConcreteGenericInstances
+                                  .Where(predicate: IsWrapperType)
+                                  .Concat(second: _registry.AllConcreteWrapperInstances)
+                                  .Distinct()
+                                  .ToList();
 
         foreach (TypeSymbol wrapperType in candidates)
         {
             TypeSymbol? innerType = GetWrapperInnerType(wrapperType: wrapperType);
             if (innerType is null or GenericParameterTypeInfo)
+            {
                 continue;
+            }
 
             TypeSymbol innerLookupType = innerType switch
             {
@@ -150,11 +154,19 @@ internal sealed class WrapperForwardingPass
             // (TrySynthesizeWrapperForwarder in member-access / call dispatch); only memberRoutines
             // codegen invokes without semantic analysis (scope cleanup, RC ops) need eager
             // seeding. This avoids fanning out a forwarder per (wrapper × every memberRoutine of T).
-            foreach (RoutineInfo innerMemberRoutine in _registry.GetMemberRoutinesForOwner(ownerType: innerLookupType))
+            foreach (RoutineInfo innerMemberRoutine in _registry.GetMemberRoutinesForOwner(
+                         ownerType: innerLookupType))
             {
                 if (!ImplicitlyInvokedMemberRoutines.Contains(item: innerMemberRoutine.Name))
+                {
                     continue;
-                if (innerMemberRoutine.Annotations.Contains(value: "innate")) continue;
+                }
+
+                if (innerMemberRoutine.Annotations.Contains(value: "innate"))
+                {
+                    continue;
+                }
+
                 TrySynthesize(wrapperType: wrapperType,
                     memberRoutineName: innerMemberRoutine.Name,
                     isFailable: innerMemberRoutine.IsFailable);
@@ -168,13 +180,18 @@ internal sealed class WrapperForwardingPass
     /// not applicable (not a wrapper, no inner T, no matching inner memberRoutine, or read-only
     /// wrapper rejecting a non-readonly inner memberRoutine).
     /// </summary>
-    public RoutineInfo? TrySynthesize(TypeSymbol wrapperType, string memberRoutineName, bool isFailable)
+    public RoutineInfo? TrySynthesize(TypeSymbol wrapperType, string memberRoutineName,
+        bool isFailable)
     {
         if (!IsWrapperType(type: wrapperType))
+        {
             return null;
+        }
 
-        if (!TryResolveWrapperContext(wrapperType: wrapperType, memberRoutineName: memberRoutineName,
-                isFailable: isFailable, out WrapperResolutionContext ctx))
+        if (!TryResolveWrapperContext(wrapperType: wrapperType,
+                memberRoutineName: memberRoutineName,
+                isFailable: isFailable,
+                ctx: out WrapperResolutionContext ctx))
         {
             return null;
         }
@@ -186,30 +203,41 @@ internal sealed class WrapperForwardingPass
         // projects AGAIN → double projection → the controller header is read as entity fields → crash.
         // Resolve a Roamed[E] receiver call straight to the inner routine (passing the Roamed handle
         // as me), exactly as a receiver that was still bare at SA already does.
-        if (wrapperType.BareName == RuntimeContract.Roamed
-            && ctx.InnerMemberRoutine.MeType is RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }
-                                      or WrapperTypeInfo { Name: RuntimeContract.Roamed })
+        if (wrapperType.BareName == RuntimeContract.Roamed &&
+            ctx.InnerMemberRoutine.MeType is RecordTypeInfo
+            {
+                GenericDefinition.Name: RuntimeContract.Roamed
+            } or WrapperTypeInfo { Name: RuntimeContract.Roamed })
         {
             return ctx.InnerMemberRoutine;
         }
 
         if (IsReadOnlyWrapper(type: wrapperType) && !ctx.InnerMemberRoutine.IsReadOnly)
+        {
             return null;
+        }
 
         // Roamed failable forwarders: the when-re-propagation body IS built (see
         // BuildWrapperForwarderBody's isFailable path) but is currently GATED OFF — the synthesized
         // re-throw's crash_message gets reachability-pruned ("declared+called but never defined").
         // Re-enable by fixing that seed (find the correct crash_message owner/lookup).
         if (wrapperType.BareName == RuntimeContract.Roamed && ctx.InnerMemberRoutine.IsFailable)
+        {
             return null;
+        }
 
-        return SynthesizeForwarder(wrapperType: wrapperType, memberRoutineName: memberRoutineName,
-            isFailable: isFailable, ctx: ctx);
+        return SynthesizeForwarder(wrapperType: wrapperType,
+            memberRoutineName: memberRoutineName,
+            isFailable: isFailable,
+            ctx: ctx);
     }
 
     private readonly record struct WrapperResolutionContext(
-        TypeSymbol WrapperDef, string GenericParamName, TypeSymbol InnerType,
-        TypeSymbol InnerLookupType, RoutineInfo InnerMemberRoutine);
+        TypeSymbol WrapperDef,
+        string GenericParamName,
+        TypeSymbol InnerType,
+        TypeSymbol InnerLookupType,
+        RoutineInfo InnerMemberRoutine);
 
     /// <summary>
     /// Resolves the wrapper definition, generic parameter name, inner type, inner lookup type, and inner
@@ -227,15 +255,18 @@ internal sealed class WrapperForwardingPass
             _ => wrapperType
         };
 
-        if (wrapperDef == null || !wrapperDef.IsGenericDefinition
-            || wrapperDef.GenericParameters is not { Count: 1 })
+        if (wrapperDef == null || !wrapperDef.IsGenericDefinition ||
+            wrapperDef.GenericParameters is not { Count: 1 })
         {
             return false;
         }
 
         string genericParamName = wrapperDef.GenericParameters[index: 0];
         TypeSymbol? innerType = GetWrapperInnerType(wrapperType: wrapperType);
-        if (innerType == null) return false;
+        if (innerType == null)
+        {
+            return false;
+        }
 
         TypeSymbol innerLookupType = innerType switch
         {
@@ -246,22 +277,28 @@ internal sealed class WrapperForwardingPass
 
         // Resolve against the CONCRETE inner type first so owner type parameters bind correctly.
         // Non-generic inners have innerType == innerLookupType, so this is a no-op there.
-        RoutineInfo? innerMemberRoutine =
-            _registry.LookupMemberRoutine(type: innerType, memberRoutineName: memberRoutineName,
-                isFailable: isFailable);
+        RoutineInfo? innerMemberRoutine = _registry.LookupMemberRoutine(type: innerType,
+            memberRoutineName: memberRoutineName,
+            isFailable: isFailable);
         if (innerMemberRoutine == null)
         {
             innerMemberRoutine = _registry.LookupMemberRoutine(type: innerLookupType,
-                memberRoutineName: memberRoutineName, isFailable: isFailable);
+                memberRoutineName: memberRoutineName,
+                isFailable: isFailable);
         }
 
         // No concrete inner impl → no forwarder. A resolution to the ABSTRACT protocol member does
         // NOT count — forwarding to it would emit a call to an unimplemented abstract symbol.
         if (innerMemberRoutine == null || innerMemberRoutine.OwnerType is ProtocolTypeInfo)
+        {
             return false;
+        }
 
-        ctx = new WrapperResolutionContext(wrapperDef, genericParamName, innerType,
-            innerLookupType, innerMemberRoutine);
+        ctx = new WrapperResolutionContext(WrapperDef: wrapperDef,
+            GenericParamName: genericParamName,
+            InnerType: innerType,
+            InnerLookupType: innerLookupType,
+            InnerMemberRoutine: innerMemberRoutine);
         return true;
     }
 
@@ -272,29 +309,35 @@ internal sealed class WrapperForwardingPass
     private RoutineInfo? SynthesizeForwarder(TypeSymbol wrapperType, string memberRoutineName,
         bool isFailable, WrapperResolutionContext ctx)
     {
-        var (wrapperDef, genericParamName, innerType, innerLookupType, innerMemberRoutine) = ctx;
+        (TypeSymbol wrapperDef, string genericParamName, TypeSymbol innerType,
+            TypeSymbol innerLookupType, RoutineInfo innerMemberRoutine) = ctx;
         string cacheKey = $"{wrapperDef.Name}.{memberRoutineName}#{(isFailable ? "!" : "")}";
         if (!_synthesizedForwarderKeys.Add(item: cacheKey))
         {
-            return _registry.LookupMemberRoutine(type: wrapperType, memberRoutineName: memberRoutineName,
-                       isFailable: isFailable)
-                   ?? _registry.LookupMemberRoutine(type: wrapperDef, memberRoutineName: memberRoutineName,
-                       isFailable: isFailable);
+            return _registry.LookupMemberRoutine(type: wrapperType,
+                memberRoutineName: memberRoutineName,
+                isFailable: isFailable) ?? _registry.LookupMemberRoutine(type: wrapperDef,
+                memberRoutineName: memberRoutineName,
+                isFailable: isFailable);
         }
 
         // Don't overwrite a routine already defined on the wrapper's generic def —
         // source-defined routines like represent, diagnose, destroy take precedence.
-        var existingOnDef = _registry.LookupMemberRoutine(type: wrapperDef,
-            memberRoutineName: memberRoutineName, isFailable: isFailable);
+        RoutineInfo? existingOnDef = _registry.LookupMemberRoutine(type: wrapperDef,
+            memberRoutineName: memberRoutineName,
+            isFailable: isFailable);
         if (existingOnDef != null)
         {
             return _registry.LookupMemberRoutine(type: wrapperType,
-                memberRoutineName: memberRoutineName, isFailable: isFailable);
+                memberRoutineName: memberRoutineName,
+                isFailable: isFailable);
         }
 
         List<string>? innerOwnerParams = innerLookupType.GenericParameters;
-        (List<string>? filteredGenericParams, List<GenericConstraintDeclaration>? filteredConstraints) =
-            FilterOwnerLevelGenerics(innerMemberRoutine: innerMemberRoutine, innerOwnerParams: innerOwnerParams);
+        (List<string>? filteredGenericParams,
+                List<GenericConstraintDeclaration>? filteredConstraints) =
+            FilterOwnerLevelGenerics(innerMemberRoutine: innerMemberRoutine,
+                innerOwnerParams: innerOwnerParams);
 
         // Resolve name collisions between the wrapper's generic params and the inner routine's
         // owner-level generic params (both commonly use `T`). Renamed params carry a
@@ -322,7 +365,7 @@ internal sealed class WrapperForwardingPass
             WrapperForwarderInnerMemberRoutine = innerMemberRoutine,
             WrapperForwarderInnerGenericDef = innerLookupType,
             GenericParameters = filteredGenericParams,
-            GenericConstraints = filteredConstraints,
+            GenericConstraints = filteredConstraints
         };
 
         // RC record wrappers (Retained[T], Tracked[T]) are structs with a `data: Hijacked[T]`
@@ -333,8 +376,7 @@ internal sealed class WrapperForwardingPass
             ? "data"
             : null;
 
-        Statement body = BuildWrapperForwarderBody(
-            wrapperType: wrapperDef,
+        Statement body = BuildWrapperForwarderBody(wrapperType: wrapperDef,
             genericParamName: genericParamName,
             innerMemberRoutine: innerMemberRoutine,
             parameters: innerMemberRoutine.Parameters,
@@ -344,7 +386,8 @@ internal sealed class WrapperForwardingPass
         _registry.RegisterRoutine(routine: forwarder);
         _synthesizedBodies[key: forwarder.RegistryKey] = (forwarder, body);
 
-        return _registry.LookupMemberRoutine(type: wrapperType, memberRoutineName: memberRoutineName,
+        return _registry.LookupMemberRoutine(type: wrapperType,
+            memberRoutineName: memberRoutineName,
             isFailable: isFailable) ?? forwarder;
     }
 
@@ -353,8 +396,9 @@ internal sealed class WrapperForwardingPass
     /// <see cref="RoutineInfo.GenericParameters"/> and <see cref="RoutineInfo.GenericConstraints"/>,
     /// keeping only true method-level generics (e.g. <c>[U]</c> on <c>Hijacked[T].recast_as[U]</c>).
     /// </summary>
-    private static (List<string>? filteredParams, List<GenericConstraintDeclaration>? filteredConstraints)
-        FilterOwnerLevelGenerics(RoutineInfo innerMemberRoutine, List<string>? innerOwnerParams)
+    private static (List<string>? filteredParams, List<GenericConstraintDeclaration>?
+        filteredConstraints) FilterOwnerLevelGenerics(RoutineInfo innerMemberRoutine,
+            List<string>? innerOwnerParams)
     {
         // Filter out owner-level generics from the inner memberRoutine's GenericParameters.
         // `BTreeSetNode[T].keys_add_last(value: T)` registers a RoutineInfo whose
@@ -367,18 +411,26 @@ internal sealed class WrapperForwardingPass
         if (filteredParams is { Count: > 0 } && innerOwnerParams is { Count: > 0 })
         {
             filteredParams = filteredParams
-                .Where(predicate: gp => !innerOwnerParams.Contains(value: gp))
-                .ToList();
-            if (filteredParams.Count == 0) filteredParams = null;
+                            .Where(predicate: gp => !innerOwnerParams.Contains(value: gp))
+                            .ToList();
+            if (filteredParams.Count == 0)
+            {
+                filteredParams = null;
+            }
         }
 
-        List<GenericConstraintDeclaration>? filteredConstraints = innerMemberRoutine.GenericConstraints;
+        List<GenericConstraintDeclaration>? filteredConstraints =
+            innerMemberRoutine.GenericConstraints;
         if (filteredConstraints is { Count: > 0 } && innerOwnerParams is { Count: > 0 })
         {
             filteredConstraints = filteredConstraints
-                .Where(predicate: c => !innerOwnerParams.Contains(value: c.ParameterName))
-                .ToList();
-            if (filteredConstraints.Count == 0) filteredConstraints = null;
+                                 .Where(predicate: c =>
+                                      !innerOwnerParams.Contains(value: c.ParameterName))
+                                 .ToList();
+            if (filteredConstraints.Count == 0)
+            {
+                filteredConstraints = null;
+            }
         }
 
         return (filteredParams, filteredConstraints);
@@ -393,21 +445,33 @@ internal sealed class WrapperForwardingPass
     private static Dictionary<string, TypeInfo>? BuildInnerRenameMap(
         List<string>? innerOwnerParams, TypeSymbol wrapperDef)
     {
-        if (innerOwnerParams is not { Count: > 0 }) return null;
-        if (wrapperDef.GenericParameters is not { Count: > 0 } wrapperParams) return null;
+        if (innerOwnerParams is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        if (wrapperDef.GenericParameters is not { Count: > 0 } wrapperParams)
+        {
+            return null;
+        }
 
         Dictionary<string, TypeInfo>? innerRename = null;
         foreach (string ip in innerOwnerParams)
         {
-            if (!wrapperParams.Contains(value: ip)) continue;
+            if (!wrapperParams.Contains(value: ip))
+            {
+                continue;
+            }
+
             innerRename ??= new Dictionary<string, TypeInfo>();
             // The Name still has to be unique vs the wrapper's own param so dict-keyed
             // lookups don't collide; the structural marker is `ForwarderOriginalName`.
-            innerRename[ip] = new GenericParameterTypeInfo(name: $"__rfwd_{ip}__")
+            innerRename[key: ip] = new GenericParameterTypeInfo(name: $"__rfwd_{ip}__")
             {
                 ForwarderOriginalName = ip
             };
         }
+
         return innerRename;
     }
 
@@ -420,14 +484,20 @@ internal sealed class WrapperForwardingPass
     {
         List<ParameterInfo> parameters = innerMemberRoutine.Parameters;
         TypeSymbol? returnType = innerMemberRoutine.ReturnType;
-        if (innerRename is not { Count: > 0 }) return (parameters, returnType);
+        if (innerRename is not { Count: > 0 })
+        {
+            return (parameters, returnType);
+        }
 
         parameters = innerMemberRoutine.Parameters
-            .Select(selector: p => p.WithSubstitutedType(
-                newType: RoutineInfo.SubstituteType(type: p.Type, substitution: innerRename)))
-            .ToList();
+                                       .Select(selector: p => p.WithSubstitutedType(
+                                            newType: RoutineInfo.SubstituteType(type: p.Type,
+                                                substitution: innerRename)))
+                                       .ToList();
         if (returnType != null)
+        {
             returnType = RoutineInfo.SubstituteType(type: returnType, substitution: innerRename);
+        }
 
         return (parameters, returnType);
     }
@@ -446,28 +516,27 @@ internal sealed class WrapperForwardingPass
     ///
     /// where T is the wrapper's generic parameter name.
     /// </summary>
-    private DangerStatement BuildWrapperForwarderBody(TypeSymbol wrapperType, string genericParamName,
-        RoutineInfo innerMemberRoutine, List<ParameterInfo> parameters,
+    private DangerStatement BuildWrapperForwarderBody(TypeSymbol wrapperType,
+        string genericParamName, RoutineInfo innerMemberRoutine, List<ParameterInfo> parameters,
         string? dataFieldName = null, bool innerIsEntity = false)
     {
         // The forwarded call's name is always bare; its failability is carried structurally on the
         // callee MemberExpression (IsFailable), never appended to the name.
         TypeSymbol innerType = wrapperType.TypeArguments is { Count: > 0 }
-            ? wrapperType.TypeArguments[0]
+            ? wrapperType.TypeArguments[index: 0]
             : new GenericParameterTypeInfo(name: genericParamName);
-        List<Expression> forwardedArgs = parameters
-            .Where(p => p.Name != "me")
-            .Select(p => (Expression)new NamedArgumentExpression(
-                Name: p.Name,
-                Value: new IdentifierExpression(Name: p.Name, Location: _synthLoc),
-                Location: _synthLoc))
-            .ToList();
-        var callCtx = new ForwarderCallContext(
-            InnerMemberRoutine: innerMemberRoutine,
+        var forwardedArgs = parameters.Where(predicate: p => p.Name != "me")
+                                      .Select(selector: p =>
+                                           (Expression)new NamedArgumentExpression(Name: p.Name,
+                                               Value: new IdentifierExpression(Name: p.Name,
+                                                   Location: _synthLoc),
+                                               Location: _synthLoc))
+                                      .ToList();
+        var callCtx = new ForwarderCallContext(InnerMemberRoutine: innerMemberRoutine,
             CallPropertyName: innerMemberRoutine.Name,
             IsFailable: innerMemberRoutine.IsFailable,
             HasReturnValue: innerMemberRoutine.ReturnType != null &&
-                innerMemberRoutine.ReturnType.Name != "None",
+                            innerMemberRoutine.ReturnType.Name != "None",
             InnerType: innerType,
             ForwardedArgs: forwardedArgs);
 
@@ -475,18 +544,23 @@ internal sealed class WrapperForwardingPass
 
         if (dataFieldName != null)
         {
-            innerStatements = BuildRecordStructForwarderStatements(
-                wrapperType: wrapperType, dataFieldName: dataFieldName, ctx: callCtx);
+            innerStatements = BuildRecordStructForwarderStatements(wrapperType: wrapperType,
+                dataFieldName: dataFieldName,
+                ctx: callCtx);
         }
-        else if (wrapperType.BareName is RuntimeContract.Retained or RuntimeContract.Tracked or RuntimeContract.Roamed)
+        else if (wrapperType.BareName is RuntimeContract.Retained or RuntimeContract.Tracked
+                 or RuntimeContract.Roamed)
         {
-            innerStatements = BuildRcWrapperForwarderStatements(
-                wrapperType: wrapperType, genericParamName: genericParamName, ctx: callCtx);
+            innerStatements = BuildRcWrapperForwarderStatements(wrapperType: wrapperType,
+                genericParamName: genericParamName,
+                ctx: callCtx);
         }
         else
         {
             innerStatements = BuildPointerWrapperForwarderStatements(
-                genericParamName: genericParamName, innerIsEntity: innerIsEntity, ctx: callCtx);
+                genericParamName: genericParamName,
+                innerIsEntity: innerIsEntity,
+                ctx: callCtx);
         }
 
         return new DangerStatement(
@@ -501,34 +575,33 @@ internal sealed class WrapperForwardingPass
     private List<Statement> BuildRecordStructForwarderStatements(TypeSymbol wrapperType,
         string dataFieldName, ForwarderCallContext ctx)
     {
-        TypeInfo? wrapperDataType =
-            (wrapperType as RecordTypeInfo)?.LookupMemberVariable(memberVariableName: dataFieldName)?.Type;
+        TypeInfo? wrapperDataType = (wrapperType as RecordTypeInfo)
+                                  ?.LookupMemberVariable(memberVariableName: dataFieldName)
+                                  ?.Type;
         var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
-            { ResolvedType = wrapperType };
-        var dataAccess = new MemberExpression(
-            Object: meRef,
-            MemberName: dataFieldName,
-            Location: _synthLoc)
         {
-            ResolvedType = wrapperDataType
+            ResolvedType = wrapperType
         };
+        var dataAccess =
+            new MemberExpression(Object: meRef, MemberName: dataFieldName, Location: _synthLoc)
+            {
+                ResolvedType = wrapperDataType
+            };
         RoutineInfo? extractMemberRoutine = wrapperDataType != null
-            ? _registry.LookupMemberRoutine(type: wrapperDataType, memberRoutineName: RuntimeContract.RawPointer.Peek)
+            ? _registry.LookupMemberRoutine(type: wrapperDataType,
+                memberRoutineName: RuntimeContract.RawPointer.Peek)
             : null;
         var readCall = new CallExpression(
-            Callee: new MemberExpression(
-                Object: dataAccess,
+            Callee: new MemberExpression(Object: dataAccess,
                 MemberName: RuntimeContract.RawPointer.Peek,
                 Location: _synthLoc),
             Arguments: [],
             Location: _synthLoc)
         {
-            ResolvedRoutine = extractMemberRoutine,
-            ResolvedType = ctx.InnerType
+            ResolvedRoutine = extractMemberRoutine, ResolvedType = ctx.InnerType
         };
         var innerCall = new CallExpression(
-            Callee: new MemberExpression(
-                Object: readCall,
+            Callee: new MemberExpression(Object: readCall,
                 MemberName: ctx.CallPropertyName,
                 Location: _synthLoc) { IsFailable = ctx.IsFailable },
             Arguments: ctx.ForwardedArgs,
@@ -570,27 +643,25 @@ internal sealed class WrapperForwardingPass
     {
         bool isRoamed = wrapperType.BareName == RuntimeContract.Roamed;
         bool viaRoamController = isRoamed;
-        string controllerName = viaRoamController ? "RoamController" : "RetainController";
+        string controllerName = viaRoamController
+            ? "RoamController"
+            : "RetainController";
         string dataRevealName = viaRoamController
             ? "data_ptr"
             : RuntimeContract.RefCount.RawData;
-        var controllerTypeExpr = new TypeExpression(
-            Name: controllerName,
+        var controllerTypeExpr = new TypeExpression(Name: controllerName,
             GenericArguments:
             [
-                new TypeExpression(Name: genericParamName, GenericArguments: null,
+                new TypeExpression(Name: genericParamName,
+                    GenericArguments: null,
                     Location: _synthLoc)
             ],
             Location: _synthLoc);
-        var hijackedCtrlCtor = new CreatorExpression(
-            TypeName: RuntimeContract.Hijacked,
+        var hijackedCtrlCtor = new CreatorExpression(TypeName: RuntimeContract.Hijacked,
             TypeArguments: [controllerTypeExpr],
-            MemberVariables:
-                [("", new IdentifierExpression(Name: "me", Location: _synthLoc))],
+            MemberVariables: [("", new IdentifierExpression(Name: "me", Location: _synthLoc))],
             Location: _synthLoc);
-        var rawDecl = new DeclarationStatement(
-            Declaration: new VariableDeclaration(
-                Name: "raw",
+        var rawDecl = new DeclarationStatement(Declaration: new VariableDeclaration(Name: "raw",
                 Type: null,
                 Initializer: hijackedCtrlCtor,
                 Visibility: VisibilityModifier.Open,
@@ -616,37 +687,37 @@ internal sealed class WrapperForwardingPass
             ? _registry.GetOrCreateResolution(genericDef: retainControllerDef,
                 typeArguments: [innerType])
             : retainControllerDef;
-        TypeSymbol hijackedCtrlType = new WrapperTypeInfo(
-            wrapperName: RuntimeContract.Hijacked,
+        TypeSymbol hijackedCtrlType = new WrapperTypeInfo(wrapperName: RuntimeContract.Hijacked,
             innerType: retainControllerType ?? innerType,
             isReadOnly: false);
-        TypeSymbol hijackedInnerType = new WrapperTypeInfo(
-            wrapperName: RuntimeContract.Hijacked,
+        TypeSymbol hijackedInnerType = new WrapperTypeInfo(wrapperName: RuntimeContract.Hijacked,
             innerType: innerType,
             isReadOnly: false);
         RoutineInfo? ctrlRevealMemberRoutine = _registry.LookupMemberRoutine(
-            type: hijackedCtrlType, memberRoutineName: RuntimeContract.RawPointer.AsEntity);
+            type: hijackedCtrlType,
+            memberRoutineName: RuntimeContract.RawPointer.AsEntity);
         RoutineInfo? borrowDataMemberRoutine = retainControllerType != null
-            ? _registry.LookupMemberRoutine(type: retainControllerType, memberRoutineName: dataRevealName)
+            ? _registry.LookupMemberRoutine(type: retainControllerType,
+                memberRoutineName: dataRevealName)
             : null;
         RoutineInfo? innerRevealMemberRoutine = _registry.LookupMemberRoutine(
-            type: hijackedInnerType, memberRoutineName: RuntimeContract.RawPointer.AsEntity);
+            type: hijackedInnerType,
+            memberRoutineName: RuntimeContract.RawPointer.AsEntity);
 
         var ctrlCall = new CallExpression(
             Callee: new MemberExpression(
                 Object: new IdentifierExpression(Name: "raw", Location: _synthLoc)
-                    { ResolvedType = hijackedCtrlType },
+                {
+                    ResolvedType = hijackedCtrlType
+                },
                 MemberName: RuntimeContract.RawPointer.AsEntity,
                 Location: _synthLoc),
             Arguments: [],
             Location: _synthLoc)
         {
-            ResolvedRoutine = ctrlRevealMemberRoutine,
-            ResolvedType = retainControllerType
+            ResolvedRoutine = ctrlRevealMemberRoutine, ResolvedType = retainControllerType
         };
-        var ctrlDecl = new DeclarationStatement(
-            Declaration: new VariableDeclaration(
-                Name: "ctrl",
+        var ctrlDecl = new DeclarationStatement(Declaration: new VariableDeclaration(Name: "ctrl",
                 Type: null,
                 Initializer: ctrlCall,
                 Visibility: VisibilityModifier.Open,
@@ -655,29 +726,27 @@ internal sealed class WrapperForwardingPass
         var borrowCall = new CallExpression(
             Callee: new MemberExpression(
                 Object: new IdentifierExpression(Name: "ctrl", Location: _synthLoc)
-                    { ResolvedType = retainControllerType },
+                {
+                    ResolvedType = retainControllerType
+                },
                 MemberName: RuntimeContract.RefCount.RawData,
                 Location: _synthLoc),
             Arguments: [],
             Location: _synthLoc)
         {
-            ResolvedRoutine = borrowDataMemberRoutine,
-            ResolvedType = hijackedInnerType
+            ResolvedRoutine = borrowDataMemberRoutine, ResolvedType = hijackedInnerType
         };
         var innerRevealCall = new CallExpression(
-            Callee: new MemberExpression(
-                Object: borrowCall,
+            Callee: new MemberExpression(Object: borrowCall,
                 MemberName: RuntimeContract.RawPointer.AsEntity,
                 Location: _synthLoc),
             Arguments: [],
             Location: _synthLoc)
         {
-            ResolvedRoutine = innerRevealMemberRoutine,
-            ResolvedType = innerType
+            ResolvedRoutine = innerRevealMemberRoutine, ResolvedType = innerType
         };
         var innerCall = new CallExpression(
-            Callee: new MemberExpression(
-                Object: innerRevealCall,
+            Callee: new MemberExpression(Object: innerRevealCall,
                 MemberName: ctx.CallPropertyName,
                 Location: _synthLoc) { IsFailable = ctx.IsFailable },
             Arguments: ctx.ForwardedArgs,
@@ -689,8 +758,11 @@ internal sealed class WrapperForwardingPass
         if (isRoamed)
         {
             return BuildRoamedLockedForwarderStatements(wrapperType: wrapperType,
-                rawDecl: rawDecl, ctrlDecl: ctrlDecl,
-                innerRevealCall: innerRevealCall, innerCall: innerCall, ctx: ctx);
+                rawDecl: rawDecl,
+                ctrlDecl: ctrlDecl,
+                innerRevealCall: innerRevealCall,
+                innerCall: innerCall,
+                ctx: ctx);
         }
 
         Statement callStmt = ctx.HasReturnValue
@@ -706,18 +778,28 @@ internal sealed class WrapperForwardingPass
     /// <c>check_</c> variant and a <c>when</c> that re-propagates AFTER releasing the lock in each arm.
     /// </summary>
     private List<Statement> BuildRoamedLockedForwarderStatements(TypeSymbol wrapperType,
-        Statement rawDecl, Statement ctrlDecl,
-        CallExpression innerRevealCall, CallExpression innerCall, ForwarderCallContext ctx)
+        Statement rawDecl, Statement ctrlDecl, CallExpression innerRevealCall,
+        CallExpression innerCall, ForwarderCallContext ctx)
     {
-        RoutineInfo? lockEnter = _registry.LookupMemberRoutine(type: wrapperType, memberRoutineName: LockEnter);
-        RoutineInfo? lockExit = _registry.LookupMemberRoutine(type: wrapperType, memberRoutineName: LockExit);
-        ExpressionStatement MkLock(RoutineInfo? m, string verb) => new ExpressionStatement(
-            Expression: new CallExpression(
-                Callee: new MemberExpression(
-                    Object: new IdentifierExpression(Name: "me", Location: _synthLoc) { ResolvedType = wrapperType },
-                    MemberName: verb, Location: _synthLoc),
-                Arguments: [], Location: _synthLoc) { ResolvedRoutine = m },
-            Location: _synthLoc);
+        RoutineInfo? lockEnter =
+            _registry.LookupMemberRoutine(type: wrapperType, memberRoutineName: LockEnter);
+        RoutineInfo? lockExit =
+            _registry.LookupMemberRoutine(type: wrapperType, memberRoutineName: LockExit);
+
+        ExpressionStatement MkLock(RoutineInfo? m, string verb)
+        {
+            return new ExpressionStatement(Expression: new CallExpression(
+                    Callee: new MemberExpression(
+                        Object: new IdentifierExpression(Name: "me", Location: _synthLoc)
+                        {
+                            ResolvedType = wrapperType
+                        },
+                        MemberName: verb,
+                        Location: _synthLoc),
+                    Arguments: [],
+                    Location: _synthLoc) { ResolvedRoutine = m },
+                Location: _synthLoc);
+        }
 
         if (ctx.IsFailable)
         {
@@ -733,50 +815,76 @@ internal sealed class WrapperForwardingPass
             };
             string checkName = "check_" + ctx.CallPropertyName;
             RoutineInfo? checkM = _registry.LookupMemberRoutine(type: innerDef,
-                memberRoutineName: checkName, isFailable: false);
+                memberRoutineName: checkName,
+                isFailable: false);
             var checkSubject = new CallExpression(
                 Callee: new MemberExpression(Object: innerRevealCall,
-                    MemberName: checkName, Location: _synthLoc),
-                Arguments: ctx.ForwardedArgs, Location: _synthLoc)
-            { ResolvedType = checkM?.ReturnType };
-            var whenStmt = new WhenStatement(
-                Expression: checkSubject,
+                    MemberName: checkName,
+                    Location: _synthLoc),
+                Arguments: ctx.ForwardedArgs,
+                Location: _synthLoc) { ResolvedType = checkM?.ReturnType };
+            var whenStmt = new WhenStatement(Expression: checkSubject,
                 Clauses:
                 [
                     new WhenClause(
-                        Pattern: new CrashablePattern(ErrorType: null, VariableName: "__rf_e", Location: _synthLoc),
-                        Body: new BlockStatement(
-                            Statements: [MkLock(lockExit, LockExit),
-                                new ThrowStatement(Error: new IdentifierExpression(Name: "__rf_e", Location: _synthLoc), Location: _synthLoc)],
+                        Pattern: new CrashablePattern(ErrorType: null,
+                            VariableName: "__rf_e",
+                            Location: _synthLoc),
+                        Body: new BlockStatement(Statements:
+                            [
+                                MkLock(m: lockExit, verb: LockExit),
+                                new ThrowStatement(
+                                    Error: new IdentifierExpression(Name: "__rf_e",
+                                        Location: _synthLoc),
+                                    Location: _synthLoc)
+                            ],
                             Location: _synthLoc),
                         Location: _synthLoc),
                     new WhenClause(
                         Pattern: new ElsePattern(VariableName: "__rf_v", Location: _synthLoc),
-                        Body: new BlockStatement(
-                            Statements: [MkLock(lockExit, LockExit),
-                                new ReturnStatement(Value: new IdentifierExpression(Name: "__rf_v", Location: _synthLoc), Location: _synthLoc)],
+                        Body: new BlockStatement(Statements:
+                            [
+                                MkLock(m: lockExit, verb: LockExit),
+                                new ReturnStatement(
+                                    Value: new IdentifierExpression(Name: "__rf_v",
+                                        Location: _synthLoc),
+                                    Location: _synthLoc)
+                            ],
                             Location: _synthLoc),
                         Location: _synthLoc)
                 ],
                 Location: _synthLoc);
-            return [MkLock(lockEnter, LockEnter), rawDecl, ctrlDecl, whenStmt];
+            return [MkLock(m: lockEnter, verb: LockEnter), rawDecl, ctrlDecl, whenStmt];
         }
 
         if (ctx.HasReturnValue)
         {
             Statement resultDecl = new DeclarationStatement(
-                Declaration: new VariableDeclaration(Name: "__rf_locked", Type: null,
-                    Initializer: innerCall, Visibility: VisibilityModifier.Open, Location: _synthLoc),
+                Declaration: new VariableDeclaration(Name: "__rf_locked",
+                    Type: null,
+                    Initializer: innerCall,
+                    Visibility: VisibilityModifier.Open,
+                    Location: _synthLoc),
                 Location: _synthLoc);
             Statement retStmt = new ReturnStatement(
                 Value: new IdentifierExpression(Name: "__rf_locked", Location: _synthLoc)
-                    { ResolvedType = ctx.InnerMemberRoutine.ReturnType },
+                {
+                    ResolvedType = ctx.InnerMemberRoutine.ReturnType
+                },
                 Location: _synthLoc);
-            return [MkLock(lockEnter, LockEnter), rawDecl, ctrlDecl, resultDecl, MkLock(lockExit, LockExit), retStmt];
+            return
+            [
+                MkLock(m: lockEnter, verb: LockEnter), rawDecl, ctrlDecl, resultDecl,
+                MkLock(m: lockExit, verb: LockExit), retStmt
+            ];
         }
 
-        return [MkLock(lockEnter, LockEnter), rawDecl, ctrlDecl,
-            new ExpressionStatement(Expression: innerCall, Location: _synthLoc), MkLock(lockExit, LockExit)];
+        return
+        [
+            MkLock(m: lockEnter, verb: LockEnter), rawDecl, ctrlDecl,
+            new ExpressionStatement(Expression: innerCall, Location: _synthLoc),
+            MkLock(m: lockExit, verb: LockExit)
+        ];
     }
 
     /// <summary>
@@ -791,27 +899,25 @@ internal sealed class WrapperForwardingPass
     private List<Statement> BuildPointerWrapperForwarderStatements(string genericParamName,
         bool innerIsEntity, ForwarderCallContext ctx)
     {
-        string accessMemberRoutineName = innerIsEntity ? RuntimeContract.RawPointer.AsEntity : RuntimeContract.RawPointer.Peek;
-        var hijackedCall = new CreatorExpression(
-            TypeName: RuntimeContract.Hijacked,
+        string accessMemberRoutineName = innerIsEntity
+            ? RuntimeContract.RawPointer.AsEntity
+            : RuntimeContract.RawPointer.Peek;
+        var hijackedCall = new CreatorExpression(TypeName: RuntimeContract.Hijacked,
             TypeArguments:
             [
-                new TypeExpression(Name: genericParamName, GenericArguments: null,
+                new TypeExpression(Name: genericParamName,
+                    GenericArguments: null,
                     Location: _synthLoc)
             ],
-            MemberVariables:
-                [("", new IdentifierExpression(Name: "me", Location: _synthLoc))],
+            MemberVariables: [("", new IdentifierExpression(Name: "me", Location: _synthLoc))],
             Location: _synthLoc);
-        var rawDecl = new DeclarationStatement(
-            Declaration: new VariableDeclaration(
-                Name: "raw",
+        var rawDecl = new DeclarationStatement(Declaration: new VariableDeclaration(Name: "raw",
                 Type: null,
                 Initializer: hijackedCall,
                 Visibility: VisibilityModifier.Open,
                 Location: _synthLoc),
             Location: _synthLoc);
-        TypeSymbol hijackedInnerType = new WrapperTypeInfo(
-            wrapperName: RuntimeContract.Hijacked,
+        TypeSymbol hijackedInnerType = new WrapperTypeInfo(wrapperName: RuntimeContract.Hijacked,
             innerType: ctx.InnerType,
             isReadOnly: false);
         RoutineInfo? accessMemberRoutine = _registry.LookupMemberRoutine(type: hijackedInnerType,
@@ -819,18 +925,18 @@ internal sealed class WrapperForwardingPass
         var readCall = new CallExpression(
             Callee: new MemberExpression(
                 Object: new IdentifierExpression(Name: "raw", Location: _synthLoc)
-                    { ResolvedType = hijackedInnerType },
+                {
+                    ResolvedType = hijackedInnerType
+                },
                 MemberName: accessMemberRoutineName,
                 Location: _synthLoc),
             Arguments: [],
             Location: _synthLoc)
         {
-            ResolvedRoutine = accessMemberRoutine,
-            ResolvedType = ctx.InnerType
+            ResolvedRoutine = accessMemberRoutine, ResolvedType = ctx.InnerType
         };
         var innerCall = new CallExpression(
-            Callee: new MemberExpression(
-                Object: readCall,
+            Callee: new MemberExpression(Object: readCall,
                 MemberName: ctx.CallPropertyName,
                 Location: _synthLoc) { IsFailable = ctx.IsFailable },
             Arguments: ctx.ForwardedArgs,

@@ -4,6 +4,7 @@ using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Types;
 using Compiler.Verification.Scopes;
+using TypeModel.Symbols;
 
 namespace Compiler.Verification;
 
@@ -183,22 +184,22 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void HandleNoneTypePattern(TypePattern typePat, TypeSymbol matchedType)
     {
-        bool allowsNone = matchedType is ErrorTypeInfo
-            || IsMaybeType(type: matchedType)
-            || GetCarrierBaseName(type: matchedType) == "Lookup"
-            || matchedType is VariantTypeInfo
-            // A `Result[None]` (void-success crashable) is matched on its None success arm
-            // by `is None` — Ok(None) | Crashable. None is the void success value.
-            // Only valid when the success type argument is itself None — `Result[S32]`'s
-            // success arm is S32, so `is None` there is still a mismatch.
-            || matchedType is CrashableTypeInfo
-            || (GetCarrierBaseName(type: matchedType) == "Result"
-                && matchedType is RecordTypeInfo { TypeArguments: [{ Name: "None" }, ..] })
-            // Suflae: a nullable entity reference (`E?`) is a Roamed[E] handle that may be a
-            // null/none handle, so `is None` / `isnot None` is a legal none-check on it.
-            || (_registry.Language == Language.Suflae
-                && matchedType is RecordTypeInfo
-                    { GenericDefinition.Name: Declaration.RuntimeContract.Roamed });
+        bool allowsNone = matchedType is ErrorTypeInfo || IsMaybeType(type: matchedType) ||
+                          GetCarrierBaseName(type: matchedType) == "Lookup" ||
+                          matchedType is VariantTypeInfo
+                          // A `Result[None]` (void-success crashable) is matched on its None success arm
+                          // by `is None` — Ok(None) | Crashable. None is the void success value.
+                          // Only valid when the success type argument is itself None — `Result[S32]`'s
+                          // success arm is S32, so `is None` there is still a mismatch.
+                          || matchedType is CrashableTypeInfo ||
+                          GetCarrierBaseName(type: matchedType) == "Result" &&
+                          matchedType is RecordTypeInfo { TypeArguments: [{ Name: "None" }, ..] }
+                          // Suflae: a nullable entity reference (`E?`) is a Roamed[E] handle that may be a
+                          // null/none handle, so `is None` / `isnot None` is a legal none-check on it.
+                          || _registry.Language == Language.Suflae && matchedType is RecordTypeInfo
+                          {
+                              GenericDefinition.Name: Declaration.RuntimeContract.Roamed
+                          };
         if (!allowsNone)
         {
             ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
@@ -214,9 +215,8 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void HandleChoiceCaseTypePattern(TypePattern typePat, ChoiceTypeInfo choiceForIs)
     {
-        string? choiceCaseName = ExtractChoiceCaseFromTypePattern(
-            typePat: typePat,
-            choice: choiceForIs);
+        string? choiceCaseName =
+            ExtractChoiceCaseFromTypePattern(typePat: typePat, choice: choiceForIs);
         if (choiceCaseName != null)
         {
             // Valid choice case match via 'is' — no type resolution needed
@@ -272,16 +272,14 @@ public sealed partial class SemanticVerifier
 
         // Option A: `subj is <name>` where <name> is a variable of the same
         // flags type — lowered to subset check `(subj & rhs) == rhs`.
-        var flagVar = _registry.CurrentScope.LookupVariable(name: flagName);
-        if (flagVar?.Type is FlagsTypeInfo varFlagsType &&
-            varFlagsType.Name == flagsForIs.Name)
+        VariableInfo? flagVar = _registry.CurrentScope.LookupVariable(name: flagName);
+        if (flagVar?.Type is FlagsTypeInfo varFlagsType && varFlagsType.Name == flagsForIs.Name)
         {
             return;
         }
 
         ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
-            message:
-            $"Flags type '{flagsForIs.Name}' does not have a member named '{flagName}'.",
+            message: $"Flags type '{flagsForIs.Name}' does not have a member named '{flagName}'.",
             location: typePat.Location);
     }
 
@@ -327,8 +325,7 @@ public sealed partial class SemanticVerifier
             if (matchedType.Category != TypeCategory.Error)
             {
                 ReportError(code: SemanticDiagnosticCode.FlagsTypeMismatch,
-                    message:
-                    $"Flags pattern requires a flags type, but got '{matchedType.Name}'.",
+                    message: $"Flags pattern requires a flags type, but got '{matchedType.Name}'.",
                     location: flagsPat.Location);
             }
 
@@ -336,7 +333,8 @@ public sealed partial class SemanticVerifier
         }
 
         // Validate each flag name exists
-        foreach (string flagName in flagsPat.FlagNames.Where(fn => flagsTypeForPat.Members.All(m => m.Name != fn)))
+        foreach (string flagName in flagsPat.FlagNames.Where(predicate: fn =>
+                     flagsTypeForPat.Members.All(predicate: m => m.Name != fn)))
         {
             ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
                 message:
@@ -347,7 +345,8 @@ public sealed partial class SemanticVerifier
         // Validate excluded flags
         if (flagsPat.ExcludedFlags != null)
         {
-            foreach (string flagName in flagsPat.ExcludedFlags.Where(fn => flagsTypeForPat.Members.All(m => m.Name != fn)))
+            foreach (string flagName in flagsPat.ExcludedFlags.Where(predicate: fn =>
+                         flagsTypeForPat.Members.All(predicate: m => m.Name != fn)))
             {
                 ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
                     message:
@@ -456,7 +455,10 @@ public sealed partial class SemanticVerifier
     {
         // Caller guarantees Bindings is non-empty (checked before calling), but the field is
         // nullable — guard here so subsequent indexing is clean.
-        if (pattern.Bindings == null) return;
+        if (pattern.Bindings == null)
+        {
+            return;
+        }
 
         // For a single binding without member variable name, bind directly to the payload
         if (pattern.Bindings.Count == 1 && pattern.Bindings[index: 0].MemberVariableName == null)
@@ -554,7 +556,8 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        foreach (string bindingName in bindings.Select(b => b.BindingName).OfType<string>())
+        foreach (string bindingName in bindings.Select(selector: b => b.BindingName)
+                                               .OfType<string>())
         {
             _registry.DeclareVariable(name: bindingName, type: ErrorTypeInfo.Instance);
         }
@@ -568,22 +571,42 @@ public sealed partial class SemanticVerifier
     {
         // Same type - always compatible
         if (matchedType.Name == patternType.Name)
+        {
             return true;
+        }
+
         // If either is a type parameter, we can't know at analysis time
-        if (matchedType.Category == TypeCategory.TypeParameter || patternType.Category == TypeCategory.TypeParameter)
+        if (matchedType.Category == TypeCategory.TypeParameter ||
+            patternType.Category == TypeCategory.TypeParameter)
+        {
             return true;
+        }
+
         // If matched type is a protocol, any concrete type could conform
         if (matchedType.Category == TypeCategory.Protocol)
+        {
             return true;
+        }
+
         // Carrier types (Maybe<T>, Result<T>, Lookup<T>) can be matched against any type/protocol
         if (IsCarrierType(type: matchedType))
+        {
             return true;
+        }
+
         // Variant: `is <MemberType>` matches if MemberType is one of the variant's members
-        if (matchedType is VariantTypeInfo variantMatched && VariantHasMemberOfType(variant: variantMatched, patternType: patternType))
+        if (matchedType is VariantTypeInfo variantMatched &&
+            VariantHasMemberOfType(variant: variantMatched, patternType: patternType))
+        {
             return true;
+        }
+
         // If pattern type is a protocol, check if matched type implements it
         if (patternType.Category == TypeCategory.Protocol)
+        {
             return ImplementsProtocol(type: matchedType, protocolName: patternType.Name);
+        }
+
         // IsAssignableTo in either direction covers subtyping
         return IsAssignableTo(source: matchedType, target: patternType) ||
                IsAssignableTo(source: patternType, target: matchedType);
@@ -596,9 +619,9 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool VariantHasMemberOfType(VariantTypeInfo variant, TypeSymbol patternType)
     {
-        return variant.Members.Any(m =>
-            m.Type != null &&
-            (m.Type.Name == patternType.Name || m.Type.FullName == patternType.FullName));
+        return variant.Members.Any(predicate: m =>
+            m.Type != null && (m.Type.Name == patternType.Name ||
+                               m.Type.FullName == patternType.FullName));
     }
 
     #endregion
@@ -619,7 +642,8 @@ public sealed partial class SemanticVerifier
         TypeSymbol matchedType)
     {
         // If any clause is a catch-all pattern, it's always exhaustive
-        if (clauses.Any(clause => clause.Pattern is WildcardPattern or ElsePattern or IdentifierPattern))
+        if (clauses.Any(predicate: clause =>
+                clause.Pattern is WildcardPattern or ElsePattern or IdentifierPattern))
         {
             return new ExhaustivenessResult(IsExhaustive: true, MissingCases: []);
         }
@@ -658,13 +682,14 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Checks whether all cases of a choice type are covered by 'is' TypePatterns.
     /// </summary>
-    private static ExhaustivenessResult CheckChoiceExhaustiveness(
-        List<WhenClause> clauses, ChoiceTypeInfo choice)
+    private static ExhaustivenessResult CheckChoiceExhaustiveness(List<WhenClause> clauses,
+        ChoiceTypeInfo choice)
     {
         var coveredCases = clauses
-            .Select(clause => ExtractChoiceCaseName(pattern: clause.Pattern))
-            .OfType<string>()
-            .ToHashSet();
+                          .Select(selector: clause =>
+                               ExtractChoiceCaseName(pattern: clause.Pattern))
+                          .OfType<string>()
+                          .ToHashSet();
 
         var missingCases = choice.Cases
                                  .Where(predicate: c => !coveredCases.Contains(item: c.Name))
@@ -740,14 +765,14 @@ public sealed partial class SemanticVerifier
     /// The parser creates TypePattern for variant matching (is S64, is None),
     /// not VariantPattern.
     /// </summary>
-    private static ExhaustivenessResult CheckVariantExhaustiveness(
-        List<WhenClause> clauses, List<VariantMemberInfo> members,
-        string typeName)
+    private static ExhaustivenessResult CheckVariantExhaustiveness(List<WhenClause> clauses,
+        List<VariantMemberInfo> members, string typeName)
     {
-        var coveredMembers = clauses
-            .Select(clause => ExtractVariantMemberName(pattern: clause.Pattern, typeName: typeName))
-            .OfType<string>()
-            .ToHashSet();
+        var coveredMembers = clauses.Select(selector: clause =>
+                                         ExtractVariantMemberName(pattern: clause.Pattern,
+                                             typeName: typeName))
+                                    .OfType<string>()
+                                    .ToHashSet();
 
         var missingMembers = members.Where(predicate: m => !coveredMembers.Contains(item: m.Name))
                                     .Select(selector: m => m.Name)
@@ -795,14 +820,14 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Checks whether Maybe/Result/Lookup error handling types are exhaustively matched.
     /// </summary>
-    private static ExhaustivenessResult CheckErrorHandlingExhaustiveness(
-        List<WhenClause> clauses, TypeSymbol carrierType)
+    private static ExhaustivenessResult CheckErrorHandlingExhaustiveness(List<WhenClause> clauses,
+        TypeSymbol carrierType)
     {
         bool hasAbsent = false;
         bool hasCrashableCatchAll = false;
         bool hasValue = false;
 
-        foreach (Pattern pattern in clauses.Select(clause => clause.Pattern))
+        foreach (Pattern pattern in clauses.Select(selector: clause => clause.Pattern))
         {
             if (IsAbsentPattern(pattern: pattern, carrierType: carrierType))
             {
@@ -833,8 +858,8 @@ public sealed partial class SemanticVerifier
     /// Computes the missing arms for a carrier type given which arm kinds were seen: Maybe needs
     /// None + value, Result needs Crashable + value, Lookup needs None + Crashable + value.
     /// </summary>
-    private static List<string> CollectCarrierMissingCases(string? carrierBaseName,
-        bool hasAbsent, bool hasCrashableCatchAll, bool hasValue)
+    private static List<string> CollectCarrierMissingCases(string? carrierBaseName, bool hasAbsent,
+        bool hasCrashableCatchAll, bool hasValue)
     {
         var missing = new List<string>();
 
@@ -894,7 +919,7 @@ public sealed partial class SemanticVerifier
         bool hasTrue = false;
         bool hasFalse = false;
 
-        foreach (Pattern pattern in clauses.Select(clause => clause.Pattern))
+        foreach (Pattern pattern in clauses.Select(selector: clause => clause.Pattern))
         {
             if (pattern is LiteralPattern { LiteralType: TokenType.True })
             {

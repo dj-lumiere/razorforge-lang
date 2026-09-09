@@ -26,36 +26,37 @@ public partial class LlvmCodeGenerator
         SourceLocation? savedLoc = PushDebugLoc(sb: sb, loc: expr.Location);
         try
         {
-        return expr switch
-        {
-            // Fundamental leaves: a literal value and a name reference.
-            LiteralExpression literal => EmitLiteral(sb: sb, literal: literal),
-            IdentifierExpression identifier => EmitIdentifier(sb: sb, identifier: identifier),
-            // Field access (GEP + load) — fundamental IR, distinct from a member-routine call.
-            MemberExpression memberAccess => EmitMemberVariableAccess(sb: sb, expr: memberAccess),
-            CreatorExpression constructor => EmitConstructorCall(sb: sb, expr: constructor),
-            CallExpression call => EmitCall(sb: sb, call: call),
-            // Only the fundamental operator arms survive to codegen (Assign / Is / IdentityEqual /
-            // Steal / flags-bitnot); every wired/comparison/membership/logical op is lowered upstream.
-            BinaryExpression binary => EmitBinaryOp(sb: sb, binary: binary),
-            UnaryExpression unary => EmitUnaryOp(sb: sb, unary: unary),
-            GenericMemberRoutineCallExpression gmc => EmitGmceFallback(sb: sb, gmc: gmc),
-            // Array[T,N] and BitArray[N] are inline IR constructs (insertvalue); all other
-            // collection literals must be lowered to CreatorExpression + add calls before codegen.
-            ListLiteralExpression list when IsArrayOrBitArrayLiteral(list.ResolvedType) =>
-                EmitListLiteral(sb: sb, list: list),
-            // CarrierPayloadExpression is the RESULT of PatternLoweringPass (Maybe/Result payload
-            // projection) — codegen consumes it, it is not a surface node.
-            CarrierPayloadExpression payload => EmitCarrierPayloadExpression(sb: sb,
-                payload: payload),
-            CrashableDispatchExpression dispatch => EmitCrashableDispatchExpression(sb: sb,
-                dispatch: dispatch),
-            // Named arguments appear inside synthesized AST bodies (e.g., me.eq(you: you)).
-            // The name is irrelevant to codegen -> just emit the inner value positionally.
-            NamedArgumentExpression named => EmitExpression(sb: sb, expr: named.Value),
-            _ => throw new NotImplementedException(
-                message: $"Expression type not implemented: {expr.GetType().Name}")
-        };
+            return expr switch
+            {
+                // Fundamental leaves: a literal value and a name reference.
+                LiteralExpression literal => EmitLiteral(sb: sb, literal: literal),
+                IdentifierExpression identifier => EmitIdentifier(sb: sb, identifier: identifier),
+                // Field access (GEP + load) — fundamental IR, distinct from a member-routine call.
+                MemberExpression memberAccess => EmitMemberVariableAccess(sb: sb,
+                    expr: memberAccess),
+                CreatorExpression constructor => EmitConstructorCall(sb: sb, expr: constructor),
+                CallExpression call => EmitCall(sb: sb, call: call),
+                // Only the fundamental operator arms survive to codegen (Assign / Is / IdentityEqual /
+                // Steal / flags-bitnot); every wired/comparison/membership/logical op is lowered upstream.
+                BinaryExpression binary => EmitBinaryOp(sb: sb, binary: binary),
+                UnaryExpression unary => EmitUnaryOp(sb: sb, unary: unary),
+                GenericMemberRoutineCallExpression gmc => EmitGmceFallback(sb: sb, gmc: gmc),
+                // Array[T,N] and BitArray[N] are inline IR constructs (insertvalue); all other
+                // collection literals must be lowered to CreatorExpression + add calls before codegen.
+                ListLiteralExpression list when IsArrayOrBitArrayLiteral(type: list.ResolvedType)
+                    => EmitListLiteral(sb: sb, list: list),
+                // CarrierPayloadExpression is the RESULT of PatternLoweringPass (Maybe/Result payload
+                // projection) — codegen consumes it, it is not a surface node.
+                CarrierPayloadExpression payload => EmitCarrierPayloadExpression(sb: sb,
+                    payload: payload),
+                CrashableDispatchExpression dispatch => EmitCrashableDispatchExpression(sb: sb,
+                    dispatch: dispatch),
+                // Named arguments appear inside synthesized AST bodies (e.g., me.eq(you: you)).
+                // The name is irrelevant to codegen -> just emit the inner value positionally.
+                NamedArgumentExpression named => EmitExpression(sb: sb, expr: named.Value),
+                _ => throw new NotImplementedException(
+                    message: $"Expression type not implemented: {expr.GetType().Name}")
+            };
         }
         finally
         {
@@ -96,9 +97,11 @@ public partial class LlvmCodeGenerator
                 EmitLine(sb: sb, line: $"  {capVal} = load {capLlvm}, ptr %{llvmName}.addr");
                 string capFieldPtr = NextTemp();
                 EmitLine(sb: sb,
-                    line: $"  {capFieldPtr} = getelementptr {boundStruct}, ptr {boundPtr}, i32 0, i32 {i}");
+                    line:
+                    $"  {capFieldPtr} = getelementptr {boundStruct}, ptr {boundPtr}, i32 0, i32 {i}");
                 EmitLine(sb: sb, line: $"  store {capLlvm} {capVal}, ptr {capFieldPtr}");
             }
+
             boundVal = boundPtr;
         }
 
@@ -161,14 +164,16 @@ public partial class LlvmCodeGenerator
     private string EnsureArgpackType(RoutineInfo routine)
     {
         string mangled = MangleRoutineName(routine: routine);
-        string raw = mangled.StartsWith(value: '"') ? mangled[1..^1] : mangled;
+        string raw = mangled.StartsWith(value: '"')
+            ? mangled[1..^1]
+            : mangled;
         string name = $"%{Q(name: $"Argpack.{raw}")}";
         if (!_typeDeclarationsClosure.ContainsKey(key: name))
         {
             var fields = routine.Parameters
                                 .Select(selector: p => IsByRefThreadArg(routine: routine, param: p)
-                                    ? "ptr"
-                                    : GetParameterLlvmType(type: p.Type))
+                                     ? "ptr"
+                                     : GetParameterLlvmType(type: p.Type))
                                 .ToList();
             _typeDeclarationsClosure[key: name] =
                 $"{name} = type {{ {string.Join(separator: ", ", values: fields)} }}\n";
@@ -186,11 +191,15 @@ public partial class LlvmCodeGenerator
     {
         string mangled = MangleRoutineName(routine: routine);
         string realRef = $"@{mangled}";
-        string raw = mangled.StartsWith(value: '"') ? mangled[1..^1] : mangled;
+        string raw = mangled.StartsWith(value: '"')
+            ? mangled[1..^1]
+            : mangled;
         string thunkRaw = $"{raw}.thread_entry";
         string thunkSym = $"@{Q(name: thunkRaw)}";
         if (!_emittedRoutineValueThunks.Add(item: thunkRaw))
+        {
             return thunkSym;
+        }
 
         string retType = routine.ReturnType != null
             ? GetLlvmType(type: routine.ReturnType)
@@ -236,6 +245,7 @@ public partial class LlvmCodeGenerator
             b.Append(value: "  %udint = ptrtoint ptr %userdata to i64\n");
             b.Append(value: "  call void @rf_invalidate(i64 %udint)\n");
         }
+
         b.Append(value: "  ret void\n}\n");
         return thunkSym;
     }
@@ -252,16 +262,28 @@ public partial class LlvmCodeGenerator
     {
         int paramCount = routine.Parameters.Count;
         if (arguments.Count != paramCount)
+        {
             return arguments;
-        if (!arguments.Any(a => a is NamedArgumentExpression))
+        }
+
+        if (!arguments.Any(predicate: a => a is NamedArgumentExpression))
+        {
             return arguments;
+        }
 
         var ordered = new Expression?[paramCount];
         var leftovers = new List<Expression>();
         foreach (Expression a in arguments)
-            PlaceArgument(a: a, routine: routine, ordered: ordered, leftovers: leftovers);
+        {
+            PlaceArgument(a: a,
+                routine: routine,
+                ordered: ordered,
+                leftovers: leftovers);
+        }
 
-        return BuildOrderedResult(ordered: ordered, leftovers: leftovers, fallback: arguments,
+        return BuildOrderedResult(ordered: ordered,
+            leftovers: leftovers,
+            fallback: arguments,
             paramCount: paramCount);
     }
 
@@ -281,9 +303,13 @@ public partial class LlvmCodeGenerator
 
         int p = FindParamIndex(routine: routine, name: na.Name);
         if (p >= 0 && ordered[p] == null)
+        {
             ordered[p] = a;
+        }
         else
+        {
             leftovers.Add(item: a);
+        }
     }
 
     /// <summary>
@@ -295,8 +321,11 @@ public partial class LlvmCodeGenerator
         for (int k = 0; k < routine.Parameters.Count; k++)
         {
             if (routine.Parameters[index: k].Name == name)
+            {
                 return k;
+            }
         }
+
         return -1;
     }
 
@@ -313,11 +342,18 @@ public partial class LlvmCodeGenerator
         foreach (Expression? slot in ordered)
         {
             if (slot != null)
+            {
                 result.Add(item: slot);
+            }
             else if (next < leftovers.Count)
+            {
                 result.Add(item: leftovers[index: next++]);
+            }
         }
-        return result.Count == paramCount ? result : fallback;
+
+        return result.Count == paramCount
+            ? result
+            : fallback;
     }
 
     /// <summary>
@@ -349,8 +385,8 @@ public partial class LlvmCodeGenerator
             }
 
             string v = EmitExpression(sb: sb, expr: arguments[index: i]);
-            TypeInfo actual = GetExpressionType(expr: arguments[index: i])
-                              ?? routine.Parameters[index: i].Type!;
+            TypeInfo actual = GetExpressionType(expr: arguments[index: i]) ??
+                              routine.Parameters[index: i].Type!;
             (string cv, string _) = CoerceCallArgumentToParameter(sb: sb,
                 argValue: v,
                 actualType: actual,
@@ -432,7 +468,8 @@ public partial class LlvmCodeGenerator
     {
         arguments = ReorderCallArgsToParamOrder(arguments: arguments, routine: routine);
         EnsureTaskRuntimeDeclares();
-        _rfRoutineDeclarations[key: "rf_coro_create"] = "declare ptr @rf_coro_create(ptr, ptr, i64)";
+        _rfRoutineDeclarations[key: "rf_coro_create"] =
+            "declare ptr @rf_coro_create(ptr, ptr, i64)";
         GenerateRoutineDeclaration(routine: routine);
         string thunk = EnsureCoroEntryThunk(routine: routine);
 
@@ -442,10 +479,13 @@ public partial class LlvmCodeGenerator
         for (int i = 0; i < n; i++)
         {
             string v = EmitExpression(sb: sb, expr: arguments[index: i]);
-            TypeInfo actual = GetExpressionType(expr: arguments[index: i])
-                              ?? routine.Parameters[index: i].Type!;
-            (string cv, string _) = CoerceCallArgumentToParameter(sb: sb, argValue: v,
-                actualType: actual, parameterType: routine.Parameters[index: i].Type, callee: routine);
+            TypeInfo actual = GetExpressionType(expr: arguments[index: i]) ??
+                              routine.Parameters[index: i].Type!;
+            (string cv, string _) = CoerceCallArgumentToParameter(sb: sb,
+                argValue: v,
+                actualType: actual,
+                parameterType: routine.Parameters[index: i].Type,
+                callee: routine);
             values.Add(item: cv);
             types.Add(item: GetParameterLlvmType(type: routine.Parameters[index: i].Type));
         }
@@ -463,9 +503,11 @@ public partial class LlvmCodeGenerator
             for (int i = 0; i < values.Count; i++)
             {
                 string fp = NextTemp();
-                EmitLine(sb: sb, line: $"  {fp} = getelementptr {packType}, ptr {pack}, i32 0, i32 {i}");
+                EmitLine(sb: sb,
+                    line: $"  {fp} = getelementptr {packType}, ptr {pack}, i32 0, i32 {i}");
                 EmitLine(sb: sb, line: $"  store {types[index: i]} {values[index: i]}, ptr {fp}");
             }
+
             argpack = $"ptr {pack}";
         }
 
@@ -486,7 +528,8 @@ public partial class LlvmCodeGenerator
         EmitLine(sb: sb, line: $"  store {argpack}, ptr {udf1}");
 
         string coro = NextTemp();
-        EmitLine(sb: sb, line: $"  {coro} = call ptr @rf_coro_create(ptr {thunk}, ptr {ud}, i64 0)");
+        EmitLine(sb: sb,
+            line: $"  {coro} = call ptr @rf_coro_create(ptr {thunk}, ptr {ud}, i64 0)");
 
         // LAZY SPAWN: rf_coro_create only allocates the context; the coroutine does not run until a
         // verb launches it. retrieve/gather/race call Agent.launch; execute performs a detached spawn.
@@ -501,7 +544,8 @@ public partial class LlvmCodeGenerator
             typeArguments: [routine.ReturnType!]);
         string recLlvm = GetLlvmType(type: agentType);
         string rCoro = NextTemp();
-        EmitLine(sb: sb, line: $"  {rCoro} = insertvalue {recLlvm} zeroinitializer, ptr {coro}, 1");
+        EmitLine(sb: sb,
+            line: $"  {rCoro} = insertvalue {recLlvm} zeroinitializer, ptr {coro}, 1");
         string taskInt = NextTemp();
         EmitLine(sb: sb, line: $"  {taskInt} = ptrtoint ptr {task} to i64");
         string r1 = NextTemp();
@@ -520,14 +564,16 @@ public partial class LlvmCodeGenerator
     private void AppendThunkCompleteResult(StringBuilder b, RoutineInfo routine, string retType)
     {
         RoutineInfo? destroy = routine.ReturnType is { } rt
-            ? _registry.LookupMemberRoutineOverload(type: rt, memberRoutineName: "destroy",
+            ? _registry.LookupMemberRoutineOverload(type: rt,
+                memberRoutineName: "destroy",
                 argTypes: new List<TypeInfo>())
             : null;
         bool needsDiscard = destroy != null && routine.ReturnType != null;
 
         if (needsDiscard)
         {
-            _rfRoutineDeclarations[key: "rf_task_is_detached"] = "declare i8 @rf_task_is_detached(ptr)";
+            _rfRoutineDeclarations[key: "rf_task_is_detached"] =
+                "declare i8 @rf_task_is_detached(ptr)";
             GenerateRoutineDeclaration(routine: destroy!);
             string dm = MangleRoutineName(routine: destroy!);
             b.Append(value: "  %det = call i8 @rf_task_is_detached(ptr %task)\n");
@@ -546,6 +592,7 @@ public partial class LlvmCodeGenerator
             {
                 b.Append(value: $"  call void @{dm}({retType} %r)\n");
             }
+
             b.Append(value: "  call void @rf_task_complete_value(ptr %task, ptr null)\n");
             b.Append(value: "  br label %rf_done\n");
             b.Append(value: "rf_box:\n");
@@ -576,13 +623,19 @@ public partial class LlvmCodeGenerator
     {
         string mangled = MangleRoutineName(routine: routine);
         string realRef = $"@{mangled}";
-        string raw = mangled.StartsWith(value: '"') ? mangled[1..^1] : mangled;
+        string raw = mangled.StartsWith(value: '"')
+            ? mangled[1..^1]
+            : mangled;
         string thunkRaw = $"{raw}.coro_entry";
         string thunkSym = $"@{Q(name: thunkRaw)}";
         if (!_emittedRoutineValueThunks.Add(item: thunkRaw))
+        {
             return thunkSym;
+        }
 
-        string retType = routine.ReturnType != null ? GetLlvmType(type: routine.ReturnType) : "void";
+        string retType = routine.ReturnType != null
+            ? GetLlvmType(type: routine.ReturnType)
+            : "void";
         StringBuilder b = _auxRoutineDefinitions;
         b.Append(value: $"define void {thunkSym}(ptr %ud) {{\n");
         b.Append(value: "entry:\n");
@@ -597,7 +650,8 @@ public partial class LlvmCodeGenerator
             for (int i = 0; i < routine.Parameters.Count; i++)
             {
                 string pt = GetParameterLlvmType(type: routine.Parameters[index: i].Type);
-                b.Append(value: $"  %fp{i} = getelementptr {packType}, ptr %argpack, i32 0, i32 {i}\n");
+                b.Append(
+                    value: $"  %fp{i} = getelementptr {packType}, ptr %argpack, i32 0, i32 {i}\n");
                 b.Append(value: $"  %a{i} = load {pt}, ptr %fp{i}\n");
                 callArgs.Add(item: $"{pt} %a{i}");
             }
@@ -620,6 +674,7 @@ public partial class LlvmCodeGenerator
             b.Append(value: "  %apint = ptrtoint ptr %argpack to i64\n");
             b.Append(value: "  call void @rf_invalidate(i64 %apint)\n");
         }
+
         b.Append(value: "  %udint = ptrtoint ptr %ud to i64\n");
         b.Append(value: "  call void @rf_invalidate(i64 %udint)\n");
         b.Append(value: "  ret void\n}\n");
@@ -682,6 +737,7 @@ public partial class LlvmCodeGenerator
             {
                 return EmitClosureValue(sb: sb, lambda: routine);
             }
+
             // A plain (non-lambda) routine used as a Routine VALUE must also present the uniform
             // closure ABI so the indirect call site (which loads fn from closure[0] and passes the
             // closure as the hidden leading arg) works. Wrap it in a captureless closure whose fn
@@ -693,7 +749,8 @@ public partial class LlvmCodeGenerator
         if (!_localVariables.TryGetValue(key: identifier.Name, value: out TypeInfo? varType))
         {
             // Suflae module-level `global`: load from its `@global` symbol.
-            if (_moduleGlobals.TryGetValue(key: identifier.Name, value: out (TypeInfo Type, string Symbol) gslot))
+            if (_moduleGlobals.TryGetValue(key: identifier.Name,
+                    value: out (TypeInfo Type, string Symbol) gslot))
             {
                 string gLlvmType = GetLlvmType(type: gslot.Type);
                 string gTmp = NextTemp();
@@ -702,7 +759,8 @@ public partial class LlvmCodeGenerator
             }
 
             throw new InvalidOperationException(
-                message: $"Unknown identifier '{identifier.Name}' in routine [{_currentEmittingRoutine?.OwnerType?.FullName ?? _currentEmittingRoutine?.Module}.{_currentEmittingRoutine?.Name}]");
+                message:
+                $"Unknown identifier '{identifier.Name}' in routine [{_currentEmittingRoutine?.OwnerType?.FullName ?? _currentEmittingRoutine?.Module}.{_currentEmittingRoutine?.Name}]");
         }
 
         // Variables are stored in allocas (%name.addr), need to load them
@@ -729,6 +787,7 @@ public partial class LlvmCodeGenerator
         {
             return $"@{MangleRoutineName(routine: preResolved)}";
         }
+
         return preResolved.IsLambda
             ? EmitClosureValue(sb: sb, lambda: preResolved)
             : EmitRoutineValueClosure(sb: sb, routine: preResolved);
@@ -746,7 +805,7 @@ public partial class LlvmCodeGenerator
         string? moduleName = _currentEmittingRoutine?.OwnerType?.Module ??
                              _currentEmittingRoutine?.Module;
 
-        List<TypeInfo> paramTypes = routineType.ParameterTypes.ToList();
+        var paramTypes = routineType.ParameterTypes.ToList();
 
         // Signature-only: a routine VALUE's type carries its parameter types, so resolve the overload by
         // (name, paramTypes) — no name-only fallback (which first-wins-picks the wrong overload).
@@ -769,13 +828,24 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private void EmitTraceLocUpdate(StringBuilder sb, SourceLocation? location)
     {
-        if (!_traceCurrentRoutine) return;
-        if (location == null) return;
+        if (!_traceCurrentRoutine)
+        {
+            return;
+        }
+
+        if (location == null)
+        {
+            return;
+        }
+
         int line = location.Line;
         int col = location.Column;
-        if (line <= 0 && col <= 0) return;
-        EmitLine(sb: sb,
-            line: $"  call void @_rf_trace_update_loc(i32 {line}, i32 {col})");
+        if (line <= 0 && col <= 0)
+        {
+            return;
+        }
+
+        EmitLine(sb: sb, line: $"  call void @_rf_trace_update_loc(i32 {line}, i32 {col})");
     }
 
     /// <summary>
@@ -788,12 +858,17 @@ public partial class LlvmCodeGenerator
         // before any normal resolution and lowered to rf_coro_cf_push / rf_coro_cf_pop. They are
         // void; the empty result is discarded by the enclosing ExpressionStatement.
         if (call.Callee is IdentifierExpression
-            { Name: Desugaring.Passes.CancellationInstrumentationPass.PushMarker })
+            {
+                Name: Desugaring.Passes.CancellationInstrumentationPass.PushMarker
+            })
         {
             return EmitCancelPush(sb: sb, call: call);
         }
+
         if (call.Callee is IdentifierExpression
-            { Name: Desugaring.Passes.CancellationInstrumentationPass.PopMarker })
+            {
+                Name: Desugaring.Passes.CancellationInstrumentationPass.PopMarker
+            })
         {
             return EmitCancelPop(sb: sb, call: call);
         }
@@ -803,7 +878,8 @@ public partial class LlvmCodeGenerator
         // Module-qualified call `Module.routine(...)`: SA resolved it to a module-level routine
         // (OwnerType == null) even though the callee is syntactically a member access. There is no
         // receiver, so emit it as a free call rather than a memberRoutine call.
-        if (call.Callee is MemberExpression && call.ResolvedRoutine is { OwnerType: null } moduleRoutine)
+        if (call.Callee is MemberExpression && call.ResolvedRoutine is
+                { OwnerType: null } moduleRoutine)
         {
             return EmitRoutineCall(sb: sb,
                 req: new RoutineCallRequest(FunctionName: moduleRoutine.BaseName,
@@ -846,18 +922,21 @@ public partial class LlvmCodeGenerator
     private string EmitCancelPush(StringBuilder sb, CallExpression call)
     {
         string local = ((IdentifierExpression)call.Arguments[index: 0]).Name;
-        if (!_localVarLlvmNames.TryGetValue(key: local, value: out string? unique)
-            || !_localVariables.TryGetValue(key: local, value: out TypeInfo? type))
+        if (!_localVarLlvmNames.TryGetValue(key: local, value: out string? unique) ||
+            !_localVariables.TryGetValue(key: local, value: out TypeInfo? type))
         {
-            return ""; // not a tracked local (e.g. a param) — leave untracked (first-cut limitation)
+            return
+                ""; // not a tracked local (e.g. a param) — leave untracked (first-cut limitation)
         }
 
         RoutineInfo? destroy = _registry.LookupMemberRoutineOverload(type: type,
-            memberRoutineName: "destroy", argTypes: new List<TypeInfo>());
+            memberRoutineName: "destroy",
+            argTypes: new List<TypeInfo>());
         if (destroy == null)
         {
             return "";
         }
+
         GenerateRoutineDeclaration(routine: destroy);
         string mangled = MangleRoutineName(routine: destroy);
 
@@ -896,6 +975,7 @@ public partial class LlvmCodeGenerator
         {
             return "";
         }
+
         _rfRoutineDeclarations[key: "rf_coro_cf_pop"] = "declare void @rf_coro_cf_pop(ptr)";
         EmitLine(sb: sb, line: $"  call void @rf_coro_cf_pop(ptr {node})");
         return "";
@@ -931,8 +1011,8 @@ public partial class LlvmCodeGenerator
             return cast;
         }
 
-        if (TryGetLlvmIntegerWidth(sourceLlvm, out int sourceIntBits) &&
-            TryGetLlvmIntegerWidth(targetLlvm, out int targetIntBits))
+        if (TryGetLlvmIntegerWidth(llvmType: sourceLlvm, bitWidth: out int sourceIntBits) &&
+            TryGetLlvmIntegerWidth(llvmType: targetLlvm, bitWidth: out int targetIntBits))
         {
             string integerResult = NextTemp();
             if (sourceIntBits > targetIntBits)
@@ -957,8 +1037,12 @@ public partial class LlvmCodeGenerator
             return integerResult;
         }
 
-        return EmitScalarWidthOrFloatCast(sb: sb, value: value, sourceType: sourceType,
-            targetType: targetType, sourceLlvm: sourceLlvm, targetLlvm: targetLlvm);
+        return EmitScalarWidthOrFloatCast(sb: sb,
+            value: value,
+            sourceType: sourceType,
+            targetType: targetType,
+            sourceLlvm: sourceLlvm,
+            targetLlvm: targetLlvm);
     }
 
     /// <summary>
@@ -969,23 +1053,48 @@ public partial class LlvmCodeGenerator
     private string EmitScalarWidthOrFloatCast(StringBuilder sb, string value, TypeInfo? sourceType,
         TypeInfo targetType, string sourceLlvm, string targetLlvm)
     {
-        bool sourceIsFloat = sourceLlvm is "half" or FloatTypeName or DoubleTypeName or Fp128TypeName;
-        bool targetIsFloat = targetLlvm is "half" or FloatTypeName or DoubleTypeName or Fp128TypeName;
+        bool sourceIsFloat =
+            sourceLlvm is "half" or FloatTypeName or DoubleTypeName or Fp128TypeName;
+        bool targetIsFloat =
+            targetLlvm is "half" or FloatTypeName or DoubleTypeName or Fp128TypeName;
         bool targetUnsigned = IsUnsignedIntegerType(type: targetType);
 
         string result = NextTemp();
         if (sourceIsFloat && targetIsFloat)
-            EmitFloatToFloatCast(sb: sb, result: result, value: value, sourceLlvm: sourceLlvm,
+        {
+            EmitFloatToFloatCast(sb: sb,
+                result: result,
+                value: value,
+                sourceLlvm: sourceLlvm,
                 targetLlvm: targetLlvm);
+        }
         else if (sourceIsFloat)
-            EmitFloatToIntCast(sb: sb, result: result, value: value, sourceLlvm: sourceLlvm,
-                targetLlvm: targetLlvm, targetUnsigned: targetUnsigned);
+        {
+            EmitFloatToIntCast(sb: sb,
+                result: result,
+                value: value,
+                sourceLlvm: sourceLlvm,
+                targetLlvm: targetLlvm,
+                targetUnsigned: targetUnsigned);
+        }
         else if (targetIsFloat)
-            EmitIntToFloatCast(sb: sb, result: result, value: value, sourceLlvm: sourceLlvm,
-                targetLlvm: targetLlvm, sourceType: sourceType);
+        {
+            EmitIntToFloatCast(sb: sb,
+                result: result,
+                value: value,
+                sourceLlvm: sourceLlvm,
+                targetLlvm: targetLlvm,
+                sourceType: sourceType);
+        }
         else
-            EmitIntWidthCast(sb: sb, result: result, value: value, sourceLlvm: sourceLlvm,
-                targetLlvm: targetLlvm, targetUnsigned: targetUnsigned);
+        {
+            EmitIntWidthCast(sb: sb,
+                result: result,
+                value: value,
+                sourceLlvm: sourceLlvm,
+                targetLlvm: targetLlvm,
+                targetUnsigned: targetUnsigned);
+        }
 
         return result;
     }
@@ -1004,7 +1113,9 @@ public partial class LlvmCodeGenerator
     private static void EmitFloatToIntCast(StringBuilder sb, string result, string value,
         string sourceLlvm, string targetLlvm, bool targetUnsigned)
     {
-        string op = targetUnsigned ? "fptoui" : "fptosi";
+        string op = targetUnsigned
+            ? "fptoui"
+            : "fptosi";
         EmitLine(sb: sb, line: $"  {result} = {op} {sourceLlvm} {value} to {targetLlvm}");
     }
 
@@ -1013,7 +1124,9 @@ public partial class LlvmCodeGenerator
         string sourceLlvm, string targetLlvm, TypeInfo? sourceType)
     {
         bool sourceUnsigned = IsUnsignedIntegerType(type: sourceType);
-        string op = sourceUnsigned ? "uitofp" : "sitofp";
+        string op = sourceUnsigned
+            ? "uitofp"
+            : "sitofp";
         EmitLine(sb: sb, line: $"  {result} = {op} {sourceLlvm} {value} to {targetLlvm}");
     }
 
@@ -1027,14 +1140,20 @@ public partial class LlvmCodeGenerator
         int srcBits = GetTypeBitWidth(llvmType: sourceLlvm);
         int dstBits = GetTypeBitWidth(llvmType: targetLlvm);
         if (srcBits > dstBits)
+        {
             EmitLine(sb: sb, line: $"  {result} = trunc {sourceLlvm} {value} to {targetLlvm}");
+        }
         else if (srcBits < dstBits)
         {
-            string op = targetUnsigned ? "zext" : "sext";
+            string op = targetUnsigned
+                ? "zext"
+                : "sext";
             EmitLine(sb: sb, line: $"  {result} = {op} {sourceLlvm} {value} to {targetLlvm}");
         }
         else
+        {
             EmitLine(sb: sb, line: $"  {result} = bitcast {sourceLlvm} {value} to {targetLlvm}");
+        }
     }
 
     /// <summary>
@@ -1043,12 +1162,12 @@ public partial class LlvmCodeGenerator
     private static bool TryGetLlvmIntegerWidth(string llvmType, out int bitWidth)
     {
         bitWidth = 0;
-        if (!llvmType.StartsWith('i') || llvmType.Length < 2)
+        if (!llvmType.StartsWith(value: 'i') || llvmType.Length < 2)
         {
             return false;
         }
 
-        return int.TryParse(llvmType.AsSpan(start: 1), out bitWidth);
+        return int.TryParse(s: llvmType.AsSpan(start: 1), result: out bitWidth);
     }
 
     /// <summary>
@@ -1058,7 +1177,10 @@ public partial class LlvmCodeGenerator
     private string EmitPrimitiveCast(StringBuilder sb, string value, string fromLlvm,
         string toLlvm)
     {
-        if (fromLlvm == toLlvm) return value;
+        if (fromLlvm == toLlvm)
+        {
+            return value;
+        }
 
         bool fromIsFloat = fromLlvm is "half" or FloatTypeName or DoubleTypeName or Fp128TypeName;
         bool toIsFloat = toLlvm is "half" or FloatTypeName or DoubleTypeName or Fp128TypeName;
@@ -1111,8 +1233,10 @@ public partial class LlvmCodeGenerator
         return binary.Operator switch
         {
             BinaryOperator.And => throw new InvalidOperationException(
+                message:
                 $"BinaryExpression(And) must be lowered to ConditionalExpression by ExpressionLoweringPass before codegen. In routine: {_currentEmittingRoutine?.Name ?? "<unknown>"} (owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"})"),
             BinaryOperator.Or => throw new InvalidOperationException(
+                message:
                 $"BinaryExpression(Or) must be lowered to ConditionalExpression by ExpressionLoweringPass before codegen. In routine: {_currentEmittingRoutine?.Name ?? "<unknown>"} (owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"})"),
             BinaryOperator.Assign => EmitBinaryAssign(sb: sb, binary: binary),
             // `x in coll` / `x notin coll` are lowered to `coll.contains(x)` / `coll.notcontains(x)`
@@ -1120,6 +1244,7 @@ public partial class LlvmCodeGenerator
             // receiver/argument there). A bare BinaryExpression(In/NotIn) reaching codegen means a body
             // skipped that lowering — fix the pass, not here.
             BinaryOperator.In or BinaryOperator.NotIn => throw new InvalidOperationException(
+                message:
                 $"BinaryExpression({binary.Operator}) must be lowered to a contains/notcontains member " +
                 $"call by OperatorLoweringPass before codegen (right={binary.Right.GetType().Name}, loc={binary.Location})"),
             // `is` / `isnot` are lowered UPSTREAM to a structural comparison: variant → type_id compare
@@ -1127,23 +1252,30 @@ public partial class LlvmCodeGenerator
             // PatternLoweringPass, via S32.eq). A bare BinaryExpression(Is/IsNot) reaching codegen means a
             // body skipped that lowering — fix the pass, not here.
             BinaryOperator.Is or BinaryOperator.IsNot => throw new InvalidOperationException(
+                message:
                 $"BinaryExpression({binary.Operator}) must be lowered to a type_id / discriminant compare " +
                 $"before codegen (left={binary.Left.ResolvedType?.Name ?? "?"}, loc={binary.Location})"),
             // Reference identity (===, !==): a raw pointer compare on the operands. Every entity and
             // forwarding wrapper lowers to a `ptr` (see GetLlvmType), and that pointer IS the object
             // reference member forwarding dispatches on — so comparing the two pointers answers
             // "same object?". SA already restricted the operands to reference-carrying types.
-            BinaryOperator.IdentityEqual => EmitIdentityCompare(sb: sb, binary: binary, cmpOp: "eq"),
-            BinaryOperator.IdentityNotEqual => EmitIdentityCompare(sb: sb, binary: binary, cmpOp: "ne"),
+            BinaryOperator.IdentityEqual => EmitIdentityCompare(sb: sb,
+                binary: binary,
+                cmpOp: "eq"),
+            BinaryOperator.IdentityNotEqual => EmitIdentityCompare(sb: sb,
+                binary: binary,
+                cmpOp: "ne"),
             // obeys/disobeys are folded to a compile-time Bool literal by ExpressionLoweringPass
             // (SA validates the conformance and gates any error). They must never reach codegen.
             BinaryOperator.Obeys or BinaryOperator.Disobeys => throw new InvalidOperationException(
+                message:
                 $"BinaryExpression({binary.Operator}) must be folded to a Bool literal by " +
                 $"ExpressionLoweringPass before codegen (loc={binary.Location})"),
             // (Flags bitor/bitand/bitxor/eq/ne are now real member-routine calls — synthesized as
             // @llvm_ir intrinsic bodies by WiredRoutinePass and lowered by OperatorLoweringPass — so
             // they never reach codegen as a bare BinaryExpression. bitnot stays as EmitBitwiseNot.)
             _ => throw new InvalidOperationException(
+                message:
                 $"BinaryExpression({binary.Operator}) must be lowered to a wired call before codegen " +
                 $"(left={binary.Left.GetType().Name}, loc={binary.Location})")
         };
@@ -1186,6 +1318,7 @@ public partial class LlvmCodeGenerator
                 {
                     _localRetainedVars.RemoveAll(match: e => e.Name == srcRcName);
                 }
+
                 // Ownership transfer: `me.field = local` (post-steal-strip) or `me.field = local`
                 // hands the local's heap allocation to the field. Without removing the local
                 // from _localEntityVars, the function-exit cleanup would re-free the pointer
@@ -1236,12 +1369,15 @@ public partial class LlvmCodeGenerator
             EmitLine(sb: sb, line: $"  {result} = xor {llvmType} {operand}, -1");
             return result;
         }
+
         return unary.Operator switch
         {
             UnaryOperator.Not => throw new InvalidOperationException(
+                message:
                 $"UnaryExpression(Not) must be lowered to ConditionalExpression by ExpressionLoweringPass before codegen. Routine: {_currentEmittingRoutine?.Name ?? "<unknown>"} (owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"})"),
             UnaryOperator.Steal => EmitExpression(sb: sb, expr: unary.Operand),
             _ => throw new InvalidOperationException(
+                message:
                 $"UnaryExpression({unary.Operator}) must be lowered to a wired call before codegen")
         };
     }
@@ -1301,9 +1437,10 @@ public partial class LlvmCodeGenerator
         TypeInfo carrierType = payload.Carrier.ResolvedType!;
         // Both a Result/Lookup/Maybe carrier and a general user variant store their payload at field 1
         // ({ tag/flag, payload }); pick the right aggregate LLVM type for each.
-        string carrierLlvmType = carrierType is VariantTypeInfo variant && !IsCarrierType(type: carrierType)
-            ? GetVariantTypeName(variant: variant)
-            : GetCarrierLlvmType(type: carrierType);
+        string carrierLlvmType =
+            carrierType is VariantTypeInfo variant && !IsCarrierType(type: carrierType)
+                ? GetVariantTypeName(variant: variant)
+                : GetCarrierLlvmType(type: carrierType);
 
         string spillAddr = NextTemp();
         EmitLine(sb: sb, line: $"  {spillAddr} = alloca {carrierLlvmType}");
@@ -1314,15 +1451,22 @@ public partial class LlvmCodeGenerator
 
         string payloadPtr = NextTemp();
         EmitLine(sb: sb,
-            line: $"  {payloadPtr} = getelementptr {carrierLlvmType}, ptr {spillAddr}, i32 0, i32 1");
+            line:
+            $"  {payloadPtr} = getelementptr {carrierLlvmType}, ptr {spillAddr}, i32 0, i32 1");
 
         string loadType;
         if (concreteType is EntityTypeInfo or CrashableTypeInfo)
+        {
             loadType = "ptr";
+        }
         else if (concreteType != null)
+        {
             loadType = GetLlvmType(type: concreteType);
+        }
         else
+        {
             loadType = "i64";
+        }
 
         string loaded = NextTemp();
         EmitLine(sb: sb, line: $"  {loaded} = load {loadType}, ptr {payloadPtr}");
@@ -1340,7 +1484,8 @@ public partial class LlvmCodeGenerator
     /// crashable set, so a warm daemon compile includes user-defined crashables registered after the stdlib
     /// snapshot — the fan-out freeze bug that made a warm carrier fall through to its type-name else arm.</para>
     /// </summary>
-    private string EmitCrashableDispatchExpression(StringBuilder sb, CrashableDispatchExpression dispatch)
+    private string EmitCrashableDispatchExpression(StringBuilder sb,
+        CrashableDispatchExpression dispatch)
     {
         // Spill the carrier value so we can GEP its type_id (field 0) and payload entity ptr (field 1).
         string carrierVal = EmitExpression(sb: sb, expr: dispatch.Carrier);
@@ -1353,13 +1498,15 @@ public partial class LlvmCodeGenerator
 
         string typeIdPtr = NextTemp();
         EmitLine(sb: sb,
-            line: $"  {typeIdPtr} = getelementptr {carrierLlvmType}, ptr {spillAddr}, i32 0, i32 0");
+            line:
+            $"  {typeIdPtr} = getelementptr {carrierLlvmType}, ptr {spillAddr}, i32 0, i32 0");
         string typeId = NextTemp();
         EmitLine(sb: sb, line: $"  {typeId} = load i64, ptr {typeIdPtr}");
 
         string payloadPtr = NextTemp();
         EmitLine(sb: sb,
-            line: $"  {payloadPtr} = getelementptr {carrierLlvmType}, ptr {spillAddr}, i32 0, i32 1");
+            line:
+            $"  {payloadPtr} = getelementptr {carrierLlvmType}, ptr {spillAddr}, i32 0, i32 1");
         string entity = NextTemp();
         EmitLine(sb: sb, line: $"  {entity} = load ptr, ptr {payloadPtr}");
 
@@ -1374,23 +1521,42 @@ public partial class LlvmCodeGenerator
         string? retLlvm = null;
         foreach (TypeInfo t in _registry.GetTypesByCategory(category: TypeCategory.Crashable))
         {
-            if (t is not CrashableTypeInfo crashable) continue;
+            if (t is not CrashableTypeInfo crashable)
+            {
+                continue;
+            }
+
             RoutineInfo? routine = _registry.LookupMemberRoutine(type: crashable,
-                memberRoutineName: dispatch.MemberName, isFailable: false);
-            if (routine is null or { IsGenericDefinition: true }) continue;
-            if (!_liveRoutineKeys.Contains(item: routine.RegistryKey)) continue;
+                memberRoutineName: dispatch.MemberName,
+                isFailable: false);
+            if (routine is null or { IsGenericDefinition: true })
+            {
+                continue;
+            }
+
+            if (!_liveRoutineKeys.Contains(item: routine.RegistryKey))
+            {
+                continue;
+            }
+
             GenerateRoutineDeclaration(routine: routine);
             string mangled = MangleRoutineName(routine: routine);
-            retLlvm ??= routine.ReturnType != null ? GetLlvmType(type: routine.ReturnType) : "ptr";
+            retLlvm ??= routine.ReturnType != null
+                ? GetLlvmType(type: routine.ReturnType)
+                : "ptr";
             long id = unchecked((long)TypeIdHelper.ComputeTypeId(fullName: crashable.FullName));
-            arms.Add((id, routine, mangled, NextLabel(prefix: "crd.case")));
+            arms.Add(item: (id, routine, mangled, NextLabel(prefix: "crd.case")));
         }
 
         retLlvm ??= "ptr";
 
         // No registered crashables (shouldn't happen where a Crashable arm exists) — yield a zero result.
         if (arms.Count == 0)
-            return retLlvm == "ptr" ? "null" : "zeroinitializer";
+        {
+            return retLlvm == "ptr"
+                ? "null"
+                : "zeroinitializer";
+        }
 
         // Shared result slot: every arm writes its Text here, and we load it ONCE after the merge. This
         // sidesteps a phi over values whose call ABI differs (sret vs coerced vs direct) — each arm just
@@ -1403,14 +1569,21 @@ public partial class LlvmCodeGenerator
 
         var switchArms = new StringBuilder();
         foreach ((long id, _, _, string label) in arms)
+        {
             switchArms.Append(value: $"    i64 {id}, label %{label}\n");
+        }
+
         EmitLine(sb: sb, line: $"  switch i64 {typeId}, label %{defaultLabel} [\n{switchArms}  ]");
 
         foreach ((_, RoutineInfo routine, string mangled, string label) in arms)
         {
             EmitLine(sb: sb, line: $"{label}:");
-            EmitCrashableMemberCallIntoSlot(sb: sb, routine: routine, mangled: mangled,
-                entity: entity, retLlvm: retLlvm, resultSlot: resultSlot);
+            EmitCrashableMemberCallIntoSlot(sb: sb,
+                routine: routine,
+                mangled: mangled,
+                entity: entity,
+                retLlvm: retLlvm,
+                resultSlot: resultSlot);
             EmitLine(sb: sb, line: $"  br label %{mergeLabel}");
         }
 
@@ -1430,8 +1603,9 @@ public partial class LlvmCodeGenerator
     /// direct). Mirrors the return-ABI handling in <c>EmitCall</c> so the type_id switch respects the same
     /// contract the callee's declaration/definition were emitted under.
     /// </summary>
-    private void EmitCrashableMemberCallIntoSlot(StringBuilder sb, RoutineInfo routine, string mangled,
-        string entity, string retLlvm, string resultSlot)
+    private void EmitCrashableMemberCallIntoSlot(StringBuilder sb, RoutineInfo routine,
+        string mangled, string entity, string retLlvm,
+        string resultSlot)
     {
         if (ReturnsViaSret(routine: routine))
         {

@@ -31,22 +31,22 @@ public abstract class AstRewriter
     {
         return stmt switch
         {
-            BlockStatement s => VisitBlock(s),
-            IfStatement s => VisitIf(s),
-            WhileStatement s => VisitWhile(s),
-            LoopStatement s => VisitLoop(s),
-            EachStatement s => VisitEach(s),
-            WhenStatement s => VisitWhen(s),
-            DangerStatement s => VisitDanger(s),
-            UsingStatement s => VisitUsing(s),
-            ReturnStatement s => VisitReturn(s),
-            BecomesStatement s => VisitBecomes(s),
-            ThrowStatement s => VisitThrow(s),
-            VariantReturnStatement s => VisitVariantReturn(s),
-            DiscardStatement s => VisitDiscard(s),
-            ExpressionStatement s => VisitExpressionStatement(s),
-            AssignmentStatement s => VisitAssignment(s),
-            DeclarationStatement s => VisitDeclarationStatement(s),
+            BlockStatement s => VisitBlock(s: s),
+            IfStatement s => VisitIf(s: s),
+            WhileStatement s => VisitWhile(s: s),
+            LoopStatement s => VisitLoop(s: s),
+            EachStatement s => VisitEach(s: s),
+            WhenStatement s => VisitWhen(s: s),
+            DangerStatement s => VisitDanger(s: s),
+            UsingStatement s => VisitUsing(s: s),
+            ReturnStatement s => VisitReturn(s: s),
+            BecomesStatement s => VisitBecomes(s: s),
+            ThrowStatement s => VisitThrow(s: s),
+            VariantReturnStatement s => VisitVariantReturn(s: s),
+            DiscardStatement s => VisitDiscard(s: s),
+            ExpressionStatement s => VisitExpressionStatement(s: s),
+            AssignmentStatement s => VisitAssignment(s: s),
+            DeclarationStatement s => VisitDeclarationStatement(s: s),
             _ => stmt // AbsentStatement / PassStatement / Break / Continue / others: leaf, unchanged.
         };
     }
@@ -59,8 +59,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten block, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitBlock(BlockStatement s)
     {
-        List<Statement> rewritten = RewriteList(s.Statements, VisitStatement);
-        return ReferenceEquals(rewritten, s.Statements) ? s : s with { Statements = rewritten };
+        List<Statement> rewritten = RewriteList(items: s.Statements, rewrite: VisitStatement);
+        return ReferenceEquals(objA: rewritten, objB: s.Statements)
+            ? s
+            : s with { Statements = rewritten };
     }
 
     /// <summary>
@@ -71,11 +73,14 @@ public abstract class AstRewriter
     /// <returns>The rewritten if statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitIf(IfStatement s)
     {
-        Expression cond = VisitExpression(s.Condition);
-        Statement then = VisitStatement(s.ThenStatement);
-        Statement? els = s.ElseStatement != null ? VisitStatement(s.ElseStatement) : null;
-        return ReferenceEquals(cond, s.Condition) && ReferenceEquals(then, s.ThenStatement)
-            && ReferenceEquals(els, s.ElseStatement)
+        Expression cond = VisitExpression(expr: s.Condition);
+        Statement then = VisitStatement(stmt: s.ThenStatement);
+        Statement? els = s.ElseStatement != null
+            ? VisitStatement(stmt: s.ElseStatement)
+            : null;
+        return ReferenceEquals(objA: cond, objB: s.Condition) &&
+               ReferenceEquals(objA: then, objB: s.ThenStatement) &&
+               ReferenceEquals(objA: els, objB: s.ElseStatement)
             ? s
             : s with { Condition = cond, ThenStatement = then, ElseStatement = els };
     }
@@ -88,11 +93,14 @@ public abstract class AstRewriter
     /// <returns>The rewritten while statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitWhile(WhileStatement s)
     {
-        Expression cond = VisitExpression(s.Condition);
-        Statement body = VisitStatement(s.Body);
-        Statement? els = s.ElseBranch != null ? VisitStatement(s.ElseBranch) : null;
-        return ReferenceEquals(cond, s.Condition) && ReferenceEquals(body, s.Body)
-            && ReferenceEquals(els, s.ElseBranch)
+        Expression cond = VisitExpression(expr: s.Condition);
+        Statement body = VisitStatement(stmt: s.Body);
+        Statement? els = s.ElseBranch != null
+            ? VisitStatement(stmt: s.ElseBranch)
+            : null;
+        return ReferenceEquals(objA: cond, objB: s.Condition) &&
+               ReferenceEquals(objA: body, objB: s.Body) &&
+               ReferenceEquals(objA: els, objB: s.ElseBranch)
             ? s
             : s with { Condition = cond, Body = body, ElseBranch = els };
     }
@@ -105,8 +113,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten loop statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitLoop(LoopStatement s)
     {
-        Statement body = VisitStatement(s.Body);
-        return ReferenceEquals(body, s.Body) ? s : s with { Body = body };
+        Statement body = VisitStatement(stmt: s.Body);
+        return ReferenceEquals(objA: body, objB: s.Body)
+            ? s
+            : s with { Body = body };
     }
 
     /// <summary>
@@ -117,11 +127,14 @@ public abstract class AstRewriter
     /// <returns>The rewritten each statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitEach(EachStatement s)
     {
-        Expression iterable = VisitExpression(s.Iterable);
-        Statement body = VisitStatement(s.Body);
-        Statement? els = s.ElseBranch != null ? VisitStatement(s.ElseBranch) : null;
-        return ReferenceEquals(iterable, s.Iterable) && ReferenceEquals(body, s.Body)
-            && ReferenceEquals(els, s.ElseBranch)
+        Expression iterable = VisitExpression(expr: s.Iterable);
+        Statement body = VisitStatement(stmt: s.Body);
+        Statement? els = s.ElseBranch != null
+            ? VisitStatement(stmt: s.ElseBranch)
+            : null;
+        return ReferenceEquals(objA: iterable, objB: s.Iterable) &&
+               ReferenceEquals(objA: body, objB: s.Body) &&
+               ReferenceEquals(objA: els, objB: s.ElseBranch)
             ? s
             : s with { Iterable = iterable, Body = body, ElseBranch = els };
     }
@@ -135,14 +148,17 @@ public abstract class AstRewriter
     /// <returns>The rewritten when statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitWhen(WhenStatement s)
     {
-        Expression subject = VisitExpression(s.Expression);
-        List<WhenClause> clauses = RewriteList(s.Clauses,
-            c =>
+        Expression subject = VisitExpression(expr: s.Expression);
+        List<WhenClause> clauses = RewriteList(items: s.Clauses,
+            rewrite: c =>
             {
-                Statement body = VisitStatement(c.Body);
-                return ReferenceEquals(body, c.Body) ? c : c with { Body = body };
+                Statement body = VisitStatement(stmt: c.Body);
+                return ReferenceEquals(objA: body, objB: c.Body)
+                    ? c
+                    : c with { Body = body };
             });
-        return ReferenceEquals(subject, s.Expression) && ReferenceEquals(clauses, s.Clauses)
+        return ReferenceEquals(objA: subject, objB: s.Expression) &&
+               ReferenceEquals(objA: clauses, objB: s.Clauses)
             ? s
             : s with { Expression = subject, Clauses = clauses };
     }
@@ -155,8 +171,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten danger statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitDanger(DangerStatement s)
     {
-        Statement body = VisitStatement(s.Body);
-        return ReferenceEquals(body, s.Body) ? s : s with { Body = (BlockStatement)body };
+        Statement body = VisitStatement(stmt: s.Body);
+        return ReferenceEquals(objA: body, objB: s.Body)
+            ? s
+            : s with { Body = (BlockStatement)body };
     }
 
     /// <summary>
@@ -167,11 +185,14 @@ public abstract class AstRewriter
     /// <returns>The rewritten using statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitUsing(UsingStatement s)
     {
-        Expression resource = VisitExpression(s.Resource);
-        Statement body = VisitStatement(s.Body);
-        Statement? fallback = s.FallbackBody != null ? VisitStatement(s.FallbackBody) : null;
-        return ReferenceEquals(resource, s.Resource) && ReferenceEquals(body, s.Body)
-            && ReferenceEquals(fallback, s.FallbackBody)
+        Expression resource = VisitExpression(expr: s.Resource);
+        Statement body = VisitStatement(stmt: s.Body);
+        Statement? fallback = s.FallbackBody != null
+            ? VisitStatement(stmt: s.FallbackBody)
+            : null;
+        return ReferenceEquals(objA: resource, objB: s.Resource) &&
+               ReferenceEquals(objA: body, objB: s.Body) &&
+               ReferenceEquals(objA: fallback, objB: s.FallbackBody)
             ? s
             : s with { Resource = resource, Body = body, FallbackBody = fallback };
     }
@@ -184,9 +205,15 @@ public abstract class AstRewriter
     /// <returns>The rewritten return statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitReturn(ReturnStatement s)
     {
-        if (s.Value == null) return s;
-        Expression v = VisitExpression(s.Value);
-        return ReferenceEquals(v, s.Value) ? s : s with { Value = v };
+        if (s.Value == null)
+        {
+            return s;
+        }
+
+        Expression v = VisitExpression(expr: s.Value);
+        return ReferenceEquals(objA: v, objB: s.Value)
+            ? s
+            : s with { Value = v };
     }
 
     /// <summary>
@@ -197,8 +224,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten becomes statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitBecomes(BecomesStatement s)
     {
-        Expression v = VisitExpression(s.Value);
-        return ReferenceEquals(v, s.Value) ? s : s with { Value = v };
+        Expression v = VisitExpression(expr: s.Value);
+        return ReferenceEquals(objA: v, objB: s.Value)
+            ? s
+            : s with { Value = v };
     }
 
     /// <summary>
@@ -209,8 +238,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten throw statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitThrow(ThrowStatement s)
     {
-        Expression e = VisitExpression(s.Error);
-        return ReferenceEquals(e, s.Error) ? s : s with { Error = e };
+        Expression e = VisitExpression(expr: s.Error);
+        return ReferenceEquals(objA: e, objB: s.Error)
+            ? s
+            : s with { Error = e };
     }
 
     /// <summary>
@@ -222,9 +253,15 @@ public abstract class AstRewriter
     /// <returns>The rewritten variant return statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitVariantReturn(VariantReturnStatement s)
     {
-        if (s.Value == null) return s;
-        Expression v = VisitExpression(s.Value);
-        return ReferenceEquals(v, s.Value) ? s : s with { Value = v };
+        if (s.Value == null)
+        {
+            return s;
+        }
+
+        Expression v = VisitExpression(expr: s.Value);
+        return ReferenceEquals(objA: v, objB: s.Value)
+            ? s
+            : s with { Value = v };
     }
 
     /// <summary>
@@ -235,8 +272,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten discard statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitDiscard(DiscardStatement s)
     {
-        Expression e = VisitExpression(s.Expression);
-        return ReferenceEquals(e, s.Expression) ? s : s with { Expression = e };
+        Expression e = VisitExpression(expr: s.Expression);
+        return ReferenceEquals(objA: e, objB: s.Expression)
+            ? s
+            : s with { Expression = e };
     }
 
     /// <summary>
@@ -247,8 +286,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten expression statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitExpressionStatement(ExpressionStatement s)
     {
-        Expression e = VisitExpression(s.Expression);
-        return ReferenceEquals(e, s.Expression) ? s : s with { Expression = e };
+        Expression e = VisitExpression(expr: s.Expression);
+        return ReferenceEquals(objA: e, objB: s.Expression)
+            ? s
+            : s with { Expression = e };
     }
 
     /// <summary>
@@ -259,9 +300,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten assignment statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitAssignment(AssignmentStatement s)
     {
-        Expression target = VisitExpression(s.Target);
-        Expression value = VisitExpression(s.Value);
-        return ReferenceEquals(target, s.Target) && ReferenceEquals(value, s.Value)
+        Expression target = VisitExpression(expr: s.Target);
+        Expression value = VisitExpression(expr: s.Value);
+        return ReferenceEquals(objA: target, objB: s.Target) &&
+               ReferenceEquals(objA: value, objB: s.Value)
             ? s
             : s with { Target = target, Value = value };
     }
@@ -275,9 +317,15 @@ public abstract class AstRewriter
     /// <returns>The rewritten declaration statement, or the original reference if nothing changed.</returns>
     protected virtual Statement VisitDeclarationStatement(DeclarationStatement s)
     {
-        if (s.Declaration is not VariableDeclaration { Initializer: { } init } vd) return s;
-        Expression e = VisitExpression(init);
-        return ReferenceEquals(e, init) ? s : s with { Declaration = vd with { Initializer = e } };
+        if (s.Declaration is not VariableDeclaration { Initializer: { } init } vd)
+        {
+            return s;
+        }
+
+        Expression e = VisitExpression(expr: init);
+        return ReferenceEquals(objA: e, objB: init)
+            ? s
+            : s with { Declaration = vd with { Initializer = e } };
     }
 
     // ---------------- Expressions ----------------
@@ -293,31 +341,31 @@ public abstract class AstRewriter
     {
         return expr switch
         {
-            BinaryExpression e => VisitBinary(e),
-            UnaryExpression e => VisitUnary(e),
-            CompoundAssignmentExpression e => VisitCompoundAssignment(e),
-            CallExpression e => VisitCall(e),
-            NamedArgumentExpression e => VisitNamedArgument(e),
-            MemberExpression e => VisitMember(e),
-            OptionalMemberExpression e => VisitOptionalMember(e),
-            IndexExpression e => VisitIndex(e),
-            ConditionalExpression e => VisitConditional(e),
-            BlockExpression e => VisitBlockExpression(e),
-            CreatorExpression e => VisitCreator(e),
-            TypeConversionExpression e => VisitTypeConversion(e),
-            StealExpression e => VisitSteal(e),
-            BackIndexExpression e => VisitBackIndex(e),
-            RangeExpression e => VisitRange(e),
-            ChainedComparisonExpression e => VisitChainedComparison(e),
-            TupleLiteralExpression e => VisitTupleLiteral(e),
-            ListLiteralExpression e => VisitListLiteral(e),
-            SetLiteralExpression e => VisitSetLiteral(e),
-            DictLiteralExpression e => VisitDictLiteral(e),
-            InsertedTextExpression e => VisitInsertedText(e),
-            IsPatternExpression e => VisitIsPattern(e),
-            FlagsTestExpression e => VisitFlagsTest(e),
-            GenericMemberRoutineCallExpression e => VisitGenericMemberRoutineCall(e),
-            GenericMemberExpression e => VisitGenericMember(e),
+            BinaryExpression e => VisitBinary(e: e),
+            UnaryExpression e => VisitUnary(e: e),
+            CompoundAssignmentExpression e => VisitCompoundAssignment(e: e),
+            CallExpression e => VisitCall(e: e),
+            NamedArgumentExpression e => VisitNamedArgument(e: e),
+            MemberExpression e => VisitMember(e: e),
+            OptionalMemberExpression e => VisitOptionalMember(e: e),
+            IndexExpression e => VisitIndex(e: e),
+            ConditionalExpression e => VisitConditional(e: e),
+            BlockExpression e => VisitBlockExpression(e: e),
+            CreatorExpression e => VisitCreator(e: e),
+            TypeConversionExpression e => VisitTypeConversion(e: e),
+            StealExpression e => VisitSteal(e: e),
+            BackIndexExpression e => VisitBackIndex(e: e),
+            RangeExpression e => VisitRange(e: e),
+            ChainedComparisonExpression e => VisitChainedComparison(e: e),
+            TupleLiteralExpression e => VisitTupleLiteral(e: e),
+            ListLiteralExpression e => VisitListLiteral(e: e),
+            SetLiteralExpression e => VisitSetLiteral(e: e),
+            DictLiteralExpression e => VisitDictLiteral(e: e),
+            InsertedTextExpression e => VisitInsertedText(e: e),
+            IsPatternExpression e => VisitIsPattern(e: e),
+            FlagsTestExpression e => VisitFlagsTest(e: e),
+            GenericMemberRoutineCallExpression e => VisitGenericMemberRoutineCall(e: e),
+            GenericMemberExpression e => VisitGenericMember(e: e),
             _ => expr // LiteralExpression / IdentifierExpression / others: leaf, unchanged.
         };
     }
@@ -330,9 +378,11 @@ public abstract class AstRewriter
     /// <returns>The rewritten binary expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitBinary(BinaryExpression e)
     {
-        Expression l = VisitExpression(e.Left);
-        Expression r = VisitExpression(e.Right);
-        return ReferenceEquals(l, e.Left) && ReferenceEquals(r, e.Right) ? e : e with { Left = l, Right = r };
+        Expression l = VisitExpression(expr: e.Left);
+        Expression r = VisitExpression(expr: e.Right);
+        return ReferenceEquals(objA: l, objB: e.Left) && ReferenceEquals(objA: r, objB: e.Right)
+            ? e
+            : e with { Left = l, Right = r };
     }
 
     /// <summary>
@@ -343,8 +393,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten unary expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitUnary(UnaryExpression e)
     {
-        Expression o = VisitExpression(e.Operand);
-        return ReferenceEquals(o, e.Operand) ? e : e with { Operand = o };
+        Expression o = VisitExpression(expr: e.Operand);
+        return ReferenceEquals(objA: o, objB: e.Operand)
+            ? e
+            : e with { Operand = o };
     }
 
     /// <summary>
@@ -355,9 +407,11 @@ public abstract class AstRewriter
     /// <returns>The rewritten compound assignment expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitCompoundAssignment(CompoundAssignmentExpression e)
     {
-        Expression t = VisitExpression(e.Target);
-        Expression v = VisitExpression(e.Value);
-        return ReferenceEquals(t, e.Target) && ReferenceEquals(v, e.Value) ? e : e with { Target = t, Value = v };
+        Expression t = VisitExpression(expr: e.Target);
+        Expression v = VisitExpression(expr: e.Value);
+        return ReferenceEquals(objA: t, objB: e.Target) && ReferenceEquals(objA: v, objB: e.Value)
+            ? e
+            : e with { Target = t, Value = v };
     }
 
     /// <summary>
@@ -368,9 +422,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten call expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitCall(CallExpression e)
     {
-        Expression callee = VisitExpression(e.Callee);
-        List<Expression> args = RewriteList(e.Arguments, VisitExpression);
-        return ReferenceEquals(callee, e.Callee) && ReferenceEquals(args, e.Arguments)
+        Expression callee = VisitExpression(expr: e.Callee);
+        List<Expression> args = RewriteList(items: e.Arguments, rewrite: VisitExpression);
+        return ReferenceEquals(objA: callee, objB: e.Callee) &&
+               ReferenceEquals(objA: args, objB: e.Arguments)
             ? e
             : e with { Callee = callee, Arguments = args };
     }
@@ -383,8 +438,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten named argument expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitNamedArgument(NamedArgumentExpression e)
     {
-        Expression v = VisitExpression(e.Value);
-        return ReferenceEquals(v, e.Value) ? e : e with { Value = v };
+        Expression v = VisitExpression(expr: e.Value);
+        return ReferenceEquals(objA: v, objB: e.Value)
+            ? e
+            : e with { Value = v };
     }
 
     /// <summary>
@@ -395,8 +452,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten member expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitMember(MemberExpression e)
     {
-        Expression o = VisitExpression(e.Object);
-        return ReferenceEquals(o, e.Object) ? e : e with { Object = o };
+        Expression o = VisitExpression(expr: e.Object);
+        return ReferenceEquals(objA: o, objB: e.Object)
+            ? e
+            : e with { Object = o };
     }
 
     /// <summary>
@@ -407,8 +466,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten optional member expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitOptionalMember(OptionalMemberExpression e)
     {
-        Expression o = VisitExpression(e.Object);
-        return ReferenceEquals(o, e.Object) ? e : e with { Object = o };
+        Expression o = VisitExpression(expr: e.Object);
+        return ReferenceEquals(objA: o, objB: e.Object)
+            ? e
+            : e with { Object = o };
     }
 
     /// <summary>
@@ -421,9 +482,13 @@ public abstract class AstRewriter
     /// <returns>The rewritten index expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitIndex(IndexExpression e)
     {
-        Expression o = VisitExpression(e.Object);
-        Expression i = VisitExpression(e.Index);
-        if (ReferenceEquals(o, e.Object) && ReferenceEquals(i, e.Index)) return e;
+        Expression o = VisitExpression(expr: e.Object);
+        Expression i = VisitExpression(expr: e.Index);
+        if (ReferenceEquals(objA: o, objB: e.Object) && ReferenceEquals(objA: i, objB: e.Index))
+        {
+            return e;
+        }
+
         // IndexExpression carries a resolved setitem routine alongside its type; preserve both on the
         // rebuilt node (the convention every hand-rolled index rewrite in the lowering passes follows).
         IndexExpression rewritten = e with { Object = o, Index = i };
@@ -441,10 +506,12 @@ public abstract class AstRewriter
     /// <returns>The rewritten conditional expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitConditional(ConditionalExpression e)
     {
-        Expression c = VisitExpression(e.Condition);
-        Expression t = VisitExpression(e.TrueExpression);
-        Expression f = VisitExpression(e.FalseExpression);
-        return ReferenceEquals(c, e.Condition) && ReferenceEquals(t, e.TrueExpression) && ReferenceEquals(f, e.FalseExpression)
+        Expression c = VisitExpression(expr: e.Condition);
+        Expression t = VisitExpression(expr: e.TrueExpression);
+        Expression f = VisitExpression(expr: e.FalseExpression);
+        return ReferenceEquals(objA: c, objB: e.Condition) &&
+               ReferenceEquals(objA: t, objB: e.TrueExpression) &&
+               ReferenceEquals(objA: f, objB: e.FalseExpression)
             ? e
             : e with { Condition = c, TrueExpression = t, FalseExpression = f };
     }
@@ -458,8 +525,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten block expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitBlockExpression(BlockExpression e)
     {
-        Expression v = VisitExpression(e.Value);
-        return ReferenceEquals(v, e.Value) ? e : e with { Value = v };
+        Expression v = VisitExpression(expr: e.Value);
+        return ReferenceEquals(objA: v, objB: e.Value)
+            ? e
+            : e with { Value = v };
     }
 
     /// <summary>
@@ -471,13 +540,17 @@ public abstract class AstRewriter
     /// <returns>The rewritten creator expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitCreator(CreatorExpression e)
     {
-        List<(string Name, Expression Value)> mvs = RewriteList(e.MemberVariables,
-            mv =>
+        List<(string Name, Expression Value)> mvs = RewriteList(items: e.MemberVariables,
+            rewrite: mv =>
             {
-                Expression v = VisitExpression(mv.Value);
-                return ReferenceEquals(v, mv.Value) ? mv : (mv.Name, v);
+                Expression v = VisitExpression(expr: mv.Value);
+                return ReferenceEquals(objA: v, objB: mv.Value)
+                    ? mv
+                    : (mv.Name, v);
             });
-        return ReferenceEquals(mvs, e.MemberVariables) ? e : e with { MemberVariables = mvs };
+        return ReferenceEquals(objA: mvs, objB: e.MemberVariables)
+            ? e
+            : e with { MemberVariables = mvs };
     }
 
     /// <summary>
@@ -488,8 +561,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten type conversion expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitTypeConversion(TypeConversionExpression e)
     {
-        Expression v = VisitExpression(e.Expression);
-        return ReferenceEquals(v, e.Expression) ? e : e with { Expression = v };
+        Expression v = VisitExpression(expr: e.Expression);
+        return ReferenceEquals(objA: v, objB: e.Expression)
+            ? e
+            : e with { Expression = v };
     }
 
     /// <summary>
@@ -500,8 +575,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten steal expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitSteal(StealExpression e)
     {
-        Expression o = VisitExpression(e.Operand);
-        return ReferenceEquals(o, e.Operand) ? e : e with { Operand = o };
+        Expression o = VisitExpression(expr: e.Operand);
+        return ReferenceEquals(objA: o, objB: e.Operand)
+            ? e
+            : e with { Operand = o };
     }
 
     /// <summary>
@@ -512,8 +589,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten back-index expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitBackIndex(BackIndexExpression e)
     {
-        Expression o = VisitExpression(e.Operand);
-        return ReferenceEquals(o, e.Operand) ? e : e with { Operand = o };
+        Expression o = VisitExpression(expr: e.Operand);
+        return ReferenceEquals(objA: o, objB: e.Operand)
+            ? e
+            : e with { Operand = o };
     }
 
     /// <summary>
@@ -524,10 +603,13 @@ public abstract class AstRewriter
     /// <returns>The rewritten range expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitRange(RangeExpression e)
     {
-        Expression start = VisitExpression(e.Start);
-        Expression end = VisitExpression(e.End);
-        Expression? step = e.Step != null ? VisitExpression(e.Step) : null;
-        return ReferenceEquals(start, e.Start) && ReferenceEquals(end, e.End) && ReferenceEquals(step, e.Step)
+        Expression start = VisitExpression(expr: e.Start);
+        Expression end = VisitExpression(expr: e.End);
+        Expression? step = e.Step != null
+            ? VisitExpression(expr: e.Step)
+            : null;
+        return ReferenceEquals(objA: start, objB: e.Start) &&
+               ReferenceEquals(objA: end, objB: e.End) && ReferenceEquals(objA: step, objB: e.Step)
             ? e
             : e with { Start = start, End = end, Step = step };
     }
@@ -540,8 +622,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten chained comparison expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitChainedComparison(ChainedComparisonExpression e)
     {
-        List<Expression> ops = RewriteList(e.Operands, VisitExpression);
-        return ReferenceEquals(ops, e.Operands) ? e : e with { Operands = ops };
+        List<Expression> ops = RewriteList(items: e.Operands, rewrite: VisitExpression);
+        return ReferenceEquals(objA: ops, objB: e.Operands)
+            ? e
+            : e with { Operands = ops };
     }
 
     /// <summary>
@@ -552,8 +636,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten tuple literal expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitTupleLiteral(TupleLiteralExpression e)
     {
-        List<Expression> els = RewriteList(e.Elements, VisitExpression);
-        return ReferenceEquals(els, e.Elements) ? e : e with { Elements = els };
+        List<Expression> els = RewriteList(items: e.Elements, rewrite: VisitExpression);
+        return ReferenceEquals(objA: els, objB: e.Elements)
+            ? e
+            : e with { Elements = els };
     }
 
     /// <summary>
@@ -564,8 +650,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten list literal expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitListLiteral(ListLiteralExpression e)
     {
-        List<Expression> els = RewriteList(e.Elements, VisitExpression);
-        return ReferenceEquals(els, e.Elements) ? e : e with { Elements = els };
+        List<Expression> els = RewriteList(items: e.Elements, rewrite: VisitExpression);
+        return ReferenceEquals(objA: els, objB: e.Elements)
+            ? e
+            : e with { Elements = els };
     }
 
     /// <summary>
@@ -576,8 +664,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten set literal expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitSetLiteral(SetLiteralExpression e)
     {
-        List<Expression> els = RewriteList(e.Elements, VisitExpression);
-        return ReferenceEquals(els, e.Elements) ? e : e with { Elements = els };
+        List<Expression> els = RewriteList(items: e.Elements, rewrite: VisitExpression);
+        return ReferenceEquals(objA: els, objB: e.Elements)
+            ? e
+            : e with { Elements = els };
     }
 
     /// <summary>
@@ -588,14 +678,19 @@ public abstract class AstRewriter
     /// <returns>The rewritten dict literal expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitDictLiteral(DictLiteralExpression e)
     {
-        List<(Expression Key, Expression Value)> pairs = RewriteList(e.Pairs,
-            p =>
+        List<(Expression Key, Expression Value)> pairs = RewriteList(items: e.Pairs,
+            rewrite: p =>
             {
-                Expression k = VisitExpression(p.Key);
-                Expression v = VisitExpression(p.Value);
-                return ReferenceEquals(k, p.Key) && ReferenceEquals(v, p.Value) ? p : (k, v);
+                Expression k = VisitExpression(expr: p.Key);
+                Expression v = VisitExpression(expr: p.Value);
+                return ReferenceEquals(objA: k, objB: p.Key) &&
+                       ReferenceEquals(objA: v, objB: p.Value)
+                    ? p
+                    : (k, v);
             });
-        return ReferenceEquals(pairs, e.Pairs) ? e : e with { Pairs = pairs };
+        return ReferenceEquals(objA: pairs, objB: e.Pairs)
+            ? e
+            : e with { Pairs = pairs };
     }
 
     /// <summary>
@@ -607,14 +702,22 @@ public abstract class AstRewriter
     /// <returns>The rewritten inserted text expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitInsertedText(InsertedTextExpression e)
     {
-        List<InsertedTextPart> parts = RewriteList(e.Parts,
-            part =>
+        List<InsertedTextPart> parts = RewriteList(items: e.Parts,
+            rewrite: part =>
             {
-                if (part is not ExpressionPart ep) return part;
-                Expression v = VisitExpression(ep.Expression);
-                return ReferenceEquals(v, ep.Expression) ? part : ep with { Expression = v };
+                if (part is not ExpressionPart ep)
+                {
+                    return part;
+                }
+
+                Expression v = VisitExpression(expr: ep.Expression);
+                return ReferenceEquals(objA: v, objB: ep.Expression)
+                    ? part
+                    : ep with { Expression = v };
             });
-        return ReferenceEquals(parts, e.Parts) ? e : e with { Parts = parts };
+        return ReferenceEquals(objA: parts, objB: e.Parts)
+            ? e
+            : e with { Parts = parts };
     }
 
     /// <summary>
@@ -626,8 +729,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten is-pattern expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitIsPattern(IsPatternExpression e)
     {
-        Expression o = VisitExpression(e.Expression);
-        return ReferenceEquals(o, e.Expression) ? e : e with { Expression = o };
+        Expression o = VisitExpression(expr: e.Expression);
+        return ReferenceEquals(objA: o, objB: e.Expression)
+            ? e
+            : e with { Expression = o };
     }
 
     /// <summary>
@@ -638,8 +743,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten flags-test expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitFlagsTest(FlagsTestExpression e)
     {
-        Expression s = VisitExpression(e.Subject);
-        return ReferenceEquals(s, e.Subject) ? e : e with { Subject = s };
+        Expression s = VisitExpression(expr: e.Subject);
+        return ReferenceEquals(objA: s, objB: e.Subject)
+            ? e
+            : e with { Subject = s };
     }
 
     /// <summary>
@@ -649,11 +756,13 @@ public abstract class AstRewriter
     /// </summary>
     /// <param name="e">The generic member routine call expression to rewrite.</param>
     /// <returns>The rewritten expression, or the original reference if nothing changed.</returns>
-    protected virtual Expression VisitGenericMemberRoutineCall(GenericMemberRoutineCallExpression e)
+    protected virtual Expression VisitGenericMemberRoutineCall(
+        GenericMemberRoutineCallExpression e)
     {
-        Expression o = VisitExpression(e.Object);
-        List<Expression> args = RewriteList(e.Arguments, VisitExpression);
-        return ReferenceEquals(o, e.Object) && ReferenceEquals(args, e.Arguments)
+        Expression o = VisitExpression(expr: e.Object);
+        List<Expression> args = RewriteList(items: e.Arguments, rewrite: VisitExpression);
+        return ReferenceEquals(objA: o, objB: e.Object) &&
+               ReferenceEquals(objA: args, objB: e.Arguments)
             ? e
             : e with { Object = o, Arguments = args };
     }
@@ -667,8 +776,10 @@ public abstract class AstRewriter
     /// <returns>The rewritten generic member expression, or the original reference if nothing changed.</returns>
     protected virtual Expression VisitGenericMember(GenericMemberExpression e)
     {
-        Expression o = VisitExpression(e.Object);
-        return ReferenceEquals(o, e.Object) ? e : e with { Object = o };
+        Expression o = VisitExpression(expr: e.Object);
+        return ReferenceEquals(objA: o, objB: e.Object)
+            ? e
+            : e with { Object = o };
     }
 
     // ---------------- Helpers ----------------
@@ -680,15 +791,20 @@ public abstract class AstRewriter
         List<T>? result = null;
         for (int i = 0; i < items.Count; i++)
         {
-            T original = items[i];
-            T rewritten = rewrite(original);
-            if (!ReferenceEquals(rewritten, original) && result == null)
+            T original = items[index: i];
+            T rewritten = rewrite(arg: original);
+            if (!ReferenceEquals(objA: rewritten, objB: original) && result == null)
             {
                 result = new List<T>(capacity: items.Count);
-                for (int j = 0; j < i; j++) result.Add(items[j]);
+                for (int j = 0; j < i; j++)
+                {
+                    result.Add(item: items[index: j]);
+                }
             }
-            result?.Add(rewritten);
+
+            result?.Add(item: rewritten);
         }
-        return result ?? (items as List<T> ?? items.ToList());
+
+        return result ?? items as List<T> ?? items.ToList();
     }
 }

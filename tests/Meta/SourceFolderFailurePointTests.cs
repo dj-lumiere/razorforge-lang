@@ -15,14 +15,20 @@ public sealed partial class SourceFolderFailurePointTests
         {
             "BuildSystem",
             "manifest parsing validates required fields, indexes modules, and the native toolchain detects linker failures",
-            ["ReadRequiredString", "BuildModuleIndex", "ExtractModuleName", "DetectLinkerFromStderr"]
+            [
+                "ReadRequiredString", "BuildModuleIndex", "ExtractModuleName",
+                "DetectLinkerFromStderr"
+            ]
         },
         // Phase folders now numbered 1..8 by pull/(B) pipeline order: 1 tokenize · 2 parse · 3 declarations ·
         // 4 desugar · 5 collect-from-start · 6 semantic errors · 7 monomorphize · 8 LLVM IR.
         {
             "1.Tokenizer",
             "source validation rejects ambiguous bytes and whitespace before scanning",
-            ["NormalizeAndValidateSource", "Source contains a null byte", "Tabs are not allowed", "Unsupported whitespace character"]
+            [
+                "NormalizeAndValidateSource", "Source contains a null byte",
+                "Tabs are not allowed", "Unsupported whitespace character"
+            ]
         },
         {
             "2.Parser",
@@ -32,12 +38,18 @@ public sealed partial class SourceFolderFailurePointTests
         {
             "3.Declaration",
             "declaration collection + name/type resolution handle import graphs, stdlib registration, and overload lookup",
-            ["ModuleDependencyGraph", "RegisterProgramTypes", "SignatureResolver", "LookupMemberRoutineOverload"]
+            [
+                "ModuleDependencyGraph", "RegisterProgramTypes", "SignatureResolver",
+                "LookupMemberRoutineOverload"
+            ]
         },
         {
             "4.Desugaring",
             "operator + syntax desugaring and type-aware lowering cover user + variant bodies",
-            ["DesugaringPipeline", "PostprocessingPipeline", "OperatorLoweringPass", "FStringLoweringPass", "ControlFlowLoweringPass"]
+            [
+                "DesugaringPipeline", "PostprocessingPipeline", "OperatorLoweringPass",
+                "FStringLoweringPass", "ControlFlowLoweringPass"
+            ]
         },
         {
             "5.Collection",
@@ -47,21 +59,29 @@ public sealed partial class SourceFolderFailurePointTests
         {
             "6.Verification",
             "semantic analysis runs ordered phases and reports diagnostics instead of raw exceptions",
-            ["RunPhase1Declarations", "RunPhase2Resolution", "RunPhase5SemanticAnalysis", "ReportError"]
+            [
+                "RunPhase1Declarations", "RunPhase2Resolution", "RunPhase5SemanticAnalysis",
+                "ReportError"
+            ]
         },
         {
             "7.Instantiation",
             "instantiation monomorphizes + copies reachable bodies AND synthesizes wired/error-variant routines",
-            ["GenericMonomorphizationPass", "MonomorphizedBody", "WiredRoutinePass", "ErrorHandlingVariantPass"]
+            [
+                "GenericMonomorphizationPass", "MonomorphizedBody", "WiredRoutinePass",
+                "ErrorHandlingVariantPass"
+            ]
         },
         {
             "8.CodeGen",
             "backend rejects unsupported AST/metadata states before emitting invalid IR",
-            ["InvalidOperationException", "NotImplementedException", "GetExpressionType", "GenerateRoutineDefinitions"]
+            [
+                "InvalidOperationException", "NotImplementedException", "GetExpressionType",
+                "GenerateRoutineDefinitions"
+            ]
         },
         {
-            "Execution",
-            "CLI paths handle file, grammar, and native build failures",
+            "Execution", "CLI paths handle file, grammar, and native build failures",
             ["File.Exists", "catch (GrammarException", "BuildNativeRuntime"]
         },
         {
@@ -75,8 +95,7 @@ public sealed partial class SourceFolderFailurePointTests
             ["Substitute", "GenericParameters", "TypeArguments", "InvalidOperationException"]
         },
         {
-            "SyntaxTree",
-            "all AST nodes preserve source locations for downstream diagnostics",
+            "SyntaxTree", "all AST nodes preserve source locations for downstream diagnostics",
             ["SourceLocation", "ISyntaxTreeNode", "Location"]
         },
         {
@@ -85,8 +104,7 @@ public sealed partial class SourceFolderFailurePointTests
             ["GrammarDiagnosticCode", "SemanticDiagnosticCode", "FormatMessage"]
         },
         {
-            "Debug",
-            "debug AST printing includes explicit visitors for generated tree shapes",
+            "Debug", "debug AST printing includes explicit visitors for generated tree shapes",
             ["RfSyntaxTreePrinter", "Visit", "Accept"]
         }
     };
@@ -98,9 +116,8 @@ public sealed partial class SourceFolderFailurePointTests
     /// <param name="description">The failure point description.</param>
     /// <param name="requiredFragments">The source fragments that should be present.</param>
     [Theory]
-    [MemberData(nameof(FailurePointExpectations))]
-    public void SourceFolder_RetainsFailurePointHooks(string folder,
-        string description,
+    [MemberData(memberName: nameof(FailurePointExpectations))]
+    public void SourceFolder_RetainsFailurePointHooks(string folder, string description,
         string[] requiredFragments)
     {
         string source = ReadSourceFolder(folder: folder);
@@ -133,21 +150,19 @@ public sealed partial class SourceFolderFailurePointTests
             "6.Verification"
         ];
 
-        List<string> offenders = frontendFolders
-                                .SelectMany(selector: folder => Directory.EnumerateFiles(
-                                     path: Path.Combine(path1: sourceRoot, path2: folder),
-                                     searchPattern: "*.cs",
-                                     searchOption: SearchOption.AllDirectories))
-                                .Where(predicate: path => File.ReadAllText(path: path)
-                                                              .Contains(
-                                                                   value:
-                                                                   "throw new NotImplementedException",
-                                                                   comparisonType:
-                                                                   StringComparison.Ordinal))
-                                .Select(selector: path => Path.GetRelativePath(
-                                     relativeTo: sourceRoot,
-                                     path: path))
-                                .ToList();
+        var offenders = frontendFolders.SelectMany(selector: folder =>
+                                            Directory.EnumerateFiles(
+                                                path: Path.Combine(path1: sourceRoot,
+                                                    path2: folder),
+                                                searchPattern: "*.cs",
+                                                searchOption: SearchOption.AllDirectories))
+                                       .Where(predicate: path => File.ReadAllText(path: path)
+                                           .Contains(value: "throw new NotImplementedException",
+                                                comparisonType: StringComparison.Ordinal))
+                                       .Select(selector: path => Path.GetRelativePath(
+                                            relativeTo: sourceRoot,
+                                            path: path))
+                                       .ToList();
 
         Assert.Empty(collection: offenders);
     }
@@ -159,9 +174,8 @@ public sealed partial class SourceFolderFailurePointTests
     /// <param name="description">The failure point description.</param>
     /// <param name="requiredFragments">Unused source fragments for member data compatibility.</param>
     [Theory]
-    [MemberData(nameof(FailurePointExpectations))]
-    public void SourceFolder_HasAssociatedTestSurface(string folder,
-        string description,
+    [MemberData(memberName: nameof(FailurePointExpectations))]
+    public void SourceFolder_HasAssociatedTestSurface(string folder, string description,
         string[] requiredFragments)
     {
         string testRoot = FindTestRoot();
@@ -176,11 +190,11 @@ public sealed partial class SourceFolderFailurePointTests
 
         string source = ReadSourceFolder(folder: folder);
         string[] anchors = PrimaryPublicTypePattern()
-                           .Matches(input: source)
-                           .Select(selector: match => match.Groups["name"].Value)
-                           .Append(element: folder)
-                           .Distinct(comparer: StringComparer.Ordinal)
-                           .ToArray();
+                          .Matches(input: source)
+                          .Select(selector: match => match.Groups[groupname: "name"].Value)
+                          .Append(element: folder)
+                          .Distinct(comparer: StringComparer.Ordinal)
+                          .ToArray();
 
         Assert.Contains(collection: anchors,
             filter: anchor => testText.Contains(value: anchor,
@@ -196,13 +210,12 @@ public sealed partial class SourceFolderFailurePointTests
             userMessage: $"Missing source folder '{folder}'.");
 
         string[] files = Directory.EnumerateFiles(path: folderPath,
-                                  searchPattern: "*.cs",
-                                  searchOption: SearchOption.AllDirectories)
-                                  .Where(predicate: path => !path.EndsWith(
-                                      value: ".cs~",
-                                      comparisonType: StringComparison.Ordinal))
+                                       searchPattern: "*.cs",
+                                       searchOption: SearchOption.AllDirectories)
+                                  .Where(predicate: path => !path.EndsWith(value: ".cs~",
+                                       comparisonType: StringComparison.Ordinal))
                                   .OrderBy(keySelector: path => path,
-                                      comparer: StringComparer.Ordinal)
+                                       comparer: StringComparer.Ordinal)
                                   .ToArray();
         Assert.NotEmpty(collection: files);
 
@@ -249,7 +262,7 @@ public sealed partial class SourceFolderFailurePointTests
         throw new DirectoryNotFoundException(message: "Could not find the tests directory.");
     }
 
-    [GeneratedRegex(@"\b(?:class|record|enum)\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)",
-        RegexOptions.Compiled)]
+    [GeneratedRegex(pattern: @"\b(?:class|record|enum)\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)",
+        options: RegexOptions.Compiled)]
     private static partial Regex PrimaryPublicTypePattern();
 }

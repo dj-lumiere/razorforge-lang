@@ -13,11 +13,10 @@ using TypeModel.Types;
 using Compiler.Verification.Enums;
 using Compiler.Verification.Results;
 using Compiler.Verification.Scopes;
-
 using Compiler.Collection.Passes;
-
 using Compiler.CodeGen;
 using Compiler.Collection;
+using Compiler.Tokenizer;
 
 namespace Compiler.Verification;
 
@@ -55,14 +54,18 @@ public sealed partial class SemanticVerifier
     private void AddError(SemanticError error)
     {
         if (_seenErrors.Add(item: error))
+        {
             _errors.Add(item: error);
+        }
     }
 
     /// <summary>Adds a warning unless an identical one (same code/message/location) was already recorded.</summary>
     private void AddWarning(SemanticWarning warning)
     {
         if (_seenWarnings.Add(item: warning))
+        {
             _warnings.Add(item: warning);
+        }
     }
 
     /// <summary>
@@ -70,11 +73,13 @@ public sealed partial class SemanticVerifier
     /// the <c>validate-stdlib</c> verb instead). EVERY AnalysisResult must use this — passing the
     /// raw <c>_warnings</c> list leaks stdlib style warnings (e.g. RF-W258) into user output.
     /// </summary>
-    private List<SemanticWarning> UserVisibleWarnings() =>
-        _warnings
-            .Where(predicate: w => !string.IsNullOrEmpty(value: w.Location.FileName)
-                                && !IsStdlibFile(filePath: w.Location.FileName))
-            .ToList();
+    private List<SemanticWarning> UserVisibleWarnings()
+    {
+        return _warnings.Where(predicate: w =>
+                             !string.IsNullOrEmpty(value: w.Location.FileName) &&
+                             !IsStdlibFile(filePath: w.Location.FileName))
+                        .ToList();
+    }
 
     /// <summary>
     /// Parsed literal values for types requiring native library parsing.
@@ -123,7 +128,8 @@ public sealed partial class SemanticVerifier
     /// <summary>Foreign routines the current file imported into BARE scope via `import Module.C::name`
     /// (or `LLVM::name`). Keyed <c>"REALM::name"</c> (e.g. <c>"C::qsort"</c>). A bare call resolving to
     /// such a foreign routine skips the usual <c>C::</c>/<c>LLVM::</c> call-site qualifier requirement.</summary>
-    internal readonly HashSet<string> _importedForeignAliases = new(comparer: StringComparer.Ordinal);
+    internal readonly HashSet<string> _importedForeignAliases =
+        new(comparer: StringComparer.Ordinal);
 
     /// <summary>Per-file import snapshots used when re-analyzing compiler-generated bodies.</summary>
     private readonly Dictionary<string, HashSet<string>> _importSnapshots =
@@ -188,7 +194,8 @@ public sealed partial class SemanticVerifier
     /// handles to one controller share an identity. Lets the readers-XOR-writer check key on the
     /// shared DATA rather than the variable name. Paths never bound to a tracked handle are
     /// lazily assigned a unique identity on first use (degrades to per-path = the old behaviour).</summary>
-    private readonly Dictionary<string, int> _sharedHandleIdentity = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _sharedHandleIdentity =
+        new(comparer: StringComparer.Ordinal);
 
     /// <summary>Monotonic source of fresh controller identities for <see cref="_sharedHandleIdentity"/>.</summary>
     private int _nextSharedHandleIdentity;
@@ -228,14 +235,14 @@ public sealed partial class SemanticVerifier
     /// Captured from <see cref="DesugaringContext.InstantiatedGenericBodies"/> in
     /// <see cref="RunPhase6GlobalDesugaring"/> and forwarded to <see cref="AnalysisResult"/>.
     /// </summary>
-    private Dictionary<string, MonomorphizedBody> _instantiatedGenericBodies =
-        new Dictionary<string, MonomorphizedBody>();
+    private Dictionary<string, MonomorphizedBody> _instantiatedGenericBodies = new();
 
     /// <summary>
     /// Reachable routine keys produced by <see cref="RoutineReachabilityPass"/>.
     /// Captured from <see cref="InstantiationContext.LiveRoutineKeys"/> after Phase 7.
     /// </summary>
     private IReadOnlyCollection<string> _liveRoutineKeys = Array.Empty<string>();
+
     private IReadOnlyCollection<string> _liveOwnerTypeNames = Array.Empty<string>();
 
     /// <summary>
@@ -253,6 +260,7 @@ public sealed partial class SemanticVerifier
     /// Stores the target state used by this compiler phase.
     /// </summary>
     private readonly TargetConfig _target;
+
     /// <summary>
     /// Stores the build mode state used by this compiler phase.
     /// </summary>
@@ -312,12 +320,10 @@ public sealed partial class SemanticVerifier
     public static TypeRegistry.StdlibSnapshot CaptureStdlibSnapshot(Language language)
     {
         var sa = new SemanticVerifier(language: language) { SaOnly = true };
-        var tokens = new Compiler.Tokenizer.Tokenizer(
-            source: "module __snapshot__",
+        List<Token> tokens = new Compiler.Tokenizer.Tokenizer(source: "module __snapshot__",
             fileName: "__snapshot__",
             language: language).Tokenize();
-        var parser = new Compiler.Parser.Parser(
-            tokens: tokens,
+        var parser = new Compiler.Parser.Parser(tokens: tokens,
             language: language,
             fileName: "__snapshot__");
         sa.Analyze(program: parser.Parse());
@@ -372,9 +378,14 @@ public sealed partial class SemanticVerifier
 
         bool saTiming = SaTiming;
         var swPhase = Stopwatch.StartNew();
+
         void Mark(string label)
         {
-            if (!saTiming) return;
+            if (!saTiming)
+            {
+                return;
+            }
+
             swPhase.Stop();
             Console.Error.WriteLine(value: $"{label}: {swPhase.ElapsedMilliseconds} ms");
             swPhase.Restart();
@@ -429,7 +440,11 @@ public sealed partial class SemanticVerifier
             // already enforced in the cold capture run. The opt-in-derive marking (_optInDeriveMemberRoutines,
             // which excludes eq/cmp/assign/copy) is NOT part of the serialized snapshot, so re-running here
             // over the restored stdlib would false-positive on Array.assign/Dict.copy/etc.
-            if (!_snapshotMode) CheckOverridableDeriveMarkers();
+            if (!_snapshotMode)
+            {
+                CheckOverridableDeriveMarkers();
+            }
+
             RunPhase6GlobalDesugaring();
             Mark(label: "Phase 6 Global desugaring");
             RunPhase7Instantiation();
@@ -454,7 +469,7 @@ public sealed partial class SemanticVerifier
             elementSelector: kvp => kvp.Value.Body);
         foreach ((string key, Statement variantBody) in _variantBodies)
         {
-            allSynthesized[key] = variantBody;
+            allSynthesized[key: key] = variantBody;
         }
 
         return new AnalysisResult(Registry: _registry,
@@ -483,7 +498,9 @@ public sealed partial class SemanticVerifier
         // Reject self-containing value records BEFORE conformance analysis, which computes
         // LlvmType/SizeBytes and would otherwise stack-overflow on the cycle.
         if (!ValidateNoRecursiveValueRecords())
+        {
             _conformanceAnalyzer.ApplyImplicitMarkerConformance();
+        }
     }
 
     /// <summary>
@@ -502,7 +519,10 @@ public sealed partial class SemanticVerifier
         ValidateProtocolImplementations();
         PreRegisterUserVariants(program: program);
         // Snapshot mode: stdlib variants are already registered in the restored registry.
-        if (!_snapshotMode) PreRegisterStdlibVariants();
+        if (!_snapshotMode)
+        {
+            PreRegisterStdlibVariants();
+        }
     }
 
     /// <summary>
@@ -529,12 +549,18 @@ public sealed partial class SemanticVerifier
             int warningsBeforeStdlib = _warnings.Count;
             AnalyzeStdlibBodies();
             if (_errors.Count > errorsBeforeStdlib)
+            {
                 _errors.RemoveRange(index: errorsBeforeStdlib,
                     count: _errors.Count - errorsBeforeStdlib);
+            }
+
             if (_warnings.Count > warningsBeforeStdlib)
+            {
                 _warnings.RemoveRange(index: warningsBeforeStdlib,
                     count: _warnings.Count - warningsBeforeStdlib);
+            }
         }
+
         EagerSynthesizeAllWrapperForwarders();
     }
 
@@ -546,10 +572,17 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void RunPhase6GlobalDesugaring()
     {
-        var swSub = SaTiming ? Stopwatch.StartNew() : null;
+        Stopwatch? swSub = SaTiming
+            ? Stopwatch.StartNew()
+            : null;
+
         void SubMark(string label)
         {
-            if (swSub == null) return;
+            if (swSub == null)
+            {
+                return;
+            }
+
             swSub.Stop();
             Console.Error.WriteLine(value: $"    P6sub - {label}: {swSub.ElapsedMilliseconds} ms");
             swSub.Restart();
@@ -566,7 +599,11 @@ public sealed partial class SemanticVerifier
         if (SeedAllStdlibRoutines)
         {
             int materialized = _registry.MaterializeAllLazyStdlibTypes();
-            if (SaTiming) Console.Error.WriteLine(value: $"    P6sub - MaterializeAllLazyStdlibTypes: {materialized} types");
+            if (SaTiming)
+            {
+                Console.Error.WriteLine(
+                    value: $"    P6sub - MaterializeAllLazyStdlibTypes: {materialized} types");
+            }
         }
 
         // Build the bodies of all on-demand-synthesized variants (Phase-5 demand + transitive) BEFORE the
@@ -578,8 +615,12 @@ public sealed partial class SemanticVerifier
         var ctx = new DesugaringContext(registry: _registry,
             routineBodies: _routineBodies,
             target: _target,
-            buildMode: _buildMode) { VariantBodies = _variantBodies, SynthesizeAllDerives = SeedAllStdlibRoutines,
-            RestoredVariantKeys = _restoredVariantKeys };
+            buildMode: _buildMode)
+        {
+            VariantBodies = _variantBodies,
+            SynthesizeAllDerives = SeedAllStdlibRoutines,
+            RestoredVariantKeys = _restoredVariantKeys
+        };
         new DesugaringPipeline(ctx: ctx).RunGlobal();
         SubMark(label: $"{nameof(DesugaringPipeline)}.RunGlobal");
         // Capture variant bodies produced by ErrorHandlingVariantPass for codegen. On the warm-restore
@@ -592,8 +633,9 @@ public sealed partial class SemanticVerifier
         // Phase 8 global: lower variant bodies and stdlib programs with type-aware passes.
         // Also pass synthesized operator bodies so CallOverloadResolutionPass can classify
         // the CallExpression nodes inside them (LoweringKind = Unknown otherwise).
-        var synthesizedBodyStatements = _synthesizedBodies
-            .ToDictionary(keySelector: kvp => kvp.Key, elementSelector: kvp => kvp.Value.Body);
+        var synthesizedBodyStatements =
+            _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
+                elementSelector: kvp => kvp.Value.Body);
         // Phase 6.5: re-run wired-routine synthesis to catch tuple types (and any other
         // lazily-registered types) created during Phase 4 SA. The original Phase 6 sweep
         // could not see these because they did not yet exist in the registry.
@@ -602,13 +644,19 @@ public sealed partial class SemanticVerifier
         // get their represent/diagnose stubs registered before WiredRoutinePass synthesizes
         // bodies. MaybeRegisterWired is idempotent on existing memberRoutines.
         AutoRegisterWiredRoutines();
-        var lateCtx = new DesugaringContext(registry: _registry,
-            routineBodies: _routineBodies,
-            target: _target,
-            buildMode: _buildMode) { VariantBodies = _variantBodies, SynthesizeAllDerives = SeedAllStdlibRoutines,
-            RestoredVariantKeys = _restoredVariantKeys };
+        var lateCtx =
+            new DesugaringContext(registry: _registry,
+                routineBodies: _routineBodies,
+                target: _target,
+                buildMode: _buildMode)
+            {
+                VariantBodies = _variantBodies,
+                SynthesizeAllDerives = SeedAllStdlibRoutines,
+                RestoredVariantKeys = _restoredVariantKeys
+            };
         new WiredRoutinePass(ctx: lateCtx).RunGlobal();
-        SubMark(label: $"{nameof(AutoRegisterWiredRoutines)} + {nameof(WiredRoutinePass)}.RunGlobal");
+        SubMark(
+            label: $"{nameof(AutoRegisterWiredRoutines)} + {nameof(WiredRoutinePass)}.RunGlobal");
 
         var p7ctx = new PostprocessingContext(registry: _registry,
             variantBodies: _variantBodies,
@@ -616,7 +664,9 @@ public sealed partial class SemanticVerifier
             target: _target,
             buildMode: _buildMode,
             monomorphizedBodies: _instantiatedGenericBodies)
-            { SynthesizeAllDerives = SeedAllStdlibRoutines };
+        {
+            SynthesizeAllDerives = SeedAllStdlibRoutines
+        };
         // WARM-GATE (②): variant bodies restored from a warm snapshot were fully lowered at capture
         // time, so re-running the ~15 RunGlobal lowering passes over them is an idempotent no-op — the
         // dominant warm cost of this phase. Temporarily remove the restored keys from the SHARED
@@ -628,20 +678,28 @@ public sealed partial class SemanticVerifier
         Dictionary<string, Statement>? stashedRestoredVariants = null;
         if (_restoredVariantKeys.Count > 0)
         {
-            stashedRestoredVariants =
-                new Dictionary<string, Statement>(capacity: _restoredVariantKeys.Count,
-                    comparer: StringComparer.Ordinal);
+            stashedRestoredVariants = new Dictionary<string, Statement>(
+                capacity: _restoredVariantKeys.Count,
+                comparer: StringComparer.Ordinal);
             foreach (string key in _restoredVariantKeys)
+            {
                 if (_variantBodies.TryGetValue(key: key, value: out Statement? restoredBody))
                 {
-                    stashedRestoredVariants[key] = restoredBody;
+                    stashedRestoredVariants[key: key] = restoredBody;
                     _variantBodies.Remove(key: key);
                 }
+            }
         }
+
         new PostprocessingPipeline(ctx: p7ctx).RunGlobal();
         if (stashedRestoredVariants != null)
-            foreach (var kv in stashedRestoredVariants)
+        {
+            foreach (KeyValuePair<string, Statement> kv in stashedRestoredVariants)
+            {
                 _variantBodies[key: kv.Key] = kv.Value;
+            }
+        }
+
         SubMark(label: $"{nameof(PostprocessingPipeline)}.RunGlobal");
     }
 
@@ -653,7 +711,9 @@ public sealed partial class SemanticVerifier
     {
         var suflaeEntityPass = new SuflaeEntityLoweringPass(registry: _registry);
         foreach ((Program program, _, _) in _registry.UserPrograms)
+        {
             suflaeEntityPass.Run(program: program);
+        }
     }
 
     /// <summary>
@@ -664,11 +724,16 @@ public sealed partial class SemanticVerifier
     private void ExpandCrashableClauses(PostprocessingContext markerCtx,
         IReadOnlyList<(Program Program, string FilePath, string Module)> freshStdlib)
     {
-        var crashablePass = new CrashableExpansionPass(markerCtx);
+        var crashablePass = new CrashableExpansionPass(ctx: markerCtx);
         foreach ((Program program, _, _) in _registry.UserPrograms)
-            crashablePass.Run(program);
+        {
+            crashablePass.Run(program: program);
+        }
+
         foreach ((Program program, _, _) in freshStdlib)
-            crashablePass.Run(program);
+        {
+            crashablePass.Run(program: program);
+        }
     }
 
     /// <summary>
@@ -682,14 +747,16 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private Dictionary<string, Statement> BuildMergedVariantBodies()
     {
-        var mergedVariantBodies = new Dictionary<string, Statement>(_variantBodies);
-        foreach (var (key, pair) in _synthesizedBodies)
+        var mergedVariantBodies = new Dictionary<string, Statement>(dictionary: _variantBodies);
+        foreach ((string key, (RoutineInfo Routine, Statement Body) pair) in _synthesizedBodies)
         {
             // Include wrapper forwarders AND derived operators on generic owner types.
             // GMP must monomorphize both; Phase C must not emit the generic-def version.
             if (pair.Routine.WrapperForwarderInnerMemberRoutine != null ||
                 pair.Routine.OwnerType?.IsGenericDefinition == true)
-                mergedVariantBodies[key] = pair.Body;
+            {
+                mergedVariantBodies[key: key] = pair.Body;
+            }
         }
 
         return mergedVariantBodies;
@@ -704,7 +771,7 @@ public sealed partial class SemanticVerifier
         // Include wrapper forwarder bodies in variantBodies so GMP can rewrite them with
         // concrete type substitutions. Without this, GMP creates empty-body sentinels for
         // concrete forwarder instances instead of properly monomorphized bodies.
-        var mergedVariantBodies = BuildMergedVariantBodies();
+        Dictionary<string, Statement> mergedVariantBodies = BuildMergedVariantBodies();
 
         // WARM GATE: the teardown/temp-teardown/marker passes below re-walk EVERY variant body each warm
         // run. Restored variant bodies (from the snapshot) were already teardown/marker-lowered at capture,
@@ -718,14 +785,20 @@ public sealed partial class SemanticVerifier
         long _p8GateStash = 0;
         if (_restoredVariantKeys.Count > 0)
         {
-            var _swGate = SaTiming ? Stopwatch.StartNew() : null;
-            stashedP8Variants = new Dictionary<string, Statement>(comparer: StringComparer.Ordinal);
+            Stopwatch? _swGate = SaTiming
+                ? Stopwatch.StartNew()
+                : null;
+            stashedP8Variants =
+                new Dictionary<string, Statement>(comparer: StringComparer.Ordinal);
             foreach (string key in _restoredVariantKeys)
+            {
                 if (mergedVariantBodies.TryGetValue(key: key, value: out Statement? body))
                 {
-                    stashedP8Variants[key] = body;
+                    stashedP8Variants[key: key] = body;
                     mergedVariantBodies.Remove(key: key);
                 }
+            }
+
             _p8GateStash = _swGate?.ElapsedMilliseconds ?? 0;
         }
 
@@ -739,7 +812,7 @@ public sealed partial class SemanticVerifier
                 Target = _target,
                 BuildMode = _buildMode,
                 BodyScanCache = _bodyScanCache,
-                StdlibTemplateBodies = _warmStdlibRoutineBodies,
+                StdlibTemplateBodies = _warmStdlibRoutineBodies
             }) { SaTiming = SaTiming, SeedAllStdlibRoutines = SeedAllStdlibRoutines };
 
         // Rewrite Accessing[T]/Controlling[T] params to inner T before reachability so
@@ -749,8 +822,7 @@ public sealed partial class SemanticVerifier
         // gets re-keyed to the post-mutation form.
         var markerCtx = new PostprocessingContext(registry: _registry,
             variantBodies: mergedVariantBodies,
-            synthesizedBodies: _synthesizedBodies.ToDictionary(
-                keySelector: kvp => kvp.Key,
+            synthesizedBodies: _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
                 elementSelector: kvp => kvp.Value.Body),
             target: _target,
             buildMode: _buildMode);
@@ -770,13 +842,20 @@ public sealed partial class SemanticVerifier
         // crashable lowering from the capture, so re-running those passes on them would double-apply and
         // diverge. Only the FRESHLY-loaded stdlib programs (cold: all; warm: on-demand imports) need it.
         // Reachability + GMP below still walk the FULL (restored + fresh) StdlibPrograms.
-        var freshStdlib = _registry.FreshlyLoadedStdlibPrograms;
+        List<(Program Program, string FilePath, string Module)> freshStdlib =
+            _registry.FreshlyLoadedStdlibPrograms;
 
-        var teardownPass = new ScopeTeardownLoweringPass(markerCtx);
+        var teardownPass = new ScopeTeardownLoweringPass(ctx: markerCtx);
         foreach ((Program program, _, _) in _registry.UserPrograms)
+        {
             teardownPass.Run(program: program);
+        }
+
         foreach ((Program program, _, _) in freshStdlib)
+        {
             teardownPass.Run(program: program);
+        }
+
         teardownPass.RunOnVariantBodies();
 
         // Tear down owned RVALUE temporaries (heap-owning receiver/discarded producers) that the
@@ -784,10 +863,13 @@ public sealed partial class SemanticVerifier
         // double-frees the temps' bindings, and BEFORE reachability so its destroy calls drive
         // liveness. Stdlib + variant bodies are already Phase-8 lowered here (when→if done); USER
         // programs are lowered later (Phase 8 per-file), so they get this pass in RunPhase8Postprocessing.
-        var tempTeardownPass = new TemporaryTeardownPass(markerCtx);
+        var tempTeardownPass = new TemporaryTeardownPass(ctx: markerCtx);
         foreach ((Program program, _, _) in freshStdlib)
+        {
             tempTeardownPass.Run(program: program);
-        tempTeardownPass.RunOnBodies(markerCtx.VariantBodies);
+        }
+
+        tempTeardownPass.RunOnBodies(bodies: markerCtx.VariantBodies);
 
         // MarkerProtocolDesugarPass. The warm-daemon RF-S413 false positive is ALREADY fixed by routing
         // marker protocols through the ordinary generic-bound desugar in SignatureResolver: a param is now
@@ -806,10 +888,17 @@ public sealed partial class SemanticVerifier
         // already-present InstantiatedGenericBodies keys, so this only re-adds them for the liveness WALK).
         if (stashedP8Variants != null)
         {
-            foreach (var kv in stashedP8Variants) mergedVariantBodies[key: kv.Key] = kv.Value;
+            foreach (KeyValuePair<string, Statement> kv in stashedP8Variants)
+            {
+                mergedVariantBodies[key: kv.Key] = kv.Value;
+            }
+
             if (SaTiming)
+            {
                 Console.Error.WriteLine(
-                    value: $"  Phase 8 warm-gate - skipped teardown/marker on {stashedP8Variants.Count} restored variants (stash {_p8GateStash} ms)");
+                    value:
+                    $"  Phase 8 warm-gate - skipped teardown/marker on {stashedP8Variants.Count} restored variants (stash {_p8GateStash} ms)");
+            }
         }
 
         // Expand `is Crashable err` clauses BEFORE reachability so that the new
@@ -861,10 +950,10 @@ public sealed partial class SemanticVerifier
             buildMode: _buildMode);
         // WARM GATE: restored instantiation bodies were already call-classified at capture; only re-classify
         // the FRESH (user-delta) ones. Cold path: _restoredInstantiationKeys empty → classifies all.
-        new CallOverloadResolutionPass(classCtx).RunOnStatements(
-            _instantiatedGenericBodies
-                .Where(predicate: kv => !_restoredInstantiationKeys.Contains(item: kv.Key))
-                .Select(selector: kv => kv.Value.Ast.Body));
+        new CallOverloadResolutionPass(ctx: classCtx).RunOnStatements(
+            statements: _instantiatedGenericBodies
+                       .Where(predicate: kv => !_restoredInstantiationKeys.Contains(item: kv.Key))
+                       .Select(selector: kv => kv.Value.Ast.Body));
     }
 
     /// <summary>
@@ -883,12 +972,15 @@ public sealed partial class SemanticVerifier
             if (SaTiming)
             {
                 var sw = Stopwatch.StartNew();
+
                 void Step(string label)
                 {
                     sw.Stop();
-                    Console.Error.WriteLine(value: $"  Phase 8 sub - {label}: {sw.ElapsedMilliseconds} ms");
+                    Console.Error.WriteLine(
+                        value: $"  Phase 8 sub - {label}: {sw.ElapsedMilliseconds} ms");
                     sw.Restart();
                 }
+
                 new ReachableGenericCollectionPass(ctx: ctx).Run();
                 Step(label: nameof(ReachableGenericCollectionPass));
                 new RoutineReachabilityPass(ctx: ctx).Run();
@@ -909,15 +1001,23 @@ public sealed partial class SemanticVerifier
                 // closure. Base mode (SeedAllStdlibRoutines) still runs the full closure because it must
                 // define every stdlib instance, not just what one entry program reaches.
                 if (ctx.SeedAllStdlibRoutines)
+                {
                     new GenericClosurePass(ctx: ctx).Run();
+                }
             }
-        } while (ctx.SeedAllStdlibRoutines &&
-                 ctx.InstantiatedGenericBodies.Count != prevCount && ++guard < 20);
+        } while (ctx.SeedAllStdlibRoutines && ctx.InstantiatedGenericBodies.Count != prevCount &&
+                 ++guard < 20);
+
         if (ctx.SeedAllStdlibRoutines)
+        {
             new GenericClosurePass(ctx: ctx).RunIsolatedTail();
+        }
+
         GenericCanonicalizationPass.Run();
         if (SaTiming && ctx.SeedAllStdlibRoutines)
+        {
             Console.Error.WriteLine(value: $"  Phase 8 base-closure fixpoint rounds={guard + 1}");
+        }
     }
 
     /// <summary>
@@ -928,8 +1028,13 @@ public sealed partial class SemanticVerifier
     private void ComputeMaySuspend(InstantiationContext ctx)
     {
         IReadOnlyCollection<string> maySuspend =
-            new MaySuspendAnalysis(callGraph: ctx.MaySuspendGraph).Compute().ToArray();
-        foreach (string key in maySuspend) ctx.MaySuspendRoutineKeys.Add(item: key);
+            new MaySuspendAnalysis(callGraph: ctx.MaySuspendGraph).Compute()
+               .ToArray();
+        foreach (string key in maySuspend)
+        {
+            ctx.MaySuspendRoutineKeys.Add(item: key);
+        }
+
         _maySuspendRoutineKeys = maySuspend;
 
         string? dumpPath = DiagnosticFlags.MaySuspendDump;
@@ -967,22 +1072,21 @@ public sealed partial class SemanticVerifier
             monomorphizedBodies: _instantiatedGenericBodies);
         // Now that Phase 7 has produced the concrete instances, lower any carrier-return sites inside
         // them (a monomorphized try_/check_/lookup_ variant) to real record construction.
-        new VariantReturnLoweringPass(ctx).RunOnMonomorphizedBodies();
+        new VariantReturnLoweringPass(ctx: ctx).RunOnMonomorphizedBodies();
         // Inline simple iterator `emit!` bodies into their for-loops before the rest of Phase 8
         // lowering, replacing the `try_emit` call with the spliced advance. By Phase 8 the concrete
         // `emit!` bodies are already monomorphized (Phase 7 ran), so the lookup succeeds; the
         // spliced body then flows through the normal Phase 8 lowering below. Composed/filtering
         // iterators fall back to the existing `try_emit` loop.
-        new IteratorInlineLoweringPass(
-                registry: _registry, monoBodies: _instantiatedGenericBodies)
-            .Run(program: program);
+        new IteratorInlineLoweringPass(registry: _registry, monoBodies: _instantiatedGenericBodies)
+           .Run(program: program);
         new PostprocessingPipeline(ctx: ctx).Run(program: program);
 
         // Owned rvalue-temporary teardown for user code, now that Phase 8 has lowered when→if so the
         // producing calls sit in real statements. ScopeTeardownLoweringPass already ran (pre-lowering,
         // step 4) and will not revisit this program, so the temps' bindings are freed exactly once by
         // the destroy calls this pass emits (codegen emit-on-demand resolves the concrete destroy).
-        new TemporaryTeardownPass(ctx).Run(program: program);
+        new TemporaryTeardownPass(ctx: ctx).Run(program: program);
     }
 
 
@@ -1025,10 +1129,7 @@ public sealed partial class SemanticVerifier
             reprPass.Run(statement: body);
             foreach (SemanticError error in validator.ValidateStatement(statement: body))
             {
-                AddError(error: error with
-                {
-                    Message = $"[{key}] {error.Message}"
-                });
+                AddError(error: error with { Message = $"[{key}] {error.Message}" });
             }
         }
 
@@ -1045,12 +1146,10 @@ public sealed partial class SemanticVerifier
                 reprPass.Run(statement: mono.Ast.Body);
             }
 
-            foreach (SemanticError error in BackendEntryValidator.ValidateMonomorphizedBody(body: mono))
+            foreach (SemanticError error in BackendEntryValidator.ValidateMonomorphizedBody(
+                         body: mono))
             {
-                AddError(error: error with
-                {
-                    Message = $"[mono:{key}] {error.Message}"
-                });
+                AddError(error: error with { Message = $"[mono:{key}] {error.Message}" });
             }
         }
 
@@ -1135,7 +1234,8 @@ public sealed partial class SemanticVerifier
         // Analyze only FRESHLY-loaded stdlib programs: in a cold compile that is every stdlib program.
         // In a warm-restore compile the restored bodies were already analyzed at capture, so this is just
         // the modules imported on-demand (e.g. IO/Console) — which still need SA before lowering/codegen.
-        var freshStdlibPrograms = _registry.FreshlyLoadedStdlibPrograms;
+        List<(Program Program, string FilePath, string Module)> freshStdlibPrograms =
+            _registry.FreshlyLoadedStdlibPrograms;
         if (freshStdlibPrograms.Count == 0)
         {
             return;
@@ -1158,28 +1258,31 @@ public sealed partial class SemanticVerifier
         try
         {
 
-        string previousFilePath = _currentFilePath;
-        var previousImports = new HashSet<string>(collection: _importedModules,
-            comparer: StringComparer.OrdinalIgnoreCase);
-        var previousForeignAliases = new HashSet<string>(collection: _importedForeignAliases,
-            comparer: StringComparer.Ordinal);
-        string? previousModuleName = _currentModuleName;
-        foreach ((Program program, string filePath, string module) in freshStdlibPrograms)
-            AnalyzeOneStdlibProgram(program: program, filePath: filePath, module: module);
+            string previousFilePath = _currentFilePath;
+            var previousImports = new HashSet<string>(collection: _importedModules,
+                comparer: StringComparer.OrdinalIgnoreCase);
+            var previousForeignAliases = new HashSet<string>(collection: _importedForeignAliases,
+                comparer: StringComparer.Ordinal);
+            string? previousModuleName = _currentModuleName;
+            foreach ((Program program, string filePath, string module) in freshStdlibPrograms)
+            {
+                AnalyzeOneStdlibProgram(program: program, filePath: filePath, module: module);
+            }
 
-        _currentFilePath = previousFilePath;
-        _currentModuleName = previousModuleName;
-        _registry.ResolutionRealm = _registry.AmbientRealm;
-        _importedModules.Clear();
-        foreach (string ns in previousImports)
-        {
-            _importedModules.Add(item: ns);
-        }
-        _importedForeignAliases.Clear();
-        foreach (string alias in previousForeignAliases)
-        {
-            _importedForeignAliases.Add(item: alias);
-        }
+            _currentFilePath = previousFilePath;
+            _currentModuleName = previousModuleName;
+            _registry.ResolutionRealm = _registry.AmbientRealm;
+            _importedModules.Clear();
+            foreach (string ns in previousImports)
+            {
+                _importedModules.Add(item: ns);
+            }
+
+            _importedForeignAliases.Clear();
+            foreach (string alias in previousForeignAliases)
+            {
+                _importedForeignAliases.Add(item: alias);
+            }
 
         }
         finally
@@ -1188,6 +1291,7 @@ public sealed partial class SemanticVerifier
             _registry.ResolutionRealm = _registry.AmbientRealm;
             _registry.Language = savedLanguage;
         }
+
         _eagerStdlibAnalyzed = true;
     }
 
@@ -1205,8 +1309,10 @@ public sealed partial class SemanticVerifier
         // Prefer this file's own realm when resolving its bare type names: an SF-realm (`.sf`) stdlib
         // file's bare `List` resolves to the SF-realm `Core.List` (bridged) it declares, while an RF file
         // keeps the ambient RF resolution. Zero effect on RF (resolution realm == ambient there).
-        _registry.ResolutionRealm =
-            filePath.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase) ? "SF" : "RF";
+        _registry.ResolutionRealm = filePath.EndsWith(value: ".sf",
+            comparisonType: StringComparison.OrdinalIgnoreCase)
+            ? "SF"
+            : "RF";
         _importedModules.Clear();
         _importedSymbolNames.Clear();
         _importedForeignAliases.Clear();
@@ -1216,16 +1322,25 @@ public sealed partial class SemanticVerifier
 
         // Add the file's own module so sibling types resolve
         if (!string.IsNullOrEmpty(value: module))
+        {
             _importedModules.Add(item: module);
+        }
 
         // Process import declarations for this stdlib file
         foreach (ISyntaxTreeNode node in program.Declarations)
         {
-            if (node is not ImportDeclaration import) continue;
+            if (node is not ImportDeclaration import)
+            {
+                continue;
+            }
+
             string importModule = import.ModulePath;
             int dotIdx = importModule.IndexOf(value: '.');
             if (dotIdx > 0)
+            {
                 _importedModules.Add(item: importModule[..dotIdx]);
+            }
+
             _importedModules.Add(item: importModule);
         }
 
@@ -1239,7 +1354,9 @@ public sealed partial class SemanticVerifier
     /// proven per-file scope setup is what makes resolution correct); per-routine granularity is a later
     /// refinement. USER routines are excluded (they were analyzed eagerly in the driver's Phase 5).
     /// </summary>
-    private Dictionary<string, (Program Program, string FilePath, string Module)>? _demandStdlibProgramForKey;
+    private Dictionary<string, (Program Program, string FilePath, string Module)>?
+        _demandStdlibProgramForKey;
+
     private readonly HashSet<string> _demandAnalyzedFiles = new(comparer: StringComparer.Ordinal);
 
     /// <summary>Set once the EAGER <see cref="AnalyzeStdlibBodies"/> sweep has run — while true, the
@@ -1265,20 +1382,36 @@ public sealed partial class SemanticVerifier
     {
         // While the eager sweep is in effect, every stdlib file is already analyzed → no-op (avoids
         // double-analysis / duplicate registration). Becomes active after the Stage-5 flip.
-        if (_eagerStdlibAnalyzed) return false;
+        if (_eagerStdlibAnalyzed)
+        {
+            return false;
+        }
+
         if (_demandStdlibProgramForKey == null)
         {
             _demandStdlibProgramForKey =
-                new Dictionary<string, (Program, string, string)>(comparer: StringComparer.Ordinal);
+                new Dictionary<string, (Program, string, string)>(
+                    comparer: StringComparer.Ordinal);
             foreach ((Program p, string fp, string mod) in _registry.StdlibPrograms)
-                foreach (ISyntaxTreeNode d in p.Declarations)
-                    if (d is RoutineDeclaration { ResolvedInfo: { } ri })
-                        _demandStdlibProgramForKey[key: ri.RegistryKey] = (p, fp, mod);
+            foreach (ISyntaxTreeNode d in p.Declarations)
+            {
+                if (d is RoutineDeclaration { ResolvedInfo: { } ri })
+                {
+                    _demandStdlibProgramForKey[key: ri.RegistryKey] = (p, fp, mod);
+                }
+            }
         }
+
         if (!_demandStdlibProgramForKey.TryGetValue(key: routineKey,
                 value: out (Program Program, string FilePath, string Module) entry))
+        {
             return false;
-        if (!_demandAnalyzedFiles.Add(item: entry.FilePath)) return false;
+        }
+
+        if (!_demandAnalyzedFiles.Add(item: entry.FilePath))
+        {
+            return false;
+        }
 
         Language savedLanguage = _registry.Language;
         string previousFilePath = _currentFilePath;
@@ -1305,23 +1438,30 @@ public sealed partial class SemanticVerifier
         int warningsBeforeStdlib = _warnings.Count;
         try
         {
-            AnalyzeOneStdlibProgram(program: entry.Program, filePath: entry.FilePath, module: entry.Module);
+            AnalyzeOneStdlibProgram(program: entry.Program,
+                filePath: entry.FilePath,
+                module: entry.Module);
             // FLIP: fully lower this reached file so codegen sees ready bodies — the same per-file passes the
             // eager sweep ran (DesugaringPipeline.Run = syntactic Phase-3; PostprocessingPipeline.Run =
             // type-aware Phase-8). Variant/wired bodies come via the on-demand variant synthesizer + the
             // collector's per-owner materialization, so only the per-file program passes run here.
-            var dctx = new DesugaringContext(registry: _registry,
-                routineBodies: _routineBodies, target: _target, buildMode: _buildMode)
-            {
-                VariantBodies = _variantBodies, SynthesizeAllDerives = SeedAllStdlibRoutines,
-                RestoredVariantKeys = _restoredVariantKeys
-            };
+            var dctx =
+                new DesugaringContext(registry: _registry,
+                    routineBodies: _routineBodies,
+                    target: _target,
+                    buildMode: _buildMode)
+                {
+                    VariantBodies = _variantBodies,
+                    SynthesizeAllDerives = SeedAllStdlibRoutines,
+                    RestoredVariantKeys = _restoredVariantKeys
+                };
             new DesugaringPipeline(ctx: dctx).Run(program: entry.Program);
             var pctx = new PostprocessingContext(registry: _registry,
                 variantBodies: _variantBodies,
                 synthesizedBodies: _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
                     elementSelector: kvp => kvp.Value.Body),
-                target: _target, buildMode: _buildMode,
+                target: _target,
+                buildMode: _buildMode,
                 monomorphizedBodies: _instantiatedGenericBodies);
             new PostprocessingPipeline(ctx: pctx).Run(program: entry.Program);
         }
@@ -1330,9 +1470,17 @@ public sealed partial class SemanticVerifier
             // Discard stdlib-body diagnostics (see snapshot above): mirror the eager sweep's RemoveRange so a
             // user build never fails on a stdlib-internal diagnostic. Trim back to the pre-analysis counts.
             if (_errors.Count > errorsBeforeStdlib)
-                _errors.RemoveRange(index: errorsBeforeStdlib, count: _errors.Count - errorsBeforeStdlib);
+            {
+                _errors.RemoveRange(index: errorsBeforeStdlib,
+                    count: _errors.Count - errorsBeforeStdlib);
+            }
+
             if (_warnings.Count > warningsBeforeStdlib)
-                _warnings.RemoveRange(index: warningsBeforeStdlib, count: _warnings.Count - warningsBeforeStdlib);
+            {
+                _warnings.RemoveRange(index: warningsBeforeStdlib,
+                    count: _warnings.Count - warningsBeforeStdlib);
+            }
+
             _registry.EndStdlibAnalysis();
             _registry.ResolutionRealm = _registry.AmbientRealm;
             _registry.Language = savedLanguage;
@@ -1340,8 +1488,12 @@ public sealed partial class SemanticVerifier
             _currentFilePath = previousFilePath;
             _currentModuleName = previousModuleName;
             _importedModules.Clear();
-            foreach (string ns in previousImports) _importedModules.Add(item: ns);
+            foreach (string ns in previousImports)
+            {
+                _importedModules.Add(item: ns);
+            }
         }
+
         return true; // analyzed+desugared a NEW file → collector rebuilds its template index
     }
 
@@ -1364,9 +1516,14 @@ public sealed partial class SemanticVerifier
         _foreignAliasSnapshots.Clear();
         bool saTiming = SaTiming;
         var swPhase = Stopwatch.StartNew();
+
         void Mark(string label)
         {
-            if (!saTiming) return;
+            if (!saTiming)
+            {
+                return;
+            }
+
             swPhase.Stop();
             Console.Error.WriteLine(value: $"{label}: {swPhase.ElapsedMilliseconds} ms");
             swPhase.Restart();
@@ -1414,6 +1571,7 @@ public sealed partial class SemanticVerifier
             moduleNameSnapshots[key: filePath] = _currentModuleName;
             CaptureCurrentImportStateSnapshot(filePath: filePath);
         }
+
         Mark(label: "Phase 1 -> Declarations");
 
         // Record per-module import lists for BuilderQuery's T.dependencies(). importSnapshots is keyed
@@ -1422,7 +1580,9 @@ public sealed partial class SemanticVerifier
         {
             string? mod = moduleNameSnapshots.GetValueOrDefault(key: filePath);
             if (!string.IsNullOrEmpty(value: mod))
+            {
                 _registry.AddModuleDependencies(module: mod, imports: imports);
+            }
         }
 
         // Phase 1b: Re-resolve record/entity `obeys` conformances now that ALL files' types AND
@@ -1435,6 +1595,7 @@ public sealed partial class SemanticVerifier
         {
             StdlibLoader.ResolveProgramProtocolConformances(registry: _registry, program: program);
         }
+
         Mark(label: "Phase 1b -> re-resolve conformances");
 
         // Phase 2: Resolve type bodies across ALL files (members can reference types from other files)
@@ -1449,6 +1610,7 @@ public sealed partial class SemanticVerifier
             _signatureResolver.ResolveAndRegisterPendingRoutines(filterFilePath: filePath);
             _signatureResolver.ResolveExternalSignatures(program: program);
         }
+
         Mark(label: "Phase 2 -> Type/signature resolution");
 
         // Divergent cross-file duplicate constructors: same signature + different body in different
@@ -1457,7 +1619,11 @@ public sealed partial class SemanticVerifier
         foreach ((RoutineInfo first, RoutineInfo second) in _registry.DivergentDuplicateCreators)
         {
             SourceLocation? loc = second.Location ?? first.Location;
-            if (loc == null) continue;
+            if (loc == null)
+            {
+                continue;
+            }
+
             ReportError(code: SemanticDiagnosticCode.DuplicateRoutineDefinition,
                 message:
                 $"Constructor '{second.OwnerType?.Name}({string.Join(separator: ", ", values: second.Parameters.Select(selector: p => p.Type.Name))})' " +
@@ -1481,7 +1647,7 @@ public sealed partial class SemanticVerifier
                 InstantiatedGenericBodies: _instantiatedGenericBodies,
                 LiveRoutineKeys: _liveRoutineKeys,
                 LiveOwnerTypeNames: _liveOwnerTypeNames,
-            MaySuspendRoutineKeys: _maySuspendRoutineKeys);
+                MaySuspendRoutineKeys: _maySuspendRoutineKeys);
         }
 
         // Phase 2 global: once, registry-only -> no per-file import scoping needed
@@ -1518,6 +1684,7 @@ public sealed partial class SemanticVerifier
 
             PreRegisterUserVariants(program: program);
         }
+
         Mark(label: $"Phase 3 pre-file -> {nameof(PreRegisterUserVariants)}");
 
         // Phase 3 global (pre-pass): pre-register stdlib failable memberRoutine variants (try_emit, try_recover, etc.)
@@ -1525,7 +1692,11 @@ public sealed partial class SemanticVerifier
         // (ControlFlowLoweringPass generates try_emit calls that Phase 5 must resolve).
         // Snapshot mode: stdlib variants are already registered in the restored registry (parity with the
         // single-file Analyze gate) — re-registering them is pure warm-compile overhead (~240 ms).
-        if (!_snapshotMode) PreRegisterStdlibVariants();
+        if (!_snapshotMode)
+        {
+            PreRegisterStdlibVariants();
+        }
+
         Mark(label: $"Phase 3 global -> {nameof(PreRegisterStdlibVariants)}");
 
         // Phase 4 per-file: syntax-only lowering (no type info needed; runs before Phase 5 annotates types)
@@ -1538,6 +1709,7 @@ public sealed partial class SemanticVerifier
 
             RunPhase4SyntaxPrepass(program: program);
         }
+
         Mark(label: "Phase 4 per-file -> syntax-only desugaring");
 
         // Phase 5: Analyze bodies per file (expressions need correct import scoping)
@@ -1550,6 +1722,7 @@ public sealed partial class SemanticVerifier
 
             AnalyzeBodies(program: program);
         }
+
         // Per-file resolution realm is a body-analysis convenience only; global passes (synthesis,
         // instantiation, GMP) re-resolve concrete instantiations and must run at the ambient realm so
         // an explicit `RF::` inside an SF-realm body (the wrapper's `inner: RF::Core.List[T]()`) keeps
@@ -1576,9 +1749,12 @@ public sealed partial class SemanticVerifier
             AnalyzeStdlibBodies();
             Mark(label: $"Phase 5 global -> {nameof(AnalyzeStdlibBodies)}");
             if (_errors.Count > errorsBeforeStdlib)
+            {
                 _errors.RemoveRange(index: errorsBeforeStdlib,
                     count: _errors.Count - errorsBeforeStdlib);
+            }
         }
+
         EagerSynthesizeAllWrapperForwarders();
         Mark(label: $"Phase 5 global -> {nameof(EagerSynthesizeAllWrapperForwarders)}");
 
@@ -1600,14 +1776,16 @@ public sealed partial class SemanticVerifier
                 SynthesizedBodies: new Dictionary<string, Statement>(),
                 InstantiatedGenericBodies: _instantiatedGenericBodies,
                 LiveRoutineKeys: _liveRoutineKeys,
-            LiveOwnerTypeNames: _liveOwnerTypeNames,
-            MaySuspendRoutineKeys: _maySuspendRoutineKeys);
+                LiveOwnerTypeNames: _liveOwnerTypeNames,
+                MaySuspendRoutineKeys: _maySuspendRoutineKeys);
         }
 
         foreach ((Program program, string filePath) in files)
         {
             string moduleName = moduleNameSnapshots.GetValueOrDefault(key: filePath) ?? "";
-            _registry.RegisterUserProgram(program: program, filePath: filePath, module: moduleName);
+            _registry.RegisterUserProgram(program: program,
+                filePath: filePath,
+                module: moduleName);
         }
 
         // Phase 5 global: compute type liveness — mark which concrete generic instances are
@@ -1631,7 +1809,7 @@ public sealed partial class SemanticVerifier
             elementSelector: kvp => kvp.Value.Body);
         foreach ((string key, Statement variantBody) in _variantBodies)
         {
-            allSynthesized2[key] = variantBody;
+            allSynthesized2[key: key] = variantBody;
         }
 
         return new AnalysisResult(Registry: _registry,
@@ -1653,16 +1831,15 @@ public sealed partial class SemanticVerifier
     private void RunMultipleFullPipeline(List<(Program Program, string FilePath)> files,
         Dictionary<string, HashSet<string>> importSnapshots,
         Dictionary<string, HashSet<string>> symbolNameSnapshots,
-        Dictionary<string, string?> moduleNameSnapshots,
-        Action<string> mark)
+        Dictionary<string, string?> moduleNameSnapshots, Action<string> mark)
     {
         // Phase 6 global: error handling variants + global desugaring (runs once)
         CollectStdlibBodiesForVariantGeneration();
-        mark($"Phase 6 global -> {nameof(CollectStdlibBodiesForVariantGeneration)}");
+        mark(obj: $"Phase 6 global -> {nameof(CollectStdlibBodiesForVariantGeneration)}");
         RunPhase6GlobalDesugaring();
-        mark($"Phase 6 global -> {nameof(RunPhase6GlobalDesugaring)}");
+        mark(obj: $"Phase 6 global -> {nameof(RunPhase6GlobalDesugaring)}");
         RunPhase7Instantiation();
-        mark("Phase 7 -> Instantiation (monomorphization)");
+        mark(obj: "Phase 7 -> Instantiation (monomorphization)");
 
         // Phase 8 per-file: type-aware lowering on verified, type-annotated AST
         foreach ((Program program, string filePath) in files)
@@ -1674,7 +1851,8 @@ public sealed partial class SemanticVerifier
 
             RunPhase8Postprocessing(program: program);
         }
-        mark("Phase 8 per-file -> type-aware postprocessing");
+
+        mark(obj: "Phase 8 per-file -> type-aware postprocessing");
 
         // Stage ② of the pull architecture, in SHADOW: all programs are now fully lowered
         // (subscript/operator → real call expressions), so the demand collector can walk from
@@ -1682,9 +1860,9 @@ public sealed partial class SemanticVerifier
         RunShadowCollectorIfNeeded();
 
         RunPhase9PostDesugarChecks();
-        mark($"Phase 9 -> PostDesugarChecks");
+        mark(obj: $"Phase 9 -> PostDesugarChecks");
         FinalizeReturnTypes();
-        mark($"Phase 9 -> {nameof(FinalizeReturnTypes)}");
+        mark(obj: $"Phase 9 -> {nameof(FinalizeReturnTypes)}");
     }
 
     /// <summary>
@@ -1696,11 +1874,19 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void RunShadowCollectorIfNeeded()
     {
-        if (_shadowCtx == null) return;
+        if (_shadowCtx == null)
+        {
+            return;
+        }
+
         var synthSources = _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
-            elementSelector: kvp => kvp.Value.Body, comparer: StringComparer.Ordinal);
+            elementSelector: kvp => kvp.Value.Body,
+            comparer: StringComparer.Ordinal);
         foreach ((string key, Statement variantBody) in _variantBodies)
-            synthSources[key] = variantBody;
+        {
+            synthSources[key: key] = variantBody;
+        }
+
         new RoutineCollectionPass(ctx: _shadowCtx).RunCollect(synthesizedBodies: synthSources);
         _liveRoutineKeys = _shadowCtx.LiveRoutineKeys.ToArray();
         _liveOwnerTypeNames = _shadowCtx.LiveOwnerTypeNames.ToArray();
@@ -1714,7 +1900,8 @@ public sealed partial class SemanticVerifier
     {
         foreach ((string _, (RoutineInfo Routine, Statement Body) pair) in _synthesizedBodies)
         {
-            AnalyzeCompilerGeneratedBody(routineInfo: pair.Routine, body: pair.Body,
+            AnalyzeCompilerGeneratedBody(routineInfo: pair.Routine,
+                body: pair.Body,
                 preservePresetTypes: true);
         }
     }
@@ -1739,9 +1926,9 @@ public sealed partial class SemanticVerifier
                 continue;
             }
 
-            RoutineInfo? routineInfo = _registry.LookupRoutine(fullName: key) ??
-                _registry.GetAllRoutines()
-                         .FirstOrDefault(predicate: r => r.RegistryKey == key);
+            RoutineInfo? routineInfo = _registry.LookupRoutine(fullName: key) ?? _registry
+               .GetAllRoutines()
+               .FirstOrDefault(predicate: r => r.RegistryKey == key);
             if (routineInfo == null)
             {
                 continue;
@@ -1775,9 +1962,11 @@ public sealed partial class SemanticVerifier
             if (!string.IsNullOrEmpty(value: routineInfo.Module))
             {
                 _importedModules.Add(item: routineInfo.Module);
-                int dotIdx = routineInfo.Module.IndexOf('.');
+                int dotIdx = routineInfo.Module.IndexOf(value: '.');
                 if (dotIdx > 0)
+                {
                     _importedModules.Add(item: routineInfo.Module[..dotIdx]);
+                }
             }
         }
 
@@ -1788,7 +1977,9 @@ public sealed partial class SemanticVerifier
         // since synthesized-body errors are suppressed below) and the body is dropped, surfacing as an
         // over-prune "declared and called but never defined" at codegen. Make BuilderQuery visible.
         if (BuilderInfoProvider.IsBuilderQueryRoutine(name: routineInfo.Name))
+        {
             _importedModules.Add(item: "BuilderQuery");
+        }
 
         // Analyze the compiler-generated body in its OWNER's module, not whatever module happens to be
         // current when the body is first made live. A synthesized failable variant of a Core routine
@@ -1799,7 +1990,9 @@ public sealed partial class SemanticVerifier
         // same-module secret types resolve.
         string? ownerModule = routineInfo.OwnerType?.Module ?? routineInfo.Module;
         if (!string.IsNullOrEmpty(value: ownerModule))
+        {
             _currentModuleName = ownerModule;
+        }
 
         RoutineInfo? prevRoutine = _currentRoutine;
         TypeSymbol? prevType = _currentType;
@@ -1827,6 +2020,7 @@ public sealed partial class SemanticVerifier
         {
             _errors.RemoveRange(index: errorsBefore, count: _errors.Count - errorsBefore);
         }
+
         _isInCompilerGeneratedBody = prevIsInCompilerGeneratedBody;
         _preservePresetTypes = prevPreservePresetTypes;
 
@@ -1837,10 +2031,15 @@ public sealed partial class SemanticVerifier
         _currentModuleName = previousModuleName;
         _importedModules.Clear();
         foreach (string ns in previousImports)
+        {
             _importedModules.Add(item: ns);
+        }
+
         _importedSymbolNames.Clear();
         foreach (string symbol in previousSymbols)
+        {
             _importedSymbolNames.Add(item: symbol);
+        }
     }
 
     /// <summary>
@@ -1882,10 +2081,10 @@ public sealed partial class SemanticVerifier
         // `List` resolves to the SF-realm (bridged) `Core.List` — the approachable SF wrapper — while an
         // `.rf` file keeps ambient RF resolution. Mirrors the stdlib-body loop; zero effect on RF
         // (resolution realm == ambient there). Restored to AmbientRealm by the caller after the phase.
-        _registry.ResolutionRealm =
-            filePath.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase)
-                ? "SF"
-                : _registry.AmbientRealm;
+        _registry.ResolutionRealm = filePath.EndsWith(value: ".sf",
+            comparisonType: StringComparison.OrdinalIgnoreCase)
+            ? "SF"
+            : _registry.AmbientRealm;
 
         if (importSnapshots.TryGetValue(key: filePath, value: out HashSet<string>? imports))
         {
@@ -1923,13 +2122,14 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void CaptureCurrentImportStateSnapshot(string filePath)
     {
-        _importSnapshots[filePath] = new HashSet<string>(collection: _importedModules,
+        _importSnapshots[key: filePath] = new HashSet<string>(collection: _importedModules,
             comparer: StringComparer.OrdinalIgnoreCase);
-        _symbolNameSnapshots[filePath] = new HashSet<string>(collection: _importedSymbolNames,
+        _symbolNameSnapshots[key: filePath] = new HashSet<string>(collection: _importedSymbolNames,
             comparer: StringComparer.Ordinal);
-        _moduleNameSnapshots[filePath] = _currentModuleName;
-        _foreignAliasSnapshots[filePath] = new HashSet<string>(collection: _importedForeignAliases,
-            comparer: StringComparer.Ordinal);
+        _moduleNameSnapshots[key: filePath] = _currentModuleName;
+        _foreignAliasSnapshots[key: filePath] =
+            new HashSet<string>(collection: _importedForeignAliases,
+                comparer: StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -1938,12 +2138,16 @@ public sealed partial class SemanticVerifier
     private bool TryRestoreImportStateForRoutine(RoutineInfo routineInfo)
     {
         string? locationFile = routineInfo.Location?.FileName;
-        if (string.IsNullOrWhiteSpace(locationFile))
+        if (string.IsNullOrWhiteSpace(value: locationFile))
+        {
             return false;
+        }
 
         string? matchedFilePath = ResolveSnapshotFilePath(locationFile: locationFile);
         if (matchedFilePath == null)
+        {
             return false;
+        }
 
         RestoreImportState(filePath: matchedFilePath,
             importSnapshots: _importSnapshots,
@@ -1957,13 +2161,13 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private string? ResolveSnapshotFilePath(string locationFile)
     {
-        if (_importSnapshots.ContainsKey(locationFile))
+        if (_importSnapshots.ContainsKey(key: locationFile))
         {
             return locationFile;
         }
 
         string locationFileName = Path.GetFileName(path: locationFile);
-        return _importSnapshots.Keys.FirstOrDefault(candidate =>
+        return _importSnapshots.Keys.FirstOrDefault(predicate: candidate =>
             string.Equals(a: Path.GetFileName(path: candidate),
                 b: locationFileName,
                 comparisonType: StringComparison.OrdinalIgnoreCase));
@@ -2007,14 +2211,18 @@ public sealed partial class SemanticVerifier
     /// <param name="location">The source location of the warning.</param>
     internal void ReportWarning(SemanticWarningCode code, string message, SourceLocation location)
     {
-        if (SuppressedWarnings.Contains(item: code)) return;
+        if (SuppressedWarnings.Contains(item: code))
+        {
+            return;
+        }
+
         AddWarning(warning: new SemanticWarning(Code: code, Message: message, Location: location));
     }
 
     private static readonly HashSet<SemanticWarningCode> SuppressedWarnings = new()
     {
         SemanticWarningCode.UnusedRoutineReturnValue,
-        SemanticWarningCode.UnhandledCrashableCall,
+        SemanticWarningCode.UnhandledCrashableCall
     };
 
     #endregion
@@ -2022,40 +2230,56 @@ public sealed partial class SemanticVerifier
     #region Type Resolution Delegation Stubs
 
     /// <summary>Resolves a type expression. Delegates to <see cref="TypeResolver"/>.</summary>
-    public TypeSymbol ResolveType(TypeExpression? typeExpr) =>
-        _typeResolver.ResolveType(typeExpr: typeExpr);
+    public TypeSymbol ResolveType(TypeExpression? typeExpr)
+    {
+        return _typeResolver.ResolveType(typeExpr: typeExpr);
+    }
 
     /// <summary>Looks up a type by name, searching imported modules. Delegates to <see cref="TypeResolver"/>.</summary>
-    internal TypeSymbol? LookupTypeWithImports(string name) =>
-        _typeResolver.LookupTypeWithImports(name: name);
+    internal TypeSymbol? LookupTypeWithImports(string name)
+    {
+        return _typeResolver.LookupTypeWithImports(name: name);
+    }
 
     /// <summary>Returns true if name is a generic type parameter in the current context. Delegates to <see cref="TypeResolver"/>.</summary>
-    internal bool IsGenericParameter(string name) =>
-        _typeResolver.IsGenericParameter(name: name);
+    internal bool IsGenericParameter(string name)
+    {
+        return _typeResolver.IsGenericParameter(name: name);
+    }
 
     /// <summary>True when name is a GENUINE parameter of a generic-definition scope (so it shadows a
     /// same-named global type). Delegates to <see cref="TypeResolver"/>.</summary>
-    internal bool IsGenericDefinitionScopeParam(string name) =>
-        _typeResolver.IsGenericDefinitionScopeParam(name: name);
+    internal bool IsGenericDefinitionScopeParam(string name)
+    {
+        return _typeResolver.IsGenericDefinitionScopeParam(name: name);
+    }
 
     /// <summary>The 0-based positional slot of the in-scope generic parameter. Delegates to <see cref="TypeResolver"/>.</summary>
-    internal int GenericParameterSlot(string name) =>
-        _typeResolver.GenericParameterSlot(name: name);
+    internal int GenericParameterSlot(string name)
+    {
+        return _typeResolver.GenericParameterSlot(name: name);
+    }
 
     /// <summary>Resolves a type expression in a protocol context (handles 'Me'). Delegates to <see cref="TypeResolver"/>.</summary>
-    internal TypeSymbol ResolveProtocolType(TypeExpression? typeExpr) =>
-        _typeResolver.ResolveProtocolType(typeExpr: typeExpr);
+    internal TypeSymbol ResolveProtocolType(TypeExpression? typeExpr)
+    {
+        return _typeResolver.ResolveProtocolType(typeExpr: typeExpr);
+    }
 
     /// <summary>Looks up a routine by name, searching Core and imported modules. Delegates to <see cref="TypeResolver"/>.</summary>
-    internal RoutineInfo? LookupRoutineWithImports(string name) =>
-        _typeResolver.LookupRoutineWithImports(name: name);
+    internal RoutineInfo? LookupRoutineWithImports(string name)
+    {
+        return _typeResolver.LookupRoutineWithImports(name: name);
+    }
 
     /// <summary>Validates that type arguments satisfy generic constraints. Delegates to <see cref="TypeResolver"/>.</summary>
     internal void ValidateGenericConstraints(TypeSymbol genericDef, List<TypeSymbol> typeArgs,
-        SourceLocation location) =>
+        SourceLocation location)
+    {
         _typeResolver.ValidateGenericConstraints(genericDef: genericDef,
             typeArgs: typeArgs,
             location: location);
+    }
 
     #endregion
 

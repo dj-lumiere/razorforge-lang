@@ -202,10 +202,10 @@ public enum SemanticWarningCode
     /// <summary>Unexpected declaration in statement context.</summary>
     UnexpectedDeclaration = 402
 }
+
 /// <summary>
 /// Provides formatting helpers for <see cref="SemanticWarningCode"/>.
 /// </summary>
-
 public static class SemanticWarningCodeExtensions
 {
     extension(SemanticWarningCode code)

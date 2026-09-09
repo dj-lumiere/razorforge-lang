@@ -32,8 +32,10 @@ public sealed partial class TypeRegistry
     /// <returns>True if the type is a memory wrapper, false otherwise.</returns>
     private static bool IsMemoryWrapperType(string typeName)
     {
-        return typeName is RuntimeContract.Viewing or RuntimeContract.Modifying or RuntimeContract.Consulting or RuntimeContract.Amending or RuntimeContract.Hijacked
-            or RuntimeContract.Guarded or RuntimeContract.Witnessed or RuntimeContract.Retained or RuntimeContract.Tracked;
+        return typeName is RuntimeContract.Viewing or RuntimeContract.Modifying
+            or RuntimeContract.Consulting or RuntimeContract.Amending or RuntimeContract.Hijacked
+            or RuntimeContract.Guarded or RuntimeContract.Witnessed or RuntimeContract.Retained
+            or RuntimeContract.Tracked;
     }
 
     #endregion

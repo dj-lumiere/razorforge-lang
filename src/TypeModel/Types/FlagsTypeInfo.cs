@@ -23,7 +23,7 @@ public sealed class FlagsTypeInfo : RecordTypeInfo
         BackendType = "i64";
     }
 
- 
+
     /// <inheritdoc/>
     public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
     {

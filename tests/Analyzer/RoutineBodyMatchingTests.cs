@@ -11,10 +11,10 @@ using static TestHelpers;
 public class RoutineBodyMatchingTests
 {
     #region Overloaded $create Routines
+
     /// <summary>
     /// Verifies semantic analysis behavior for overloaded create both bodies match.
     /// </summary>
-
     [Fact]
     public void Analyze_OverloadedCreate_BothBodiesMatch()
     {
@@ -44,10 +44,10 @@ public class RoutineBodyMatchingTests
     #endregion
 
     #region Generic Member Routines (External Syntax)
+
     /// <summary>
     /// Verifies semantic analysis behavior for generic owner external routine body matches.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericOwnerExternalRoutine_BodyMatches()
     {
@@ -73,7 +73,6 @@ public class RoutineBodyMatchingTests
     /// <summary>
     /// Verifies semantic analysis behavior for generic memberRoutine level param body matches.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericMemberRoutineLevelParam_BodyMatches()
     {
@@ -99,10 +98,10 @@ public class RoutineBodyMatchingTests
     #endregion
 
     #region Module-Qualified Routines
+
     /// <summary>
     /// Verifies semantic analysis behavior for module qualified routine body matches.
     /// </summary>
-
     [Fact]
     public void Analyze_ModuleQualifiedRoutine_BodyMatches()
     {

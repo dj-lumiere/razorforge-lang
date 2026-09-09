@@ -10,10 +10,10 @@ using static TestHelpers;
 public class TypeDeclarationTests
 {
     #region Record Tests
+
     /// <summary>
     /// Verifies that the parser accepts simple record with member variables.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleRecord_WithMemberVariables()
     {
@@ -32,7 +32,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts generic record.
     /// </summary>
-
     [Fact]
     public void Parse_GenericRecord()
     {
@@ -52,7 +51,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts record with constraint.
     /// </summary>
-
     [Fact]
     public void Parse_Record_WithConstraint()
     {
@@ -142,7 +140,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts record follows protocol.
     /// </summary>
-
     [Fact]
     public void Parse_Record_FollowsProtocol()
     {
@@ -175,18 +172,17 @@ public class TypeDeclarationTests
         RecordDeclaration record = GetDeclaration<RecordDeclaration>(program: program);
 
         Assert.Equal(expected: 7, actual: record.Protocols.Count);
-        Assert.Equal(expected: "UnsignedIntegral", actual: record.Protocols[0].Name);
-        Assert.Equal(expected: "Ordered", actual: record.Protocols[1].Name);
-        Assert.Equal(expected: "ConstCompatible", actual: record.Protocols[2].Name);
-        Assert.Equal(expected: "WrappingAddable", actual: record.Protocols[3].Name);
-        Assert.Equal(expected: "WrappingSubtractable", actual: record.Protocols[4].Name);
-        Assert.Equal(expected: "WrappingMultiplicable", actual: record.Protocols[5].Name);
-        Assert.Equal(expected: "FloorDivisible", actual: record.Protocols[6].Name);
+        Assert.Equal(expected: "UnsignedIntegral", actual: record.Protocols[index: 0].Name);
+        Assert.Equal(expected: "Ordered", actual: record.Protocols[index: 1].Name);
+        Assert.Equal(expected: "ConstCompatible", actual: record.Protocols[index: 2].Name);
+        Assert.Equal(expected: "WrappingAddable", actual: record.Protocols[index: 3].Name);
+        Assert.Equal(expected: "WrappingSubtractable", actual: record.Protocols[index: 4].Name);
+        Assert.Equal(expected: "WrappingMultiplicable", actual: record.Protocols[index: 5].Name);
+        Assert.Equal(expected: "FloorDivisible", actual: record.Protocols[index: 6].Name);
     }
     /// <summary>
     /// Verifies that the parser accepts record multiple type parameters.
     /// </summary>
-
     [Fact]
     public void Parse_Record_MultipleTypeParameters()
     {
@@ -208,10 +204,10 @@ public class TypeDeclarationTests
     #endregion
 
     #region Entity Tests
+
     /// <summary>
     /// Verifies that the parser accepts simple entity.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleEntity()
     {
@@ -230,7 +226,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts generic entity.
     /// </summary>
-
     [Fact]
     public void Parse_GenericEntity()
     {
@@ -249,7 +244,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts entity multiple constraints.
     /// </summary>
-
     [Fact]
     public void Parse_Entity_MultipleConstraints()
     {
@@ -273,10 +267,10 @@ public class TypeDeclarationTests
     #endregion
 
     #region Choice Tests
+
     /// <summary>
     /// Verifies that the parser accepts simple choice.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleChoice()
     {
@@ -298,7 +292,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts choice with values.
     /// </summary>
-
     [Fact]
     public void Parse_Choice_WithValues()
     {
@@ -319,10 +312,10 @@ public class TypeDeclarationTests
     #endregion
 
     #region Variant Tests
+
     /// <summary>
     /// Verifies that the parser accepts simple variant.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleVariant()
     {
@@ -341,7 +334,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts variant with types.
     /// </summary>
-
     [Fact]
     public void Parse_Variant_WithTypes()
     {
@@ -361,7 +353,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts variant with none.
     /// </summary>
-
     [Fact]
     public void Parse_Variant_WithNone()
     {
@@ -384,10 +375,10 @@ public class TypeDeclarationTests
     #endregion
 
     #region Protocol Tests
+
     /// <summary>
     /// Verifies that the parser accepts simple protocol.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleProtocol()
     {
@@ -406,7 +397,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts protocol multiple memberRoutines.
     /// </summary>
-
     [Fact]
     public void Parse_Protocol_MultipleMemberRoutines()
     {
@@ -427,7 +417,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts generic protocol.
     /// </summary>
-
     [Fact]
     public void Parse_GenericProtocol()
     {
@@ -447,7 +436,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts protocol inheritance.
     /// </summary>
-
     [Fact]
     public void Parse_Protocol_Inheritance()
     {
@@ -466,10 +454,10 @@ public class TypeDeclarationTests
     #endregion
 
     #region Visibility Tests
+
     /// <summary>
     /// Verifies that the parser accepts secret record.
     /// </summary>
-
     [Fact]
     public void Parse_SecretRecord()
     {
@@ -486,7 +474,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts secret entity.
     /// </summary>
-
     [Fact]
     public void Parse_SecretEntity()
     {
@@ -504,10 +491,10 @@ public class TypeDeclarationTests
     #endregion
 
     #region Routine Tests
+
     /// <summary>
     /// Verifies that the parser accepts simple routine.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleRoutine()
     {
@@ -525,7 +512,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts failable routine.
     /// </summary>
-
     [Fact]
     public void Parse_FailableRoutine()
     {
@@ -544,10 +530,10 @@ public class TypeDeclarationTests
     #endregion
 
     #region Posted Record Field Tests
+
     /// <summary>
     /// Verifies that the parser accepts record with posted member variable.
     /// </summary>
-
     [Fact]
     public void Parse_RecordWithPostedMemberVariable()
     {
@@ -565,7 +551,6 @@ public class TypeDeclarationTests
     /// <summary>
     /// Verifies that the parser accepts record with mixed visibility member variables.
     /// </summary>
-
     [Fact]
     public void Parse_RecordWithMixedVisibilityMemberVariables()
     {
@@ -585,6 +570,7 @@ public class TypeDeclarationTests
     #endregion
 
     #region Flags Tests
+
     /// <summary>
     /// Verifies that the parser accepts simple flags declaration.
     /// </summary>
@@ -650,6 +636,7 @@ public class TypeDeclarationTests
     #endregion
 
     #region Crashable Tests
+
     /// <summary>
     /// Verifies that the parser accepts simple crashable with member fields.
     /// </summary>

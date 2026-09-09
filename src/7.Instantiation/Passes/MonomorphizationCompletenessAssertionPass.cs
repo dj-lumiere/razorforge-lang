@@ -26,8 +26,16 @@ internal static class MonomorphizationCompletenessAssertionPass
     {
         foreach ((string key, MonomorphizedBody body) in bodies)
         {
-            if (!IsConcreteInfo(body.Info)) continue;
-            if (body.Ast?.Body == null) continue;
+            if (!IsConcreteInfo(info: body.Info))
+            {
+                continue;
+            }
+
+            if (body.Ast?.Body == null)
+            {
+                continue;
+            }
+
             CheckBody(key: key, body: body);
         }
     }
@@ -39,38 +47,67 @@ internal static class MonomorphizationCompletenessAssertionPass
     /// </summary>
     private static bool IsConcreteInfo(RoutineInfo info)
     {
-        if (info.IsGenericDefinition) return false;
-        if (info.OwnerType is { IsGenericDefinition: true }) return false;
-        if (info.OwnerType != null && ContainsGenericParameter(info.OwnerType)) return false;
-        if (info.ReturnType != null && ContainsGenericParameter(info.ReturnType)) return false;
-        return info.Parameters.All(p => p.Type == null || !ContainsGenericParameter(p.Type));
+        if (info.IsGenericDefinition)
+        {
+            return false;
+        }
+
+        if (info.OwnerType is { IsGenericDefinition: true })
+        {
+            return false;
+        }
+
+        if (info.OwnerType != null && ContainsGenericParameter(type: info.OwnerType))
+        {
+            return false;
+        }
+
+        if (info.ReturnType != null && ContainsGenericParameter(type: info.ReturnType))
+        {
+            return false;
+        }
+
+        return info.Parameters.All(predicate: p =>
+            p.Type == null || !ContainsGenericParameter(type: p.Type));
     }
 
     private static void CheckBody(string key, MonomorphizedBody body)
     {
         string routine = body.Info.FullName;
-        AstWalker.Walk(root: body.Ast!.Body, visit: node =>
-        {
-            switch (node)
+        AstWalker.Walk(root: body.Ast!.Body,
+            visit: node =>
             {
-                case Expression expr:
-                    CheckExpression(routine: routine, key: key, expr: expr);
-                    break;
-                case Parameter { Type.ResolvedType: { } pType } param:
-                    AssertConcrete(type: pType, routine: routine, key: key,
-                        where: $"parameter '{param.Name}' type");
-                    break;
-            }
-        });
+                switch (node)
+                {
+                    case Expression expr:
+                        CheckExpression(routine: routine, key: key, expr: expr);
+                        break;
+                    case Parameter { Type.ResolvedType: { } pType } param:
+                        AssertConcrete(type: pType,
+                            routine: routine,
+                            key: key,
+                            where: $"parameter '{param.Name}' type");
+                        break;
+                }
+            });
         if (body.Ast.ReturnType?.ResolvedType is { } retType)
-            AssertConcrete(type: retType, routine: routine, key: key, where: "return type");
+        {
+            AssertConcrete(type: retType,
+                routine: routine,
+                key: key,
+                where: "return type");
+        }
     }
 
     private static void CheckExpression(string routine, string key, Expression expr)
     {
         if (expr.ResolvedType is { } rt)
-            AssertConcrete(type: rt, routine: routine, key: key,
+        {
+            AssertConcrete(type: rt,
+                routine: routine,
+                key: key,
                 where: $"{expr.GetType().Name}.ResolvedType");
+        }
 
         RoutineInfo? callee = expr switch
         {
@@ -80,25 +117,41 @@ internal static class MonomorphizationCompletenessAssertionPass
             _ => null
         };
         if (callee is { OwnerType.IsGenericDefinition: true })
-            throw Fail(routine: routine, key: key,
-                where: $"{expr.GetType().Name} callee '{callee.FullName}' bound to generic-definition owner");
+        {
+            throw Fail(routine: routine,
+                key: key,
+                where:
+                $"{expr.GetType().Name} callee '{callee.FullName}' bound to generic-definition owner");
+        }
+
         if (callee != null && callee.IsGenericDefinition)
-            throw Fail(routine: routine, key: key,
-                where: $"{expr.GetType().Name} callee '{callee.FullName}' is a generic definition");
+        {
+            throw Fail(routine: routine,
+                key: key,
+                where:
+                $"{expr.GetType().Name} callee '{callee.FullName}' is a generic definition");
+        }
     }
 
-    private static void AssertConcrete(TypeInfo type, string routine, string key, string where)
+    private static void AssertConcrete(TypeInfo type, string routine, string key,
+        string where)
     {
-        if (ContainsGenericParameter(type))
-            throw Fail(routine: routine, key: key,
+        if (ContainsGenericParameter(type: type))
+        {
+            throw Fail(routine: routine,
+                key: key,
                 where: $"{where} = '{type.FullName}' contains an unsubstituted generic parameter");
+        }
     }
 
-    private static InvalidOperationException Fail(string routine, string key, string where) =>
-        new(message:
+    private static InvalidOperationException Fail(string routine, string key, string where)
+    {
+        return new InvalidOperationException(
+            message:
             $"[Track-C/C1] Monomorphization incomplete: {where}, in body of '{routine}' (key '{key}'). " +
             "GenericAstRewriter must substitute every position to a concrete type/literal before codegen. " +
             "Fix the rewriter — do not re-enable codegen-time substitution.");
+    }
 
     /// <summary>
     /// True when the type IS a residual generic parameter (<c>T</c>), or nests one at any depth in
@@ -110,7 +163,11 @@ internal static class MonomorphizationCompletenessAssertionPass
     /// </summary>
     private static bool ContainsGenericParameter(TypeInfo type)
     {
-        if (type is GenericParameterTypeInfo) return true;
+        if (type is GenericParameterTypeInfo)
+        {
+            return true;
+        }
+
         // RoutineTypeInfo (`Routine[(T,), U]`) and TupleTypeInfo (`Tuple[T, Bool]`) carry their
         // component types in dedicated slots, NOT TypeArguments, so the recursion below would miss a
         // residual param nested inside them. A chained iterator emitter stores its projection as
@@ -118,11 +175,17 @@ internal static class MonomorphizationCompletenessAssertionPass
         // straight off that RoutineTypeInfo at codegen — an unsubstituted `U` there would slip past
         // C1 and only surface as a GetLlvmType crash. Recurse both slot kinds explicitly.
         if (type is RoutineTypeInfo rt)
-            return rt.ParameterTypes.Any(p => ContainsGenericParameter(type: p))
-                   || (rt.ReturnType != null && ContainsGenericParameter(type: rt.ReturnType));
+        {
+            return rt.ParameterTypes.Any(predicate: p => ContainsGenericParameter(type: p)) ||
+                   rt.ReturnType != null && ContainsGenericParameter(type: rt.ReturnType);
+        }
+
         if (type is TupleTypeInfo tuple)
-            return tuple.ElementTypes.Any(e => ContainsGenericParameter(type: e));
+        {
+            return tuple.ElementTypes.Any(predicate: e => ContainsGenericParameter(type: e));
+        }
+
         return type.TypeArguments is { Count: > 0 } args &&
-               args.Any(a => ContainsGenericParameter(type: a));
+               args.Any(predicate: a => ContainsGenericParameter(type: a));
     }
 }

@@ -41,8 +41,13 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
     {
         var map = new Dictionary<string, PresetDeclaration>(comparer: StringComparer.Ordinal);
         foreach (ISyntaxTreeNode decl in program.Declarations)
+        {
             if (decl is PresetDeclaration preset)
+            {
                 map[key: preset.Name] = preset;
+            }
+        }
+
         return map;
     }
 
@@ -54,26 +59,29 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
         _ownPresets = CollectOwnPresets(program: program);
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration r:
                 {
-                    Statement newBody = VisitStatement(r.Body);
-                    if (!ReferenceEquals(newBody, r.Body))
-                        program.Declarations[i] = r with { Body = newBody };
+                    Statement newBody = VisitStatement(stmt: r.Body);
+                    if (!ReferenceEquals(objA: newBody, objB: r.Body))
+                    {
+                        program.Declarations[index: i] = r with { Body = newBody };
+                    }
+
                     break;
                 }
 
                 case EntityDeclaration e:
-                    LowerMemberList(e.Members);
+                    LowerMemberList(members: e.Members);
                     break;
 
                 case RecordDeclaration rec:
-                    LowerMemberList(rec.Members);
+                    LowerMemberList(members: rec.Members);
                     break;
 
                 case CrashableDeclaration cr:
-                    LowerMemberList(cr.Members);
+                    LowerMemberList(members: cr.Members);
                     break;
             }
         }
@@ -91,11 +99,17 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
         _ownPresets = new Dictionary<string, PresetDeclaration>(comparer: StringComparer.Ordinal);
         foreach (string key in ctx.VariantBodies.Keys.ToList())
         {
-            if (ctx.RestoredVariantKeys.Contains(item: key)) continue; // already inlined at snapshot capture
-            Statement body = ctx.VariantBodies[key];
-            Statement lowered = VisitStatement(body);
-            if (!ReferenceEquals(lowered, body))
-                ctx.VariantBodies[key] = lowered;
+            if (ctx.RestoredVariantKeys.Contains(item: key))
+            {
+                continue; // already inlined at snapshot capture
+            }
+
+            Statement body = ctx.VariantBodies[key: key];
+            Statement lowered = VisitStatement(stmt: body);
+            if (!ReferenceEquals(objA: lowered, objB: body))
+            {
+                ctx.VariantBodies[key: key] = lowered;
+            }
         }
     }
 
@@ -112,11 +126,17 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
         _ownPresets = new Dictionary<string, PresetDeclaration>(comparer: StringComparer.Ordinal);
         foreach (string key in bodies.Keys.ToList())
         {
-            Instantiation.MonomorphizedBody entry = bodies[key];
-            if (entry.Ast.Body is not { } body) continue;
-            Statement lowered = VisitStatement(body);
-            if (!ReferenceEquals(lowered, body))
-                bodies[key] = entry with { Ast = entry.Ast with { Body = lowered } };
+            Instantiation.MonomorphizedBody entry = bodies[key: key];
+            if (entry.Ast.Body is not { } body)
+            {
+                continue;
+            }
+
+            Statement lowered = VisitStatement(stmt: body);
+            if (!ReferenceEquals(objA: lowered, objB: body))
+            {
+                bodies[key: key] = entry with { Ast = entry.Ast with { Body = lowered } };
+            }
         }
     }
 
@@ -127,10 +147,16 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
     {
         for (int j = 0; j < members.Count; j++)
         {
-            if (members[j] is not RoutineDeclaration m) continue;
-            Statement newBody = VisitStatement(m.Body);
-            if (!ReferenceEquals(newBody, m.Body))
-                members[j] = m with { Body = newBody };
+            if (members[index: j] is not RoutineDeclaration m)
+            {
+                continue;
+            }
+
+            Statement newBody = VisitStatement(stmt: m.Body);
+            if (!ReferenceEquals(objA: newBody, objB: m.Body))
+            {
+                members[index: j] = m with { Body = newBody };
+            }
         }
     }
 
@@ -143,7 +169,7 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
     /// </summary>
     private Expression LowerIdentifier(Expression expr, IdentifierExpression id)
     {
-        VariableInfo? v = ctx.Registry.LookupVariable(id.Name);
+        VariableInfo? v = ctx.Registry.LookupVariable(name: id.Name);
 
         // A `secret preset` is MODULE-private: inline it inside any file of the module that declares
         // it (same granularity as `secret record`/`secret entity`). A reference from ANOTHER module is
@@ -152,9 +178,8 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
         // from another module. Public presets always inline. When there is no current module
         // (`_currentModule == null` for synthesized variant bodies), a secret with a known module is
         // treated as foreign and left un-inlined, preserving the prior variant-body behavior.
-        if (v is { IsPreset: true, IsSecret: true }
-            && _ownPresets is not null
-            && !_ownPresets.ContainsKey(key: id.Name))
+        if (v is { IsPreset: true, IsSecret: true } && _ownPresets is not null &&
+            !_ownPresets.ContainsKey(key: id.Name))
         {
             return expr;
         }
@@ -166,7 +191,9 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
             // a heap List rebuilt element-by-element — the fun_bench OOM). Keep the identifier so
             // codegen emits a single `@preset.*` constant global and indexes into it.
             if (v.IsPresettableAggregate)
+            {
                 return expr;
+            }
 
             // Carry the Phase-4 ResolvedType from the identifier onto the inlined value.
             // This ensures operator-lowering and other subsequent passes see the correct type.
@@ -175,6 +202,7 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
                 ? lit with { ResolvedType = resolvedType }
                 : v.PresetValue;
         }
+
         return expr;
     }
 
@@ -192,18 +220,24 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
     public override Expression VisitExpression(Expression expr)
     {
         if (expr is IdentifierExpression id)
+        {
             return LowerIdentifier(expr: expr, id: id);
+        }
 
         if (expr is WaitforExpression wf)
         {
-            Expression o = VisitExpression(wf.Operand);
-            Expression? timeout = wf.Timeout != null ? VisitExpression(wf.Timeout) : null;
-            bool changed = !ReferenceEquals(o, wf.Operand)
-                           || !ReferenceEquals(timeout, wf.Timeout);
-            return changed ? wf with { Operand = o, Timeout = timeout } : expr;
+            Expression o = VisitExpression(expr: wf.Operand);
+            Expression? timeout = wf.Timeout != null
+                ? VisitExpression(expr: wf.Timeout)
+                : null;
+            bool changed = !ReferenceEquals(objA: o, objB: wf.Operand) ||
+                           !ReferenceEquals(objA: timeout, objB: wf.Timeout);
+            return changed
+                ? wf with { Operand = o, Timeout = timeout }
+                : expr;
         }
 
-        return base.VisitExpression(expr);
+        return base.VisitExpression(expr: expr);
     }
 
     /// <summary>
@@ -218,10 +252,12 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
     {
         Expression callee = e.Callee is IdentifierExpression
             ? e.Callee
-            : VisitExpression(e.Callee);
-        List<Expression> args = RewriteList(e.Arguments, VisitExpression);
-        bool changed = !ReferenceEquals(callee, e.Callee)
-                       || !ReferenceEquals(args, e.Arguments);
-        return changed ? e with { Callee = callee, Arguments = args } : e;
+            : VisitExpression(expr: e.Callee);
+        List<Expression> args = RewriteList(items: e.Arguments, rewrite: VisitExpression);
+        bool changed = !ReferenceEquals(objA: callee, objB: e.Callee) ||
+                       !ReferenceEquals(objA: args, objB: e.Arguments);
+        return changed
+            ? e with { Callee = callee, Arguments = args }
+            : e;
     }
 }

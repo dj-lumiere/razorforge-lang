@@ -27,21 +27,21 @@ public sealed class MultiFileModuleImportTests
     private static readonly (string RelPath, string Source)[] SharedModuleFiles =
     [
         ("Shapes/Alpha.rf", """
-            module Shapes
-            record Alpha
-              secret value: S32
+                            module Shapes
+                            record Alpha
+                              secret value: S32
 
-            routine Alpha.doubled() -> S32
-              return me.value * 2
-            """),
+                            routine Alpha.doubled() -> S32
+                              return me.value * 2
+                            """),
         ("Shapes/Beta.rf", """
-            module Shapes
-            record Beta
-              secret value: S32
+                           module Shapes
+                           record Beta
+                             secret value: S32
 
-            routine Beta.tripled() -> S32
-              return me.value * 3
-            """),
+                           routine Beta.tripled() -> S32
+                             return me.value * 3
+                           """)
     ];
 
     /// <summary>
@@ -51,21 +51,20 @@ public sealed class MultiFileModuleImportTests
     [Fact]
     public void BareImport_GathersAllFilesOfSharedModule_NoErrors()
     {
-        List<SemanticError> errors = RunProject(
-            entrySource: """
-                module ImportProbe
-                import IO/Console
-                import Shapes
+        List<SemanticError> errors = RunProject(entrySource: """
+                                                             module ImportProbe
+                                                             import IO/Console
+                                                             import Shapes
 
-                routine start()
-                  var a = Alpha(value: 5)
-                  var b = Beta(value: 5)
-                  show(f"{a.doubled()} {b.tripled()}")
-                  return
-                """,
+                                                             routine start()
+                                                               var a = Alpha(value: 5)
+                                                               var b = Beta(value: 5)
+                                                               show(f"{a.doubled()} {b.tripled()}")
+                                                               return
+                                                             """,
             moduleFiles: SharedModuleFiles);
 
-        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors));
+        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors: errors));
     }
 
     /// <summary>
@@ -75,21 +74,20 @@ public sealed class MultiFileModuleImportTests
     [Fact]
     public void SelectiveImport_GathersAllFilesOfSharedModule_NoErrors()
     {
-        List<SemanticError> errors = RunProject(
-            entrySource: """
-                module ImportProbe
-                import IO/Console
-                import Shapes.[Alpha, Beta]
+        List<SemanticError> errors = RunProject(entrySource: """
+                                                             module ImportProbe
+                                                             import IO/Console
+                                                             import Shapes.[Alpha, Beta]
 
-                routine start()
-                  var a = Alpha(value: 5)
-                  var b = Beta(value: 5)
-                  show(f"{a.doubled()} {b.tripled()}")
-                  return
-                """,
+                                                             routine start()
+                                                               var a = Alpha(value: 5)
+                                                               var b = Beta(value: 5)
+                                                               show(f"{a.doubled()} {b.tripled()}")
+                                                               return
+                                                             """,
             moduleFiles: SharedModuleFiles);
 
-        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors));
+        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors: errors));
     }
 
     /// <summary>
@@ -99,20 +97,19 @@ public sealed class MultiFileModuleImportTests
     [Fact]
     public void SingleMemberImport_OfSharedBareModule_NoErrors()
     {
-        List<SemanticError> errors = RunProject(
-            entrySource: """
-                module ImportProbe
-                import IO/Console
-                import Shapes.Alpha
+        List<SemanticError> errors = RunProject(entrySource: """
+                                                             module ImportProbe
+                                                             import IO/Console
+                                                             import Shapes.Alpha
 
-                routine start()
-                  var a = Alpha(value: 5)
-                  show(f"{a.doubled()}")
-                  return
-                """,
+                                                             routine start()
+                                                               var a = Alpha(value: 5)
+                                                               show(f"{a.doubled()}")
+                                                               return
+                                                             """,
             moduleFiles: SharedModuleFiles);
 
-        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors));
+        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors: errors));
     }
 
     /// <summary>
@@ -122,22 +119,21 @@ public sealed class MultiFileModuleImportTests
     [Fact]
     public void TwoMemberImports_OfSharedBareModule_NoErrors()
     {
-        List<SemanticError> errors = RunProject(
-            entrySource: """
-                module ImportProbe
-                import IO/Console
-                import Shapes.Alpha
-                import Shapes.Beta
+        List<SemanticError> errors = RunProject(entrySource: """
+                                                             module ImportProbe
+                                                             import IO/Console
+                                                             import Shapes.Alpha
+                                                             import Shapes.Beta
 
-                routine start()
-                  var a = Alpha(value: 5)
-                  var b = Beta(value: 5)
-                  show(f"{a.doubled()} {b.tripled()}")
-                  return
-                """,
+                                                             routine start()
+                                                               var a = Alpha(value: 5)
+                                                               var b = Beta(value: 5)
+                                                               show(f"{a.doubled()} {b.tripled()}")
+                                                               return
+                                                             """,
             moduleFiles: SharedModuleFiles);
 
-        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors));
+        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors: errors));
     }
 
     /// <summary>
@@ -147,14 +143,13 @@ public sealed class MultiFileModuleImportTests
     [Fact]
     public void MissingModule_StillReportsModuleNotFound()
     {
-        List<SemanticError> errors = RunProject(
-            entrySource: """
-                module ImportProbe
-                import NoSuchModule
+        List<SemanticError> errors = RunProject(entrySource: """
+                                                             module ImportProbe
+                                                             import NoSuchModule
 
-                routine start()
-                  return
-                """,
+                                                             routine start()
+                                                               return
+                                                             """,
             moduleFiles: SharedModuleFiles);
 
         Assert.Contains(collection: errors,
@@ -169,29 +164,28 @@ public sealed class MultiFileModuleImportTests
     [Fact]
     public void GenericFreeRoutine_ExplicitTypeArgs_ResolvesCrossModule_NoErrors()
     {
-        List<SemanticError> errors = RunProject(
-            entrySource: """
-                module ImportProbe
-                import GenLib
+        List<SemanticError> errors = RunProject(entrySource: """
+                                                             module ImportProbe
+                                                             import GenLib
 
-                routine start()
-                  var a = gen_id[S32](7)
-                  var b = con_id(5)
-                  return
-                """,
+                                                             routine start()
+                                                               var a = gen_id[S32](7)
+                                                               var b = con_id(5)
+                                                               return
+                                                             """,
             moduleFiles:
             [
                 ("GenLib/Lib.rf", """
-                    module GenLib
-                    routine con_id(x: S32) -> S32
-                      return x
+                                  module GenLib
+                                  routine con_id(x: S32) -> S32
+                                    return x
 
-                    routine gen_id[T](x: T) -> T
-                      return x
-                    """),
+                                  routine gen_id[T](x: T) -> T
+                                    return x
+                                  """)
             ]);
 
-        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors));
+        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors: errors));
     }
 
     // A module spread across three same-directory files; Main uses Aaa, and Aaa internally uses its
@@ -199,22 +193,22 @@ public sealed class MultiFileModuleImportTests
     private static readonly (string RelPath, string Source)[] SameModuleSiblingFiles =
     [
         ("SameMod/Aaa.rf", """
-            module SameMod
-            record Aaa
-              secret value: S32
+                           module SameMod
+                           record Aaa
+                             secret value: S32
 
-            routine Aaa.combined() -> S32
-              var b = Bbb(value: 10)
-              return me.value + b.tripled()
-            """),
+                           routine Aaa.combined() -> S32
+                             var b = Bbb(value: 10)
+                             return me.value + b.tripled()
+                           """),
         ("SameMod/Bbb.rf", """
-            module SameMod
-            record Bbb
-              secret value: S32
+                           module SameMod
+                           record Bbb
+                             secret value: S32
 
-            routine Bbb.tripled() -> S32
-              return me.value * 3
-            """),
+                           routine Bbb.tripled() -> S32
+                             return me.value * 3
+                           """)
     ];
 
     /// <summary>
@@ -224,20 +218,19 @@ public sealed class MultiFileModuleImportTests
     [Fact]
     public void EntryModuleFile_SeesSiblingsWithoutImport_NoErrors()
     {
-        List<SemanticError> errors = RunProject(
-            entrySource: """
-                module SameMod
-                import IO/Console
+        List<SemanticError> errors = RunProject(entrySource: """
+                                                             module SameMod
+                                                             import IO/Console
 
-                routine start()
-                  var a = Aaa(value: 5)
-                  show(f"{a.combined()}")
-                  return
-                """,
+                                                             routine start()
+                                                               var a = Aaa(value: 5)
+                                                               show(f"{a.combined()}")
+                                                               return
+                                                             """,
             moduleFiles: SameModuleSiblingFiles,
             entryRelPath: "SameMod/Main.rf");
 
-        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors));
+        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors: errors));
     }
 
     /// <summary>
@@ -251,29 +244,28 @@ public sealed class MultiFileModuleImportTests
         {
             // Declares a DIFFERENT module and would error if analyzed (unknown type call).
             ("SameMod/Other.rf", """
-                module OtherMod
-                record Zzz
-                  secret value: S32
+                                 module OtherMod
+                                 record Zzz
+                                   secret value: S32
 
-                routine Zzz.broken() -> S32
-                  return NonExistentType.nope()
-                """),
+                                 routine Zzz.broken() -> S32
+                                   return NonExistentType.nope()
+                                 """)
         };
 
-        List<SemanticError> errors = RunProject(
-            entrySource: """
-                module SameMod
-                import IO/Console
+        List<SemanticError> errors = RunProject(entrySource: """
+                                                             module SameMod
+                                                             import IO/Console
 
-                routine start()
-                  var a = Aaa(value: 5)
-                  show(f"{a.combined()}")
-                  return
-                """,
+                                                             routine start()
+                                                               var a = Aaa(value: 5)
+                                                               show(f"{a.combined()}")
+                                                               return
+                                                             """,
             moduleFiles: files,
             entryRelPath: "SameMod/Main.rf");
 
-        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors));
+        Assert.True(condition: errors.Count == 0, userMessage: RenderErrors(errors: errors));
     }
 
     /// <summary>
@@ -288,7 +280,8 @@ public sealed class MultiFileModuleImportTests
         string entryRelPath = "ImportProbe.rf")
     {
         string root = Path.Combine(path1: Path.GetTempPath(),
-            path2: "rf_mfimport_" + Guid.NewGuid().ToString(format: "N"));
+            path2: "rf_mfimport_" + Guid.NewGuid()
+                                        .ToString(format: "N"));
         Directory.CreateDirectory(path: root);
         try
         {
@@ -342,16 +335,20 @@ public sealed class MultiFileModuleImportTests
 
         // Drop stdlib units (TypeRegistry/StdlibLoader own those) and order the user files.
         string normalizedStdlib = Path.GetFullPath(path: stdlibRoot);
-        List<FileBuildUnit> userUnits = buildResult.Units
-            .Where(predicate: u => !Path.GetFullPath(path: u.FilePath)
-                .StartsWith(value: normalizedStdlib, comparisonType: StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var userUnits = buildResult.Units
+                                   .Where(predicate: u => !Path.GetFullPath(path: u.FilePath)
+                                                               .StartsWith(value: normalizedStdlib,
+                                                                    comparisonType:
+                                                                    StringComparison
+                                                                       .OrdinalIgnoreCase))
+                                   .ToList();
 
         var unitsByModule =
             new Dictionary<string, FileBuildUnit>(comparer: StringComparer.OrdinalIgnoreCase);
         foreach (FileBuildUnit unit in userUnits)
         {
-            string moduleName = unit.Module ?? Path.GetFileNameWithoutExtension(path: unit.FilePath);
+            string moduleName =
+                unit.Module ?? Path.GetFileNameWithoutExtension(path: unit.FilePath);
             unitsByModule[key: moduleName] = unit;
         }
 

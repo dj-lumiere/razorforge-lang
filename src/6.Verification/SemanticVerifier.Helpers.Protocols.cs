@@ -85,19 +85,31 @@ public sealed partial class SemanticVerifier
     {
         if (routine.GenericConstraints is not { Count: > 0 } constraints ||
             routine.GenericParameters is not { Count: > 0 } genParams)
+        {
             return;
+        }
+
         foreach (GenericConstraintDeclaration c in constraints)
         {
             if (c.ConstraintType != ConstraintKind.Obeys || c.ConstraintTypes == null)
+            {
                 continue;
+            }
+
             int idx = genParams.IndexOf(item: c.ParameterName);
             if (idx < 0 || idx >= typeArgs.Count)
+            {
                 continue;
+            }
+
             TypeSymbol arg = typeArgs[index: idx];
             if (arg is GenericParameterTypeInfo)
+            {
                 continue;
-            foreach (TypeExpression protoExpr in c.ConstraintTypes
-                         .Where(pe => !ImplementsProtocol(type: arg, protocolName: pe.Name)))
+            }
+
+            foreach (TypeExpression protoExpr in c.ConstraintTypes.Where(predicate: pe =>
+                         !ImplementsProtocol(type: arg, protocolName: pe.Name)))
             {
                 ReportError(code: SemanticDiagnosticCode.ProtocolConstraintViolation,
                     message: $"Type '{arg.Name}' does not implement protocol '{protoExpr.Name}' " +
@@ -123,27 +135,38 @@ public sealed partial class SemanticVerifier
         // pays the def-method lookup below — this runs on EVERY member call, so the guard is load-bearing
         // for compile speed (variant-body analysis touches thousands of member calls).
         if (ownerType.TypeArguments is not { Count: > 0 })
+        {
             return;
+        }
 
         List<GenericConstraintDeclaration>? constraints =
             ResolveMemberOwnerConstraints(memberRoutine: memberRoutine, ownerType: ownerType);
         if (constraints is not { Count: > 0 })
+        {
             return;
+        }
 
-        TypeSymbol? ownerDef =
-            (ownerType as EntityTypeInfo)?.GenericDefinition
-            ?? (ownerType as RecordTypeInfo)?.GenericDefinition as TypeSymbol;
-        List<string>? paramNames = (ownerDef ?? ownerType).GenericParameters ?? ownerType.GenericParameters;
+        TypeSymbol? ownerDef = (ownerType as EntityTypeInfo)?.GenericDefinition ??
+                               (ownerType as RecordTypeInfo)?.GenericDefinition as TypeSymbol;
+        List<string>? paramNames =
+            (ownerDef ?? ownerType).GenericParameters ?? ownerType.GenericParameters;
         List<TypeSymbol>? args = ownerType.TypeArguments;
         if (paramNames is null || args is null)
+        {
             return;
+        }
 
         var subs = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal);
         for (int i = 0; i < paramNames.Count && i < args.Count; i++)
-            subs[key: paramNames[i]] = args[i];
+        {
+            subs[key: paramNames[index: i]] = args[index: i];
+        }
 
-        CheckOwnerConstraintViolations(constraints: constraints, subs: subs,
-            ownerType: ownerType, memberRoutine: memberRoutine, location: location);
+        CheckOwnerConstraintViolations(constraints: constraints,
+            subs: subs,
+            ownerType: ownerType,
+            memberRoutine: memberRoutine,
+            location: location);
     }
 
     /// <summary>
@@ -153,13 +176,16 @@ public sealed partial class SemanticVerifier
     private List<GenericConstraintDeclaration>? ResolveMemberOwnerConstraints(
         RoutineInfo memberRoutine, TypeSymbol ownerType)
     {
-        TypeSymbol? ownerDef =
-            (ownerType as EntityTypeInfo)?.GenericDefinition
-            ?? (ownerType as RecordTypeInfo)?.GenericDefinition as TypeSymbol;
+        TypeSymbol? ownerDef = (ownerType as EntityTypeInfo)?.GenericDefinition ??
+                               (ownerType as RecordTypeInfo)?.GenericDefinition as TypeSymbol;
         List<GenericConstraintDeclaration>? constraints = memberRoutine.GenericConstraints;
         if (constraints is not { Count: > 0 } && ownerDef != null)
+        {
             constraints = _registry.LookupMemberRoutine(type: ownerDef,
-                memberRoutineName: memberRoutine.Name)?.GenericConstraints;
+                                        memberRoutineName: memberRoutine.Name)
+                                  ?.GenericConstraints;
+        }
+
         return constraints;
     }
 
@@ -174,16 +200,23 @@ public sealed partial class SemanticVerifier
         foreach (GenericConstraintDeclaration c in constraints)
         {
             if (c.ConstraintType != ConstraintKind.Obeys || c.ConstraintTypes == null)
+            {
                 continue;
-            if (!subs.TryGetValue(key: c.ParameterName, value: out TypeSymbol? actual)
-                || actual is GenericParameterTypeInfo)
+            }
+
+            if (!subs.TryGetValue(key: c.ParameterName, value: out TypeSymbol? actual) ||
+                actual is GenericParameterTypeInfo)
+            {
                 continue;
-            foreach (TypeExpression protoExpr in c.ConstraintTypes
-                         .Where(pe => !ImplementsProtocol(type: actual, protocolName: pe.Name)))
+            }
+
+            foreach (TypeExpression protoExpr in c.ConstraintTypes.Where(predicate: pe =>
+                         !ImplementsProtocol(type: actual, protocolName: pe.Name)))
             {
                 ReportError(code: SemanticDiagnosticCode.ProtocolConstraintViolation,
-                    message: $"'{ownerType.Name}.{memberRoutine.Name}' requires '{c.ParameterName} " +
-                             $"obeys {protoExpr.Name}', but '{actual.Name}' does not.",
+                    message:
+                    $"'{ownerType.Name}.{memberRoutine.Name}' requires '{c.ParameterName} " +
+                    $"obeys {protoExpr.Name}', but '{actual.Name}' does not.",
                     location: location);
             }
         }
@@ -206,6 +239,7 @@ public sealed partial class SemanticVerifier
             string baseProtocolName = BareTypeName(typeName: protocolName);
             protocol = LookupTypeWithImports(name: baseProtocolName);
         }
+
         if (protocol is not { Category: TypeCategory.Protocol })
         {
             return false;
@@ -247,8 +281,10 @@ public sealed partial class SemanticVerifier
         };
         if (implementedProtocols != null && protocol is ProtocolTypeInfo protoType)
         {
-            return ImplementsProtocolStructurally(type: type, protoType: protoType,
-                protocolName: protocolName, implementedProtocols: implementedProtocols);
+            return ImplementsProtocolStructurally(type: type,
+                protoType: protoType,
+                protocolName: protocolName,
+                implementedProtocols: implementedProtocols);
         }
 
         return false;
@@ -280,11 +316,14 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private bool GenericParamObeysConstraint(TypeSymbol type, string protocolName)
     {
-        if (_currentRoutine?.GenericConstraints != null &&
-            _currentRoutine.GenericConstraints.Any(c =>
-                c.ParameterName == type.Name && c is { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null } &&
-                c.ConstraintTypes.Any(ct => ct.Name == protocolName)))
+        if (_currentRoutine?.GenericConstraints != null && _currentRoutine.GenericConstraints.Any(
+                predicate: c =>
+                    c.ParameterName == type.Name &&
+                    c is { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null } &&
+                    c.ConstraintTypes.Any(predicate: ct => ct.Name == protocolName)))
+        {
             return true;
+        }
 
         TypeSymbol? ownerType = _currentRoutine?.OwnerType;
         if (ownerType?.GenericConstraints == null)
@@ -292,9 +331,10 @@ public sealed partial class SemanticVerifier
             return false;
         }
 
-        return ownerType.GenericConstraints.Any(c =>
-            c.ParameterName == type.Name && c is { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null } &&
-            c.ConstraintTypes.Any(ct => ct.Name == protocolName));
+        return ownerType.GenericConstraints.Any(predicate: c =>
+            c.ParameterName == type.Name &&
+            c is { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null } &&
+            c.ConstraintTypes.Any(predicate: ct => ct.Name == protocolName));
     }
 
     /// <summary>
@@ -306,8 +346,7 @@ public sealed partial class SemanticVerifier
         string protocolName, List<TypeSymbol> implementedProtocols)
     {
         // Entity T implicitly satisfies Accessing[T] and Controlling[T]
-        if (type.Category == TypeCategory.Entity &&
-            protoType.TypeArguments is { Count: 1 } args &&
+        if (type.Category == TypeCategory.Entity && protoType.TypeArguments is { Count: 1 } args &&
             args[index: 0].Name == type.Name)
         {
             string baseProto = (protoType.GenericDefinition ?? protoType).BareName;
@@ -321,11 +360,13 @@ public sealed partial class SemanticVerifier
         // A wrapper type satisfies any readonly protocol that its inner entity type satisfies.
         // All @readonly protocol memberRoutines are safe to delegate through both read-only
         // (Accessing) and read-write (Controlling) wrappers.
-        if (IsAllReadOnlyProtocol(protoType))
+        if (IsAllReadOnlyProtocol(protocol: protoType))
         {
             TypeSymbol? innerT = GetReferringControllingInnerType(protocols: implementedProtocols);
             if (innerT != null && ImplementsProtocol(type: innerT, protocolName: protocolName))
+            {
                 return true;
+            }
         }
 
         return CheckStructuralConformance(type: type, protocol: protoType);
@@ -350,11 +391,10 @@ public sealed partial class SemanticVerifier
             return false;
         }
 
-        return implementedProtocols.Any(implemented =>
-            implemented.Name == protocolName ||
-            implemented.BareName == protocolName ||
-            (implemented is ProtocolTypeInfo proto &&
-             CheckParentProtocols(proto: proto, targetName: protocolName)));
+        return implementedProtocols.Any(predicate: implemented =>
+            implemented.Name == protocolName || implemented.BareName == protocolName ||
+            implemented is ProtocolTypeInfo proto &&
+            CheckParentProtocols(proto: proto, targetName: protocolName));
     }
 
     /// <summary>
@@ -410,8 +450,8 @@ public sealed partial class SemanticVerifier
             }
 
             // Look for the memberRoutine on the type
-            RoutineInfo? typeMemberRoutine =
-                _registry.LookupMemberRoutine(type: type, memberRoutineName: requiredMemberRoutine.Name);
+            RoutineInfo? typeMemberRoutine = _registry.LookupMemberRoutine(type: type,
+                memberRoutineName: requiredMemberRoutine.Name);
             if (typeMemberRoutine == null)
             {
                 // memberRoutine names are bare; the failable `!` is a structured flag. Retry matching a
@@ -419,7 +459,8 @@ public sealed partial class SemanticVerifier
                 if (requiredMemberRoutine.IsFailable)
                 {
                     typeMemberRoutine = _registry.LookupMemberRoutine(type: type,
-                        memberRoutineName: requiredMemberRoutine.Name, isFailable: true);
+                        memberRoutineName: requiredMemberRoutine.Name,
+                        isFailable: true);
                 }
 
                 if (typeMemberRoutine == null)
@@ -429,7 +470,8 @@ public sealed partial class SemanticVerifier
             }
 
             // Verify memberRoutine signature matches (basic check)
-            if (!memberRoutineSignatureMatches(typeMemberRoutine: typeMemberRoutine, protoMemberRoutine: requiredMemberRoutine))
+            if (!memberRoutineSignatureMatches(typeMemberRoutine: typeMemberRoutine,
+                    protoMemberRoutine: requiredMemberRoutine))
             {
                 return false;
             }
@@ -441,7 +483,8 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Checks if a type's memberRoutine signature matches a protocol memberRoutine signature.
     /// </summary>
-    private bool memberRoutineSignatureMatches(RoutineInfo typeMemberRoutine, ProtocolMemberRoutineInfo protoMemberRoutine)
+    private bool memberRoutineSignatureMatches(RoutineInfo typeMemberRoutine,
+        ProtocolMemberRoutineInfo protoMemberRoutine)
     {
         // Check failable matches
         if (typeMemberRoutine.IsFailable != protoMemberRoutine.IsFailable)
@@ -465,7 +508,8 @@ public sealed partial class SemanticVerifier
         }
 
         if (!MemberRoutineParameterTypesMatch(typeMemberRoutine: typeMemberRoutine,
-                protoMemberRoutine: protoMemberRoutine, expectedParamCount: expectedParamCount,
+                protoMemberRoutine: protoMemberRoutine,
+                expectedParamCount: expectedParamCount,
                 hasMeParam: hasMeParam))
         {
             return false;
@@ -496,8 +540,8 @@ public sealed partial class SemanticVerifier
             if (expectedType is ProtocolSelfTypeInfo)
             {
                 // 'Me' in protocol should match the owner type of the memberRoutine
-                if (typeMemberRoutine.OwnerType != null &&
-                    !TypesMatch(actual: actualType, expected: typeMemberRoutine.OwnerType))
+                if (typeMemberRoutine.OwnerType != null && !TypesMatch(actual: actualType,
+                        expected: typeMemberRoutine.OwnerType))
                 {
                     return false;
                 }
@@ -522,7 +566,8 @@ public sealed partial class SemanticVerifier
         // Check return type (if specified)
         if (protoMemberRoutine.ReturnType != null && typeMemberRoutine.ReturnType != null)
         {
-            if (!IsAssignableTo(source: typeMemberRoutine.ReturnType, target: protoMemberRoutine.ReturnType))
+            if (!IsAssignableTo(source: typeMemberRoutine.ReturnType,
+                    target: protoMemberRoutine.ReturnType))
             {
                 return false;
             }
@@ -543,12 +588,16 @@ public sealed partial class SemanticVerifier
     private bool IsAllReadOnlyProtocol(ProtocolTypeInfo protocol)
     {
         if (protocol.MemberRoutines.Count == 0)
+        {
             return false;
+        }
 
         foreach (ProtocolMemberRoutineInfo memberRoutine in protocol.MemberRoutines)
         {
             if (memberRoutine.Mutation != MutationCategory.Readonly)
+            {
                 return false;
+            }
         }
 
         foreach (ProtocolTypeInfo parent in protocol.ParentProtocols)
@@ -556,10 +605,14 @@ public sealed partial class SemanticVerifier
             // Re-lookup to get a fully-populated parent (same pattern as CheckParentProtocols).
             ProtocolTypeInfo resolved = parent;
             if (_registry.LookupType(name: parent.Name) is ProtocolTypeInfo latest)
+            {
                 resolved = latest;
+            }
 
-            if (!IsAllReadOnlyProtocol(resolved))
+            if (!IsAllReadOnlyProtocol(protocol: resolved))
+            {
                 return false;
+            }
         }
 
         return true;
@@ -574,8 +627,11 @@ public sealed partial class SemanticVerifier
         foreach (TypeSymbol proto in protocols)
         {
             string baseName = proto.BareName;
-            if (Declaration.RuntimeContract.IsMarkerProtocol(baseName: baseName) && proto.TypeArguments is { Count: 1 })
+            if (Declaration.RuntimeContract.IsMarkerProtocol(baseName: baseName) &&
+                proto.TypeArguments is { Count: 1 })
+            {
                 return proto.TypeArguments[index: 0];
+            }
         }
 
         return null;

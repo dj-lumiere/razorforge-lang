@@ -20,7 +20,10 @@ namespace RazorForge.Tests.Perf;
 public sealed partial class PbrfRoundTripTests
 {
     private readonly ITestOutputHelper _out;
-    public PbrfRoundTripTests(ITestOutputHelper output) => _out = output;
+    public PbrfRoundTripTests(ITestOutputHelper output)
+    {
+        _out = output;
+    }
 
     private const string Trivial = """
                                    module Bench
@@ -32,9 +35,11 @@ public sealed partial class PbrfRoundTripTests
 
     private static Program ParseTrivial()
     {
-        var tokens = new Tokenizer(source: Trivial, fileName: "bench.rf",
-            language: Language.RazorForge).Tokenize();
-        return new Compiler.Parser.Parser(tokens: tokens, language: Language.RazorForge,
+        List<Token> tokens =
+            new Tokenizer(source: Trivial, fileName: "bench.rf", language: Language.RazorForge)
+               .Tokenize();
+        return new Compiler.Parser.Parser(tokens: tokens,
+            language: Language.RazorForge,
             fileName: "bench.rf").Parse();
     }
 
@@ -45,8 +50,7 @@ public sealed partial class PbrfRoundTripTests
             instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys,
             registry: r.Registry);
-        var gen = new Compiler.CodeGen.LlvmCodeGenerator(
-            userPrograms: r.Registry.UserPrograms,
+        var gen = new Compiler.CodeGen.LlvmCodeGenerator(userPrograms: r.Registry.UserPrograms,
             registry: r.Registry,
             options: new Compiler.CodeGen.LlvmCodeGeneratorOptions
             {
@@ -59,14 +63,18 @@ public sealed partial class PbrfRoundTripTests
         return gen.Generate();
     }
 
-    [GeneratedRegex(@" !dbg ![0-9]+")]
+    [GeneratedRegex(pattern: @" !dbg ![0-9]+")]
     private static partial Regex DebugAnnotationPattern();
 
-    private static HashSet<string> DefineSet(string ll) =>
-        ll.Split('\n')
-          .Where(l => l.StartsWith("define ", StringComparison.Ordinal))
-          .Select(l => DebugAnnotationPattern().Replace(l.Split(" {", 2)[0], ""))
-          .ToHashSet(StringComparer.Ordinal);
+    private static HashSet<string> DefineSet(string ll)
+    {
+        return ll.Split(separator: '\n')
+                 .Where(predicate: l =>
+                      l.StartsWith(value: "define ", comparisonType: StringComparison.Ordinal))
+                 .Select(selector: l => DebugAnnotationPattern()
+                     .Replace(input: l.Split(separator: " {", count: 2)[0], replacement: ""))
+                 .ToHashSet(comparer: StringComparer.Ordinal);
+    }
 
     [Fact]
     public void Pbrf_RoundTrip_ProducesIdenticalDefines()
@@ -74,7 +82,7 @@ public sealed partial class PbrfRoundTripTests
         // Cold reference define set.
         var cold = new SemanticVerifier(language: Language.RazorForge);
         AnalysisResult coldResult = cold.Analyze(program: ParseTrivial());
-        var coldDefs = DefineSet(ll: Codegen(r: coldResult));
+        HashSet<string> coldDefs = DefineSet(ll: Codegen(r: coldResult));
 
         // Capture the compiled stdlib, serialize → .pbrf bytes, deserialize.
         SemanticVerifier.CompiledStdlibState warm =
@@ -87,29 +95,37 @@ public sealed partial class PbrfRoundTripTests
             PbrfSerializer.Serialize(stream: ms, root: warm);
             bytes = ms.ToArray();
         }
+
         swSer.Stop();
 
         SemanticVerifier.CompiledStdlibState restored;
         var swDe = Stopwatch.StartNew();
         using (var ms = new MemoryStream(buffer: bytes))
         {
-            restored = PbrfSerializer.Deserialize<SemanticVerifier.CompiledStdlibState>(stream: ms);
+            restored =
+                PbrfSerializer.Deserialize<SemanticVerifier.CompiledStdlibState>(stream: ms);
         }
+
         swDe.Stop();
 
         _out.WriteLine(
+            message:
             $".pbrf size={bytes.Length / 1024}KB  serialize={swSer.ElapsedMilliseconds}ms  deserialize={swDe.ElapsedMilliseconds}ms");
 
         // Compile the SAME file from the DESERIALIZED warm state; compare emitted defines to cold.
         var warmSa = new SemanticVerifier(language: Language.RazorForge, warm: restored);
         AnalysisResult warmResult = warmSa.Analyze(program: ParseTrivial());
-        var warmDefs = DefineSet(ll: Codegen(r: warmResult));
+        HashSet<string> warmDefs = DefineSet(ll: Codegen(r: warmResult));
 
-        _out.WriteLine($"coldDefs={coldDefs.Count}  warmDefs={warmDefs.Count}");
-        _out.WriteLine($"cold-only: {string.Join(" | ", coldDefs.Except(warmDefs).Take(5))}");
-        _out.WriteLine($"warm-only: {string.Join(" | ", warmDefs.Except(coldDefs).Take(5))}");
+        _out.WriteLine(message: $"coldDefs={coldDefs.Count}  warmDefs={warmDefs.Count}");
+        _out.WriteLine(
+            message:
+            $"cold-only: {string.Join(separator: " | ", values: coldDefs.Except(second: warmDefs).Take(count: 5))}");
+        _out.WriteLine(
+            message:
+            $"warm-only: {string.Join(separator: " | ", values: warmDefs.Except(second: coldDefs).Take(count: 5))}");
 
-        Assert.Empty(warmResult.Errors);
-        Assert.Equal(coldDefs, warmDefs);
+        Assert.Empty(collection: warmResult.Errors);
+        Assert.Equal(expected: coldDefs, actual: warmDefs);
     }
 }

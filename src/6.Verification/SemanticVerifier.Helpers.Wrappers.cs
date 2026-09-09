@@ -47,7 +47,8 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsModifyingType(TypeSymbol type)
     {
-        return type.Name == ModifyingWrapperName || type.Name.StartsWith(value: ModifyingWrapperName + "[");
+        return type.Name == ModifyingWrapperName ||
+               type.Name.StartsWith(value: ModifyingWrapperName + "[");
     }
 
     /// <summary>
@@ -55,7 +56,8 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsAmendingType(TypeSymbol type)
     {
-        return type.Name == AmendingWrapperName || type.Name.StartsWith(value: AmendingWrapperName + "[");
+        return type.Name == AmendingWrapperName ||
+               type.Name.StartsWith(value: AmendingWrapperName + "[");
     }
 
     /// <summary>
@@ -138,8 +140,8 @@ public sealed partial class SemanticVerifier
     /// <param name="wrapperType">The wrapper type.</param>
     /// <param name="memberVariableName">The name of the member variable to look up.</param>
     /// <returns>The member variable info if found, null otherwise.</returns>
-    private static MemberVariableInfo? LookupMemberVariableOnWrapperInnerType(TypeSymbol wrapperType,
-        string memberVariableName)
+    private static MemberVariableInfo? LookupMemberVariableOnWrapperInnerType(
+        TypeSymbol wrapperType, string memberVariableName)
     {
         TypeSymbol? innerType = GetWrapperInnerType(wrapperType: wrapperType);
         if (innerType == null)
@@ -164,8 +166,8 @@ public sealed partial class SemanticVerifier
     /// <param name="wrapperType">The wrapper type being used.</param>
     /// <param name="memberRoutine">The memberRoutine being called.</param>
     /// <param name="location">Source location for error reporting.</param>
-    private void ValidateReadOnlyWrapperMemberRoutineAccess(TypeSymbol wrapperType, RoutineInfo memberRoutine,
-        SourceLocation location)
+    private void ValidateReadOnlyWrapperMemberRoutineAccess(TypeSymbol wrapperType,
+        RoutineInfo memberRoutine, SourceLocation location)
     {
         if (!IsReadOnlyWrapper(type: wrapperType))
         {
@@ -213,16 +215,16 @@ public sealed partial class SemanticVerifier
     /// See <c>RazorForge-Wiki/docs/Records.md#copy-semantics</c>.
     /// </summary>
     private static readonly Dictionary<string, string> NonTriviallyAssignableWrappers =
-        new(StringComparer.Ordinal)
+        new(comparer: StringComparer.Ordinal)
         {
-            [Declaration.RuntimeContract.Retained] = ShareVerb,
-            [Declaration.RuntimeContract.Tracked] = ShareVerb,
-            [Declaration.RuntimeContract.Guarded] = ShareVerb,
-            [Declaration.RuntimeContract.Witnessed] = ShareVerb,
-            [ViewingWrapperName] = ScopedNoEscapeHint,
-            [ModifyingWrapperName] = ScopedNoEscapeHint,
-            [ConsultingWrapperName] = ScopedNoEscapeHint,
-            [AmendingWrapperName] = ScopedNoEscapeHint,
+            [key: Declaration.RuntimeContract.Retained] = ShareVerb,
+            [key: Declaration.RuntimeContract.Tracked] = ShareVerb,
+            [key: Declaration.RuntimeContract.Guarded] = ShareVerb,
+            [key: Declaration.RuntimeContract.Witnessed] = ShareVerb,
+            [key: ViewingWrapperName] = ScopedNoEscapeHint,
+            [key: ModifyingWrapperName] = ScopedNoEscapeHint,
+            [key: ConsultingWrapperName] = ScopedNoEscapeHint,
+            [key: AmendingWrapperName] = ScopedNoEscapeHint
         };
 
     /// <summary>
@@ -246,10 +248,12 @@ public sealed partial class SemanticVerifier
     /// other type must be trivially copyable (passed by value as an independent copy) or
     /// <c>steal</c>-moved so unsynchronized state can never alias across the boundary.
     /// </summary>
-    private static bool IsThreadShareable(TypeSymbol type) =>
-        type.BareName is Declaration.RuntimeContract.Atomic
+    private static bool IsThreadShareable(TypeSymbol type)
+    {
+        return type.BareName is Declaration.RuntimeContract.Atomic
             or Declaration.RuntimeContract.Guarded or Declaration.RuntimeContract.Witnessed
             or Declaration.RuntimeContract.Consulting or Declaration.RuntimeContract.Amending;
+    }
 
     private static bool IsTriviallyAssignable(TypeSymbol type)
     {
@@ -262,7 +266,10 @@ public sealed partial class SemanticVerifier
         // Generic-definition wrappers / records (no concrete type args) appear when SA walks
         // generic-def bodies. The concrete instantiations are re-analysed via monomorphisation,
         // so suppress here to avoid duplicate / placeholder-shaped diagnostics on stdlib.
-        if (type is RecordTypeInfo { IsGenericDefinition: true, TypeArguments: null or { Count: 0 } })
+        if (type is RecordTypeInfo
+            {
+                IsGenericDefinition: true, TypeArguments: null or { Count: 0 }
+            })
         {
             return true;
         }
@@ -305,21 +312,27 @@ public sealed partial class SemanticVerifier
     /// <param name="type">Type to classify.</param>
     /// <returns>The offending wrapper's base name (e.g. <c>"Retained"</c>) and the path
     /// of field names leading to it, or null when no offender exists.</returns>
-    private static (string Wrapper, string Path)? FindNonTriviallyAssignableWrapper(TypeSymbol type)
+    private static (string Wrapper, string Path)? FindNonTriviallyAssignableWrapper(
+        TypeSymbol type)
     {
-        return FindNonTriviallyAssignableWrapperCore(
-            type: type, prefix: "", visited: new HashSet<string>(StringComparer.Ordinal));
+        return FindNonTriviallyAssignableWrapperCore(type: type,
+            prefix: "",
+            visited: new HashSet<string>(comparer: StringComparer.Ordinal));
     }
 
-    private static (string, string)? FindNonTriviallyAssignableWrapperCore(
-        TypeSymbol type, string prefix, HashSet<string> visited)
+    private static (string, string)? FindNonTriviallyAssignableWrapperCore(TypeSymbol type,
+        string prefix, HashSet<string> visited)
     {
         string baseName = type.BareName;
         if (NonTriviallyAssignableWrappers.ContainsKey(key: baseName))
-            return (baseName, prefix.Length == 0 ? "<value>" : prefix);
+        {
+            return (baseName, prefix.Length == 0
+                ? "<value>"
+                : prefix);
+        }
 
-        if (type is RecordTypeInfo record &&
-            !(record is { IsGenericDefinition: true, TypeArguments: not { Count: > 0 } }))
+        if (type is RecordTypeInfo record && !(record is
+                { IsGenericDefinition: true, TypeArguments: not { Count: > 0 } }))
         {
             return FindInRecord(record: record, prefix: prefix, visited: visited);
         }
@@ -332,33 +345,54 @@ public sealed partial class SemanticVerifier
         return null;
     }
 
-    private static (string, string)? FindInRecord(
-        RecordTypeInfo record, string prefix, HashSet<string> visited)
+    private static (string, string)? FindInRecord(RecordTypeInfo record, string prefix,
+        HashSet<string> visited)
     {
         if (!visited.Add(item: record.FullName))
+        {
             return null;
+        }
+
         foreach (MemberVariableInfo member in record.MemberVariables)
         {
-            string childPath = prefix.Length == 0 ? member.Name : $"{prefix}.{member.Name}";
-            var found = FindNonTriviallyAssignableWrapperCore(
-                type: member.Type, prefix: childPath, visited: visited);
-            if (found != null) return found;
+            string childPath = prefix.Length == 0
+                ? member.Name
+                : $"{prefix}.{member.Name}";
+            (string, string)? found = FindNonTriviallyAssignableWrapperCore(type: member.Type,
+                prefix: childPath,
+                visited: visited);
+            if (found != null)
+            {
+                return found;
+            }
         }
+
         return null;
     }
 
-    private static (string, string)? FindInTuple(
-        TupleTypeInfo tuple, string prefix, HashSet<string> visited)
+    private static (string, string)? FindInTuple(TupleTypeInfo tuple, string prefix,
+        HashSet<string> visited)
     {
         if (!visited.Add(item: tuple.FullName))
+        {
             return null;
+        }
+
         for (int i = 0; i < tuple.ElementTypes.Count; i++)
         {
-            string childPath = prefix.Length == 0 ? $".{i}" : $"{prefix}.{i}";
-            var found = FindNonTriviallyAssignableWrapperCore(
-                type: tuple.ElementTypes[index: i], prefix: childPath, visited: visited);
-            if (found != null) return found;
+            string childPath = prefix.Length == 0
+                ? $".{i}"
+                : $"{prefix}.{i}";
+            (string, string)? found = FindNonTriviallyAssignableWrapperCore(
+                type: tuple.ElementTypes[index: i],
+                prefix: childPath,
+                visited: visited);
+            if (found != null)
+            {
+                return found;
+            }
         }
+
         return null;
     }
 }

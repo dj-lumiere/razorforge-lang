@@ -11,14 +11,14 @@ namespace RazorForge.Tests.BuildSystem;
 public sealed class ManifestModuleIndexTests
 {
     private const string Manifest = """
-        [package]
-        name = "test"
-        version = "0.0.1"
+                                    [package]
+                                    name = "test"
+                                    version = "0.0.1"
 
-        [target]
-        executable = "App"
-        mode = "debug"
-        """;
+                                    [target]
+                                    executable = "App"
+                                    mode = "debug"
+                                    """;
 
     /// <summary>
     /// Several library files sharing one bare <c>module Lib</c> (none with an entry point) must not
@@ -27,12 +27,12 @@ public sealed class ManifestModuleIndexTests
     [Fact]
     public void DuplicateNonEntryModule_DoesNotFail_AndResolvesExecutable()
     {
-        string root = CreateTempProject(new()
+        string root = CreateTempProject(files: new Dictionary<string, string>
         {
-            ["config.toml"] = Manifest,
-            ["App.rf"] = "module App\n\nroutine start()\n  return\n",
-            ["Lib/A.rf"] = "module Lib\n\nrecord A\n  x: S32\n",
-            ["Lib/B.rf"] = "module Lib\n\nrecord B\n  y: S32\n",
+            [key: "config.toml"] = Manifest,
+            [key: "App.rf"] = "module App\n\nroutine start()\n  return\n",
+            [key: "Lib/A.rf"] = "module Lib\n\nrecord A\n  x: S32\n",
+            [key: "Lib/B.rf"] = "module Lib\n\nrecord B\n  y: S32\n"
         });
         try
         {
@@ -57,12 +57,12 @@ public sealed class ManifestModuleIndexTests
     [Fact]
     public void EntryFile_WinsOverLibraryFileOfSameModule()
     {
-        string root = CreateTempProject(new()
+        string root = CreateTempProject(files: new Dictionary<string, string>
         {
-            ["config.toml"] = Manifest,
+            [key: "config.toml"] = Manifest,
             // Both declare `module App`; only the entry file has start().
-            ["App/lib.rf"] = "module App\n\nrecord Helper\n  x: S32\n",
-            ["App/main.rf"] = "module App\n\nroutine start()\n  return\n",
+            [key: "App/lib.rf"] = "module App\n\nrecord Helper\n  x: S32\n",
+            [key: "App/main.rf"] = "module App\n\nroutine start()\n  return\n"
         });
         try
         {
@@ -70,7 +70,9 @@ public sealed class ManifestModuleIndexTests
                 tomlPath: Path.Combine(path1: root, path2: "config.toml"));
 
             Assert.Equal(
-                expected: Path.GetFullPath(path: Path.Combine(path1: root, path2: "App", path3: "main.rf")),
+                expected: Path.GetFullPath(path: Path.Combine(path1: root,
+                    path2: "App",
+                    path3: "main.rf")),
                 actual: manifest.Target.Executable,
                 comparer: StringComparer.OrdinalIgnoreCase);
         }
@@ -86,17 +88,18 @@ public sealed class ManifestModuleIndexTests
     [Fact]
     public void TwoEntryPointsForSameModule_Throws()
     {
-        string root = CreateTempProject(new()
+        string root = CreateTempProject(files: new Dictionary<string, string>
         {
-            ["config.toml"] = Manifest,
-            ["main1.rf"] = "module App\n\nroutine start()\n  return\n",
-            ["main2.rf"] = "module App\n\nroutine start()\n  return\n",
+            [key: "config.toml"] = Manifest,
+            [key: "main1.rf"] = "module App\n\nroutine start()\n  return\n",
+            [key: "main2.rf"] = "module App\n\nroutine start()\n  return\n"
         });
         try
         {
-            var ex = Assert.Throws<InvalidOperationException>(testCode: () =>
+            InvalidOperationException ex = Assert.Throws<InvalidOperationException>(testCode: () =>
                 ManifestLoader.Load(tomlPath: Path.Combine(path1: root, path2: "config.toml")));
-            Assert.Contains(expectedSubstring: "routine start()", actualString: ex.Message,
+            Assert.Contains(expectedSubstring: "routine start()",
+                actualString: ex.Message,
                 comparisonType: StringComparison.Ordinal);
         }
         finally
@@ -108,7 +111,8 @@ public sealed class ManifestModuleIndexTests
     private static string CreateTempProject(Dictionary<string, string> files)
     {
         string root = Path.Combine(path1: Path.GetTempPath(),
-            path2: "rf_manifest_" + Guid.NewGuid().ToString(format: "N"));
+            path2: "rf_manifest_" + Guid.NewGuid()
+                                        .ToString(format: "N"));
         Directory.CreateDirectory(path: root);
         foreach ((string relPath, string content) in files)
         {

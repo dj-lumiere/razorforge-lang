@@ -17,6 +17,7 @@ namespace Compiler.CodeGen;
 public sealed class BackendEntryValidator
 {
     private static readonly ConcurrentDictionary<Type, PropertyInfo[]> ChildPropertyCache = new();
+
     /// <summary>
     /// Stores the registry state used by this compiler phase.
     /// </summary>
@@ -69,7 +70,11 @@ public sealed class BackendEntryValidator
             return errors;
         }
 
-        if (body is { IsSynthesized: false, Info.IsSynthesized: false, Ast.Body: BlockStatement { Statements.Count: 0 } })
+        if (body is
+            {
+                IsSynthesized: false, Info.IsSynthesized: false,
+                Ast.Body: BlockStatement { Statements.Count: 0 }
+            })
         {
             errors.Add(item: new SemanticError(
                 Code: SemanticDiagnosticCode.MissingMonomorphizedBody,
@@ -94,20 +99,29 @@ public sealed class BackendEntryValidator
     /// <summary>
     /// Traverses the tree, collecting every residual-node error instead of failing fast.
     /// </summary>
-    private static void Walk(ISyntaxTreeNode node, List<SemanticError> errors, TypeRegistry registry)
+    private static void Walk(ISyntaxTreeNode node, List<SemanticError> errors,
+        TypeRegistry registry)
     {
         // Skip bodies of generic routine declarations: their expressions legitimately carry
         // GenericParameterTypeInfo in ResolvedType (e.g. `me.tree[i]` on `me.tree: List[V]`
         // is typed V in the gen-def template). The monomorphized clones are validated
         // separately in the _instantiatedGenericBodies loop, so we don't lose coverage.
         if (node is RoutineDeclaration { GenericParameters: { Count: > 0 } })
+        {
             return;
+        }
 
-        if (TryCreateResidualError(node: node, registry: registry, out SemanticError? error))
+        if (TryCreateResidualError(node: node,
+                registry: registry,
+                error: out SemanticError? error))
+        {
             errors.Add(item: error!);
+        }
 
         foreach (ISyntaxTreeNode child in EnumerateChildren(node: node))
+        {
             Walk(node: child, errors: errors, registry: registry);
+        }
     }
 
     /// <summary>
@@ -116,12 +130,15 @@ public sealed class BackendEntryValidator
     private static bool TryCreateResidualError(ISyntaxTreeNode node, TypeRegistry registry,
         out SemanticError? error)
     {
-        return TryCreatePresetIdentifierError(node: node, registry: registry, error: out error)
-            || TryCreateConstructorLikeCallError(node: node, registry: registry, error: out error)
-            || TryCreateUnresolvedFreeCallError(node: node, registry: registry, error: out error)
-            || TryCreateIndexGenericError(node: node, error: out error)
-            || TryCreateMissingReprError(node: node, error: out error)
-            || TryCreateResidualNodeError(node: node, error: out error);
+        return TryCreatePresetIdentifierError(node: node, registry: registry, error: out error) ||
+               TryCreateConstructorLikeCallError(node: node,
+                   registry: registry,
+                   error: out error) ||
+               TryCreateUnresolvedFreeCallError(node: node,
+                   registry: registry,
+                   error: out error) || TryCreateIndexGenericError(node: node, error: out error) ||
+               TryCreateMissingReprError(node: node, error: out error) ||
+               TryCreateResidualNodeError(node: node, error: out error);
     }
 
     /// <summary>
@@ -139,8 +156,7 @@ public sealed class BackendEntryValidator
         {
             // Aggregate (Array[T,N]) presets are intentionally NOT inlined — codegen lowers them to
             // a shared `@preset.*` constant global. Only scalar presets must be inlined before here.
-            error = new SemanticError(
-                Code: SemanticDiagnosticCode.IllegalBackendPresetIdentifier,
+            error = new SemanticError(Code: SemanticDiagnosticCode.IllegalBackendPresetIdentifier,
                 Message:
                 $"Preset identifier '{identifier.Name}' survived backend entry. PresetInliningPass must inline it before code generation.",
                 Location: identifier.Location);
@@ -154,8 +170,8 @@ public sealed class BackendEntryValidator
     /// <summary>
     /// Errors when a constructor-like call reached backend entry without lowering metadata.
     /// </summary>
-    private static bool TryCreateConstructorLikeCallError(ISyntaxTreeNode node, TypeRegistry registry,
-        out SemanticError? error)
+    private static bool TryCreateConstructorLikeCallError(ISyntaxTreeNode node,
+        TypeRegistry registry, out SemanticError? error)
     {
         if (node is CallExpression
             {
@@ -163,11 +179,9 @@ public sealed class BackendEntryValidator
                 LoweringKind: CallLoweringKind.Unknown,
                 ConstructedType: null,
                 ResolvedRoutine: null
-            } constructorLikeCall &&
-            registry.LookupType(name: callee.Name) != null)
+            } constructorLikeCall && registry.LookupType(name: callee.Name) != null)
         {
-            error = new SemanticError(
-                Code: SemanticDiagnosticCode.MissingCallLoweringMetadata,
+            error = new SemanticError(Code: SemanticDiagnosticCode.MissingCallLoweringMetadata,
                 Message:
                 $"Constructor-like call '{callee.Name}(...)' reached backend entry without semantic lowering metadata. " +
                 "Semantic analysis must classify it as a constructor/conversion and attach ConstructedType before code generation.",
@@ -182,8 +196,8 @@ public sealed class BackendEntryValidator
     /// <summary>
     /// Errors when a direct routine call reached backend entry without resolved metadata.
     /// </summary>
-    private static bool TryCreateUnresolvedFreeCallError(ISyntaxTreeNode node, TypeRegistry registry,
-        out SemanticError? error)
+    private static bool TryCreateUnresolvedFreeCallError(ISyntaxTreeNode node,
+        TypeRegistry registry, out SemanticError? error)
     {
         if (node is CallExpression
             {
@@ -191,11 +205,9 @@ public sealed class BackendEntryValidator
                 ResolvedRoutine: null,
                 ConstructedType: null,
                 ResolvedType: null
-            } unresolvedFreeCall &&
-            registry.LookupRoutine(fullName: routineCallee.Name) != null)
+            } unresolvedFreeCall && registry.LookupRoutine(fullName: routineCallee.Name) != null)
         {
-            error = new SemanticError(
-                Code: SemanticDiagnosticCode.MissingCallLoweringMetadata,
+            error = new SemanticError(Code: SemanticDiagnosticCode.MissingCallLoweringMetadata,
                 Message:
                 $"Direct routine call '{routineCallee.Name}(...)' reached backend entry without resolved routine or result type metadata. " +
                 "Semantic analysis must attach concrete call metadata before code generation.",
@@ -215,8 +227,7 @@ public sealed class BackendEntryValidator
         if (node is IndexExpression { ResolvedType: { } indexType } indexExpression &&
             ContainsUnresolvedBackendGeneric(type: indexType))
         {
-            error = new SemanticError(
-                Code: SemanticDiagnosticCode.UnresolvedBackendGeneric,
+            error = new SemanticError(Code: SemanticDiagnosticCode.UnresolvedBackendGeneric,
                 Message:
                 $"IndexExpression reached backend entry with an unresolved generic result type '{indexType.Name}'. " +
                 "Semantic analysis and instantiation must attach the final concrete element type before code generation.",
@@ -233,10 +244,12 @@ public sealed class BackendEntryValidator
     /// </summary>
     private static bool TryCreateMissingReprError(ISyntaxTreeNode node, out SemanticError? error)
     {
-        if (node is Expression { ResolvedType: { } reprResolvedType and not ErrorTypeInfo, ResolvedRepr: null } exprWithRepr and not TypeExpression)
+        if (node is Expression
+            {
+                ResolvedType: { } reprResolvedType and not ErrorTypeInfo, ResolvedRepr: null
+            } exprWithRepr and not TypeExpression)
         {
-            error = new SemanticError(
-                Code: SemanticDiagnosticCode.MissingBackendRepresentation,
+            error = new SemanticError(Code: SemanticDiagnosticCode.MissingBackendRepresentation,
                 Message:
                 $"{exprWithRepr.GetType().Name} has semantic type '{reprResolvedType.FullName}' but no backend representation. BackendRepresentationPass must classify it before backend entry.",
                 Location: exprWithRepr.Location);
@@ -271,8 +284,7 @@ public sealed class BackendEntryValidator
             return false;
         }
 
-        error = new SemanticError(
-            Code: SemanticDiagnosticCode.IllegalBackendResidualNode,
+        error = new SemanticError(Code: SemanticDiagnosticCode.IllegalBackendResidualNode,
             Message:
             $"{node.GetType().Name} survived postprocessing. {requiredPass} must eliminate it before backend entry.",
             Location: node.Location);
@@ -295,7 +307,7 @@ public sealed class BackendEntryValidator
         }
 
         if (type.TypeArguments is { Count: > 0 } &&
-            type.TypeArguments.Any(ContainsUnresolvedBackendGeneric))
+            type.TypeArguments.Any(predicate: ContainsUnresolvedBackendGeneric))
         {
             return true;
         }
@@ -303,8 +315,9 @@ public sealed class BackendEntryValidator
         return type switch
         {
             WrapperTypeInfo wrapper => ContainsUnresolvedBackendGeneric(type: wrapper.InnerType),
-            TupleTypeInfo tuple => tuple.ElementTypes.Any(ContainsUnresolvedBackendGeneric),
-            VariantTypeInfo variant => variant.Members.Any(member =>
+            TupleTypeInfo tuple => tuple.ElementTypes.Any(
+                predicate: ContainsUnresolvedBackendGeneric),
+            VariantTypeInfo variant => variant.Members.Any(predicate: member =>
                 member.Type != null && ContainsUnresolvedBackendGeneric(type: member.Type)),
             _ => false
         };
@@ -319,14 +332,17 @@ public sealed class BackendEntryValidator
     /// </remarks>
     private static IEnumerable<ISyntaxTreeNode> EnumerateChildren(ISyntaxTreeNode node)
     {
-        PropertyInfo[] properties = ChildPropertyCache.GetOrAdd(node.GetType(), static type =>
-            type.GetProperties(BindingFlags.Instance | BindingFlags.Public)
-                .Where(predicate: property =>
-                    property.Name != nameof(ISyntaxTreeNode.Location) &&
-                    property.CanRead &&
-                    property.GetIndexParameters().Length == 0 &&
-                    !IsAstAliasProperty(ownerType: type, propertyName: property.Name))
-                .ToArray());
+        PropertyInfo[] properties = ChildPropertyCache.GetOrAdd(key: node.GetType(),
+            valueFactory: static type => type
+                                        .GetProperties(bindingAttr: BindingFlags.Instance |
+                                             BindingFlags.Public)
+                                        .Where(predicate: property =>
+                                             property.Name != nameof(ISyntaxTreeNode.Location) &&
+                                             property.CanRead && property.GetIndexParameters()
+                                                .Length == 0 && !IsAstAliasProperty(
+                                                 ownerType: type,
+                                                 propertyName: property.Name))
+                                        .ToArray());
 
         foreach (PropertyInfo property in properties)
         {
@@ -343,7 +359,9 @@ public sealed class BackendEntryValidator
                     foreach (object? item in sequence)
                     {
                         if (item is ISyntaxTreeNode child)
+                        {
                             yield return child;
+                        }
                     }
 
                     continue;
@@ -353,7 +371,8 @@ public sealed class BackendEntryValidator
 
     private static bool IsAstAliasProperty(Type ownerType, string propertyName)
     {
-        return (ownerType.Name == "IfStatement" && (propertyName == "ThenBranch" || propertyName == "ElseBranch"))
-            || (ownerType.Name == "ReturnStatement" && propertyName == "Expression");
+        return ownerType.Name == "IfStatement" &&
+               (propertyName == "ThenBranch" || propertyName == "ElseBranch") ||
+               ownerType.Name == "ReturnStatement" && propertyName == "Expression";
     }
 }

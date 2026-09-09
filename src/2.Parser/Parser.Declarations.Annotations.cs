@@ -185,5 +185,4 @@ public partial class Parser
         throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedAnnotationValue,
             message: $"Expected annotation value, got {CurrentToken.Type}");
     }
-
 }

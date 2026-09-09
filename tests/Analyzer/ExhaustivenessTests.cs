@@ -18,10 +18,10 @@ using static TestHelpers;
 public class ExhaustivenessTests
 {
     #region Choice - When Expression
+
     /// <summary>
     /// Verifies that validates when expression choice all cases covered no error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_AllCasesCovered_NoError()
     {
@@ -47,7 +47,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression choice missing case reports error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_MissingCase_ReportsError()
     {
@@ -72,7 +71,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression choice with else no error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_WithElse_NoError()
     {
@@ -96,7 +94,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression choice shorthand all cases covered no error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_Shorthand_AllCasesCovered_NoError()
     {
@@ -120,7 +117,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression choice equals operator reports error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_EqualsOperator_ReportsError()
     {
@@ -145,10 +141,10 @@ public class ExhaustivenessTests
     #endregion
 
     #region Choice - When Statement
+
     /// <summary>
     /// Verifies that validates when statement choice missing case reports warning.
     /// </summary>
-
     [Fact]
     public void WhenStatement_Choice_MissingCase_ReportsWarning()
     {
@@ -172,7 +168,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when statement choice all cases covered no warning.
     /// </summary>
-
     [Fact]
     public void WhenStatement_Choice_AllCasesCovered_NoWarning()
     {
@@ -196,7 +191,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when statement choice with else no warning.
     /// </summary>
-
     [Fact]
     public void WhenStatement_Choice_WithElse_NoWarning()
     {
@@ -221,10 +215,10 @@ public class ExhaustivenessTests
     #endregion
 
     #region Bool - When Expression
+
     /// <summary>
     /// Verifies that validates when expression bool both cases no error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Bool_BothCases_NoError()
     {
@@ -243,7 +237,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression bool missing false reports error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Bool_MissingFalse_ReportsError()
     {
@@ -261,7 +254,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression bool missing true reports error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Bool_MissingTrue_ReportsError()
     {
@@ -280,10 +272,10 @@ public class ExhaustivenessTests
     #endregion
 
     #region Error Handling Types - When Expression
+
     /// <summary>
     /// Verifies that validates when expression maybe none and else no error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Maybe_NoneAndElse_NoError()
     {
@@ -303,10 +295,10 @@ public class ExhaustivenessTests
     #endregion
 
     #region Wildcard and Else
+
     /// <summary>
     /// Verifies that validates when expression wildcard always exhaustive.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Wildcard_AlwaysExhaustive()
     {
@@ -325,7 +317,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression else binding always exhaustive.
     /// </summary>
-
     [Fact]
     public void WhenExpression_ElseBinding_AlwaysExhaustive()
     {
@@ -344,7 +335,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression no else non enumerable type reports error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_NoElse_NonEnumerableType_ReportsError()
     {
@@ -365,10 +355,10 @@ public class ExhaustivenessTests
     #endregion
 
     #region Error Message Content
+
     /// <summary>
     /// Verifies that validates when expression choice missing case error includes missing case name.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_MissingCase_ErrorIncludesMissingCaseName()
     {
@@ -386,13 +376,13 @@ public class ExhaustivenessTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Code == SemanticDiagnosticCode.NonExhaustiveMatch
-                         && e.Message.Contains("PENDING"));
+            filter: e =>
+                e.Code == SemanticDiagnosticCode.NonExhaustiveMatch &&
+                e.Message.Contains(value: "PENDING"));
     }
     /// <summary>
     /// Verifies that validates when expression bool missing case error includes missing value.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Bool_MissingCase_ErrorIncludesMissingValue()
     {
@@ -405,13 +395,13 @@ public class ExhaustivenessTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Code == SemanticDiagnosticCode.NonExhaustiveMatch
-                         && e.Message.Contains("false"));
+            filter: e =>
+                e.Code == SemanticDiagnosticCode.NonExhaustiveMatch &&
+                e.Message.Contains(value: "false"));
     }
     /// <summary>
     /// Verifies that validates when statement choice missing cases warning includes missing names.
     /// </summary>
-
     [Fact]
     public void WhenStatement_Choice_MissingCases_WarningIncludesMissingNames()
     {
@@ -428,8 +418,9 @@ public class ExhaustivenessTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        SemanticWarning? warning = result.Warnings
-            .FirstOrDefault(predicate: w => w.Code == SemanticWarningCode.NonExhaustiveWhen);
+        SemanticWarning? warning =
+            result.Warnings.FirstOrDefault(predicate: w =>
+                w.Code == SemanticWarningCode.NonExhaustiveWhen);
         Assert.NotNull(@object: warning);
         Assert.Contains(expectedSubstring: "SOUTH", actualString: warning.Message);
         Assert.Contains(expectedSubstring: "EAST", actualString: warning.Message);
@@ -524,10 +515,10 @@ public class ExhaustivenessTests
     #endregion
 
     #region Choice - Unified 'is' Pattern (Phase 12)
+
     /// <summary>
     /// Verifies that validates when expression choice is a pattern all cases no error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_IsPattern_AllCases_NoError()
     {
@@ -553,7 +544,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when the expression choice is pattern-qualified name no error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_IsPattern_QualifiedName_NoError()
     {
@@ -579,7 +569,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression choice is pattern missing case reports error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_IsPattern_MissingCase_ReportsError()
     {
@@ -604,7 +593,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when the expression choice is a pattern with else no error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_IsPattern_WithElse_NoError()
     {
@@ -628,7 +616,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when the statement choice is pattern missing case reports warning.
     /// </summary>
-
     [Fact]
     public void WhenStatement_Choice_IsPattern_MissingCase_ReportsWarning()
     {
@@ -652,7 +639,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression choice mixed is and equals reports error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_MixedIsAndEquals_ReportsError()
     {
@@ -678,7 +664,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression choice is pattern invalid case reports error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_IsPattern_InvalidCase_ReportsError()
     {
@@ -704,7 +689,6 @@ public class ExhaustivenessTests
     /// <summary>
     /// Verifies that validates when expression choice is pattern variable binding reports error.
     /// </summary>
-
     [Fact]
     public void WhenExpression_Choice_IsPattern_VariableBinding_ReportsError()
     {

@@ -1,6 +1,7 @@
 # Stdlib API Fixtures
 
-End-to-end functional tests for the RazorForge stdlib. Each `*.rf` fixture builds + runs through `buildandrun`, and its stdout is diffed against a sibling `*.expected.txt` snapshot by `tests/Meta/StdlibApiTests.cs`.
+End-to-end functional tests for the RazorForge stdlib. Each `*.rf` fixture builds + runs through `buildandrun`, and its
+stdout is diffed against a sibling `*.expected.txt` snapshot by `tests/Meta/StdlibApiTests.cs`.
 
 Complements `validate-stdlib` (which only parse/typechecks): catches *runtime* regressions in stdlib API behavior.
 
@@ -31,9 +32,9 @@ Each fixture passes iff its captured stdout matches the snapshot exactly (traili
 ## Authoring a fixture
 
 - **Deterministic output only.** For Set/Dict (non-deterministic iteration order), probe via:
-  - `size`, `contains(...)`, `get(...)` — order-independent.
-  - Collect into a `List`, `.sort()`, then print.
-  - Sorted variants (SortedSet/SortedDict) iterate in order — direct printing is safe.
+    - `size`, `contains(...)`, `get(...)` — order-independent.
+    - Collect into a `List`, `.sort()`, then print.
+    - Sorted variants (SortedSet/SortedDict) iterate in order — direct printing is safe.
 - **End with `show("DONE")`** so a failure mid-way is visible in the diff.
 - **No file I/O / network / time / RNG** — fixtures must be hermetic.
 - **Entity element types** in collection type-params need `T`: `Dict[Text, S64]`, not `Dict[Text, S64]`.
@@ -41,11 +42,14 @@ Each fixture passes iff its captured stdout matches the snapshot exactly (traili
 ## Inventory
 
 Covered today (see `*.rf` files in this directory):
-- Containers: `list`, `set`, `dict`, `circular_list`, `tuple`, `bitlist`, `sorted_list`, `sorted_set`, `sorted_dict`, `array`, `bitarray`
+
+- Containers: `list`, `set`, `dict`, `circular_list`, `tuple`, `bitlist`, `sorted_list`, `sorted_set`, `sorted_dict`,
+  `array`, `bitarray`
 - Carriers: `maybe`, `maybe_entity` (auto-wrap to `Owned`), `result`, `crashable`
 - Memory wrappers: `owned`, `retained`, `viewed_grasped`
 - Primitives: `bool`, `text`, `bytes`
-- Numerics: `numeric_signed`, `numeric_unsigned`, `numeric_float`, `numeric_decimal`, `numeric_complex`, `numeric_arbitrary`
+- Numerics: `numeric_signed`, `numeric_unsigned`, `numeric_float`, `numeric_decimal`, `numeric_complex`,
+  `numeric_arbitrary`
 - Type categories: `choice`, `flags`
 - Formatting: `ftext`
 - Domain types: `moment`, `localmoment`, `duration`, `address`, `bytesize`
@@ -60,7 +64,8 @@ Covered today (see `*.rf` files in this directory):
 - Cross-type composition: `cross_type`
 - Stress / memory invariants: `stress_memory`
 - Property checks: `property_collections`
-- IterTools (LINQ chain): `itertools` — `where`/`select`/`take`/`skip`/`reverse`/`distinct`/`enumerate`/`zip`/`any`/`all`/`sum`/`min`/`max`/`accumulate`/`intersect`
+- IterTools (LINQ chain): `itertools` — `where`/`select`/`take`/`skip`/`reverse`/`distinct`/`enumerate`/`zip`/`any`/
+  `all`/`sum`/`min`/`max`/`accumulate`/`intersect`
 - Ranges: `range` — `to`/`til` with optional `by`
 - Conversions: `numeric_conversion_failures` — narrowing, float→int, text→number
 - Resource scopes: `using_block` — `$enter`/`$exit` on normal, early-return, and use-after paths
@@ -71,7 +76,8 @@ Covered today (see `*.rf` files in this directory):
 - Numeric literals: `numeric_literals` — decimal/hex/binary/scientific + digit separators
 - Pattern matching: `pattern_matching` — `when` with literals, types, ranges, binding
 - List sort: `list_sort` — `sort`/`sort_by`/`sorted`/`sorted_by` + stability
-- IterTools (more): `itertools_more` — `select_many`/`min_by`/`max_by`/`exclude`/`get_count(pred)`/`*_or_default`/`accumulate`
+- IterTools (more): `itertools_more` — `select_many`/`min_by`/`max_by`/`exclude`/`get_count(pred)`/`*_or_default`/
+  `accumulate`
 - Calling conventions: `named_arguments`, `overload_resolution`
 - Math: `float_math` — sqrt/pow/exp/log/trig/rounding/clamp/classification
 - Integer methods: `integer_methods` — bit ops, classification, parse-from-text
@@ -87,12 +93,20 @@ Covered today (see `*.rf` files in this directory):
 - Multi-constraint generics: `multi_constraint_generic` — `T obeys Equatable, Hashable`
 - Tuple destructuring in loops: `tuple_in_loops` — `for (i, x) in enumerate()`, zip
 - Module-level state: `global_var`
-- Late initialization: `lateinit` — `lateinit var` eager allocation (entity placeholder, zeroed values), branch init, borrow-before-init
-- Fast I/O: `fast_io` — `S64`/`U64.from_digit_bytes!` (+ streaming `_at!`) and `to_digit_bytes()` round-trip; bypasses Text for CP throughput
-- Arithmetic operator family: `arithmetic_operators` — `+`/`+!`/`+%`/`+^` (checked/unchecked-UB/wrap/clamp) on each binary op + unary `-`
-- Decimal transcendentals: `decimal_math` — full sin…log1p/pow/cbrt/hypot surface on D32/D64/D128 (tiered TLFloat routing: binary64/quad/octuple — correctly rounded, platform-identical)
-- Arbitrary-precision Decimal trig: `decimal_trig` — sin…tanh/atan2/pi/e on `Decimal` (LibBF-backed, precision-scaled; default 50 digits + a 100-digit pi)
-- Runtime errors — collections: `runtime_error_collections` — `try_remove_last`/`try_remove_first`/`try_remove_at`/`try_first`/`try_last` on empty / out-of-bounds inputs
-- Runtime errors — arithmetic: `runtime_error_arithmetic` — `try_add`/`try_sub`/`try_mul`/`try_pow`/`try_div`/`try_mod`/`try_neg`/`try_abs` overflow & divide-by-zero paths
+- Late initialization: `lateinit` — `lateinit var` eager allocation (entity placeholder, zeroed values), branch init,
+  borrow-before-init
+- Fast I/O: `fast_io` — `S64`/`U64.from_digit_bytes!` (+ streaming `_at!`) and `to_digit_bytes()` round-trip; bypasses
+  Text for CP throughput
+- Arithmetic operator family: `arithmetic_operators` — `+`/`+!`/`+%`/`+^` (checked/unchecked-UB/wrap/clamp) on each
+  binary op + unary `-`
+- Decimal transcendentals: `decimal_math` — full sin…log1p/pow/cbrt/hypot surface on D32/D64/D128 (tiered TLFloat
+  routing: binary64/quad/octuple — correctly rounded, platform-identical)
+- Arbitrary-precision Decimal trig: `decimal_trig` — sin…tanh/atan2/pi/e on `Decimal` (LibBF-backed, precision-scaled;
+  default 50 digits + a 100-digit pi)
+- Runtime errors — collections: `runtime_error_collections` — `try_remove_last`/`try_remove_first`/`try_remove_at`/
+  `try_first`/`try_last` on empty / out-of-bounds inputs
+- Runtime errors — arithmetic: `runtime_error_arithmetic` — `try_add`/`try_sub`/`try_mul`/`try_pow`/`try_div`/`try_mod`/
+  `try_neg`/`try_abs` overflow & divide-by-zero paths
 
-Gaps to fill later: disk-touching IO (gated, separate test list), Console stdin (interactive — needs piped input fixture), additional protocol-default scenarios as the language grows.
+Gaps to fill later: disk-touching IO (gated, separate test list), Console stdin (interactive — needs piped input
+fixture), additional protocol-default scenarios as the language grows.

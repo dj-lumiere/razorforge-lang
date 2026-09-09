@@ -66,41 +66,54 @@ public sealed class ProtocolTypeInfo : TypeInfo
         string resolvedName = $"{Name}[{string.Join(separator: ", ",
             values: typeArguments.Select(selector: t => t.Name))}]";
 
-        var substitutedMemberRoutines = MemberRoutines
-            .Select(selector: m => new ProtocolMemberRoutineInfo(name: m.Name)
-            {
-                IsInstanceMemberRoutine = m.IsInstanceMemberRoutine,
-                Mutation = m.Mutation,
-                ParameterTypes = m.ParameterTypes
-                    .Select(selector: t => RecordTypeInfo.SubstituteType(type: t, substitution: substitution))
-                    .ToList(),
-                ParameterNames = m.ParameterNames,
-                ReturnType = m.ReturnType != null
-                    ? RecordTypeInfo.SubstituteType(type: m.ReturnType, substitution: substitution)
-                    : null,
-                IsFailable = m.IsFailable,
-                GenerationKind = m.GenerationKind,
-                HasDefaultImplementation = m.HasDefaultImplementation,
-                IsAutoDerivedVariant = m.IsAutoDerivedVariant,
-                Location = m.Location
-            })
-            .ToList();
+        var substitutedMemberRoutines = MemberRoutines.Select(selector: m =>
+                                                           new ProtocolMemberRoutineInfo(
+                                                               name: m.Name)
+                                                           {
+                                                               IsInstanceMemberRoutine =
+                                                                   m.IsInstanceMemberRoutine,
+                                                               Mutation = m.Mutation,
+                                                               ParameterTypes = m.ParameterTypes
+                                                                  .Select(selector: t =>
+                                                                       RecordTypeInfo
+                                                                          .SubstituteType(type: t,
+                                                                               substitution:
+                                                                               substitution))
+                                                                  .ToList(),
+                                                               ParameterNames = m.ParameterNames,
+                                                               ReturnType = m.ReturnType != null
+                                                                   ? RecordTypeInfo.SubstituteType(
+                                                                       type: m.ReturnType,
+                                                                       substitution: substitution)
+                                                                   : null,
+                                                               IsFailable = m.IsFailable,
+                                                               GenerationKind = m.GenerationKind,
+                                                               HasDefaultImplementation =
+                                                                   m.HasDefaultImplementation,
+                                                               IsAutoDerivedVariant =
+                                                                   m.IsAutoDerivedVariant,
+                                                               Location = m.Location
+                                                           })
+                                                      .ToList();
 
-        var substitutedParentProtocols = ParentProtocols
-            .Select(selector: p =>
-                (ProtocolTypeInfo)RecordTypeInfo.SubstituteType(type: p, substitution: substitution))
-            .ToList();
+        var substitutedParentProtocols = ParentProtocols.Select(selector: p =>
+                                                             (ProtocolTypeInfo)RecordTypeInfo
+                                                                .SubstituteType(type: p,
+                                                                     substitution: substitution))
+                                                        .ToList();
 
         // Substitute the protocol's own generic params into each slot's constraint
         // (e.g. Iterable[T]'s `Iter obeys Iterator[T]` becomes `Iter obeys Iterator[Text]`).
-        var substitutedAssociated = AssociatedTypes
-            .Select(selector: s => new AssociatedTypeSlot(name: s.Name)
-            {
-                Constraint = s.Constraint != null
-                    ? RecordTypeInfo.SubstituteType(type: s.Constraint, substitution: substitution)
-                    : null
-            })
-            .ToList();
+        var substitutedAssociated = AssociatedTypes.Select(selector: s =>
+                                                        new AssociatedTypeSlot(name: s.Name)
+                                                        {
+                                                            Constraint = s.Constraint != null
+                                                                ? RecordTypeInfo.SubstituteType(
+                                                                    type: s.Constraint,
+                                                                    substitution: substitution)
+                                                                : null
+                                                        })
+                                                   .ToList();
 
         return new ProtocolTypeInfo(name: resolvedName)
         {

@@ -16,8 +16,8 @@ public sealed partial class SemanticVerifier
 
     private static bool TryGetTransparentProtocolTarget(TypeSymbol type, out TypeSymbol targetType)
     {
-        if (type is ProtocolTypeInfo { TypeArguments: { Count: > 0 } } proto
-            && HasOnlyMarkerCoercionMemberRoutines(proto))
+        if (type is ProtocolTypeInfo { TypeArguments: { Count: > 0 } } proto &&
+            HasOnlyMarkerCoercionMemberRoutines(proto: proto))
         {
             targetType = proto.TypeArguments![index: 0]!;
             return true;
@@ -33,12 +33,14 @@ public sealed partial class SemanticVerifier
     /// member access — `param.member` falls through to the inner T.
     /// </summary>
     private static bool HasOnlyMarkerCoercionMemberRoutines(ProtocolTypeInfo proto)
-        => proto.MemberRoutines.All(predicate: m => m.Name == "access" || m.Name == "control");
+    {
+        return proto.MemberRoutines.All(predicate: m => m.Name == "access" || m.Name == "control");
+    }
 
     private static bool IsReadOnlyTransparentProtocol(TypeSymbol type)
     {
-        return type is ProtocolTypeInfo proto &&
-               (proto.GenericDefinition ?? proto).BareName == Declaration.RuntimeContract.Accessing;
+        return type is ProtocolTypeInfo proto && (proto.GenericDefinition ?? proto).BareName ==
+            Declaration.RuntimeContract.Accessing;
     }
 
     /// <summary>
@@ -48,18 +50,35 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private bool IsReadOnlyMarkerBoundParam(TypeSymbol type)
     {
-        if (type is not GenericParameterTypeInfo gp) return false;
+        if (type is not GenericParameterTypeInfo gp)
+        {
+            return false;
+        }
+
         bool sawMarker = false;
         foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: gp.Name))
         {
-            if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null }) continue;
-            IEnumerable<string> protoNames = c.ConstraintTypes.Select(selector: protoExpr => protoExpr.Name);
+            if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null })
+            {
+                continue;
+            }
+
+            IEnumerable<string> protoNames =
+                c.ConstraintTypes.Select(selector: protoExpr => protoExpr.Name);
             foreach (string protoName in protoNames)
             {
-                if (protoName == Declaration.RuntimeContract.Controlling) return false;
-                if (protoName == Declaration.RuntimeContract.Accessing) sawMarker = true;
+                if (protoName == Declaration.RuntimeContract.Controlling)
+                {
+                    return false;
+                }
+
+                if (protoName == Declaration.RuntimeContract.Accessing)
+                {
+                    sawMarker = true;
+                }
             }
         }
+
         return sawMarker;
     }
 
@@ -75,12 +94,16 @@ public sealed partial class SemanticVerifier
     private bool TryUnwrapMarkerReceiver(TypeSymbol type, out TypeSymbol innerType)
     {
         if (TryGetTransparentProtocolTarget(type: type, targetType: out innerType))
-            return true;
-        if (type is GenericParameterTypeInfo gp
-            && TryUnwrapMarkerBoundParam(gp: gp, innerType: out innerType))
         {
             return true;
         }
+
+        if (type is GenericParameterTypeInfo gp &&
+            TryUnwrapMarkerBoundParam(gp: gp, innerType: out innerType))
+        {
+            return true;
+        }
+
         innerType = type;
         return false;
     }
@@ -94,10 +117,17 @@ public sealed partial class SemanticVerifier
     {
         foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: gp.Name))
         {
-            if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null }) continue;
+            if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null })
+            {
+                continue;
+            }
+
             if (TryMatchMarkerBound(constraintTypes: c.ConstraintTypes, innerType: out innerType))
+            {
                 return true;
+            }
         }
+
         innerType = ErrorTypeInfo.Instance;
         return false;
     }
@@ -107,21 +137,31 @@ public sealed partial class SemanticVerifier
     /// <c>Controlling[X]</c> bound with exactly one resolvable type argument, and returns
     /// that resolved inner type. Returns false when no such bound is present.
     /// </summary>
-    private bool TryMatchMarkerBound(List<TypeExpression> constraintTypes, out TypeSymbol innerType)
+    private bool TryMatchMarkerBound(List<TypeExpression> constraintTypes,
+        out TypeSymbol innerType)
     {
         foreach (TypeExpression protoExpr in constraintTypes)
         {
             if (protoExpr.Name is not (Declaration.RuntimeContract.Accessing
-                    or Declaration.RuntimeContract.Controlling))
+                or Declaration.RuntimeContract.Controlling))
+            {
                 continue;
-            if (protoExpr.GenericArguments is not { Count: 1 }) continue;
-            TypeSymbol resolved = _typeResolver.ResolveType(typeExpr: protoExpr.GenericArguments[index: 0]);
+            }
+
+            if (protoExpr.GenericArguments is not { Count: 1 })
+            {
+                continue;
+            }
+
+            TypeSymbol resolved =
+                _typeResolver.ResolveType(typeExpr: protoExpr.GenericArguments[index: 0]);
             if (resolved is not (null or ErrorTypeInfo))
             {
                 innerType = resolved;
                 return true;
             }
         }
+
         innerType = ErrorTypeInfo.Instance;
         return false;
     }
@@ -149,9 +189,8 @@ public sealed partial class SemanticVerifier
     private ErrorTypeInfo AnalyzeSpliceExpression(SpliceExpression splice)
     {
         TypeSymbol innerType = AnalyzeExpression(expression: splice.Inner);
-        if (splice.RequiredKind == SpliceKind.Selector
-            && innerType is not ErrorTypeInfo
-            && innerType.Name != "Text")
+        if (splice.RequiredKind == SpliceKind.Selector && innerType is not ErrorTypeInfo &&
+            innerType.Name != "Text")
         {
             ReportError(code: SemanticDiagnosticCode.MemberNotFound,
                 message:
@@ -252,8 +291,7 @@ public sealed partial class SemanticVerifier
             ReportNullableEntityDeref(member: member);
         }
 
-        TryUnwrapMarkerReceiver(type: objectType,
-            innerType: out TypeSymbol lookupType);
+        TryUnwrapMarkerReceiver(type: objectType, innerType: out TypeSymbol lookupType);
 
         // Look up the member variable/property on the type
         if (TryResolveMemberVariableAccess(lookupType: lookupType, member: member) is { } resolved)
@@ -290,7 +328,8 @@ public sealed partial class SemanticVerifier
         // Could be a member-routine reference - use LookupMemberRoutine which handles generic resolutions.
         // MemberName is always bare; failability is carried structurally in member.IsFailable.
         string lookupName = member.MemberName;
-        RoutineInfo? memberRoutine = _registry.LookupMemberRoutine(type: lookupType, memberRoutineName: lookupName);
+        RoutineInfo? memberRoutine =
+            _registry.LookupMemberRoutine(type: lookupType, memberRoutineName: lookupName);
         if (memberRoutine != null)
         {
             // A BARE member access (`x.name`, no `()`) reads a member VARIABLE — it must not silently
@@ -310,8 +349,8 @@ public sealed partial class SemanticVerifier
         // For-loop destructuring lowering produces item0, item1, ... accesses on the element type.
         // Currently only Tuple[...] supports destructuring. Record breakdown is planned for the future.
         // When the element type is not a tuple, this means the user wrote `for (a, b) in non_tuple`.
-        if (lookupType is not TupleTypeInfo &&
-            TupleDestructureFieldRegex().IsMatch(input: member.MemberName))
+        if (lookupType is not TupleTypeInfo && TupleDestructureFieldRegex()
+               .IsMatch(input: member.MemberName))
         {
             ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
                 message:
@@ -325,6 +364,7 @@ public sealed partial class SemanticVerifier
                 $"Type '{objectType.Name}' does not have a member '{member.MemberName}'.{DidYouMean(target: member.MemberName, candidates: MemberSuggestionCandidates(type: lookupType))}",
                 location: member.Location);
         }
+
         return ErrorTypeInfo.Instance;
     }
 
@@ -333,7 +373,8 @@ public sealed partial class SemanticVerifier
     /// crashable, and wrapper types in priority order. Returns the member's declared type when found (after
     /// access validation), or <c>null</c> when the member is not a field on any of those types.
     /// </summary>
-    private TypeSymbol? TryResolveMemberVariableAccess(TypeSymbol lookupType, MemberExpression member)
+    private TypeSymbol? TryResolveMemberVariableAccess(TypeSymbol lookupType,
+        MemberExpression member)
     {
         if (lookupType is RecordTypeInfo record)
         {
@@ -342,18 +383,21 @@ public sealed partial class SemanticVerifier
             if (memberVariable != null)
             {
                 ValidateMemberVariableAccess(memberVariable: memberVariable,
-                    isWrite: false, accessLocation: member.Location);
+                    isWrite: false,
+                    accessLocation: member.Location);
                 return memberVariable.Type;
             }
-            if (IsWrapperType(type: lookupType)
-                && TryForwardWrapperMemberAccess(lookupType: lookupType, member: member) is { } fwd)
+
+            if (IsWrapperType(type: lookupType) &&
+                TryForwardWrapperMemberAccess(lookupType: lookupType, member: member) is { } fwd)
             {
                 return fwd;
             }
         }
         else if (lookupType is TupleTypeInfo tupleType)
         {
-            return tupleType.GetField(memberVariableName: member.MemberName)?.Type;
+            return tupleType.GetField(memberVariableName: member.MemberName)
+                           ?.Type;
         }
         else if (lookupType is EntityTypeInfo entity)
         {
@@ -362,7 +406,8 @@ public sealed partial class SemanticVerifier
             if (memberVariable != null)
             {
                 ValidateMemberVariableAccess(memberVariable: memberVariable,
-                    isWrite: false, accessLocation: member.Location);
+                    isWrite: false,
+                    accessLocation: member.Location);
                 return memberVariable.Type;
             }
         }
@@ -373,12 +418,14 @@ public sealed partial class SemanticVerifier
             if (memberVariable != null)
             {
                 ValidateMemberVariableAccess(memberVariable: memberVariable,
-                    isWrite: false, accessLocation: member.Location);
+                    isWrite: false,
+                    accessLocation: member.Location);
                 return memberVariable.Type;
             }
         }
-        else if (IsWrapperType(type: lookupType)
-                 && TryForwardWrapperMemberAccess(lookupType: lookupType, member: member) is { } forwarded)
+        else if (IsWrapperType(type: lookupType) &&
+                 TryForwardWrapperMemberAccess(lookupType: lookupType, member: member) is
+                     { } forwarded)
         {
             return forwarded;
         }
@@ -392,7 +439,8 @@ public sealed partial class SemanticVerifier
     /// forwarder (or a directly-registered routine). Returns the resolved access type, or <c>null</c>
     /// when neither is found (the caller continues with its normal lookup / error path).
     /// </summary>
-    private TypeSymbol? TryForwardWrapperMemberAccess(TypeSymbol lookupType, MemberExpression member)
+    private TypeSymbol? TryForwardWrapperMemberAccess(TypeSymbol lookupType,
+        MemberExpression member)
     {
         // Try to forward member variable access to the inner type
         MemberVariableInfo? innerMemberVariable =
@@ -410,8 +458,9 @@ public sealed partial class SemanticVerifier
         // Try to forward memberRoutine access to the inner type via Phase D synthesized forwarders
         RoutineInfo? innerMemberRoutine =
             TrySynthesizeWrapperForwarder(wrapperType: lookupType,
-                memberRoutineName: member.MemberName, isFailable: false)
-            ?? _registry.LookupMemberRoutine(type: lookupType, memberRoutineName: member.MemberName);
+                memberRoutineName: member.MemberName,
+                isFailable: false) ?? _registry.LookupMemberRoutine(type: lookupType,
+                memberRoutineName: member.MemberName);
         if (innerMemberRoutine != null)
         {
             // Validate read-only wrapper restrictions
@@ -450,9 +499,14 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private TypeSymbol? ResolveIndexParameterType(RoutineInfo? getItem, TypeSymbol lookupType)
     {
-        if (getItem is not { Parameters.Count: >= 1 }) return null;
+        if (getItem is not { Parameters.Count: >= 1 })
+        {
+            return null;
+        }
+
         TypeSymbol paramType = getItem.Parameters[index: 0].Type;
-        paramType = SubstituteOwnerGenerics(paramType: paramType, lookupType: lookupType,
+        paramType = SubstituteOwnerGenerics(paramType: paramType,
+            lookupType: lookupType,
             ownerType: getItem.OwnerType) ?? paramType;
 
         // The index param is frequently a by-reference marker wrapper — `Dict.getitem!(key:
@@ -474,18 +528,25 @@ public sealed partial class SemanticVerifier
     private TypeSymbol? SubstituteOwnerGenerics(TypeSymbol paramType, TypeSymbol lookupType,
         TypeSymbol? ownerType)
     {
-        if (lookupType.TypeArguments is not { Count: > 0 }) return paramType;
+        if (lookupType.TypeArguments is not { Count: > 0 })
+        {
+            return paramType;
+        }
 
         TypeSymbol? lookupGenericDef = GetGenericDefinition(resolution: lookupType);
-        List<string>? ownerGenericParams = lookupGenericDef?.GenericParameters
-            ?? ownerType?.GenericParameters;
-        if (ownerGenericParams is not { Count: > 0 }) return paramType;
+        List<string>? ownerGenericParams =
+            lookupGenericDef?.GenericParameters ?? ownerType?.GenericParameters;
+        if (ownerGenericParams is not { Count: > 0 })
+        {
+            return paramType;
+        }
 
         var substitutions = new Dictionary<string, TypeSymbol>();
         for (int i = 0; i < ownerGenericParams.Count && i < lookupType.TypeArguments.Count; i++)
         {
             substitutions[key: ownerGenericParams[index: i]] = lookupType.TypeArguments[index: i];
         }
+
         return substitutions.Count > 0
             ? SubstituteWithMapping(type: paramType, substitutions: substitutions)
             : paramType;
@@ -515,7 +576,8 @@ public sealed partial class SemanticVerifier
     {
         if (index.Object is not IdentifierExpression typeRefId ||
             _registry.LookupVariable(name: typeRefId.Name) != null ||
-            LookupTypeWithImports(name: typeRefId.Name) is not { GenericParameters.Count: > 0 } typeRef)
+            LookupTypeWithImports(name: typeRefId.Name) is not
+                { GenericParameters.Count: > 0 } typeRef)
         {
             return null;
         }
@@ -528,18 +590,18 @@ public sealed partial class SemanticVerifier
         {
             TypeSymbol argType = argExpr switch
             {
-                IdentifierExpression argId when IsGenericParameter(name: argId.Name)
-                    => new GenericParameterTypeInfo(name: argId.Name),
+                IdentifierExpression argId when IsGenericParameter(name: argId.Name) =>
+                    new GenericParameterTypeInfo(name: argId.Name),
                 IdentifierExpression argId when LookupTypeWithImports(name: argId.Name) is { } t
                     => t,
                 _ => AnalyzeExpression(expression: argExpr)
             };
             typeArgs.Add(item: argType);
         }
+
         if (typeArgs.Count == typeRef.GenericParameters.Count)
         {
-            return _registry.GetOrCreateResolution(genericDef: typeRef,
-                typeArguments: typeArgs);
+            return _registry.GetOrCreateResolution(genericDef: typeRef, typeArguments: typeArgs);
         }
 
         return null;
@@ -567,7 +629,8 @@ public sealed partial class SemanticVerifier
             {
                 AnalyzeExpression(expression: index.Index, expectedType: rangeU64);
                 getItem = _registry.LookupMemberRoutineOverload(type: lookupType,
-                    memberRoutineName: GetItemMemberRoutineName, argTypes: [rangeU64]);
+                    memberRoutineName: GetItemMemberRoutineName,
+                    argTypes: [rangeU64]);
             }
         }
 
@@ -579,24 +642,29 @@ public sealed partial class SemanticVerifier
         if (getItem == null && _registry.LookupType(name: "U64") is { } u64IndexType)
         {
             getItem = _registry.LookupMemberRoutineOverload(type: lookupType,
-                memberRoutineName: GetItemMemberRoutineName, argTypes: [u64IndexType]);
+                memberRoutineName: GetItemMemberRoutineName,
+                argTypes: [u64IndexType]);
         }
 
         // Look for getitem memberRoutine — LookupMemberRoutine handles generic resolutions
-        getItem ??= _registry.LookupMemberRoutine(type: lookupType, memberRoutineName: GetItemMemberRoutineName);
+        getItem ??= _registry.LookupMemberRoutine(type: lookupType,
+            memberRoutineName: GetItemMemberRoutineName);
         // Try failable variant if non-failable not found
         if (getItem == null)
         {
-            getItem = _registry.LookupMemberRoutine(type: lookupType, memberRoutineName: GetItemMemberRoutineName,
+            getItem = _registry.LookupMemberRoutine(type: lookupType,
+                memberRoutineName: GetItemMemberRoutineName,
                 isFailable: true);
         }
+
         // Phase D: synthesize a wrapper forwarder if still not found
         if (getItem == null && IsWrapperType(type: lookupType))
         {
             getItem = TrySynthesizeWrapperForwarder(wrapperType: lookupType,
-                memberRoutineName: GetItemMemberRoutineName, isFailable: false)
-                ?? TrySynthesizeWrapperForwarder(wrapperType: lookupType,
-                    memberRoutineName: GetItemMemberRoutineName, isFailable: true);
+                memberRoutineName: GetItemMemberRoutineName,
+                isFailable: false) ?? TrySynthesizeWrapperForwarder(wrapperType: lookupType,
+                memberRoutineName: GetItemMemberRoutineName,
+                isFailable: true);
         }
 
         return getItem;
@@ -627,13 +695,13 @@ public sealed partial class SemanticVerifier
         // nested `Box[Box[T]]`. Guard on the owner carrying type arguments (= already resolved).
         bool memberRoutineAlreadyResolved = getItem.OwnerType is { TypeArguments.Count: > 0 };
 
-        if (!memberRoutineAlreadyResolved &&
-            lookupType.TypeArguments is { Count: > 0 } &&
+        if (!memberRoutineAlreadyResolved && lookupType.TypeArguments is { Count: > 0 } &&
             ownerGenericParams is { Count: > 0 })
         {
             var substitutions = new Dictionary<string, TypeSymbol>();
-            for (int i = 0; i < ownerGenericParams.Count &&
-                            i < lookupType.TypeArguments.Count; i++)
+            for (int i = 0;
+                 i < ownerGenericParams.Count && i < lookupType.TypeArguments.Count;
+                 i++)
             {
                 substitutions[key: ownerGenericParams[index: i]] =
                     lookupType.TypeArguments[index: i];
@@ -641,8 +709,7 @@ public sealed partial class SemanticVerifier
 
             if (substitutions.Count > 0)
             {
-                returnType = SubstituteWithMapping(type: returnType,
-                    substitutions: substitutions);
+                returnType = SubstituteWithMapping(type: returnType, substitutions: substitutions);
             }
         }
 
@@ -677,7 +744,7 @@ public sealed partial class SemanticVerifier
         if (getItem is { IsFailable: true } && _currentRoutine != null)
         {
             _currentRoutine.HasFailableCalls = true;
-            _currentRoutine.FailableCallees.Add(getItem);
+            _currentRoutine.FailableCallees.Add(item: getItem);
         }
 
         if (getItem?.ReturnType != null)
@@ -816,6 +883,7 @@ public sealed partial class SemanticVerifier
                         "(`var f: Routine[(S32, S32), S32] = …`).",
                         location: param.Location);
                 }
+
                 paramType = ErrorTypeInfo.Instance;
             }
 
@@ -860,7 +928,7 @@ public sealed partial class SemanticVerifier
 
         // Build set of given captures for quick lookup
         HashSet<string>? givenNames = lambda.Captures != null
-            ? [..lambda.Captures]
+            ? [.. lambda.Captures]
             : null;
 
         foreach (IdentifierExpression id in identifiers)
@@ -881,8 +949,7 @@ public sealed partial class SemanticVerifier
     private void ValidateLambdaCaptureIdentifier(IdentifierExpression id,
         IReadOnlyDictionary<string, VariableInfo> enclosingScopeVariables,
         IReadOnlyDictionary<string, VariableInfo> localScopeVariables,
-        HashSet<string> parameterNames,
-        HashSet<string>? givenNames)
+        HashSet<string> parameterNames, HashSet<string>? givenNames)
     {
         // Skip if it's a parameter (not a capture)
         if (parameterNames.Contains(item: id.Name))
@@ -903,9 +970,7 @@ public sealed partial class SemanticVerifier
         }
 
         // Validate that the captured type is allowed
-        ValidateCapturedType(varName: id.Name,
-            varType: varInfo.Type,
-            location: id.Location);
+        ValidateCapturedType(varName: id.Name, varType: varInfo.Type, location: id.Location);
 
         // Check 'given' clause enforcement for local captures (RazorForge only)
         if (_registry.Language == Language.RazorForge &&
@@ -996,7 +1061,9 @@ public sealed partial class SemanticVerifier
                 break;
 
             case CompoundAssignmentExpression compound:
-                CollectIdentifiersFromAll(identifiers: identifiers, compound.Target, compound.Value);
+                CollectIdentifiersFromAll(identifiers: identifiers,
+                    compound.Target,
+                    compound.Value);
                 break;
 
             case BinaryExpression binary:
@@ -1017,7 +1084,7 @@ public sealed partial class SemanticVerifier
 
             case CallExpression call:
                 CollectIdentifiersRecursive(expression: call.Callee, identifiers: identifiers);
-                CollectIdentifiersFromAll(identifiers: identifiers, call.Arguments);
+                CollectIdentifiersFromAll(identifiers: identifiers, expressions: call.Arguments);
                 break;
 
             case MemberExpression member:
@@ -1030,7 +1097,9 @@ public sealed partial class SemanticVerifier
 
             case ConditionalExpression cond:
                 CollectIdentifiersFromAll(identifiers: identifiers,
-                    cond.Condition, cond.TrueExpression, cond.FalseExpression);
+                    cond.Condition,
+                    cond.TrueExpression,
+                    cond.FalseExpression);
                 break;
 
             case LambdaExpression:
@@ -1043,23 +1112,23 @@ public sealed partial class SemanticVerifier
 
             case CreatorExpression creator:
                 CollectIdentifiersFromAll(identifiers: identifiers,
-                    creator.MemberVariables.Select(selector: mv => mv.Value));
+                    expressions: creator.MemberVariables.Select(selector: mv => mv.Value));
                 break;
 
             case ListLiteralExpression list:
-                CollectIdentifiersFromAll(identifiers: identifiers, list.Elements);
+                CollectIdentifiersFromAll(identifiers: identifiers, expressions: list.Elements);
                 break;
 
             case SetLiteralExpression set:
-                CollectIdentifiersFromAll(identifiers: identifiers, set.Elements);
+                CollectIdentifiersFromAll(identifiers: identifiers, expressions: set.Elements);
                 break;
 
             case DictLiteralExpression dict:
-                CollectIdentifiersFromPairs(identifiers: identifiers, dict.Pairs);
+                CollectIdentifiersFromPairs(identifiers: identifiers, pairs: dict.Pairs);
                 break;
 
             case TupleLiteralExpression tuple:
-                CollectIdentifiersFromAll(identifiers: identifiers, tuple.Elements);
+                CollectIdentifiersFromAll(identifiers: identifiers, expressions: tuple.Elements);
                 break;
 
             case BlockExpression block:
@@ -1080,12 +1149,15 @@ public sealed partial class SemanticVerifier
                 break;
 
             case DictEntryLiteralExpression dictEntry:
-                CollectIdentifiersFromAll(identifiers: identifiers, dictEntry.Key, dictEntry.Value);
+                CollectIdentifiersFromAll(identifiers: identifiers,
+                    dictEntry.Key,
+                    dictEntry.Value);
                 break;
 
             case GenericMemberRoutineCallExpression generic:
                 CollectIdentifiersRecursive(expression: generic.Object, identifiers: identifiers);
-                CollectIdentifiersFromAll(identifiers: identifiers, generic.Arguments);
+                CollectIdentifiersFromAll(identifiers: identifiers,
+                    expressions: generic.Arguments);
                 break;
 
             case GenericMemberExpression genericMember:
@@ -1098,7 +1170,7 @@ public sealed partial class SemanticVerifier
                 break;
 
             case ChainedComparisonExpression chain:
-                CollectIdentifiersFromAll(identifiers: identifiers, chain.Operands);
+                CollectIdentifiersFromAll(identifiers: identifiers, expressions: chain.Operands);
                 break;
 
             // Literal expressions and type expressions have no identifiers to collect
@@ -1167,22 +1239,28 @@ public sealed partial class SemanticVerifier
         }
     }
 
-    private TypeSymbol AnalyzeRangeExpression(RangeExpression range, TypeSymbol? expectedType = null)
+    private TypeSymbol AnalyzeRangeExpression(RangeExpression range,
+        TypeSymbol? expectedType = null)
     {
         // When the range flows into a `Range[T]` context (e.g. a subscript slice `s[a til b]`, where
         // the element type is forced to U64), propagate T as the endpoint expected type so untyped
         // literals (`0 til 5`) retype to it instead of defaulting to S32. The returned Range element
         // type is the start type, so this also makes the whole range resolve to `Range[T]`.
         TypeSymbol? endpointExpected =
-            expectedType is { TypeArguments: { Count: 1 } expArgs } && expectedType.BareName == "Range"
+            expectedType is { TypeArguments: { Count: 1 } expArgs } &&
+            expectedType.BareName == "Range"
                 ? expArgs[index: 0]
                 : null;
 
-        TypeSymbol startType = AnalyzeExpression(expression: range.Start, expectedType: endpointExpected);
-        TypeSymbol endType = AnalyzeExpression(expression: range.End, expectedType: endpointExpected);
+        TypeSymbol startType =
+            AnalyzeExpression(expression: range.Start, expectedType: endpointExpected);
+        TypeSymbol endType =
+            AnalyzeExpression(expression: range.End, expectedType: endpointExpected);
 
-        (startType, endType) = AdaptLiteralRangeBounds(
-            range: range, endpointExpected: endpointExpected, startType: startType, endType: endType);
+        (startType, endType) = AdaptLiteralRangeBounds(range: range,
+            endpointExpected: endpointExpected,
+            startType: startType,
+            endType: endType);
 
         if (range.Step != null)
         {
@@ -1191,12 +1269,18 @@ public sealed partial class SemanticVerifier
 
         bool startIsBack = range.Start is BackIndexExpression;
         bool endIsBack = range.End is BackIndexExpression;
-        ValidateRangeBounds(range: range, endpointExpected: endpointExpected,
-            startType: startType, endType: endType, startIsBack: startIsBack, endIsBack: endIsBack);
+        ValidateRangeBounds(range: range,
+            endpointExpected: endpointExpected,
+            startType: startType,
+            endType: endType,
+            startIsBack: startIsBack,
+            endIsBack: endIsBack);
 
         // Element type: a subscript forces it (U64); otherwise the non-BackIndex start (or end) drives
         // it. Return the resolved `Range[T]`.
-        TypeSymbol elementType = endpointExpected ?? (startIsBack ? endType : startType);
+        TypeSymbol elementType = endpointExpected ?? (startIsBack
+            ? endType
+            : startType);
         TypeInfo? rangeGenericDef = _registry.LookupType(name: "Range");
         if (rangeGenericDef != null && elementType is not ErrorTypeInfo)
         {
@@ -1213,17 +1297,23 @@ public sealed partial class SemanticVerifier
     /// makes <c>0</c> a U64, not the S64 literal default. Returns the (possibly re-analyzed) start/end types.
     /// </summary>
     private (TypeSymbol StartType, TypeSymbol EndType) AdaptLiteralRangeBounds(
-        RangeExpression range, TypeSymbol? endpointExpected, TypeSymbol startType, TypeSymbol endType)
+        RangeExpression range, TypeSymbol? endpointExpected, TypeSymbol startType,
+        TypeSymbol endType)
     {
-        if (endpointExpected != null) return (startType, endType);
+        if (endpointExpected != null)
+        {
+            return (startType, endType);
+        }
 
         bool startIsLiteral = range.Start is LiteralExpression;
         bool endIsLiteral = range.End is LiteralExpression;
-        if (startIsLiteral && !endIsLiteral && IsNumericType(type: endType) && startType != endType)
+        if (startIsLiteral && !endIsLiteral && IsNumericType(type: endType) &&
+            startType != endType)
         {
             startType = AnalyzeExpression(expression: range.Start, expectedType: endType);
         }
-        else if (endIsLiteral && !startIsLiteral && IsNumericType(type: startType) && startType != endType)
+        else if (endIsLiteral && !startIsLiteral && IsNumericType(type: startType) &&
+                 startType != endType)
         {
             endType = AnalyzeExpression(expression: range.End, expectedType: startType);
         }
@@ -1236,7 +1326,8 @@ public sealed partial class SemanticVerifier
     /// reporting diagnostics for violations.
     /// </summary>
     private void ValidateRangeBounds(RangeExpression range, TypeSymbol? endpointExpected,
-        TypeSymbol startType, TypeSymbol endType, bool startIsBack, bool endIsBack)
+        TypeSymbol startType, TypeSymbol endType, bool startIsBack,
+        bool endIsBack)
     {
         // BackIndex (^n) endpoints are valid ONLY inside a subscript slice (`s[a til ^0]`), where the
         // element type is forced (U64) — a `^n` there lowers to `count - n` (see OperatorLoweringPass).
@@ -1248,14 +1339,18 @@ public sealed partial class SemanticVerifier
             ReportError(code: SemanticDiagnosticCode.BackIndexOutsideSubscript,
                 message:
                 "BackIndex (^n) can only be used in a subscript [^n] or slice [a til b], not a bare range.",
-                location: (startIsBack ? range.Start : range.End).Location);
+                location: (startIsBack
+                    ? range.Start
+                    : range.End).Location);
         }
 
         // Range bound types must be numeric — const-generic parameters (e.g. `N is U64`) and numeric-
         // constrained generic params qualify (they hold a numeric value at each monomorphization). A
         // BackIndex bound is exempt: it is a `^n` marker that resolves to a numeric `count - n`.
-        bool startOk = startIsBack || IsNumericType(type: startType) || IsNumericGenericParam(type: startType);
-        bool endOk = endIsBack || IsNumericType(type: endType) || IsNumericGenericParam(type: endType);
+        bool startOk = startIsBack || IsNumericType(type: startType) ||
+                       IsNumericGenericParam(type: startType);
+        bool endOk = endIsBack || IsNumericType(type: endType) ||
+                     IsNumericGenericParam(type: endType);
         if (!startOk || !endOk)
         {
             ReportError(code: SemanticDiagnosticCode.RangeBoundsNotNumeric,
@@ -1288,7 +1383,8 @@ public sealed partial class SemanticVerifier
             // Arity guard: a wrong count of explicit type args (e.g. `Guarded[ReadOnly](from: n)` — one arg
             // for a two-param `Guarded[T, P]`) must be a clean diagnostic. Without the early return,
             // GetOrCreateResolution → RecordTypeInfo.CreateInstance zips params↔args and crashes.
-            if (type.GenericParameters is { } creatorParams && creatorParams.Count != typeArgs.Count)
+            if (type.GenericParameters is { } creatorParams &&
+                creatorParams.Count != typeArgs.Count)
             {
                 ReportError(code: SemanticDiagnosticCode.WrongTypeArgumentCount,
                     message:
@@ -1340,7 +1436,9 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private bool TryRouteCreatorToCreate(TypeSymbol type, CreatorExpression creator)
     {
-        var providedNames = creator.MemberVariables.Select(selector: mv => mv.Name).ToList();
+        var providedNames = creator.MemberVariables
+                                   .Select(selector: mv => mv.Name)
+                                   .ToList();
 
         // Name-based match against create overloads. Iterate type's memberRoutines looking for ones
         // named `create` whose parameter names match the provided set exactly. If multiple
@@ -1359,10 +1457,13 @@ public sealed partial class SemanticVerifier
         // (this is how the entity `destroy` resolves correctly elsewhere). Failable creators keep the
         // same Creator kind (IsFailable is a structured flag), so IsCreator matches both.
         candidates.AddRange(collection: _registry.GetMemberRoutinesForType(type: type)
-            .Where(predicate: m => m.IsCreator));
+                                                 .Where(predicate: m => m.IsCreator));
         foreach (RoutineInfo m in candidates)
         {
-            if (m.Parameters.Count != creator.MemberVariables.Count) continue;
+            if (m.Parameters.Count != creator.MemberVariables.Count)
+            {
+                continue;
+            }
 
             var pNames = new HashSet<string>(
                 collection: m.Parameters.Select(selector: p => p.Name));
@@ -1381,21 +1482,21 @@ public sealed partial class SemanticVerifier
         // through more than one path (owner table + protocol walk), which would make a single
         // user creator look ambiguous and wrongly fall back to inline construction.
         var userMatches = nameMatches.Where(predicate: m => !m.IsSynthesized)
-            .GroupBy(keySelector: m => m.RegistryKey)
-            .Select(selector: g => g.First())
-            .ToList();
+                                     .GroupBy(keySelector: m => m.RegistryKey)
+                                     .Select(selector: g => g.First())
+                                     .ToList();
 
         // A type constructor written inside the type's own creator is the field-init base case ONLY
         // when it resolves back to the same creator being compiled (genuine self-recursion). A call to
         // a different create overload (for example a conversion from a narrower integer type) is an
         // ordinary conversion and must route to that overload — otherwise codegen falls back to inline
         // field-init and mis-lowers bit-carrier types to a raw integer reinterpret of the IEEE storage.
-        bool insideOwnCreate = _currentRoutine is { IsCreator: true } currentCreate
-            && currentCreate.OwnerType != null
-            && (currentCreate.OwnerType.FullName == type.FullName
-                || currentCreate.OwnerType.Name == type.Name)
-            && userMatches.Count == 1
-            && ReferenceEquals(objA: userMatches[index: 0], objB: currentCreate);
+        bool insideOwnCreate = _currentRoutine is { IsCreator: true } currentCreate &&
+                               currentCreate.OwnerType != null &&
+                               (currentCreate.OwnerType.FullName == type.FullName ||
+                                currentCreate.OwnerType.Name == type.Name) &&
+                               userMatches.Count == 1 &&
+                               ReferenceEquals(objA: userMatches[index: 0], objB: currentCreate);
 
         // Route through a unique user-defined `create` (so its body runs). Otherwise — no
         // user match, ambiguous user overloads, or self-reference inside the creator — fall back
@@ -1426,7 +1527,7 @@ public sealed partial class SemanticVerifier
         if (match.IsFailable && _currentRoutine != null)
         {
             _currentRoutine.HasFailableCalls = true;
-            _currentRoutine.FailableCallees.Add(match);
+            _currentRoutine.FailableCallees.Add(item: match);
         }
 
         return true;

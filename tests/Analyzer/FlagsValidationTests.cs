@@ -11,10 +11,10 @@ using static TestHelpers;
 public class FlagsValidationTests
 {
     #region Valid Flags (no errors expected)
+
     /// <summary>
     /// Verifies flags validation behavior for simple declaration without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Flags_SimpleDeclaration_NoErrors()
     {
@@ -34,7 +34,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for is test valid member without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Flags_IsTest_ValidMember_NoErrors()
     {
@@ -58,7 +57,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for is not test valid member without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Flags_IsNotTest_ValidMember_NoErrors()
     {
@@ -80,7 +78,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies that exact-flags equality via '==' produces no errors.
     /// </summary>
-
     [Fact]
     public void Flags_ExactEqualityWithAnd_NoErrors()
     {
@@ -101,7 +98,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for but operator same type without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Flags_ButOperator_SameType_NoErrors()
     {
@@ -123,7 +119,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for and combiner same type without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Flags_AndCombiner_SameType_NoErrors()
     {
@@ -147,7 +142,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for and combiner different types and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Flags_AndCombiner_DifferentTypes_ReportsError()
     {
@@ -172,7 +166,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for all on all off without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Flags_AllOnAllOff_NoErrors()
     {
@@ -196,14 +189,16 @@ public class FlagsValidationTests
     #endregion
 
     #region #127: Max 64 members
+
     /// <summary>
     /// Verifies flags validation behavior for more than64 members and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Flags_MoreThan64Members_ReportsError()
     {
-        string members = string.Join("\n  ", Enumerable.Range(0, 65).Select(i => $"FLAG_{i}"));
+        string members = string.Join(separator: "\n  ",
+            values: Enumerable.Range(start: 0, count: 65)
+                              .Select(selector: i => $"FLAG_{i}"));
         string source = $$"""
                           flags TooMany
                             {{members}}
@@ -216,11 +211,12 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for exactly64 members without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Flags_Exactly64Members_NoError()
     {
-        string members = string.Join("\n  ", Enumerable.Range(0, 64).Select(i => $"FLAG_{i}"));
+        string members = string.Join(separator: "\n  ",
+            values: Enumerable.Range(start: 0, count: 64)
+                              .Select(selector: i => $"FLAG_{i}"));
         string source = $$"""
                           flags Max64
                             {{members}}
@@ -234,10 +230,10 @@ public class FlagsValidationTests
     #endregion
 
     #region Duplicate members
+
     /// <summary>
     /// Verifies flags validation behavior for duplicate member and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Flags_DuplicateMember_ReportsError()
     {
@@ -256,10 +252,10 @@ public class FlagsValidationTests
     #endregion
 
     #region #128: or in assignment
+
     /// <summary>
     /// Verifies flags validation behavior for or in assignment and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Flags_OrInAssignment_ReportsError()
     {
@@ -281,10 +277,10 @@ public class FlagsValidationTests
     #endregion
 
     #region #129: Flags when requires else
+
     /// <summary>
     /// Verifies flags validation behavior for when expression without else and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Flags_WhenExpressionWithoutElse_ReportsError()
     {
@@ -307,7 +303,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for when expression with else without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Flags_WhenExpressionWithElse_NoError()
     {
@@ -332,10 +327,10 @@ public class FlagsValidationTests
 
 
     #region #134: No arithmetic on flags
+
     /// <summary>
     /// Verifies flags validation behavior for arithmetic and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Flags_Arithmetic_ReportsError()
     {
@@ -357,10 +352,10 @@ public class FlagsValidationTests
     #endregion
 
     #region #135: No custom operators on flags
+
     /// <summary>
     /// Verifies flags validation behavior for custom operator and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Flags_CustomOperator_ReportsError()
     {
@@ -382,10 +377,10 @@ public class FlagsValidationTests
     #endregion
 
     #region Flag member validation
+
     /// <summary>
     /// Verifies flags validation behavior for is test unknown member and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Flags_IsTest_UnknownMember_ReportsError()
     {
@@ -406,7 +401,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for is test on non flags and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Flags_IsTestOnNonFlags_ReportsError()
     {
@@ -424,7 +418,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for but operator type mismatch and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Flags_ButOperator_TypeMismatch_ReportsError()
     {
@@ -515,10 +508,10 @@ public class FlagsValidationTests
     #endregion
 
     #region Member Access (C98)
+
     /// <summary>
     /// Verifies flags validation behavior for member access as value.
     /// </summary>
-
     [Fact]
     public void Flags_MemberAccess_AsValue()
     {
@@ -544,7 +537,6 @@ public class FlagsValidationTests
     /// <summary>
     /// Verifies flags validation behavior for member access invalid member.
     /// </summary>
-
     [Fact]
     public void Flags_MemberAccess_InvalidMember()
     {

@@ -37,23 +37,30 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
 {
     public void Run(Program program)
     {
-        List<CrashableTypeInfo> crashableTypes = ctx.Registry
-                                                             .GetAllTypes()
-                                                             .OfType<CrashableTypeInfo>()
-                                                             .ToList();
+        var crashableTypes = ctx.Registry
+                                .GetAllTypes()
+                                .OfType<CrashableTypeInfo>()
+                                .ToList();
 
         // Nothing to expand if no crashable types are registered.
-        if (crashableTypes.Count == 0) return;
+        if (crashableTypes.Count == 0)
+        {
+            return;
+        }
 
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration r:
                 {
-                    Statement newBody = ExpandStatement(stmt: r.Body, crashableTypes: crashableTypes);
-                    if (!ReferenceEquals(newBody, r.Body))
-                        program.Declarations[i] = r with { Body = newBody };
+                    Statement newBody =
+                        ExpandStatement(stmt: r.Body, crashableTypes: crashableTypes);
+                    if (!ReferenceEquals(objA: newBody, objB: r.Body))
+                    {
+                        program.Declarations[index: i] = r with { Body = newBody };
+                    }
+
                     break;
                 }
 
@@ -82,18 +89,23 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     /// </summary>
     public void RunOnVariantBodies()
     {
-        List<CrashableTypeInfo> crashableTypes = ctx.Registry
-                                                             .GetAllTypes()
-                                                             .OfType<CrashableTypeInfo>()
-                                                             .ToList();
-        if (crashableTypes.Count == 0) return;
+        var crashableTypes = ctx.Registry
+                                .GetAllTypes()
+                                .OfType<CrashableTypeInfo>()
+                                .ToList();
+        if (crashableTypes.Count == 0)
+        {
+            return;
+        }
 
         foreach (string key in ctx.VariantBodies.Keys.ToList())
         {
-            Statement body = ctx.VariantBodies[key];
+            Statement body = ctx.VariantBodies[key: key];
             Statement expanded = ExpandStatement(stmt: body, crashableTypes: crashableTypes);
-            if (!ReferenceEquals(expanded, body))
-                ctx.VariantBodies[key] = expanded;
+            if (!ReferenceEquals(objA: expanded, objB: body))
+            {
+                ctx.VariantBodies[key: key] = expanded;
+            }
         }
     }
 
@@ -102,10 +114,16 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     {
         for (int j = 0; j < members.Count; j++)
         {
-            if (members[j] is not RoutineDeclaration m) continue;
+            if (members[index: j] is not RoutineDeclaration m)
+            {
+                continue;
+            }
+
             Statement newBody = ExpandStatement(stmt: m.Body, crashableTypes: crashableTypes);
-            if (!ReferenceEquals(newBody, m.Body))
-                members[j] = m with { Body = newBody };
+            if (!ReferenceEquals(objA: newBody, objB: m.Body))
+            {
+                members[index: j] = m with { Body = newBody };
+            }
         }
     }
 
@@ -130,7 +148,9 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             case LoopStatement loop:
             {
                 Statement body = ExpandStatement(stmt: loop.Body, crashableTypes: crashableTypes);
-                return ReferenceEquals(body, loop.Body) ? loop : loop with { Body = body };
+                return ReferenceEquals(objA: body, objB: loop.Body)
+                    ? loop
+                    : loop with { Body = body };
             }
 
             case EachStatement f:
@@ -142,7 +162,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             case DangerStatement d:
             {
                 Statement lowered = ExpandStatement(stmt: d.Body, crashableTypes: crashableTypes);
-                return !ReferenceEquals(lowered, d.Body)
+                return !ReferenceEquals(objA: lowered, objB: d.Body)
                     ? d with { Body = (BlockStatement)lowered }
                     : d;
             }
@@ -160,21 +180,25 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         {
             Statement n = ExpandStatement(stmt: s, crashableTypes: crashableTypes);
             stmts.Add(item: n);
-            if (!ReferenceEquals(n, s)) changed = true;
+            if (!ReferenceEquals(objA: n, objB: s))
+            {
+                changed = true;
+            }
         }
 
-        return changed ? b with { Statements = stmts } : b;
+        return changed
+            ? b with { Statements = stmts }
+            : b;
     }
 
     private IfStatement ExpandIf(IfStatement ifs, List<CrashableTypeInfo> crashableTypes)
     {
-        Statement then = ExpandStatement(stmt: ifs.ThenStatement,
-            crashableTypes: crashableTypes);
+        Statement then = ExpandStatement(stmt: ifs.ThenStatement, crashableTypes: crashableTypes);
         Statement? elseS = ifs.ElseStatement != null
             ? ExpandStatement(stmt: ifs.ElseStatement, crashableTypes: crashableTypes)
             : null;
-        bool changed = !ReferenceEquals(then, ifs.ThenStatement)
-                       || !ReferenceEquals(elseS, ifs.ElseStatement);
+        bool changed = !ReferenceEquals(objA: then, objB: ifs.ThenStatement) ||
+                       !ReferenceEquals(objA: elseS, objB: ifs.ElseStatement);
         return changed
             ? ifs with { ThenStatement = then, ElseStatement = elseS }
             : ifs;
@@ -186,9 +210,11 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         Statement? elseB = w.ElseBranch != null
             ? ExpandStatement(stmt: w.ElseBranch, crashableTypes: crashableTypes)
             : null;
-        bool changed = !ReferenceEquals(body, w.Body)
-                       || !ReferenceEquals(elseB, w.ElseBranch);
-        return changed ? w with { Body = body, ElseBranch = elseB } : w;
+        bool changed = !ReferenceEquals(objA: body, objB: w.Body) ||
+                       !ReferenceEquals(objA: elseB, objB: w.ElseBranch);
+        return changed
+            ? w with { Body = body, ElseBranch = elseB }
+            : w;
     }
 
     private EachStatement ExpandEach(EachStatement f, List<CrashableTypeInfo> crashableTypes)
@@ -197,9 +223,11 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         Statement? elseB = f.ElseBranch != null
             ? ExpandStatement(stmt: f.ElseBranch, crashableTypes: crashableTypes)
             : null;
-        bool changed = !ReferenceEquals(body, f.Body)
-                       || !ReferenceEquals(elseB, f.ElseBranch);
-        return changed ? f with { Body = body, ElseBranch = elseB } : f;
+        bool changed = !ReferenceEquals(objA: body, objB: f.Body) ||
+                       !ReferenceEquals(objA: elseB, objB: f.ElseBranch);
+        return changed
+            ? f with { Body = body, ElseBranch = elseB }
+            : f;
     }
 
     private UsingStatement ExpandUsing(UsingStatement u, List<CrashableTypeInfo> crashableTypes)
@@ -208,15 +236,15 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         Statement? fb = u.FallbackBody != null
             ? ExpandStatement(stmt: u.FallbackBody, crashableTypes: crashableTypes)
             : null;
-        return !ReferenceEquals(body, u.Body) || !ReferenceEquals(fb, u.FallbackBody)
+        return !ReferenceEquals(objA: body, objB: u.Body) ||
+               !ReferenceEquals(objA: fb, objB: u.FallbackBody)
             ? u with { Body = body, FallbackBody = fb }
             : u;
     }
 
     // === WhenStatement expansion ==================================================
 
-    private WhenStatement ExpandWhen(WhenStatement when,
-        List<CrashableTypeInfo> crashableTypes)
+    private WhenStatement ExpandWhen(WhenStatement when, List<CrashableTypeInfo> crashableTypes)
     {
         // Only expand carrier-type subjects (Result/Lookup).
         // Subject-less when (Expression == null) is never a carrier -> just recurse.
@@ -231,7 +259,8 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
 
         foreach (WhenClause clause in when.Clauses)
         {
-            if (TryGetCrashableBinding(pattern: clause.Pattern, bindName: out string? bangBindName,
+            if (TryGetCrashableBinding(pattern: clause.Pattern,
+                    bindName: out string? bangBindName,
                     loc: out SourceLocation? bangLoc))
             {
                 changed = true;
@@ -242,19 +271,28 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
                 // (`throw e`/`return e`), or a binding still inside an un-lowered f-string — fall back to the
                 // per-type fan-out, which binds the concrete crashable.
                 WhenClause? dispatchClause = TryMakeCrashableDispatchClause(clause: clause,
-                    bindName: bangBindName, loc: bangLoc!, carrier: when.Expression!);
+                    bindName: bangBindName,
+                    loc: bangLoc!,
+                    carrier: when.Expression!);
                 if (dispatchClause != null)
+                {
                     expanded.Add(item: dispatchClause);
+                }
                 else
-                    ExpandCrashableClause(clause: clause, bangBindName: bangBindName, bangLoc: bangLoc!,
-                        crashableTypes: crashableTypes, expanded: expanded);
+                {
+                    ExpandCrashableClause(clause: clause,
+                        bangBindName: bangBindName,
+                        bangLoc: bangLoc!,
+                        crashableTypes: crashableTypes,
+                        expanded: expanded);
+                }
             }
             else
             {
                 // Recurse into clause body for nested WhenStatements.
                 Statement newBody = ExpandStatement(stmt: clause.Body,
                     crashableTypes: crashableTypes);
-                if (!ReferenceEquals(newBody, clause.Body))
+                if (!ReferenceEquals(objA: newBody, objB: clause.Body))
                 {
                     expanded.Add(item: clause with { Body = newBody });
                     changed = true;
@@ -266,7 +304,9 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             }
         }
 
-        return changed ? when with { Clauses = expanded } : when;
+        return changed
+            ? when with { Clauses = expanded }
+            : when;
     }
 
     /// <summary>
@@ -306,7 +346,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             Declaration.RuntimeContract.Display.Represent,
             Declaration.RuntimeContract.Display.Diagnose,
             Declaration.RuntimeContract.CrashMessage,
-            Declaration.RuntimeContract.CrashTitle,
+            Declaration.RuntimeContract.CrashTitle
         };
 
     /// <summary>
@@ -323,9 +363,11 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         if (!string.IsNullOrEmpty(value: bindName))
         {
             body = new CrashableDispatchRewriter(bindName: bindName!, carrier: carrier)
-                .VisitStatement(stmt: body);
+               .VisitStatement(stmt: body);
             if (BindingStillReferenced(root: body, bindName: bindName!))
+            {
                 return null;
+            }
         }
 
         return clause with
@@ -340,10 +382,14 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     private static bool BindingStillReferenced(Statement root, string bindName)
     {
         bool found = false;
-        AstWalker.WalkExpressions(root: root, visit: e =>
-        {
-            if (e is IdentifierExpression id && id.Name == bindName) found = true;
-        });
+        AstWalker.WalkExpressions(root: root,
+            visit: e =>
+            {
+                if (e is IdentifierExpression id && id.Name == bindName)
+                {
+                    found = true;
+                }
+            });
         return found;
     }
 
@@ -357,13 +403,18 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     {
         protected override Expression VisitCall(CallExpression e)
         {
-            if (e is { Arguments.Count: 0, Callee: MemberExpression { Object: IdentifierExpression id } m }
-                && id.Name == bindName
-                && DispatchableCrashableMembers.Contains(item: m.MemberName))
+            if (e is
+                {
+                    Arguments.Count: 0,
+                    Callee: MemberExpression { Object: IdentifierExpression id } m
+                } && id.Name == bindName &&
+                DispatchableCrashableMembers.Contains(item: m.MemberName))
             {
-                return new CrashableDispatchExpression(Carrier: carrier, MemberName: m.MemberName,
+                return new CrashableDispatchExpression(Carrier: carrier,
+                    MemberName: m.MemberName,
                     Location: e.Location) { ResolvedType = e.ResolvedType };
             }
+
             return base.VisitCall(e: e);
         }
     }
@@ -374,8 +425,8 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     /// the bound name <c>err</c> is rewired to the concrete crashable type, so <c>err.crash_message()</c>
     /// etc. dispatches against a real memberRoutine instead of the bodyless protocol stub.
     /// </summary>
-    private void ExpandCrashableClause(WhenClause clause, string? bangBindName, SourceLocation bangLoc,
-        List<CrashableTypeInfo> crashableTypes, List<WhenClause> expanded)
+    private void ExpandCrashableClause(WhenClause clause, string? bangBindName,
+        SourceLocation bangLoc, List<CrashableTypeInfo> crashableTypes, List<WhenClause> expanded)
     {
         var emptySubs = new Dictionary<string, string>();
         foreach (CrashableTypeInfo crashable in crashableTypes)
@@ -383,24 +434,23 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             var typeExpr = new TypeExpression(
                 Name: crashable.Name,
                 GenericArguments: null,
-                Location: bangLoc)
-            {
-                ResolvedType = crashable
-            };
-            var newPattern = new TypePattern(
-                Type: typeExpr,
+                Location: bangLoc) { ResolvedType = crashable };
+            var newPattern = new TypePattern(Type: typeExpr,
                 VariableName: bangBindName,
                 Bindings: null,
                 Location: bangLoc);
 
             Statement clonedBody = GenericAstRewriter.RewriteStatement(
-                stmt: clause.Body, subs: emptySubs);
+                stmt: clause.Body,
+                subs: emptySubs);
             if (!string.IsNullOrEmpty(value: bangBindName))
             {
                 BindingTypeRewriter.Apply(body: clonedBody,
-                    bindingName: bangBindName!, concreteType: crashable,
+                    bindingName: bangBindName!,
+                    concreteType: crashable,
                     registry: ctx.Registry);
             }
+
             expanded.Add(item: clause with { Pattern = newPattern, Body = clonedBody });
         }
     }
@@ -414,7 +464,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         foreach (WhenClause c in when.Clauses)
         {
             Statement newBody = ExpandStatement(stmt: c.Body, crashableTypes: crashableTypes);
-            if (!ReferenceEquals(newBody, c.Body))
+            if (!ReferenceEquals(objA: newBody, objB: c.Body))
             {
                 clauses.Add(item: c with { Body = newBody });
                 changed = true;
@@ -425,22 +475,36 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             }
         }
 
-        return changed ? when with { Clauses = clauses } : when;
+        return changed
+            ? when with { Clauses = clauses }
+            : when;
     }
 
     // === Type classification helpers =============================================
 
     private static bool IsResultOrLookup(TypeInfo? type)
     {
-        if (type == null) return false;
+        if (type == null)
+        {
+            return false;
+        }
+
         string baseName = GetCarrierBaseName(type: type);
         return baseName is "Result" or "Lookup";
     }
 
     private static string GetCarrierBaseName(TypeInfo type)
     {
-        if (type is RecordTypeInfo { GenericDefinition: not null } r) return r.GenericDefinition.Name;
-        if (type is EntityTypeInfo { GenericDefinition: not null } e) return e.GenericDefinition.Name;
+        if (type is RecordTypeInfo { GenericDefinition: not null } r)
+        {
+            return r.GenericDefinition.Name;
+        }
+
+        if (type is EntityTypeInfo { GenericDefinition: not null } e)
+        {
+            return e.GenericDefinition.Name;
+        }
+
         return type.Name;
     }
 }

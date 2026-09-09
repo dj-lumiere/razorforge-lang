@@ -1,5 +1,4 @@
 using SyntaxTree;
-
 using Compiler.Instantiation;
 using Compiler.Declaration;
 
@@ -27,7 +26,8 @@ public sealed partial class SemanticVerifier
         // closure for every type via GMP, even when BuilderQuery is never called.
         // The stdlib itself imports BuilderQuery everywhere, so the signal must be a
         // NON-stdlib import (see the override computed in AnalyzeMultiple).
-        bool builderServiceImported = _builderQueryUserImportedOverride ?? ScanUserProgramsForBuilderQuery();
+        bool builderServiceImported =
+            _builderQueryUserImportedOverride ?? ScanUserProgramsForBuilderQuery();
 
         // The everywhere-derive registration inside the pass consults GetDeriveTemplate to decide which
         // derived operators (lt/le/gt/ge from cmp) to register per type. AutoRegisterWiredRoutines is
@@ -37,8 +37,9 @@ public sealed partial class SemanticVerifier
         // by arity+gate) and a no-op in warm mode (restored registry re-scans its restored StdlibPrograms).
         RegisterStdlibDeriveTemplates();
 
-        new AutoWiredRegistrationPass(_registry, implicitConformances: _implicitProtocolConformances)
-            .Run(builderServiceImported: builderServiceImported);
+        new AutoWiredRegistrationPass(registry: _registry,
+                implicitConformances: _implicitProtocolConformances)
+           .Run(builderServiceImported: builderServiceImported);
     }
 
     /// <summary>
@@ -51,7 +52,7 @@ public sealed partial class SemanticVerifier
         string? stdlibRoot = _registry.StdlibPath;
         string? normalizedStdlib = stdlibRoot != null
             ? Path.GetFullPath(path: stdlibRoot)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                  .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             : null;
 
         foreach ((Program program, string filePath) in files)
@@ -66,8 +67,13 @@ public sealed partial class SemanticVerifier
                 }
             }
 
-            if (program.Declarations.Any(node => node is ImportDeclaration { ModulePath: "BuilderQuery" }))
+            if (program.Declarations.Any(predicate: node => node is ImportDeclaration
+                {
+                    ModulePath: "BuilderQuery"
+                }))
+            {
                 return true;
+            }
         }
 
         return false;
@@ -78,8 +84,13 @@ public sealed partial class SemanticVerifier
     {
         foreach ((Program program, _, _) in _registry.UserPrograms)
         {
-            if (program.Declarations.Any(node => node is ImportDeclaration { ModulePath: "BuilderQuery" }))
+            if (program.Declarations.Any(predicate: node => node is ImportDeclaration
+                {
+                    ModulePath: "BuilderQuery"
+                }))
+            {
                 return true;
+            }
         }
 
         return false;

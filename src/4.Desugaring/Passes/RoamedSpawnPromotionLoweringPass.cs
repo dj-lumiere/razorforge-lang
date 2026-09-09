@@ -34,9 +34,10 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
     /// <summary>Inserts spawn-boundary promote calls across a whole program.</summary>
     public void Run(Program program)
     {
-        foreach (SyntaxTree.Declaration decl in program.Declarations.OfType<SyntaxTree.Declaration>())
+        foreach (SyntaxTree.Declaration decl in
+                 program.Declarations.OfType<SyntaxTree.Declaration>())
         {
-            LowerDeclaration(decl);
+            LowerDeclaration(decl: decl);
         }
     }
 
@@ -45,7 +46,7 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
     {
         foreach (string key in ctx.VariantBodies.Keys.ToList())
         {
-            LowerBody(ctx.VariantBodies[key]);
+            LowerBody(body: ctx.VariantBodies[key: key]);
         }
     }
 
@@ -54,16 +55,16 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
         switch (decl)
         {
             case RoutineDeclaration r:
-                LowerBody(r.Body);
+                LowerBody(body: r.Body);
                 break;
             case EntityDeclaration e:
-                LowerMemberList(e.Members);
+                LowerMemberList(members: e.Members);
                 break;
             case RecordDeclaration rec:
-                LowerMemberList(rec.Members);
+                LowerMemberList(members: rec.Members);
                 break;
             case CrashableDeclaration cr:
-                LowerMemberList(cr.Members);
+                LowerMemberList(members: cr.Members);
                 break;
         }
     }
@@ -72,13 +73,19 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
     {
         foreach (SyntaxTree.Declaration m in members)
         {
-            if (m is RoutineDeclaration mr) LowerBody(mr.Body);
+            if (m is RoutineDeclaration mr)
+            {
+                LowerBody(body: mr.Body);
+            }
         }
     }
 
     private void LowerBody(Statement body)
     {
-        if (body is BlockStatement block) LowerBlock(block);
+        if (body is BlockStatement block)
+        {
+            LowerBlock(block: block);
+        }
     }
 
     // ---- Block rewrite (in place, mirroring CancellationInstrumentationPass) ---------------------
@@ -88,19 +95,20 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
         var rewritten = new List<Statement>(capacity: block.Statements.Count);
         foreach (Statement stmt in block.Statements)
         {
-            RecurseInto(stmt);
-            rewritten.AddRange(collection: CollectPromotes(stmt));
+            RecurseInto(stmt: stmt);
+            rewritten.AddRange(collection: CollectPromotes(stmt: stmt));
             rewritten.Add(item: stmt);
 
             // A Suflae `global` whose storage is a Roamed[T] handle is reachable from every task, so it
             // must be ESCAPED (armed lock) for the per-statement access-lock brackets to serialize
             // concurrent mutation. Promote it right AFTER its init assignment. Idempotent + void.
-            if (stmt is AssignmentStatement { IsGlobalInit: true } gi
-                && TryMakePromote(handle: gi.Target) is { } gpromote)
+            if (stmt is AssignmentStatement { IsGlobalInit: true } gi &&
+                TryMakePromote(handle: gi.Target) is { } gpromote)
             {
                 rewritten.Add(item: gpromote);
             }
         }
+
         block.Statements.Clear();
         block.Statements.AddRange(collection: rewritten);
     }
@@ -112,13 +120,18 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
     private List<Statement> CollectPromotes(Statement stmt)
     {
         var promotes = new List<Statement>();
-        foreach (Expression e in DirectExpressions(stmt))
+        foreach (Expression e in DirectExpressions(stmt: stmt))
         {
-            AstWalker.WalkExpressions(root: e, visit: n =>
-            {
-                if (n is CallExpression call && IsSpawnCall(call)) AppendPromotesFor(call, promotes);
-            });
+            AstWalker.WalkExpressions(root: e,
+                visit: n =>
+                {
+                    if (n is CallExpression call && IsSpawnCall(call: call))
+                    {
+                        AppendPromotesFor(spawn: call, promotes: promotes);
+                    }
+                });
         }
+
         return promotes;
     }
 
@@ -138,9 +151,15 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
             case VariantReturnStatement { Value: not null } s: yield return s.Value; break;
             case BecomesStatement s: yield return s.Value; break;
             case ThrowStatement s: yield return s.Error; break;
-            case AssignmentStatement s: yield return s.Target; yield return s.Value; break;
+            case AssignmentStatement s:
+                yield return s.Target;
+                yield return s.Value;
+                break;
             case DestructuringStatement s: yield return s.Initializer; break;
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } v }:
+            case DeclarationStatement
+            {
+                Declaration: VariableDeclaration { Initializer: not null } v
+            }:
                 yield return v.Initializer; break;
             case IfStatement s: yield return s.Condition; break;
             case WhileStatement s: yield return s.Condition; break;
@@ -154,16 +173,26 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
     {
         foreach (Expression arg in spawn.Arguments)
         {
-            Expression handle = Unwrap(arg);
-            if (TryMakePromote(handle) is { } promote) promotes.Add(item: promote);
+            Expression handle = Unwrap(arg: arg);
+            if (TryMakePromote(handle: handle) is { } promote)
+            {
+                promotes.Add(item: promote);
+            }
         }
     }
 
-    private static Expression Unwrap(Expression arg) =>
-        arg is NamedArgumentExpression na ? na.Value : arg;
+    private static Expression Unwrap(Expression arg)
+    {
+        return arg is NamedArgumentExpression na
+            ? na.Value
+            : arg;
+    }
 
-    private static bool IsSpawnCall(CallExpression call) =>
-        call.ResolvedRoutine is { AsyncStatus: AsyncStatus.Suspended or AsyncStatus.Threaded };
+    private static bool IsSpawnCall(CallExpression call)
+    {
+        return call.ResolvedRoutine is
+            { AsyncStatus: AsyncStatus.Suspended or AsyncStatus.Threaded };
+    }
 
     // Builds `handle.promote()` as an ExpressionStatement when `handle` is a Roamed[T]. promote
     // returns void and mutates in place, so the statement is a pure side effect before the spawn.
@@ -177,19 +206,21 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
 
         RoutineInfo? promote = Registry.LookupMemberRoutine(type: rec,
             memberRoutineName: RuntimeContract.RoamedMemberRoutine.Promote);
-        if (promote is null) return null;
+        if (promote is null)
+        {
+            return null;
+        }
 
         var callee = new MemberExpression(Object: handle,
-            MemberName: RuntimeContract.RoamedMemberRoutine.Promote, Location: handle.Location)
-        {
-            ResolvedType = rec
-        };
-        var call = new CallExpression(Callee: callee, Arguments: new List<Expression>(),
-            Location: handle.Location)
-        {
-            ResolvedRoutine = promote,
-            ResolvedType = promote.ReturnType
-        };
+            MemberName: RuntimeContract.RoamedMemberRoutine.Promote,
+            Location: handle.Location) { ResolvedType = rec };
+        var call =
+            new CallExpression(Callee: callee,
+                Arguments: new List<Expression>(),
+                Location: handle.Location)
+            {
+                ResolvedRoutine = promote, ResolvedType = promote.ReturnType
+            };
         return new ExpressionStatement(Expression: call, Location: handle.Location);
     }
 
@@ -200,39 +231,65 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
         switch (stmt)
         {
             case BlockStatement b:
-                LowerBlock(b);
+                LowerBlock(block: b);
                 break;
             case IfStatement i:
-                RecurseStmt(i.ThenStatement);
-                if (i.ElseStatement != null) RecurseStmt(i.ElseStatement);
+                RecurseStmt(stmt: i.ThenStatement);
+                if (i.ElseStatement != null)
+                {
+                    RecurseStmt(stmt: i.ElseStatement);
+                }
+
                 break;
             case WhileStatement w:
-                RecurseStmt(w.Body);
-                if (w.ElseBranch != null) RecurseStmt(w.ElseBranch);
+                RecurseStmt(stmt: w.Body);
+                if (w.ElseBranch != null)
+                {
+                    RecurseStmt(stmt: w.ElseBranch);
+                }
+
                 break;
             case LoopStatement l:
-                RecurseStmt(l.Body);
+                RecurseStmt(stmt: l.Body);
                 break;
             case EachStatement f:
-                RecurseStmt(f.Body);
-                if (f.ElseBranch != null) RecurseStmt(f.ElseBranch);
+                RecurseStmt(stmt: f.Body);
+                if (f.ElseBranch != null)
+                {
+                    RecurseStmt(stmt: f.ElseBranch);
+                }
+
                 break;
             case DangerStatement d:
-                LowerBlock(d.Body);
+                LowerBlock(block: d.Body);
                 break;
             case UsingStatement u:
-                RecurseStmt(u.Body);
-                if (u.FallbackBody != null) RecurseStmt(u.FallbackBody);
+                RecurseStmt(stmt: u.Body);
+                if (u.FallbackBody != null)
+                {
+                    RecurseStmt(stmt: u.FallbackBody);
+                }
+
                 break;
             case WhenStatement whenStmt:
-                foreach (WhenClause clause in whenStmt.Clauses) RecurseStmt(clause.Body);
+                foreach (WhenClause clause in whenStmt.Clauses)
+                {
+                    RecurseStmt(stmt: clause.Body);
+                }
+
                 break;
         }
     }
 
     private void RecurseStmt(Statement stmt)
     {
-        if (stmt is BlockStatement b) LowerBlock(b);
-        else RecurseInto(stmt);
+        if (stmt is BlockStatement b)
+        {
+            LowerBlock(block: b);
+        }
+        else
+        {
+            RecurseInto(stmt: stmt);
+        }
     }
 }

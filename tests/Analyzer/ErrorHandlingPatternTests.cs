@@ -121,5 +121,4 @@ public class ErrorHandlingPatternTests
         Assert.DoesNotContain(collection: result.Errors,
             filter: e => e.Code == SemanticDiagnosticCode.NonExhaustiveMatch);
     }
-
 }

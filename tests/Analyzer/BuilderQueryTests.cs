@@ -11,10 +11,10 @@ using static TestHelpers;
 public class BuilderQueryTests
 {
     #region Import Gating -> Per-Type Routines
+
     /// <summary>
     /// Verifies that the test validates name without import and reports the expected error.
     /// </summary>
-
     [Fact]
     public void TypeName_WithoutImport_ReportsError()
     {
@@ -36,7 +36,6 @@ public class BuilderQueryTests
     /// <summary>
     /// Verifies that the test validates name with import without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void TypeName_WithImport_NoError()
     {
@@ -60,7 +59,6 @@ public class BuilderQueryTests
     /// <summary>
     /// Verifies that the test validates size without import and reports the expected error.
     /// </summary>
-
     [Fact]
     public void DataSize_WithoutImport_ReportsError()
     {
@@ -82,7 +80,6 @@ public class BuilderQueryTests
     /// <summary>
     /// Verifies that the test validates size with import without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void DataSize_WithImport_NoError()
     {
@@ -107,10 +104,10 @@ public class BuilderQueryTests
     #endregion
 
     #region Import Gating -> Standalone Routines
+
     /// <summary>
     /// Verifies that the test validates file without import and reports the expected error.
     /// </summary>
-
     [Fact]
     public void SourceFile_WithoutImport_ReportsError()
     {
@@ -129,7 +126,6 @@ public class BuilderQueryTests
     /// <summary>
     /// Verifies that the test validates file with import without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void SourceFile_WithImport_NoError()
     {
@@ -148,7 +144,6 @@ public class BuilderQueryTests
     /// <summary>
     /// Verifies that the test validates line without import and reports the expected error.
     /// </summary>
-
     [Fact]
     public void SourceLine_WithoutImport_ReportsError()
     {
@@ -166,7 +161,6 @@ public class BuilderQueryTests
     /// <summary>
     /// Verifies that the test validates file without import and reports the expected error.
     /// </summary>
-
     [Fact]
     public void CallerFile_WithoutImport_ReportsError()
     {
@@ -185,10 +179,10 @@ public class BuilderQueryTests
     #endregion
 
     #region Wired Routines NOT Gated
+
     /// <summary>
     /// Verifies that the test validates represent without import without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void WiredRepresent_WithoutImport_NoError()
     {
@@ -210,7 +204,6 @@ public class BuilderQueryTests
     /// <summary>
     /// Verifies that the test validates eq without import without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void WiredEq_WithoutImport_NoError()
     {
@@ -234,10 +227,10 @@ public class BuilderQueryTests
     #endregion
 
     #region Multiple Routines With Import
+
     /// <summary>
     /// Verifies that the test validates routines with import all available.
     /// </summary>
-
     [Fact]
     public void MultipleRoutines_WithImport_AllAvailable()
     {
@@ -267,7 +260,6 @@ public class BuilderQueryTests
     /// <summary>
     /// Verifies that the test validates routines with import available.
     /// </summary>
-
     [Fact]
     public void ListRoutines_WithImport_Available()
     {
@@ -295,7 +287,6 @@ public class BuilderQueryTests
     /// <summary>
     /// Verifies that the test validates routines with import available.
     /// </summary>
-
     [Fact]
     public void StandaloneRoutines_WithImport_Available()
     {

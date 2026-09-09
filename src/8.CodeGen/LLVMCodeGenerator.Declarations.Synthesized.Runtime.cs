@@ -23,7 +23,9 @@ public partial class LlvmCodeGenerator
 
         List<string> paramList = BuildSynthesizedParameterList(routine: routine);
 
-        string returnType = routine.ReturnType != null ? GetLlvmType(type: routine.ReturnType) : "void";
+        string returnType = routine.ReturnType != null
+            ? GetLlvmType(type: routine.ReturnType)
+            : "void";
 
         // Mirror GenerateRoutineDefinition's ABI return handling (sret for Indirect, integer coercion
         // for small structs): this synthesized define path must agree with the declaration
@@ -31,13 +33,16 @@ public partial class LlvmCodeGenerator
         bool prevReturnViaSret = _currentReturnViaSret;
         string? prevReturnCoerce = _currentReturnCoerceType;
         _currentReturnViaSret = ReturnsViaSret(routine: routine);
-        _currentReturnCoerceType = _currentReturnViaSret ? null : ReturnCoerceType(routine: routine);
+        _currentReturnCoerceType = _currentReturnViaSret
+            ? null
+            : ReturnCoerceType(routine: routine);
         if (_currentReturnViaSret)
         {
             paramList.Insert(index: 0, item: $"ptr sret({returnType}) %sret");
         }
 
-        string headerReturnType = _currentReturnViaSret ? "void"
+        string headerReturnType = _currentReturnViaSret
+            ? "void"
             : _currentReturnCoerceType ?? returnType;
         string parameters = string.Join(separator: ", ", values: paramList);
 
@@ -46,7 +51,9 @@ public partial class LlvmCodeGenerator
         // Same whole-program-internal treatment as GenerateRoutineDefinition — routed through the shared
         // ComputeRoutineLinkage so both header emitters agree cold-vs-warm (see its doc for the rationale).
         (bool isCompilerGenerated, string linkagePrefix) = ComputeRoutineLinkage(routine: routine);
-        string synthAttrs = isCompilerGenerated ? " nounwind" : "";
+        string synthAttrs = isCompilerGenerated
+            ? " nounwind"
+            : "";
         string defineHeader =
             $"define {linkagePrefix}{headerReturnType} @{funcName}({parameters}){synthAttrs} {{";
         _generatedRoutineDefHeaders[key: funcName] = defineHeader;
@@ -67,6 +74,7 @@ public partial class LlvmCodeGenerator
             _generatedRoutineDefHeaders.Remove(key: funcName);
             throw;
         }
+
         EmitLine(sb: _functionDefinitions, line: "}");
         EmitLine(sb: _functionDefinitions, line: "");
         _currentReturnViaSret = prevReturnViaSret;
@@ -83,16 +91,21 @@ public partial class LlvmCodeGenerator
         var paramList = new List<string>();
         if (routine.OwnerType != null && !IsCreatorRoutine(routine: routine) && !routine.IsCommon)
         {
-            string meType =
-                GetImplicitMeParameterDeclaration(routine: routine, includeName: true);
+            string meType = GetImplicitMeParameterDeclaration(routine: routine, includeName: true);
             if (!meType.StartsWith(value: "void", comparisonType: StringComparison.Ordinal))
+            {
                 paramList.Add(item: meType);
+            }
         }
+
         paramList.AddRange(collection:
             from param in routine.Parameters
             let byval = ParameterPassedByval(routine: routine, paramType: param.Type)
-            let coerce = byval ? null : ParameterCoerceType(routine: routine, paramType: param.Type)
-            let paramType = byval ? $"ptr byval({GetLlvmType(type: param.Type)})"
+            let coerce = byval
+                ? null
+                : ParameterCoerceType(routine: routine, paramType: param.Type)
+            let paramType = byval
+                ? $"ptr byval({GetLlvmType(type: param.Type)})"
                 : coerce ?? GetParameterLlvmType(type: param.Type)
             let emittedName = GetEmittedParamName(byval: byval, name: param.Name)
             select $"{paramType} %{emittedName}");
@@ -104,9 +117,16 @@ public partial class LlvmCodeGenerator
     /// colliding with the LLVM basic-block label of the same name; all other names are used as-is.</summary>
     private static string GetEmittedParamName(bool byval, string name)
     {
-        if (byval) return $"{name}.addr";
-        if (name == "entry") return "entry_";
+        if (byval)
+        {
+            return $"{name}.addr";
+        }
+
+        if (name == "entry")
+        {
+            return "entry_";
+        }
+
         return name;
     }
-
 }

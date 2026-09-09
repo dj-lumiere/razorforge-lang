@@ -83,6 +83,7 @@ public partial class Tokenizer
             {
                 _tokens.RemoveAt(index: _tokens.Count - 1);
             }
+
             return;
         }
 
@@ -186,7 +187,7 @@ public partial class Tokenizer
         }
 
         AddToken(type: TokenType.Indent, text: "");
-        _indentStack.Push(spaces);
+        _indentStack.Push(item: spaces);
     }
 
     /// <summary>

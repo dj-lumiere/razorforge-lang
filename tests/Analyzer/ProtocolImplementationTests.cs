@@ -11,10 +11,10 @@ using static TestHelpers;
 public class ProtocolImplementationTests
 {
     #region Basic Protocol Implementation
+
     /// <summary>
     /// Verifies semantic analysis behavior for implements all memberRoutines without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ImplementsAllMemberRoutines_NoError()
     {
@@ -39,7 +39,6 @@ public class ProtocolImplementationTests
     /// <summary>
     /// Verifies semantic analysis behavior for missing protocol memberRoutine and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_MissingProtocolMemberRoutine_ReportsError()
     {
@@ -59,7 +58,6 @@ public class ProtocolImplementationTests
     /// <summary>
     /// Verifies semantic analysis behavior for wrong memberRoutine signature and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_WrongMemberRoutineSignature_ReportsError()
     {
@@ -84,10 +82,10 @@ public class ProtocolImplementationTests
     #endregion
 
     #region Protocol memberRoutine Annotations
+
     /// <summary>
     /// Verifies semantic analysis behavior for memberRoutine missing readonly and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_memberRoutineMissingReadonly_ReportsError()
     {
@@ -111,7 +109,6 @@ public class ProtocolImplementationTests
     /// <summary>
     /// Verifies semantic analysis behavior for memberRoutine with writable when protocol readonly and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_memberRoutineWithWritableWhenProtocolReadonly_ReportsError()
     {
@@ -135,10 +132,10 @@ public class ProtocolImplementationTests
     #endregion
 
     #region Multiple Protocols
+
     /// <summary>
     /// Verifies semantic analysis behavior for multiple protocols all implemented without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_MultipleProtocols_AllImplemented_NoError()
     {
@@ -169,7 +166,6 @@ public class ProtocolImplementationTests
     /// <summary>
     /// Verifies semantic analysis behavior for multiple protocols one missing and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_MultipleProtocols_OneMissing_ReportsError()
     {
@@ -197,10 +193,10 @@ public class ProtocolImplementationTests
     #endregion
 
     #region Generic Protocol Implementation
+
     /// <summary>
     /// Verifies semantic analysis behavior for generic protocol implementation without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericProtocol_Implementation_NoError()
     {
@@ -224,10 +220,10 @@ public class ProtocolImplementationTests
     #endregion
 
     #region Protocol memberRoutine Parameters
+
     /// <summary>
     /// Verifies semantic analysis behavior for protocol memberRoutine with parameters without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ProtocolMemberRoutineWithParameters_NoError()
     {
@@ -251,7 +247,6 @@ public class ProtocolImplementationTests
     /// <summary>
     /// Verifies semantic analysis behavior for protocol memberRoutine wrong parameter type and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ProtocolMemberRoutineWrongParameterType_ReportsError()
     {
@@ -276,10 +271,10 @@ public class ProtocolImplementationTests
     #endregion
 
     #region Entity Protocol Implementation
+
     /// <summary>
     /// Verifies semantic analysis behavior for entity implements protocol without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_EntityImplementsProtocol_NoError()
     {
@@ -303,10 +298,10 @@ public class ProtocolImplementationTests
     #endregion
 
     #region Protocol Inheritance
+
     /// <summary>
     /// Verifies semantic analysis behavior for protocol extends implementation without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ProtocolExtends_Implementation_NoError()
     {
@@ -338,7 +333,6 @@ public class ProtocolImplementationTests
     /// <summary>
     /// Verifies semantic analysis behavior for protocol extends missing parent memberRoutine and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ProtocolExtends_MissingParentMemberRoutine_ReportsError()
     {
@@ -367,10 +361,10 @@ public class ProtocolImplementationTests
     #endregion
 
     #region Annotation Placement Validation (#177)
+
     /// <summary>
     /// Verifies semantic analysis behavior for generated on non protocol routine and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_GeneratedOnNonProtocolRoutine_ReportsError()
     {
@@ -386,12 +380,12 @@ public class ProtocolImplementationTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.Contains(result.Errors, e => e.Code == SemanticDiagnosticCode.InvalidGeneratedInnatePlacement);
+        Assert.Contains(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.InvalidGeneratedInnatePlacement);
     }
     /// <summary>
     /// Verifies that @innate is valid on non-protocol routines (e.g., BuilderQuery routines).
     /// </summary>
-
     [Fact]
     public void Analyze_InnateOnNonProtocolRoutine_NoError()
     {
@@ -407,12 +401,12 @@ public class ProtocolImplementationTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.DoesNotContain(result.Errors, e => e.Code == SemanticDiagnosticCode.InvalidGeneratedInnatePlacement);
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.InvalidGeneratedInnatePlacement);
     }
     /// <summary>
     /// Verifies semantic analysis behavior for generated on protocol routine without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_GeneratedOnProtocolRoutine_NoError()
     {
@@ -435,12 +429,12 @@ public class ProtocolImplementationTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.DoesNotContain(result.Errors, e => e.Code == SemanticDiagnosticCode.InvalidGeneratedInnatePlacement);
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.InvalidGeneratedInnatePlacement);
     }
     /// <summary>
     /// Verifies semantic analysis behavior for innate on protocol routine without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_InnateOnProtocolRoutine_NoError()
     {
@@ -455,16 +449,17 @@ public class ProtocolImplementationTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.DoesNotContain(result.Errors, e => e.Code == SemanticDiagnosticCode.InvalidGeneratedInnatePlacement);
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.InvalidGeneratedInnatePlacement);
     }
 
     #endregion
 
     #region Innate Override Prohibition (#178)
+
     /// <summary>
     /// Verifies semantic analysis behavior for override innate routine and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_OverrideInnateRoutine_ReportsError()
     {
@@ -483,12 +478,12 @@ public class ProtocolImplementationTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.Contains(result.Errors, e => e.Code == SemanticDiagnosticCode.InnateOverrideNotAllowed);
+        Assert.Contains(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.InnateOverrideNotAllowed);
     }
     /// <summary>
     /// Verifies semantic analysis behavior for innate routine not overridden without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_InnateRoutineNotOverridden_NoError()
     {
@@ -503,16 +498,17 @@ public class ProtocolImplementationTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.DoesNotContain(result.Errors, e => e.Code == SemanticDiagnosticCode.InnateOverrideNotAllowed);
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.InnateOverrideNotAllowed);
     }
 
     #endregion
 
     #region Generated Override Prioritization (#179)
+
     /// <summary>
     /// Verifies semantic analysis behavior for override generated ne without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_OverrideGeneratedNe_NoError()
     {
@@ -539,12 +535,12 @@ public class ProtocolImplementationTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        Assert.DoesNotContain(result.Errors, e => e.Code == SemanticDiagnosticCode.GeneratedOperatorOverride);
+        Assert.DoesNotContain(collection: result.Errors,
+            filter: e => e.Code == SemanticDiagnosticCode.GeneratedOperatorOverride);
     }
     /// <summary>
     /// Verifies semantic analysis behavior for generated ne not overridden without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_GeneratedNeNotOverridden_NoError()
     {
@@ -573,10 +569,10 @@ public class ProtocolImplementationTests
     #endregion
 
     #region Protocol with Default Values
+
     /// <summary>
     /// Verifies semantic analysis behavior for protocol memberRoutine with default parameter without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_ProtocolMemberRoutineWithDefaultParameter_NoError()
     {
@@ -599,10 +595,10 @@ public class ProtocolImplementationTests
     #endregion
 
     #region Multiple Protocol Generic Constraints (#62)
+
     /// <summary>
     /// Verifies that the parser accepts inline multiple obeys successfully.
     /// </summary>
-
     [Fact]
     public void Parse_InlineMultipleObeys_Parses()
     {
@@ -625,7 +621,6 @@ public class ProtocolImplementationTests
     /// <summary>
     /// Verifies that the parser accepts needs multiple obeys successfully.
     /// </summary>
-
     [Fact]
     public void Parse_NeedsMultipleObeys_Parses()
     {

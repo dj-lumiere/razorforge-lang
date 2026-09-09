@@ -437,6 +437,7 @@ public enum SemanticDiagnosticCode
 
     /// <summary>Entity cannot be directly assigned from another variable. Must use .share() or steal.</summary>
     BareEntityAssignment = 413,
+
     /// <summary>
     /// Implicit copy of a value whose type contains a non-trivially-copyable wrapper
     /// (`T`, `Retained[T]`, `Tracked[T]`, ...). Each ownership wrapper has its
@@ -858,7 +859,7 @@ public enum SemanticDiagnosticCode
     /// <summary>Result/Lookup stored in variable beyond immediate dismantling.</summary>
     ErrorHandlingTypeStoredInVariable = 758,
 
-/// <summary>Variant member cannot be Result[T], Lookup[T], a token, or a duplicate type.</summary>
+    /// <summary>Variant member cannot be Result[T], Lookup[T], a token, or a duplicate type.</summary>
     VariantCaseContainsInvalidType = 764,
 
     /// <summary>RETIRED: index-operator legality is governed by protocol conformance
@@ -1022,7 +1023,7 @@ public enum SemanticDiagnosticCode
     IllegalBackendPresetIdentifier = 958,
 
     /// <summary>Constructor-like call reached backend entry without semantic lowering metadata.</summary>
-    MissingCallLoweringMetadata = 959,
+    MissingCallLoweringMetadata = 959
 }
 
 /// <summary>

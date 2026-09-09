@@ -117,7 +117,8 @@ public class ThreadArgShareabilityTests
                                   """;
 
         AnalysisResult result = AssertHasErrorSa(source: source,
-            expectedErrorSubstring: "of a threaded routine cannot cross the spawn boundary safely");
+            expectedErrorSubstring:
+            "of a threaded routine cannot cross the spawn boundary safely");
         Assert.Contains(collection: result.Errors,
             filter: e => e.Code == SemanticDiagnosticCode.ThreadArgNotShareable);
     }
@@ -205,7 +206,8 @@ public class ThreadArgShareabilityTests
                                   """;
 
         AnalysisResult result = AssertHasErrorSa(source: source,
-            expectedErrorSubstring: "of a suspended routine cannot cross the spawn boundary safely");
+            expectedErrorSubstring:
+            "of a suspended routine cannot cross the spawn boundary safely");
         Assert.Contains(collection: result.Errors,
             filter: e => e.Code == SemanticDiagnosticCode.ThreadArgNotShareable);
     }
@@ -256,7 +258,8 @@ public class ThreadArgShareabilityTests
                                   """;
 
         AnalysisResult result = AssertHasErrorSa(source: source,
-            expectedErrorSubstring: "of a suspended routine cannot cross the spawn boundary safely");
+            expectedErrorSubstring:
+            "of a suspended routine cannot cross the spawn boundary safely");
         Assert.Contains(collection: result.Errors,
             filter: e => e.Code == SemanticDiagnosticCode.ThreadArgNotShareable);
     }

@@ -12,9 +12,15 @@ namespace RazorForge.Tests.Verification;
 public class MaySuspendAnalysisTests
 {
     /// <summary>Make a distinct, owner-less routine; RegistryKey == name so keys stay readable.</summary>
-    private static RoutineInfo Routine(string name) => new(name: name);
+    private static RoutineInfo Routine(string name)
+    {
+        return new RoutineInfo(name: name);
+    }
 
-    private static CallGraphNode Node(CallGraph g, string name) => g.GetOrCreateNode(routine: Routine(name: name));
+    private static CallGraphNode Node(CallGraph g, string name)
+    {
+        return g.GetOrCreateNode(routine: Routine(name: name));
+    }
 
     [Fact]
     public void EmptyGraph_ProducesEmptyResult()
@@ -42,10 +48,14 @@ public class MaySuspendAnalysisTests
     {
         // A -> B -> C(suspends);  D is unrelated and pure.
         var g = new CallGraph();
-        RoutineInfo a = Routine(name: "A"), b = Routine(name: "B"), c = Routine(name: "C"), d = Routine(name: "D");
+        RoutineInfo a = Routine(name: "A"),
+            b = Routine(name: "B"),
+            c = Routine(name: "C"),
+            d = Routine(name: "D");
         g.AddEdge(caller: a, callee: b, callsOnMe: true);
         g.AddEdge(caller: b, callee: c, callsOnMe: true);
-        g.GetOrCreateNode(routine: c).DirectlySuspends = true;
+        g.GetOrCreateNode(routine: c)
+         .DirectlySuspends = true;
         g.GetOrCreateNode(routine: d); // isolated
 
         IReadOnlySet<string> result = new MaySuspendAnalysis(callGraph: g).Compute();
@@ -77,7 +87,8 @@ public class MaySuspendAnalysisTests
         var g = new CallGraph();
         RoutineInfo a = Routine(name: "A"), b = Routine(name: "B");
         g.AddEdge(caller: a, callee: b, callsOnMe: true);
-        g.GetOrCreateNode(routine: b).HasIndirectCall = true;
+        g.GetOrCreateNode(routine: b)
+         .HasIndirectCall = true;
 
         IReadOnlySet<string> result = new MaySuspendAnalysis(callGraph: g).Compute();
 
@@ -94,7 +105,8 @@ public class MaySuspendAnalysisTests
         var g = new CallGraph();
         RoutineInfo a = Routine(name: "A"), b = Routine(name: "B");
         g.AddEdge(caller: a, callee: b, callsOnMe: false);
-        g.GetOrCreateNode(routine: b).DirectlySuspends = true;
+        g.GetOrCreateNode(routine: b)
+         .DirectlySuspends = true;
 
         IReadOnlySet<string> result = new MaySuspendAnalysis(callGraph: g).Compute();
 
@@ -111,7 +123,8 @@ public class MaySuspendAnalysisTests
         g.AddEdge(caller: a, callee: b, callsOnMe: true);
         g.AddEdge(caller: b, callee: a, callsOnMe: true);
         g.AddEdge(caller: a, callee: s, callsOnMe: true);
-        g.GetOrCreateNode(routine: s).DirectlySuspends = true;
+        g.GetOrCreateNode(routine: s)
+         .DirectlySuspends = true;
 
         IReadOnlySet<string> result = new MaySuspendAnalysis(callGraph: g).Compute();
 
@@ -143,12 +156,16 @@ public class MaySuspendAnalysisTests
         //     \ /
         //      D(suspends)
         var g = new CallGraph();
-        RoutineInfo a = Routine(name: "A"), b = Routine(name: "B"), c = Routine(name: "C"), d = Routine(name: "D");
+        RoutineInfo a = Routine(name: "A"),
+            b = Routine(name: "B"),
+            c = Routine(name: "C"),
+            d = Routine(name: "D");
         g.AddEdge(caller: a, callee: b, callsOnMe: true);
         g.AddEdge(caller: a, callee: c, callsOnMe: true);
         g.AddEdge(caller: b, callee: d, callsOnMe: true);
         g.AddEdge(caller: c, callee: d, callsOnMe: true);
-        g.GetOrCreateNode(routine: d).DirectlySuspends = true;
+        g.GetOrCreateNode(routine: d)
+         .DirectlySuspends = true;
 
         IReadOnlySet<string> result = new MaySuspendAnalysis(callGraph: g).Compute();
 
@@ -158,8 +175,14 @@ public class MaySuspendAnalysisTests
     [Fact]
     public void SuspendPrimitives_RecognizesYield_RejectsOthers()
     {
-        Assert.True(condition: SuspendPrimitives.IsSuspendPrimitive(routine: Routine(name: SuspendPrimitives.Yield)));
-        Assert.False(condition: SuspendPrimitives.IsSuspendPrimitive(routine: Routine(name: "rf_coro_resume")));
-        Assert.False(condition: SuspendPrimitives.IsSuspendPrimitive(routine: Routine(name: "some_user_routine")));
+        Assert.True(
+            condition: SuspendPrimitives.IsSuspendPrimitive(
+                routine: Routine(name: SuspendPrimitives.Yield)));
+        Assert.False(
+            condition: SuspendPrimitives.IsSuspendPrimitive(
+                routine: Routine(name: "rf_coro_resume")));
+        Assert.False(
+            condition: SuspendPrimitives.IsSuspendPrimitive(
+                routine: Routine(name: "some_user_routine")));
     }
 }

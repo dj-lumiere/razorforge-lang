@@ -39,9 +39,10 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
     /// <summary>Inserts Roamed field-access lock brackets across a whole program.</summary>
     public void Run(Program program)
     {
-        foreach (SyntaxTree.Declaration decl in program.Declarations.OfType<SyntaxTree.Declaration>())
+        foreach (SyntaxTree.Declaration decl in
+                 program.Declarations.OfType<SyntaxTree.Declaration>())
         {
-            LowerDeclaration(decl);
+            LowerDeclaration(decl: decl);
         }
     }
 
@@ -50,7 +51,7 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
     {
         foreach (string key in ctx.VariantBodies.Keys.ToList())
         {
-            LowerBody(ctx.VariantBodies[key]);
+            LowerBody(body: ctx.VariantBodies[key: key]);
         }
     }
 
@@ -59,16 +60,16 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
         switch (decl)
         {
             case RoutineDeclaration r:
-                LowerBody(r.Body);
+                LowerBody(body: r.Body);
                 break;
             case EntityDeclaration e:
-                LowerMemberList(e.Members);
+                LowerMemberList(members: e.Members);
                 break;
             case RecordDeclaration rec:
-                LowerMemberList(rec.Members);
+                LowerMemberList(members: rec.Members);
                 break;
             case CrashableDeclaration cr:
-                LowerMemberList(cr.Members);
+                LowerMemberList(members: cr.Members);
                 break;
         }
     }
@@ -77,13 +78,19 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
     {
         foreach (SyntaxTree.Declaration m in members)
         {
-            if (m is RoutineDeclaration mr) LowerBody(mr.Body);
+            if (m is RoutineDeclaration mr)
+            {
+                LowerBody(body: mr.Body);
+            }
         }
     }
 
     private void LowerBody(Statement body)
     {
-        if (body is BlockStatement block) LowerBlock(block);
+        if (body is BlockStatement block)
+        {
+            LowerBlock(block: block);
+        }
     }
 
     // ---- Block rewrite (in place, mirroring RoamedSpawnPromotionLoweringPass) ---------------------
@@ -93,25 +100,40 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
         var rewritten = new List<Statement>(capacity: block.Statements.Count);
         foreach (Statement stmt in block.Statements)
         {
-            RecurseInto(stmt);
+            RecurseInto(stmt: stmt);
             // An atomic-width scalar global RMW (`__globals__.n = __globals__.n.add(d)`) is emitted as a
             // lock-free `atomicrmw` on the field address by codegen — it must NOT be bracketed, or it
             // would needlessly take the escaped lock (and the two paths would disagree). Everything else
             // (heavy-value field RMW, plain read/write) still gets the access-lock brackets.
-            List<Expression> handles = IsAtomicGlobalRmwStatement(stmt)
+            List<Expression> handles = IsAtomicGlobalRmwStatement(stmt: stmt)
                 ? new List<Expression>()
-                : FieldAccessHandles(stmt);
-            foreach (Expression h in handles) AddBracket(rewritten, h, RuntimeContract.RoamedMemberRoutine.LockEnter);
+                : FieldAccessHandles(stmt: stmt);
+            foreach (Expression h in handles)
+            {
+                AddBracket(into: rewritten,
+                    handle: h,
+                    memberRoutine: RuntimeContract.RoamedMemberRoutine.LockEnter);
+            }
+
             rewritten.Add(item: stmt);
-            foreach (Expression h in handles) AddBracket(rewritten, h, RuntimeContract.RoamedMemberRoutine.LockExit);
+            foreach (Expression h in handles)
+            {
+                AddBracket(into: rewritten,
+                    handle: h,
+                    memberRoutine: RuntimeContract.RoamedMemberRoutine.LockExit);
+            }
         }
+
         block.Statements.Clear();
         block.Statements.AddRange(collection: rewritten);
     }
 
     private void AddBracket(List<Statement> into, Expression handle, string memberRoutine)
     {
-        if (MakeLockCall(handle: handle, memberRoutine: memberRoutine) is { } call) into.Add(item: call);
+        if (MakeLockCall(handle: handle, memberRoutine: memberRoutine) is { } call)
+        {
+            into.Add(item: call);
+        }
     }
 
     // The Roamed[E] handle expressions of every DIRECT field access (read or write) in `stmt`'s own
@@ -125,36 +147,52 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
         (Expression Target, Expression Value)? tv = stmt switch
         {
             AssignmentStatement a => (a.Target, a.Value),
-            ExpressionStatement { Expression: BinaryExpression { Operator: BinaryOperator.Assign } b } =>
-                (b.Left, b.Right),
+            ExpressionStatement
+            {
+                Expression: BinaryExpression { Operator: BinaryOperator.Assign } b
+            } => (b.Left, b.Right),
             _ => null
         };
         return tv is { } p && CodeGen.LlvmCodeGenerator.TryMatchAtomicModuleGlobalRmw(
-            target: p.Target, value: p.Value, fieldMember: out _, isFloat: out _, atomicOp: out _,
+            target: p.Target,
+            value: p.Value,
+            fieldMember: out _,
+            isFloat: out _,
+            atomicOp: out _,
             delta: out _);
     }
 
     private static List<Expression> FieldAccessHandles(Statement stmt)
     {
         var handles = new List<Expression>();
-        foreach (Expression e in DirectExpressions(stmt))
+        foreach (Expression e in DirectExpressions(stmt: stmt))
         {
-            AstWalker.WalkExpressions(root: e, visit: n =>
-            {
-                if (n is not MemberExpression member) return;
-                // A direct field access through a Roamed handle, OR a memberRoutine-dispatch deref (the
-                // `control`/`refer`/`raw_inner` coercion RoamedProjectionLoweringPass inserts on a
-                // Roamed receiver). Both must hold the access lock across the enclosing statement —
-                // otherwise a memberRoutine call on a Roamed receiver (e.g. an SF wrapper's `xs.getitem!(i)`,
-                // whose bare-`me` inner is reached via the coercion) touches the object UNLOCKED,
-                // breaking escaped-mode serialization. Coarse (whole-statement) bracketing is exact for
-                // the reentrant, task-keyed lock.
-                if (RoamedFieldReceiver(member) is { } fieldHandle)
-                    handles.Add(item: fieldHandle);
-                else if (RoamedCoercionReceiver(member) is { } coerceHandle)
-                    handles.Add(item: coerceHandle);
-            });
+            AstWalker.WalkExpressions(root: e,
+                visit: n =>
+                {
+                    if (n is not MemberExpression member)
+                    {
+                        return;
+                    }
+
+                    // A direct field access through a Roamed handle, OR a memberRoutine-dispatch deref (the
+                    // `control`/`refer`/`raw_inner` coercion RoamedProjectionLoweringPass inserts on a
+                    // Roamed receiver). Both must hold the access lock across the enclosing statement —
+                    // otherwise a memberRoutine call on a Roamed receiver (e.g. an SF wrapper's `xs.getitem!(i)`,
+                    // whose bare-`me` inner is reached via the coercion) touches the object UNLOCKED,
+                    // breaking escaped-mode serialization. Coarse (whole-statement) bracketing is exact for
+                    // the reentrant, task-keyed lock.
+                    if (RoamedFieldReceiver(member: member) is { } fieldHandle)
+                    {
+                        handles.Add(item: fieldHandle);
+                    }
+                    else if (RoamedCoercionReceiver(member: member) is { } coerceHandle)
+                    {
+                        handles.Add(item: coerceHandle);
+                    }
+                });
         }
+
         return handles;
     }
 
@@ -174,9 +212,15 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
             case VariantReturnStatement { Value: not null } s: yield return s.Value; break;
             case BecomesStatement s: yield return s.Value; break;
             case ThrowStatement s: yield return s.Error; break;
-            case AssignmentStatement s: yield return s.Target; yield return s.Value; break;
+            case AssignmentStatement s:
+                yield return s.Target;
+                yield return s.Value;
+                break;
             case DestructuringStatement s: yield return s.Initializer; break;
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } v }:
+            case DeclarationStatement
+            {
+                Declaration: VariableDeclaration { Initializer: not null } v
+            }:
                 yield return v.Initializer; break;
             case IfStatement s: yield return s.Condition; break;
             case WhileStatement s: yield return s.Condition; break;
@@ -191,9 +235,16 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
     // entity field), returns the Roamed[E] handle expression to bracket; otherwise null.
     private static Expression? RoamedFieldReceiver(MemberExpression member)
     {
-        if (RoamedInnerEntity(member.Object.ResolvedType) is not { } innerEntity) return null;
-        bool isField = innerEntity.MemberVariables.Any(predicate: mv => mv.Name == member.MemberName);
-        return isField ? member.Object : null;
+        if (RoamedInnerEntity(t: member.Object.ResolvedType) is not { } innerEntity)
+        {
+            return null;
+        }
+
+        bool isField =
+            innerEntity.MemberVariables.Any(predicate: mv => mv.Name == member.MemberName);
+        return isField
+            ? member.Object
+            : null;
     }
 
     // When `member` is a deref COERCION (`control` / `refer` / `raw_inner`) on a Roamed[E] handle —
@@ -205,19 +256,32 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
     private static Expression? RoamedCoercionReceiver(MemberExpression member)
     {
         if (member.MemberName is not (RuntimeContract.RoamedMemberRoutine.RawInner
-            or RuntimeContract.Control or RuntimeContract.Access)) return null;
-        return RoamedInnerEntity(member.Object.ResolvedType) is not null ? member.Object : null;
+            or RuntimeContract.Control or RuntimeContract.Access))
+        {
+            return null;
+        }
+
+        return RoamedInnerEntity(t: member.Object.ResolvedType) is not null
+            ? member.Object
+            : null;
     }
 
     // The bare entity `E` inside a `Roamed[E]` handle, in either representation the pipeline produces
     // (WrapperTypeInfo from SuflaeEntityLoweringPass.WrapInRoam, RecordTypeInfo from a resolver-built
     // handle). Null when the type is not a Roamed handle over an entity.
-    private static EntityTypeInfo? RoamedInnerEntity(TypeInfo? t) => t switch
+    private static EntityTypeInfo? RoamedInnerEntity(TypeInfo? t)
     {
-        WrapperTypeInfo { Name: RuntimeContract.Roamed, InnerType: EntityTypeInfo e } => e,
-        RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed, TypeArguments: [EntityTypeInfo e] } => e,
-        _ => null
-    };
+        return t switch
+        {
+            WrapperTypeInfo { Name: RuntimeContract.Roamed, InnerType: EntityTypeInfo e } => e,
+            RecordTypeInfo
+            {
+                GenericDefinition.Name: RuntimeContract.Roamed,
+                TypeArguments: [EntityTypeInfo e]
+            } => e,
+            _ => null
+        };
+    }
 
     // Build `handle.lock_enter()` / `handle.lock_exit()` as an ExpressionStatement. Both are dangerous,
     // take the Roamed handle, and return void — so the statement is a pure side effect around the field
@@ -225,21 +289,32 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
     // to re-evaluate: an identifier / member handle), mirroring the promote/retain steps.
     private ExpressionStatement? MakeLockCall(Expression handle, string memberRoutine)
     {
-        if (handle.ResolvedType is not { } recvType) return null;
-        RoutineInfo? routine = Registry.LookupMemberRoutine(type: recvType, memberRoutineName: memberRoutine);
-        if (routine is null) return null;
+        if (handle.ResolvedType is not { } recvType)
+        {
+            return null;
+        }
 
-        var callee = new MemberExpression(Object: handle, MemberName: memberRoutine, Location: handle.Location)
+        RoutineInfo? routine =
+            Registry.LookupMemberRoutine(type: recvType, memberRoutineName: memberRoutine);
+        if (routine is null)
         {
-            ResolvedType = recvType
-        };
-        var call = new CallExpression(Callee: callee, Arguments: new List<Expression>(),
-            Location: handle.Location)
-        {
-            ResolvedRoutine = routine,
-            ResolvedType = routine.ReturnType,
-            LoweringKind = Verification.CallClassifier.ClassifyMemberRoutineCall(memberRoutine: routine)
-        };
+            return null;
+        }
+
+        var callee =
+            new MemberExpression(Object: handle,
+                MemberName: memberRoutine,
+                Location: handle.Location) { ResolvedType = recvType };
+        var call =
+            new CallExpression(Callee: callee,
+                Arguments: new List<Expression>(),
+                Location: handle.Location)
+            {
+                ResolvedRoutine = routine,
+                ResolvedType = routine.ReturnType,
+                LoweringKind =
+                    Verification.CallClassifier.ClassifyMemberRoutineCall(memberRoutine: routine)
+            };
         return new ExpressionStatement(Expression: call, Location: handle.Location);
     }
 
@@ -250,39 +325,65 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
         switch (stmt)
         {
             case BlockStatement b:
-                LowerBlock(b);
+                LowerBlock(block: b);
                 break;
             case IfStatement i:
-                RecurseStmt(i.ThenStatement);
-                if (i.ElseStatement != null) RecurseStmt(i.ElseStatement);
+                RecurseStmt(stmt: i.ThenStatement);
+                if (i.ElseStatement != null)
+                {
+                    RecurseStmt(stmt: i.ElseStatement);
+                }
+
                 break;
             case WhileStatement w:
-                RecurseStmt(w.Body);
-                if (w.ElseBranch != null) RecurseStmt(w.ElseBranch);
+                RecurseStmt(stmt: w.Body);
+                if (w.ElseBranch != null)
+                {
+                    RecurseStmt(stmt: w.ElseBranch);
+                }
+
                 break;
             case LoopStatement l:
-                RecurseStmt(l.Body);
+                RecurseStmt(stmt: l.Body);
                 break;
             case EachStatement f:
-                RecurseStmt(f.Body);
-                if (f.ElseBranch != null) RecurseStmt(f.ElseBranch);
+                RecurseStmt(stmt: f.Body);
+                if (f.ElseBranch != null)
+                {
+                    RecurseStmt(stmt: f.ElseBranch);
+                }
+
                 break;
             case DangerStatement d:
-                LowerBlock(d.Body);
+                LowerBlock(block: d.Body);
                 break;
             case UsingStatement u:
-                RecurseStmt(u.Body);
-                if (u.FallbackBody != null) RecurseStmt(u.FallbackBody);
+                RecurseStmt(stmt: u.Body);
+                if (u.FallbackBody != null)
+                {
+                    RecurseStmt(stmt: u.FallbackBody);
+                }
+
                 break;
             case WhenStatement whenStmt:
-                foreach (WhenClause clause in whenStmt.Clauses) RecurseStmt(clause.Body);
+                foreach (WhenClause clause in whenStmt.Clauses)
+                {
+                    RecurseStmt(stmt: clause.Body);
+                }
+
                 break;
         }
     }
 
     private void RecurseStmt(Statement stmt)
     {
-        if (stmt is BlockStatement b) LowerBlock(b);
-        else RecurseInto(stmt);
+        if (stmt is BlockStatement b)
+        {
+            LowerBlock(block: b);
+        }
+        else
+        {
+            RecurseInto(stmt: stmt);
+        }
     }
 }

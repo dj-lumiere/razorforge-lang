@@ -58,12 +58,16 @@ internal sealed class IteratorInlineLoweringPass
     {
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration r:
                 {
                     Statement nb = Rewrite(stmt: r.Body);
-                    if (!ReferenceEquals(nb, r.Body)) program.Declarations[i] = r with { Body = nb };
+                    if (!ReferenceEquals(objA: nb, objB: r.Body))
+                    {
+                        program.Declarations[index: i] = r with { Body = nb };
+                    }
+
                     break;
                 }
                 case EntityDeclaration e:
@@ -84,10 +88,12 @@ internal sealed class IteratorInlineLoweringPass
     {
         foreach (string key in bodies.Keys.ToList())
         {
-            MonomorphizedBody mb = bodies[key];
+            MonomorphizedBody mb = bodies[key: key];
             Statement nb = Rewrite(stmt: mb.Ast.Body);
-            if (!ReferenceEquals(nb, mb.Ast.Body))
-                bodies[key] = mb with { Ast = mb.Ast with { Body = nb } };
+            if (!ReferenceEquals(objA: nb, objB: mb.Ast.Body))
+            {
+                bodies[key: key] = mb with { Ast = mb.Ast with { Body = nb } };
+            }
         }
     }
 
@@ -95,9 +101,16 @@ internal sealed class IteratorInlineLoweringPass
     {
         for (int j = 0; j < members.Count; j++)
         {
-            if (members[j] is not RoutineDeclaration m) continue;
+            if (members[index: j] is not RoutineDeclaration m)
+            {
+                continue;
+            }
+
             Statement nb = Rewrite(stmt: m.Body);
-            if (!ReferenceEquals(nb, m.Body)) members[j] = m with { Body = nb };
+            if (!ReferenceEquals(objA: nb, objB: m.Body))
+            {
+                members[index: j] = m with { Body = nb };
+            }
         }
     }
 
@@ -114,7 +127,9 @@ internal sealed class IteratorInlineLoweringPass
             case LoopStatement loop:
             {
                 Statement b = Rewrite(stmt: loop.Body);
-                return ReferenceEquals(b, loop.Body) ? loop : loop with { Body = b };
+                return ReferenceEquals(objA: b, objB: loop.Body)
+                    ? loop
+                    : loop with { Body = b };
             }
             case BlockStatement block:
                 return RewriteBlock(block: block);
@@ -129,7 +144,9 @@ internal sealed class IteratorInlineLoweringPass
             case DangerStatement d:
             {
                 Statement lowered = Rewrite(stmt: d.Body);
-                return !ReferenceEquals(lowered, d.Body) ? d with { Body = (BlockStatement)lowered } : d;
+                return !ReferenceEquals(objA: lowered, objB: d.Body)
+                    ? d with { Body = (BlockStatement)lowered }
+                    : d;
             }
             default:
                 return stmt;
@@ -139,11 +156,17 @@ internal sealed class IteratorInlineLoweringPass
     private Statement RewriteIteratorLoop(LoopStatement loop)
     {
         Statement? inlined = TryInline(loop: loop);
-        if (inlined != null) return inlined;
+        if (inlined != null)
+        {
+            return inlined;
+        }
+
         // Fallback: leave the try_emit loop untouched, but still recurse into its body
         // (the user body may itself contain further for-loops).
         Statement fb = Rewrite(stmt: loop.Body);
-        return ReferenceEquals(fb, loop.Body) ? loop : loop with { Body = fb };
+        return ReferenceEquals(objA: fb, objB: loop.Body)
+            ? loop
+            : loop with { Body = fb };
     }
 
     private BlockStatement RewriteBlock(BlockStatement block)
@@ -154,16 +177,25 @@ internal sealed class IteratorInlineLoweringPass
         {
             Statement n = Rewrite(stmt: s);
             stmts.Add(item: n);
-            if (!ReferenceEquals(n, s)) changed = true;
+            if (!ReferenceEquals(objA: n, objB: s))
+            {
+                changed = true;
+            }
         }
-        return changed ? block with { Statements = stmts } : block;
+
+        return changed
+            ? block with { Statements = stmts }
+            : block;
     }
 
     private IfStatement RewriteIf(IfStatement ifs)
     {
         Statement then = Rewrite(stmt: ifs.ThenStatement);
-        Statement? elseS = ifs.ElseStatement != null ? Rewrite(stmt: ifs.ElseStatement) : null;
-        return !ReferenceEquals(then, ifs.ThenStatement) || !ReferenceEquals(elseS, ifs.ElseStatement)
+        Statement? elseS = ifs.ElseStatement != null
+            ? Rewrite(stmt: ifs.ElseStatement)
+            : null;
+        return !ReferenceEquals(objA: then, objB: ifs.ThenStatement) ||
+               !ReferenceEquals(objA: elseS, objB: ifs.ElseStatement)
             ? ifs with { ThenStatement = then, ElseStatement = elseS }
             : ifs;
     }
@@ -171,8 +203,11 @@ internal sealed class IteratorInlineLoweringPass
     private WhileStatement RewriteWhile(WhileStatement w)
     {
         Statement b = Rewrite(stmt: w.Body);
-        Statement? el = w.ElseBranch != null ? Rewrite(stmt: w.ElseBranch) : null;
-        return !ReferenceEquals(b, w.Body) || !ReferenceEquals(el, w.ElseBranch)
+        Statement? el = w.ElseBranch != null
+            ? Rewrite(stmt: w.ElseBranch)
+            : null;
+        return !ReferenceEquals(objA: b, objB: w.Body) ||
+               !ReferenceEquals(objA: el, objB: w.ElseBranch)
             ? w with { Body = b, ElseBranch = el }
             : w;
     }
@@ -184,17 +219,28 @@ internal sealed class IteratorInlineLoweringPass
         foreach (WhenClause c in w.Clauses)
         {
             Statement b = Rewrite(stmt: c.Body);
-            clauses.Add(item: ReferenceEquals(b, c.Body) ? c : c with { Body = b });
-            if (!ReferenceEquals(b, c.Body)) changed = true;
+            clauses.Add(item: ReferenceEquals(objA: b, objB: c.Body)
+                ? c
+                : c with { Body = b });
+            if (!ReferenceEquals(objA: b, objB: c.Body))
+            {
+                changed = true;
+            }
         }
-        return changed ? w with { Clauses = clauses } : w;
+
+        return changed
+            ? w with { Clauses = clauses }
+            : w;
     }
 
     private UsingStatement RewriteUsing(UsingStatement u)
     {
         Statement b = Rewrite(stmt: u.Body);
-        Statement? fb = u.FallbackBody != null ? Rewrite(stmt: u.FallbackBody) : null;
-        return !ReferenceEquals(b, u.Body) || !ReferenceEquals(fb, u.FallbackBody)
+        Statement? fb = u.FallbackBody != null
+            ? Rewrite(stmt: u.FallbackBody)
+            : null;
+        return !ReferenceEquals(objA: b, objB: u.Body) ||
+               !ReferenceEquals(objA: fb, objB: u.FallbackBody)
             ? u with { Body = b, FallbackBody = fb }
             : u;
     }
@@ -206,35 +252,74 @@ internal sealed class IteratorInlineLoweringPass
     {
         // CheckAndAdvance the CFLP shape: loop body is a block whose single statement is a `when` over a
         // try_emit() call with a NonePattern clause + an ElsePattern clause.
-        if (loop.Body is not BlockStatement { Statements: [WhenStatement when] }) return null;
-        if (when.Expression is not CallExpression tryNextCall) return null;
-        if (tryNextCall.Callee is not MemberExpression { MemberName: RuntimeContract.TryEmit, Object: { } recvExpr })
+        if (loop.Body is not BlockStatement { Statements: [WhenStatement when] })
+        {
             return null;
+        }
+
+        if (when.Expression is not CallExpression tryNextCall)
+        {
+            return null;
+        }
+
+        if (tryNextCall.Callee is not MemberExpression
+            {
+                MemberName: RuntimeContract.TryEmit, Object: { } recvExpr
+            })
+        {
+            return null;
+        }
 
         // Iterator local name (`_lf_iter_N`).
-        if (recvExpr is not IdentifierExpression { Name: { } iterLocalName }) return null;
+        if (recvExpr is not IdentifierExpression { Name: { } iterLocalName })
+        {
+            return null;
+        }
 
         // Concrete emitter type carried on the receiver by CFLP.
-        if (recvExpr.ResolvedType is not { } emitterType) return null;
-        if (emitterType is ErrorTypeInfo) return null;
+        if (recvExpr.ResolvedType is not { } emitterType)
+        {
+            return null;
+        }
+
+        if (emitterType is ErrorTypeInfo)
+        {
+            return null;
+        }
 
         // Extract the none-clause (for for-else exhaustion scaffold) and the else-clause
         // (loop-var bindings + user body).
-        if (!TryExtractClauses(when: when, noneClause: out WhenClause? noneClause,
+        if (!TryExtractClauses(when: when,
+                noneClause: out WhenClause? noneClause,
                 elseClause: out WhenClause? elseClause))
+        {
             return null;
+        }
+
         var elsePattern = (ElsePattern)elseClause.Pattern;
 
         // Resolve the concrete `emit!` on the emitter and fetch its monomorphized body.
-        RoutineInfo? nextRoutine =
-            _registry.LookupMemberRoutine(type: emitterType, memberRoutineName: "emit", isFailable: true);
-        if (nextRoutine == null) return null;
-        if (!_monoBodies.TryGetValue(key: nextRoutine.RegistryKey, out MonomorphizedBody? nextMono))
+        RoutineInfo? nextRoutine = _registry.LookupMemberRoutine(type: emitterType,
+            memberRoutineName: "emit",
+            isFailable: true);
+        if (nextRoutine == null)
+        {
             return null;
+        }
+
+        if (!_monoBodies.TryGetValue(key: nextRoutine.RegistryKey,
+                value: out MonomorphizedBody? nextMono))
+        {
+            return null;
+        }
+
         Statement nextBody = nextMono.Ast.Body;
 
         // Gate: only inline SIMPLE emit! bodies.
-        if (!IsSimpleNextBody(stmt: nextBody)) return null;
+        if (!IsSimpleNextBody(stmt: nextBody))
+        {
+            return null;
+        }
 
         // Recurse into the user body FIRST (it may contain nested for-loops) so the inlined
         // return-site gets already-lowered nested loops.
@@ -242,8 +327,7 @@ internal sealed class IteratorInlineLoweringPass
 
         // Build a fresh alpha-rename map for locals introduced by the emit! body.
         int inlineId = _inlineCounter++;
-        var renameCtx = new NextBodyRewriteContext(
-            iterLocalName: iterLocalName,
+        var renameCtx = new NextBodyRewriteContext(iterLocalName: iterLocalName,
             renamePrefix: $"_ii{inlineId}_",
             elsePattern: elsePattern,
             loweredUserBody: loweredUserBody,
@@ -251,7 +335,9 @@ internal sealed class IteratorInlineLoweringPass
 
         // Collect the local names the emit! body declares so identifier references to them are
         // renamed consistently. `me` is handled separately (mapped to the iterator local).
-        CollectDeclaredLocals(stmt: nextBody, sink: renameCtx.LocalRenames, prefix: renameCtx.RenamePrefix);
+        CollectDeclaredLocals(stmt: nextBody,
+            sink: renameCtx.LocalRenames,
+            prefix: renameCtx.RenamePrefix);
 
         Statement inlinedBody = RewriteNextStatement(stmt: nextBody, ctx: renameCtx);
         return new LoopStatement(Body: inlinedBody, Location: loop.Location);
@@ -262,8 +348,10 @@ internal sealed class IteratorInlineLoweringPass
     /// user body) from the CFLP `when`. Returns false when either is missing.
     /// </summary>
     private static bool TryExtractClauses(WhenStatement when,
-        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out WhenClause? noneClause,
-        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out WhenClause? elseClause)
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(returnValue: true)]
+        out WhenClause? noneClause,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(returnValue: true)]
+        out WhenClause? elseClause)
     {
         noneClause = null;
         elseClause = null;
@@ -275,6 +363,7 @@ internal sealed class IteratorInlineLoweringPass
                 case ElsePattern: elseClause = c; break;
             }
         }
+
         return noneClause != null && elseClause != null;
     }
 
@@ -284,14 +373,26 @@ internal sealed class IteratorInlineLoweringPass
     // ---------------------------------------------------------------------------------------------
     private static bool IsSimpleNextBody(Statement stmt)
     {
-        if (ContainsLoop(stmt: stmt)) return false;
-        if (ContainsNestedNextCall(stmt: stmt)) return false;
+        if (ContainsLoop(stmt: stmt))
+        {
+            return false;
+        }
+
+        if (ContainsNestedNextCall(stmt: stmt))
+        {
+            return false;
+        }
+
         // A monomorphized emit! body may still carry references to the emitter's own generic
         // parameters (an unresolved `T` in `lateinit var _result: T`) or const-generics (the `N` in
         // `Array[T, N]` → `U64(N)`) that codegen only resolves inside the emitter routine's own
         // type-substitution frame. Splicing such a body into the caller loses that frame and crashes
         // ("Unknown identifier 'N'" / unresolvable `T`). Fall back for these.
-        if (ReferencesUnresolvedGenerics(stmt: stmt)) return false;
+        if (ReferencesUnresolvedGenerics(stmt: stmt))
+        {
+            return false;
+        }
+
         return true;
     }
 
@@ -300,48 +401,77 @@ internal sealed class IteratorInlineLoweringPass
         bool found = false;
 
         // Explicit variable-declaration type annotations (e.g. `lateinit var _result: T`).
-        WalkStatements(stmt: stmt, visit: s =>
+        WalkStatements(stmt: stmt,
+            visit: s =>
+            {
+                if (s is DeclarationStatement
+                        {
+                            Declaration: VariableDeclaration { Type: { } te }
+                        } &&
+                    TypeIsUnresolvedGeneric(type: te.ResolvedType))
+                {
+                    found = true;
+                }
+            });
+        if (found)
         {
-            if (s is DeclarationStatement { Declaration: VariableDeclaration { Type: { } te } }
-                && TypeIsUnresolvedGeneric(type: te.ResolvedType))
-                found = true;
-        });
-        if (found) return true;
+            return true;
+        }
 
         // Const-generic / generic-param references surfacing as expression ResolvedTypes
         // (e.g. the `N` identifier in `U64(N)`).
-        WalkExpressions(stmt: stmt, visit: e =>
-        {
-            if (TypeIsUnresolvedGeneric(type: e.ResolvedType)) found = true;
-        });
+        WalkExpressions(stmt: stmt,
+            visit: e =>
+            {
+                if (TypeIsUnresolvedGeneric(type: e.ResolvedType))
+                {
+                    found = true;
+                }
+            });
         return found;
     }
 
     private static bool TypeIsUnresolvedGeneric(TypeInfo? type)
     {
-        if (type == null) return false;
-        if (type is GenericParameterTypeInfo or ConstGenericValueTypeInfo) return true;
-        return type.TypeArguments is { Count: > 0 } args
-            && args.Any(a => TypeIsUnresolvedGeneric(type: a));
+        if (type == null)
+        {
+            return false;
+        }
+
+        if (type is GenericParameterTypeInfo or ConstGenericValueTypeInfo)
+        {
+            return true;
+        }
+
+        return type.TypeArguments is { Count: > 0 } args &&
+               args.Any(predicate: a => TypeIsUnresolvedGeneric(type: a));
     }
 
     private static bool ContainsLoop(Statement stmt)
     {
         bool found = false;
-        WalkStatements(stmt: stmt, visit: s =>
-        {
-            if (s is LoopStatement or WhileStatement or EachStatement) found = true;
-        });
+        WalkStatements(stmt: stmt,
+            visit: s =>
+            {
+                if (s is LoopStatement or WhileStatement or EachStatement)
+                {
+                    found = true;
+                }
+            });
         return found;
     }
 
     private static bool ContainsNestedNextCall(Statement stmt)
     {
         bool found = false;
-        WalkExpressions(stmt: stmt, visit: e =>
-        {
-            if (IsNextCall(e)) found = true;
-        });
+        WalkExpressions(stmt: stmt,
+            visit: e =>
+            {
+                if (IsNextCall(e: e))
+                {
+                    found = true;
+                }
+            });
         return found;
     }
 
@@ -355,10 +485,18 @@ internal sealed class IteratorInlineLoweringPass
         if (e is CallExpression call)
         {
             // Name/OriginalName are bare (the wired `$` is a structured attribute, not in the name).
-            if (call.ResolvedRoutine is { IsFailable: true } r && (r.OriginalName ?? r.Name) == "emit")
+            if (call.ResolvedRoutine is { IsFailable: true } r &&
+                (r.OriginalName ?? r.Name) == "emit")
+            {
                 return true;
-            if (call.Callee is MemberExpression { MemberName: "emit" }) return true;
+            }
+
+            if (call.Callee is MemberExpression { MemberName: "emit" })
+            {
+                return true;
+            }
         }
+
         return false;
     }
 
@@ -405,7 +543,10 @@ internal sealed class IteratorInlineLoweringPass
             case BlockStatement block:
                 return block with
                 {
-                    Statements = block.Statements.Select(selector: s => RewriteNextStatement(stmt: s, ctx: ctx)).ToList()
+                    Statements = block.Statements
+                                      .Select(selector: s =>
+                                           RewriteNextStatement(stmt: s, ctx: ctx))
+                                      .ToList()
                 };
 
             case IfStatement ifs:
@@ -422,11 +563,13 @@ internal sealed class IteratorInlineLoweringPass
                 return w with
                 {
                     Expression = CloneExpression(expr: w.Expression, ctx: ctx),
-                    Clauses = w.Clauses.Select(selector: c => c with
-                    {
-                        Pattern = ClonePattern(pattern: c.Pattern, ctx: ctx),
-                        Body = RewriteNextStatement(stmt: c.Body, ctx: ctx)
-                    }).ToList()
+                    Clauses = w.Clauses
+                               .Select(selector: c => c with
+                                {
+                                    Pattern = ClonePattern(pattern: c.Pattern, ctx: ctx),
+                                    Body = RewriteNextStatement(stmt: c.Body, ctx: ctx)
+                                })
+                               .ToList()
                 };
 
             case UsingStatement u:
@@ -440,7 +583,10 @@ internal sealed class IteratorInlineLoweringPass
                 };
 
             case DangerStatement d:
-                return d with { Body = (BlockStatement)RewriteNextStatement(stmt: d.Body, ctx: ctx) };
+                return d with
+                {
+                    Body = (BlockStatement)RewriteNextStatement(stmt: d.Body, ctx: ctx)
+                };
 
             // Loops must never appear (the gate excludes them); guard defensively.
             case LoopStatement:
@@ -458,10 +604,11 @@ internal sealed class IteratorInlineLoweringPass
     /// Replaces a <c>return v</c> in the emit! body with the loop-variable bindings CFLP builds for
     /// the <c>else v:</c> clause, followed by the (already-lowered) user body.
     /// </summary>
-    private static BlockStatement BuildReturnReplacement(Expression? retValue, NextBodyRewriteContext ctx,
-        SourceLocation loc)
+    private static BlockStatement BuildReturnReplacement(Expression? retValue,
+        NextBodyRewriteContext ctx, SourceLocation loc)
     {
-        Expression value = retValue != null ? CloneExpression(expr: retValue, ctx: ctx)
+        Expression value = retValue != null
+            ? CloneExpression(expr: retValue, ctx: ctx)
             : new IdentifierExpression(Name: "None", Location: loc);
 
         // Simple variable / discard: bind `var <loopvar> = value` (unless discard, where CFLP used a
@@ -469,23 +616,33 @@ internal sealed class IteratorInlineLoweringPass
         if (ctx.ElsePattern.VariableName is { } elseVarName)
         {
             var bindStmt = new DeclarationStatement(
-                Declaration: new VariableDeclaration(
-                    Name: elseVarName, Type: null, Initializer: value,
-                    Visibility: VisibilityModifier.Secret, Location: loc),
+                Declaration: new VariableDeclaration(Name: elseVarName,
+                    Type: null,
+                    Initializer: value,
+                    Visibility: VisibilityModifier.Secret,
+                    Location: loc),
                 Location: loc);
-            return new BlockStatement(Statements: [bindStmt, CloneUserBody(ctx.LoweredUserBody)], Location: loc);
+            return new BlockStatement(Statements:
+                [bindStmt, CloneUserBody(userBody: ctx.LoweredUserBody)],
+                Location: loc);
         }
 
         // Discard: still evaluate `value` for side-effects (it's the advance), then the user body.
-        return new BlockStatement(
-            Statements: [new ExpressionStatement(Expression: value, Location: loc), CloneUserBody(ctx.LoweredUserBody)],
+        return new BlockStatement(Statements:
+            [
+                new ExpressionStatement(Expression: value, Location: loc),
+                CloneUserBody(userBody: ctx.LoweredUserBody)
+            ],
             Location: loc);
     }
 
     // The user body is spliced at exactly one return site per simple emit! (simple bodies have a
     // single tail return), so it is used once and need not be cloned. But to be safe against a
     // emit! body with multiple return statements, deep-clone it each time.
-    private static Statement CloneUserBody(Statement userBody) => userBody;
+    private static Statement CloneUserBody(Statement userBody)
+    {
+        return userBody;
+    }
 
     // ---------------------------------------------------------------------------------------------
     // Local-declaration collection: gather the names of `var` declarations the emit! body
@@ -494,12 +651,15 @@ internal sealed class IteratorInlineLoweringPass
     private static void CollectDeclaredLocals(Statement stmt, Dictionary<string, string> sink,
         string prefix)
     {
-        WalkStatements(stmt: stmt, visit: s =>
-        {
-            if (s is DeclarationStatement { Declaration: VariableDeclaration vd }
-                && !sink.ContainsKey(vd.Name) && vd.Name != "_")
-                sink[vd.Name] = prefix + vd.Name;
-        });
+        WalkStatements(stmt: stmt,
+            visit: s =>
+            {
+                if (s is DeclarationStatement { Declaration: VariableDeclaration vd } &&
+                    !sink.ContainsKey(key: vd.Name) && vd.Name != "_")
+                {
+                    sink[key: vd.Name] = prefix + vd.Name;
+                }
+            });
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -510,17 +670,26 @@ internal sealed class IteratorInlineLoweringPass
         switch (stmt)
         {
             case BlockStatement b:
-                return b with { Statements = b.Statements.Select(selector: s => CloneStatement(stmt: s, ctx: ctx)).ToList() };
+                return b with
+                {
+                    Statements = b.Statements
+                                  .Select(selector: s => CloneStatement(stmt: s, ctx: ctx))
+                                  .ToList()
+                };
 
             case DeclarationStatement { Declaration: VariableDeclaration vd } ds:
             {
-                string newName = ctx.LocalRenames.TryGetValue(vd.Name, out string? r) ? r : vd.Name;
+                string newName = ctx.LocalRenames.TryGetValue(key: vd.Name, value: out string? r)
+                    ? r
+                    : vd.Name;
                 return ds with
                 {
                     Declaration = vd with
                     {
                         Name = newName,
-                        Initializer = vd.Initializer != null ? CloneExpression(expr: vd.Initializer, ctx: ctx) : null
+                        Initializer = vd.Initializer != null
+                            ? CloneExpression(expr: vd.Initializer, ctx: ctx)
+                            : null
                     }
                 };
             }
@@ -536,7 +705,12 @@ internal sealed class IteratorInlineLoweringPass
                 };
 
             case ReturnStatement ret:
-                return ret with { Value = ret.Value != null ? CloneExpression(expr: ret.Value, ctx: ctx) : null };
+                return ret with
+                {
+                    Value = ret.Value != null
+                        ? CloneExpression(expr: ret.Value, ctx: ctx)
+                        : null
+                };
 
             case ThrowStatement th:
                 return th with { Error = CloneExpression(expr: th.Error, ctx: ctx) };
@@ -552,18 +726,22 @@ internal sealed class IteratorInlineLoweringPass
                 {
                     Condition = CloneExpression(expr: ifs.Condition, ctx: ctx),
                     ThenStatement = CloneStatement(stmt: ifs.ThenStatement, ctx: ctx),
-                    ElseStatement = ifs.ElseStatement != null ? CloneStatement(stmt: ifs.ElseStatement, ctx: ctx) : null
+                    ElseStatement = ifs.ElseStatement != null
+                        ? CloneStatement(stmt: ifs.ElseStatement, ctx: ctx)
+                        : null
                 };
 
             case WhenStatement w:
                 return w with
                 {
                     Expression = CloneExpression(expr: w.Expression, ctx: ctx),
-                    Clauses = w.Clauses.Select(selector: c => c with
-                    {
-                        Pattern = ClonePattern(pattern: c.Pattern, ctx: ctx),
-                        Body = CloneStatement(stmt: c.Body, ctx: ctx)
-                    }).ToList()
+                    Clauses = w.Clauses
+                               .Select(selector: c => c with
+                                {
+                                    Pattern = ClonePattern(pattern: c.Pattern, ctx: ctx),
+                                    Body = CloneStatement(stmt: c.Body, ctx: ctx)
+                                })
+                               .ToList()
                 };
 
             case UsingStatement u:
@@ -571,7 +749,9 @@ internal sealed class IteratorInlineLoweringPass
                 {
                     Resource = CloneExpression(expr: u.Resource, ctx: ctx),
                     Body = CloneStatement(stmt: u.Body, ctx: ctx),
-                    FallbackBody = u.FallbackBody != null ? CloneStatement(stmt: u.FallbackBody, ctx: ctx) : null
+                    FallbackBody = u.FallbackBody != null
+                        ? CloneStatement(stmt: u.FallbackBody, ctx: ctx)
+                        : null
                 };
 
             case DangerStatement d:
@@ -598,9 +778,15 @@ internal sealed class IteratorInlineLoweringPass
             case IdentifierExpression id:
             {
                 if (id.Name == "me")
+                {
                     return id with { Name = ctx.IterLocalName };
-                if (ctx.LocalRenames.TryGetValue(id.Name, out string? r))
+                }
+
+                if (ctx.LocalRenames.TryGetValue(key: id.Name, value: out string? r))
+                {
                     return id with { Name = r };
+                }
+
                 return id;
             }
 
@@ -614,14 +800,18 @@ internal sealed class IteratorInlineLoweringPass
                 return call with
                 {
                     Callee = CloneExpression(expr: call.Callee, ctx: ctx),
-                    Arguments = call.Arguments.Select(selector: a => CloneExpression(expr: a, ctx: ctx)).ToList()
+                    Arguments = call.Arguments
+                                    .Select(selector: a => CloneExpression(expr: a, ctx: ctx))
+                                    .ToList()
                 };
 
             case GenericMemberRoutineCallExpression gcall:
                 return gcall with
                 {
                     Object = CloneExpression(expr: gcall.Object, ctx: ctx),
-                    Arguments = gcall.Arguments.Select(selector: a => CloneExpression(expr: a, ctx: ctx)).ToList()
+                    Arguments = gcall.Arguments
+                                     .Select(selector: a => CloneExpression(expr: a, ctx: ctx))
+                                     .ToList()
                 };
 
             case GenericMemberExpression gm:
@@ -665,31 +855,54 @@ internal sealed class IteratorInlineLoweringPass
                 return st with { Operand = CloneExpression(expr: st.Operand, ctx: ctx) };
 
             case TupleLiteralExpression tup:
-                return tup with { Elements = tup.Elements.Select(selector: e => CloneExpression(expr: e, ctx: ctx)).ToList() };
+                return tup with
+                {
+                    Elements = tup.Elements
+                                  .Select(selector: e => CloneExpression(expr: e, ctx: ctx))
+                                  .ToList()
+                };
 
             case ListLiteralExpression ll:
-                return ll with { Elements = ll.Elements.Select(selector: e => CloneExpression(expr: e, ctx: ctx)).ToList() };
+                return ll with
+                {
+                    Elements = ll.Elements
+                                 .Select(selector: e => CloneExpression(expr: e, ctx: ctx))
+                                 .ToList()
+                };
 
             case SetLiteralExpression sl:
-                return sl with { Elements = sl.Elements.Select(selector: e => CloneExpression(expr: e, ctx: ctx)).ToList() };
+                return sl with
+                {
+                    Elements = sl.Elements
+                                 .Select(selector: e => CloneExpression(expr: e, ctx: ctx))
+                                 .ToList()
+                };
 
             case RangeExpression rng:
                 return rng with
                 {
                     Start = CloneExpression(expr: rng.Start, ctx: ctx),
                     End = CloneExpression(expr: rng.End, ctx: ctx),
-                    Step = rng.Step != null ? CloneExpression(expr: rng.Step, ctx: ctx) : null
+                    Step = rng.Step != null
+                        ? CloneExpression(expr: rng.Step, ctx: ctx)
+                        : null
                 };
 
             case ChainedComparisonExpression cc:
-                return cc with { Operands = cc.Operands.Select(selector: o => CloneExpression(expr: o, ctx: ctx)).ToList() };
+                return cc with
+                {
+                    Operands = cc.Operands
+                                 .Select(selector: o => CloneExpression(expr: o, ctx: ctx))
+                                 .ToList()
+                };
 
             case CreatorExpression cr:
                 return cr with
                 {
                     MemberVariables = cr.MemberVariables
-                        .Select(selector: mv => (mv.Name, CloneExpression(expr: mv.Value, ctx: ctx)))
-                        .ToList()
+                                        .Select(selector: mv => (mv.Name,
+                                             CloneExpression(expr: mv.Value, ctx: ctx)))
+                                        .ToList()
                 };
 
             case BlockExpression be:
@@ -712,7 +925,10 @@ internal sealed class IteratorInlineLoweringPass
     {
         return pattern switch
         {
-            ExpressionPattern ep => ep with { Expression = CloneExpression(expr: ep.Expression, ctx: ctx) },
+            ExpressionPattern ep => ep with
+            {
+                Expression = CloneExpression(expr: ep.Expression, ctx: ctx)
+            },
             ComparisonPattern cp => cp with { Value = CloneExpression(expr: cp.Value, ctx: ctx) },
             GuardPattern gp => gp with
             {
@@ -728,33 +944,57 @@ internal sealed class IteratorInlineLoweringPass
     // ---------------------------------------------------------------------------------------------
     private static void WalkStatements(Statement stmt, Action<Statement> visit)
     {
-        visit(stmt);
+        visit(obj: stmt);
         switch (stmt)
         {
             case BlockStatement b:
-                foreach (Statement s in b.Statements) WalkStatements(stmt: s, visit: visit);
+                foreach (Statement s in b.Statements)
+                {
+                    WalkStatements(stmt: s, visit: visit);
+                }
+
                 break;
             case IfStatement ifs:
                 WalkStatements(stmt: ifs.ThenStatement, visit: visit);
-                if (ifs.ElseStatement != null) WalkStatements(stmt: ifs.ElseStatement, visit: visit);
+                if (ifs.ElseStatement != null)
+                {
+                    WalkStatements(stmt: ifs.ElseStatement, visit: visit);
+                }
+
                 break;
             case WhileStatement w:
                 WalkStatements(stmt: w.Body, visit: visit);
-                if (w.ElseBranch != null) WalkStatements(stmt: w.ElseBranch, visit: visit);
+                if (w.ElseBranch != null)
+                {
+                    WalkStatements(stmt: w.ElseBranch, visit: visit);
+                }
+
                 break;
             case LoopStatement l:
                 WalkStatements(stmt: l.Body, visit: visit);
                 break;
             case EachStatement f:
                 WalkStatements(stmt: f.Body, visit: visit);
-                if (f.ElseBranch != null) WalkStatements(stmt: f.ElseBranch, visit: visit);
+                if (f.ElseBranch != null)
+                {
+                    WalkStatements(stmt: f.ElseBranch, visit: visit);
+                }
+
                 break;
             case WhenStatement wn:
-                foreach (WhenClause c in wn.Clauses) WalkStatements(stmt: c.Body, visit: visit);
+                foreach (WhenClause c in wn.Clauses)
+                {
+                    WalkStatements(stmt: c.Body, visit: visit);
+                }
+
                 break;
             case UsingStatement u:
                 WalkStatements(stmt: u.Body, visit: visit);
-                if (u.FallbackBody != null) WalkStatements(stmt: u.FallbackBody, visit: visit);
+                if (u.FallbackBody != null)
+                {
+                    WalkStatements(stmt: u.FallbackBody, visit: visit);
+                }
+
                 break;
             case DangerStatement d:
                 WalkStatements(stmt: d.Body, visit: visit);
@@ -764,63 +1004,82 @@ internal sealed class IteratorInlineLoweringPass
 
     private static void WalkExpressions(Statement stmt, Action<Expression> visit)
     {
-        WalkStatements(stmt: stmt, visit: s =>
-        {
-            switch (s)
+        WalkStatements(stmt: stmt,
+            visit: s =>
             {
-                case DeclarationStatement { Declaration: VariableDeclaration { Initializer: { } init } }:
-                    WalkExpr(e: init, visit: visit);
-                    break;
-                case ExpressionStatement es: WalkExpr(e: es.Expression, visit: visit); break;
-                case AssignmentStatement asg:
-                    WalkExpr(e: asg.Target, visit: visit);
-                    WalkExpr(e: asg.Value, visit: visit);
-                    break;
-                case ReturnStatement { Value: { } rv }: WalkExpr(e: rv, visit: visit); break;
-                case ThrowStatement th: WalkExpr(e: th.Error, visit: visit); break;
-                case BecomesStatement bc: WalkExpr(e: bc.Value, visit: visit); break;
-                case DiscardStatement disc: WalkExpr(e: disc.Expression, visit: visit); break;
-                case IfStatement ifs: WalkExpr(e: ifs.Condition, visit: visit); break;
-                case WhileStatement w: WalkExpr(e: w.Condition, visit: visit); break;
-                case WhenStatement wn: WalkExpr(e: wn.Expression, visit: visit); break;
-                case UsingStatement u: WalkExpr(e: u.Resource, visit: visit); break;
-            }
-        });
+                switch (s)
+                {
+                    case DeclarationStatement
+                    {
+                        Declaration: VariableDeclaration { Initializer: { } init }
+                    }:
+                        WalkExpr(e: init, visit: visit);
+                        break;
+                    case ExpressionStatement es: WalkExpr(e: es.Expression, visit: visit); break;
+                    case AssignmentStatement asg:
+                        WalkExpr(e: asg.Target, visit: visit);
+                        WalkExpr(e: asg.Value, visit: visit);
+                        break;
+                    case ReturnStatement { Value: { } rv }: WalkExpr(e: rv, visit: visit); break;
+                    case ThrowStatement th: WalkExpr(e: th.Error, visit: visit); break;
+                    case BecomesStatement bc: WalkExpr(e: bc.Value, visit: visit); break;
+                    case DiscardStatement disc: WalkExpr(e: disc.Expression, visit: visit); break;
+                    case IfStatement ifs: WalkExpr(e: ifs.Condition, visit: visit); break;
+                    case WhileStatement w: WalkExpr(e: w.Condition, visit: visit); break;
+                    case WhenStatement wn: WalkExpr(e: wn.Expression, visit: visit); break;
+                    case UsingStatement u: WalkExpr(e: u.Resource, visit: visit); break;
+                }
+            });
     }
 
     private static void WalkExpr(Expression e, Action<Expression> visit)
     {
-        visit(e);
+        visit(obj: e);
         switch (e)
         {
             case MemberExpression m: WalkExpr(e: m.Object, visit: visit); break;
             case OptionalMemberExpression om: WalkExpr(e: om.Object, visit: visit); break;
             case CallExpression call: WalkCallExpr(call: call, visit: visit); break;
-            case GenericMemberRoutineCallExpression gcall: WalkGenericCallExpr(gcall: gcall, visit: visit); break;
+            case GenericMemberRoutineCallExpression gcall:
+                WalkGenericCallExpr(gcall: gcall, visit: visit); break;
             case GenericMemberExpression gm: WalkExpr(e: gm.Object, visit: visit); break;
             case NamedArgumentExpression na: WalkExpr(e: na.Value, visit: visit); break;
-            case BinaryExpression bin: WalkExpr(e: bin.Left, visit: visit); WalkExpr(e: bin.Right, visit: visit); break;
+            case BinaryExpression bin:
+                WalkExpr(e: bin.Left, visit: visit);
+                WalkExpr(e: bin.Right, visit: visit);
+                break;
             case UnaryExpression un: WalkExpr(e: un.Operand, visit: visit); break;
-            case IndexExpression ix: WalkExpr(e: ix.Object, visit: visit); WalkExpr(e: ix.Index, visit: visit); break;
+            case IndexExpression ix:
+                WalkExpr(e: ix.Object, visit: visit);
+                WalkExpr(e: ix.Index, visit: visit);
+                break;
             case ConditionalExpression cond: WalkConditionalExpr(cond: cond, visit: visit); break;
             case TypeConversionExpression tc: WalkExpr(e: tc.Expression, visit: visit); break;
             case CarrierPayloadExpression cp: WalkExpr(e: cp.Carrier, visit: visit); break;
             case StealExpression st: WalkExpr(e: st.Operand, visit: visit); break;
             case TupleLiteralExpression tup:
                 foreach (Expression x in tup.Elements) { WalkExpr(e: x, visit: visit); }
+
                 break;
             case ListLiteralExpression ll:
                 foreach (Expression x in ll.Elements) { WalkExpr(e: x, visit: visit); }
+
                 break;
             case SetLiteralExpression sl:
                 foreach (Expression x in sl.Elements) { WalkExpr(e: x, visit: visit); }
+
                 break;
             case RangeExpression rng: WalkRangeExpr(rng: rng, visit: visit); break;
             case ChainedComparisonExpression cc:
                 foreach (Expression o in cc.Operands) { WalkExpr(e: o, visit: visit); }
+
                 break;
             case CreatorExpression cr:
-                foreach (var mv in cr.MemberVariables) { WalkExpr(e: mv.Value, visit: visit); }
+                foreach ((string Name, Expression Value) mv in cr.MemberVariables)
+                {
+                    WalkExpr(e: mv.Value, visit: visit);
+                }
+
                 break;
             case BlockExpression be: WalkExpr(e: be.Value, visit: visit); break;
         }
@@ -832,7 +1091,8 @@ internal sealed class IteratorInlineLoweringPass
         foreach (Expression a in call.Arguments) { WalkExpr(e: a, visit: visit); }
     }
 
-    private static void WalkGenericCallExpr(GenericMemberRoutineCallExpression gcall, Action<Expression> visit)
+    private static void WalkGenericCallExpr(GenericMemberRoutineCallExpression gcall,
+        Action<Expression> visit)
     {
         WalkExpr(e: gcall.Object, visit: visit);
         foreach (Expression a in gcall.Arguments) { WalkExpr(e: a, visit: visit); }
@@ -849,6 +1109,9 @@ internal sealed class IteratorInlineLoweringPass
     {
         WalkExpr(e: rng.Start, visit: visit);
         WalkExpr(e: rng.End, visit: visit);
-        if (rng.Step != null) WalkExpr(e: rng.Step, visit: visit);
+        if (rng.Step != null)
+        {
+            WalkExpr(e: rng.Step, visit: visit);
+        }
     }
 }

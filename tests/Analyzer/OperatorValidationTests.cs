@@ -11,10 +11,10 @@ using static TestHelpers;
 public class OperatorValidationTests
 {
     #region Index operator legality is governed by protocol conformance, not type kind
+
     /// <summary>
     /// An entity that follows Indexable may define $getitem — no protocol-conformance error.
     /// </summary>
-
     [Fact]
     public void Analyze_IndexOperatorOnEntity_NoError()
     {
@@ -37,7 +37,6 @@ public class OperatorValidationTests
     /// Records are indexable too (e.g. Array[T,N]/BitArray[N] are records), so a record that follows
     /// Indexable may define $getitem with no error — legality follows the protocol, not the type kind.
     /// </summary>
-
     [Fact]
     public void Analyze_IndexOperatorOnRecord_NoError()
     {
@@ -62,7 +61,6 @@ public class OperatorValidationTests
     /// Defining $getitem WITHOUT following Indexable is the actual error — governed by protocol
     /// conformance (RF-S411), independent of whether the owner is a record or an entity.
     /// </summary>
-
     [Fact]
     public void Analyze_IndexOperatorWithoutIndexable_ReportsError()
     {
@@ -83,10 +81,10 @@ public class OperatorValidationTests
     #endregion
 
     #region #117: Fixed-width numeric type mismatch
+
     /// <summary>
     /// Verifies semantic analysis behavior for same fixed width arithmetic without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_SameFixedWidthArithmetic_NoError()
     {
@@ -105,7 +103,6 @@ public class OperatorValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for mixed fixed width arithmetic and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_MixedFixedWidthArithmetic_ReportsError()
     {
@@ -122,10 +119,10 @@ public class OperatorValidationTests
     #endregion
 
     #region #119: BackIndex in Range restriction
+
     /// <summary>
     /// Verifies semantic analysis behavior for back index in range and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_BackIndexInRange_ReportsError()
     {
@@ -142,7 +139,6 @@ public class OperatorValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for back index in slice without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_BackIndexInSlice_NoError()
     {
@@ -217,10 +213,10 @@ public class OperatorValidationTests
     #endregion
 
     #region S201: Binary operator type mismatch
+
     /// <summary>
     /// Verifies semantic analysis behavior for text plus list reports argument type mismatch.
     /// </summary>
-
     [Fact]
     public void Analyze_TextPlusList_ReportsArgumentTypeMismatch()
     {
@@ -236,7 +232,6 @@ public class OperatorValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for text plus text without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_TextPlusText_NoError()
     {

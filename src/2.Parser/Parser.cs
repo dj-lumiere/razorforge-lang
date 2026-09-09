@@ -198,7 +198,9 @@ public partial class Parser
                 // and is discarded when the loop ends, so it can't drive ParseDeclaration into an EOF error.
                 if (Check(type: TokenType.DocComment))
                 {
-                    pendingDoc.Add(item: Advance().Text.Trim());
+                    pendingDoc.Add(item: Advance()
+                                        .Text
+                                        .Trim());
                     continue;
                 }
 
@@ -249,7 +251,7 @@ public partial class Parser
     private List<ISyntaxTreeNode> WrapScriptStatementsIntoStart(List<ISyntaxTreeNode> nodes)
     {
         // Trigger only on a loose top-level STATEMENT — a pure module file (declarations only) is untouched.
-        if (!nodes.Any(n => n is Statement))
+        if (!nodes.Any(predicate: n => n is Statement))
         {
             return nodes;
         }
@@ -257,7 +259,9 @@ public partial class Parser
         // Collect the executable top-level nodes (statements + runtime var decls) in source order.
         var body = new List<Statement>();
         var kept = new List<ISyntaxTreeNode>();
-        SourceLocation startLoc = PartitionScriptNodes(nodes: nodes, body: body, kept: kept,
+        SourceLocation startLoc = PartitionScriptNodes(nodes: nodes,
+            body: body,
+            kept: kept,
             explicitStart: out RoutineDeclaration? explicitStart);
 
         if (explicitStart != null)
@@ -270,8 +274,7 @@ public partial class Parser
             body.Add(item: new ReturnStatement(Value: null, Location: startLoc));
         }
 
-        kept.Add(item: new RoutineDeclaration(
-            Name: "start",
+        kept.Add(item: new RoutineDeclaration(Name: "start",
             Parameters: [],
             ReturnType: null,
             Body: new BlockStatement(Statements: body, Location: startLoc),
@@ -298,15 +301,27 @@ public partial class Parser
             switch (n)
             {
                 case Statement s:
-                    if (!locSet) { startLoc = s.Location; locSet = true; }
+                    if (!locSet)
+                    {
+                        startLoc = s.Location;
+                        locSet = true;
+                    }
+
                     body.Add(item: s);
                     break;
                 case VariableDeclaration vd:
-                    if (!locSet) { startLoc = vd.Location; locSet = true; }
-                    body.Add(item: new DeclarationStatement(Declaration: vd, Location: vd.Location));
+                    if (!locSet)
+                    {
+                        startLoc = vd.Location;
+                        locSet = true;
+                    }
+
+                    body.Add(
+                        item: new DeclarationStatement(Declaration: vd, Location: vd.Location));
                     break;
                 default:
                     if (n is RoutineDeclaration { Name: "start" } rd) { explicitStart = rd; }
+
                     kept.Add(item: n);
                     break;
             }
@@ -327,7 +342,10 @@ public partial class Parser
             message:
             "A Suflae file cannot mix top-level statements with an explicit `routine start()`. " +
             "Either move the top-level statements into start(), or remove the explicit start().",
-            fileName: FileName, line: startLoc.Line, column: startLoc.Column, language: _language);
+            fileName: FileName,
+            line: startLoc.Line,
+            column: startLoc.Column,
+            language: _language);
         _errors.Add(item: ex.Message);
         _structuredErrors.Add(item: ex);
         DiagnosticRenderer.Print(ex: ex, writer: Console.Error);
@@ -380,7 +398,10 @@ public partial class Parser
         SkipDocCommentsAndTargetAnnotation();
 
         ISyntaxTreeNode? fileLevelDecl = TryParseFileLevelDeclaration();
-        if (fileLevelDecl != null) return fileLevelDecl;
+        if (fileLevelDecl != null)
+        {
+            return fileLevelDecl;
+        }
 
         // ═══════════════════════════════════════════════════════════════════════════
         // PARSE MODIFIERS (annotations, visibility, storage class)
@@ -410,15 +431,21 @@ public partial class Parser
 
         // Check for dangerous modifier: dangerous routine foo(), dangerous external("C") routine bar()
         // (RazorForge only)
-        bool isDangerous = _language == Language.RazorForge && CheckAndAdvance(type: TokenType.Dangerous);
+        bool isDangerous = _language == Language.RazorForge &&
+                           CheckAndAdvance(type: TokenType.Dangerous);
 
         ISyntaxTreeNode? varOrField = TryParseTypeBodyOrVariableDeclaration(
-            visibility: visibility, annotations: annotations);
-        if (varOrField != null) return varOrField;
+            visibility: visibility,
+            annotations: annotations);
+        if (varOrField != null)
+        {
+            return varOrField;
+        }
 
-        return ParseRoutineOrTypeDeclaration(
-            visibility: visibility, annotations: annotations,
-            isCommon: isCommon, isDangerous: isDangerous);
+        return ParseRoutineOrTypeDeclaration(visibility: visibility,
+            annotations: annotations,
+            isCommon: isCommon,
+            isDangerous: isDangerous);
     }
 
     /// <summary>
@@ -432,16 +459,23 @@ public partial class Parser
         // Skip them to prevent "Unexpected token" errors.
         while (CheckAndAdvance(type: TokenType.DocComment))
         {
-            while (CheckAndAdvance(type: TokenType.Newline)) { /* consume trailing newlines after doc comment */ }
+            while (CheckAndAdvance(type: TokenType.Newline))
+            {
+                /* consume trailing newlines after doc comment */
+            }
         }
 
         // The @target(...) annotation is read pre-parse by the build's file gate; discard it here.
         // Keeping it a real @-annotation (not a comment) gives it editor highlighting.
-        if (Check(type: TokenType.At) && PeekToken(offset: 1).Type == TokenType.Identifier
-            && PeekToken(offset: 1).Text == "target")
+        if (Check(type: TokenType.At) && PeekToken(offset: 1)
+               .Type == TokenType.Identifier && PeekToken(offset: 1)
+               .Text == "target")
         {
             ParseAnnotations();
-            while (CheckAndAdvance(type: TokenType.Newline)) { /* consume trailing newlines after @target */ }
+            while (CheckAndAdvance(type: TokenType.Newline))
+            {
+                /* consume trailing newlines after @target */
+            }
         }
     }
 
@@ -452,10 +486,26 @@ public partial class Parser
     /// </summary>
     private ISyntaxTreeNode? TryParseFileLevelDeclaration()
     {
-        if (CheckAndAdvance(type: TokenType.Module)) return ParseModuleDeclaration();
-        if (CheckAndAdvance(type: TokenType.Import)) return ParseImportDeclaration();
-        if (CheckAndAdvance(type: TokenType.Define)) return ParseDefineDeclaration();
-        if (CheckAndAdvance(type: TokenType.Preset)) return ParsePresetDeclaration();
+        if (CheckAndAdvance(type: TokenType.Module))
+        {
+            return ParseModuleDeclaration();
+        }
+
+        if (CheckAndAdvance(type: TokenType.Import))
+        {
+            return ParseImportDeclaration();
+        }
+
+        if (CheckAndAdvance(type: TokenType.Define))
+        {
+            return ParseDefineDeclaration();
+        }
+
+        if (CheckAndAdvance(type: TokenType.Preset))
+        {
+            return ParsePresetDeclaration();
+        }
+
         return null;
     }
 
@@ -469,16 +519,21 @@ public partial class Parser
         // Decl-position expand: `expand m in allmemvarof(T)` inside a record/entity body generates one
         // member-variable column per member of the (concrete-at-instantiation) source type.
         if (_parsingTypeBody && Check(type: TokenType.Expand))
+        {
             return ParseExpandMemberDeclaration();
+        }
 
         // Field declaration in type bodies: name: Type — identifier followed by colon, no var keyword.
-        if (_parsingTypeBody && Check(type: TokenType.Identifier)
-            && PeekToken(offset: 1).Type == TokenType.Colon)
+        if (_parsingTypeBody && Check(type: TokenType.Identifier) && PeekToken(offset: 1)
+               .Type == TokenType.Colon)
+        {
             return ParseTypeBodyFieldDeclaration(visibility: visibility);
+        }
 
         // Variable declarations — optionally prefixed with `lateinit`
         bool declLateInit = false;
-        if (Check(type: TokenType.LateInit) && PeekToken(offset: 1).Type == TokenType.Var)
+        if (Check(type: TokenType.LateInit) && PeekToken(offset: 1)
+               .Type == TokenType.Var)
         {
             Advance(); // consume 'lateinit'
             declLateInit = true;
@@ -486,13 +541,18 @@ public partial class Parser
 
         // `secret preset NAME` — route to preset parser so it carries the secret flag.
         if (Check(type: TokenType.Preset))
+        {
             return ParsePresetInDeclarationPosition(visibility: visibility);
+        }
 
         // `global NAME: Type = value` — module-level mutable global (Suflae only).
         if (Check(type: TokenType.Global))
-            return ParseGlobalInDeclarationPosition(visibility: visibility, annotations: annotations);
+        {
+            return ParseGlobalInDeclarationPosition(visibility: visibility,
+                annotations: annotations);
+        }
 
-        if (CheckAndAdvance(TokenType.Var))
+        if (CheckAndAdvance(type: TokenType.Var))
         {
             if (_parsingTypeBody)
             {
@@ -504,8 +564,10 @@ public partial class Parser
                     column: CurrentToken.Column,
                     language: _language);
             }
+
             return ParseVariableDeclaration(visibility: visibility,
-                annotations: annotations, isLateInit: declLateInit);
+                annotations: annotations,
+                isLateInit: declLateInit);
         }
 
         // Pass statement/declaration (empty placeholder, RazorForge only).
@@ -545,8 +607,9 @@ public partial class Parser
             string modifier = asyncStatus switch
             {
                 AsyncStatus.Suspended => "suspended",
-                AsyncStatus.Threaded  => "threaded",
-                _                     => asyncStatus.ToString().ToLower()
+                AsyncStatus.Threaded => "threaded",
+                _ => asyncStatus.ToString()
+                                .ToLower()
             };
             throw new GrammarException(code: GrammarDiagnosticCode.UnexpectedToken,
                 message: $"'{modifier}' must be followed by 'routine'",
@@ -558,13 +621,40 @@ public partial class Parser
 
         RejectCommonOnTypeDeclaration(isCommon: isCommon);
 
-        if (CheckAndAdvance(type: TokenType.Entity))   return ParseEntityDeclaration(visibility: visibility);
-        if (CheckAndAdvance(type: TokenType.Record))   return ParseRecordDeclaration(visibility: visibility, annotations: annotations);
-        if (CheckAndAdvance(type: TokenType.Choice))   return ParseChoiceDeclaration(visibility: visibility);
-        if (CheckAndAdvance(type: TokenType.Flags))    return ParseFlagsDeclaration(visibility: visibility);
-        if (CheckAndAdvance(type: TokenType.Crashable)) return ParseCrashableDeclaration(visibility: visibility);
-        if (CheckAndAdvance(type: TokenType.Variant))  return ParseVariantDeclaration();
-        if (CheckAndAdvance(type: TokenType.Protocol)) return ParseProtocolDeclaration(visibility: visibility);
+        if (CheckAndAdvance(type: TokenType.Entity))
+        {
+            return ParseEntityDeclaration(visibility: visibility);
+        }
+
+        if (CheckAndAdvance(type: TokenType.Record))
+        {
+            return ParseRecordDeclaration(visibility: visibility, annotations: annotations);
+        }
+
+        if (CheckAndAdvance(type: TokenType.Choice))
+        {
+            return ParseChoiceDeclaration(visibility: visibility);
+        }
+
+        if (CheckAndAdvance(type: TokenType.Flags))
+        {
+            return ParseFlagsDeclaration(visibility: visibility);
+        }
+
+        if (CheckAndAdvance(type: TokenType.Crashable))
+        {
+            return ParseCrashableDeclaration(visibility: visibility);
+        }
+
+        if (CheckAndAdvance(type: TokenType.Variant))
+        {
+            return ParseVariantDeclaration();
+        }
+
+        if (CheckAndAdvance(type: TokenType.Protocol))
+        {
+            return ParseProtocolDeclaration(visibility: visibility);
+        }
 
         if (visibility != VisibilityModifier.Open)
         {
@@ -648,10 +738,12 @@ public partial class Parser
                 column: CurrentToken.Column,
                 language: _language);
         }
+
         if (_parsingTypeBody)
         {
             throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                message: "Type member variables cannot use 'global'. Use 'name: Type' syntax instead",
+                message:
+                "Type member variables cannot use 'global'. Use 'name: Type' syntax instead",
                 fileName: FileName,
                 line: CurrentToken.Line,
                 column: CurrentToken.Column,
@@ -659,8 +751,7 @@ public partial class Parser
         }
 
         Advance(); // consume 'global'
-        return ParseGlobalDeclaration(visibility: visibility,
-            annotations: annotations);
+        return ParseGlobalDeclaration(visibility: visibility, annotations: annotations);
     }
 
     /// <summary>
@@ -674,6 +765,7 @@ public partial class Parser
         {
             return AsyncStatus.Threaded;
         }
+
         // Concurrency modifier: suspended routine foo() — a stackful coroutine. SHARED between RF and
         // SF (SUFLAE-FOR-AI §2.8 lists `suspended` as an identical keyword; only `threaded` is RF-only,
         // since SF's Roamed/cycle-collected model has no raw shared-memory threading). SF's single-
@@ -692,13 +784,14 @@ public partial class Parser
     /// when a realm tag before <c>::</c> is present, otherwise an ordinary routine declaration.
     /// </summary>
     private ISyntaxTreeNode ParseRoutineOrForeignDeclaration(VisibilityModifier visibility,
-        List<string> annotations, bool isCommon, AsyncStatus asyncStatus, bool isDangerous)
+        List<string> annotations, bool isCommon, AsyncStatus asyncStatus,
+        bool isDangerous)
     {
         // Realm-qualified FOREIGN routine: `routine C::malloc(...)` / `routine LLVM::sqrt(...)`. The
         // realm tag before `::` picks the calling convention; the declaration is an ExternalDeclaration
         // (no body, foreign impl) — the modern spelling of `external("C"|"llvm") routine ...`.
-        if (Check(type: TokenType.Identifier) &&
-            PeekToken(offset: 1).Type == TokenType.DoubleColon)
+        if (Check(type: TokenType.Identifier) && PeekToken(offset: 1)
+               .Type == TokenType.DoubleColon)
         {
             string? conv = CurrentToken.Text switch
             {
@@ -745,8 +838,7 @@ public partial class Parser
         if (isTypeKeyword)
         {
             throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                message:
-                "'common' storage class is not valid for type declarations",
+                message: "'common' storage class is not valid for type declarations",
                 fileName: FileName,
                 line: CurrentToken.Line,
                 column: CurrentToken.Column,
@@ -819,7 +911,10 @@ public partial class Parser
         // ═══════════════════════════════════════════════════════════════════════════
 
         Statement? keywordStatement = ParseKeywordStatement();
-        if (keywordStatement != null) return keywordStatement;
+        if (keywordStatement != null)
+        {
+            return keywordStatement;
+        }
 
         // ═══════════════════════════════════════════════════════════════════════════
         // RF-ONLY: MEMORY/SCOPE BLOCKS
@@ -837,11 +932,13 @@ public partial class Parser
 
         // Variable declarations (can appear in statement context)
         bool stmtLateInit = false;
-        if (Check(type: TokenType.LateInit) && PeekToken(offset: 1).Type == TokenType.Var)
+        if (Check(type: TokenType.LateInit) && PeekToken(offset: 1)
+               .Type == TokenType.Var)
         {
             Advance(); // consume 'lateinit'
             stmtLateInit = true;
         }
+
         if (CheckAndAdvance(TokenType.Var, TokenType.Preset))
         {
             // Check if this is destructuring: var (a, b) = expr
@@ -920,5 +1017,4 @@ public partial class Parser
                 return null;
         }
     }
-
 }

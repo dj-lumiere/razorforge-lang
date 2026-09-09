@@ -39,10 +39,8 @@ internal static class BracketReclassifyPass
     {
         // The Object may itself contain a nested bracket node that was already reclassified when it
         // was built (ParsePostfix reclassifies bottom-up), so no recursion into Object is needed.
-        bool isGeneric = node.IsFailable
-                         || node.CallArgs is not null
-                         || node.Args.Count > 1
-                         || node.Args.Any(predicate: IsTypeOnlyShaped);
+        bool isGeneric = node.IsFailable || node.CallArgs is not null || node.Args.Count > 1 ||
+                         node.Args.Any(predicate: IsTypeOnlyShaped);
 
         if (!isGeneric)
         {
@@ -52,9 +50,9 @@ internal static class BracketReclassifyPass
                 Location: node.Location);
         }
 
-        List<TypeExpression> typeArgs = node.Args
-            .Select(selector: ExpressionToTypeArg)
-            .ToList();
+        var typeArgs = node.Args
+                           .Select(selector: ExpressionToTypeArg)
+                           .ToList();
 
         // When the parser folded a `.member` into the Object (obj.MemberRoutine[T](...)), the receiver and
         // member name are recovered from that MemberExpression; otherwise this is a free reference
@@ -174,7 +172,10 @@ internal static class BracketReclassifyPass
             // to the resolver's diagnostic).
             case SpliceExpression
             {
-                Inner: MemberExpression { Object: IdentifierExpression spliceHandle, MemberName: "type" }
+                Inner: MemberExpression
+                {
+                    Object: IdentifierExpression spliceHandle, MemberName: "type"
+                }
             } se:
                 return new TypeExpression(Name: "splice",
                     GenericArguments: null,
@@ -214,8 +215,7 @@ internal static class BracketReclassifyPass
             default:
                 // Best-effort: produce an empty name so the resolver can surface a proper diagnostic.
                 // All named expression types are handled by the cases above, so none remain here.
-                return new TypeExpression(
-                    Name: "",
+                return new TypeExpression(Name: "",
                     GenericArguments: null,
                     Location: expr.Location);
         }
@@ -232,8 +232,8 @@ internal static class BracketReclassifyPass
         {
             IdentifierExpression nid => nid.Name,
             MemberExpression nmem => QualifiedName(mem: nmem),
-            BinaryExpression { Operator: BinaryOperator.TrueDivide } nbin =>
-                FlattenProjection(bin: nbin),
+            BinaryExpression { Operator: BinaryOperator.TrueDivide } nbin => FlattenProjection(
+                bin: nbin),
             _ => ""
         };
         return new TypeExpression(Name: nestedName,
@@ -280,7 +280,9 @@ internal static class BracketReclassifyPass
             MemberExpression inner => QualifiedName(mem: inner),
             _ => ""
         };
-        return prefix.Length == 0 ? mem.MemberName : $"{prefix}.{mem.MemberName}";
+        return prefix.Length == 0
+            ? mem.MemberName
+            : $"{prefix}.{mem.MemberName}";
     }
 
     /// <summary>Returns the source text of a const-generic literal.</summary>

@@ -71,6 +71,7 @@ public sealed record ParsedInteger(SourceLocation Location, byte[] Limbs, int Si
     /// Gets whether the parsed integer has a negative sign.
     /// </summary>
     public bool IsNegative => Sign != 0;
+
     /// <inheritdoc/>
     public override string ToString()
     {
@@ -94,10 +95,12 @@ public sealed record ParsedDecimal(
     /// Gets whether the parsed decimal has a negative sign.
     /// </summary>
     public bool IsNegative => Sign < 0;
+
     /// <summary>
     /// Gets whether the parsed decimal represents zero.
     /// </summary>
     public bool IsZero => Sign == 0;
+
     /// <inheritdoc/>
     public override string ToString()
     {
@@ -244,10 +247,12 @@ public sealed record ParsedJn(
     /// Gets whether the parsed arbitrary-precision imaginary component has a negative sign.
     /// </summary>
     public bool IsNegative => Sign < 0;
+
     /// <summary>
     /// Gets whether the parsed arbitrary-precision imaginary component represents zero.
     /// </summary>
     public bool IsZero => Sign == 0;
+
     /// <inheritdoc/>
     public override string ToString()
     {

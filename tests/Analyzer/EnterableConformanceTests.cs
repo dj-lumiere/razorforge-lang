@@ -175,8 +175,7 @@ public class EnterableConformanceTests
                           return
                         """;
 
-        AnalysisResult result = AssertHasErrorSa(source: source,
-            expectedErrorSubstring: "using");
+        AnalysisResult result = AssertHasErrorSa(source: source, expectedErrorSubstring: "using");
         Assert.Contains(collection: result.Errors,
             filter: e => e.Code == SemanticDiagnosticCode.MtTokenRequiresUsing);
     }

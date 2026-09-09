@@ -33,8 +33,16 @@ internal static class NativeToolchain
     {
         get
         {
-            if (OperatingSystem.IsWindows()) return "razorforge_runtime.lib";
-            if (OperatingSystem.IsMacOS()) return "librazorforge_runtime.dylib";
+            if (OperatingSystem.IsWindows())
+            {
+                return "razorforge_runtime.lib";
+            }
+
+            if (OperatingSystem.IsMacOS())
+            {
+                return "librazorforge_runtime.dylib";
+            }
+
             return "librazorforge_runtime.so";
         }
     }
@@ -46,7 +54,7 @@ internal static class NativeToolchain
     {
         string? exeDir = Path.GetDirectoryName(path: typeof(NativeToolchain).Assembly.Location);
         return exeDir ?? throw new InvalidOperationException(
-            "Unable to resolve the RazorForge executable directory.");
+            message: "Unable to resolve the RazorForge executable directory.");
     }
 
     /// <summary>
@@ -102,9 +110,13 @@ internal static class NativeToolchain
                 return null;
             }
 
-            string path = proc.StandardOutput.ReadToEnd().Trim();
+            string path = proc.StandardOutput
+                              .ReadToEnd()
+                              .Trim();
             proc.WaitForExit();
-            return proc.ExitCode == 0 && Directory.Exists(path: path) ? path : null;
+            return proc.ExitCode == 0 && Directory.Exists(path: path)
+                ? path
+                : null;
         }
         catch
         {
@@ -129,7 +141,7 @@ internal static class NativeToolchain
             using var process = Process.Start(startInfo: psi);
             if (process == null)
             {
-                throw new InvalidOperationException("Failed to start cmake.");
+                throw new InvalidOperationException(message: "Failed to start cmake.");
             }
 
             string stderr = process.StandardError.ReadToEnd();
@@ -218,8 +230,7 @@ internal static class NativeToolchain
 
         try
         {
-            string staleSidecar =
-                $"{dst}.stale-{Environment.ProcessId}-{DateTime.UtcNow.Ticks}";
+            string staleSidecar = $"{dst}.stale-{Environment.ProcessId}-{DateTime.UtcNow.Ticks}";
             File.Move(sourceFileName: dst, destFileName: staleSidecar);
             File.Copy(sourceFileName: src, destFileName: dst, overwrite: false);
             TryDeleteSidecars(targetPath: dst);
@@ -237,17 +248,28 @@ internal static class NativeToolchain
     private static void TryDeleteSidecars(string targetPath)
     {
         string? dir = Path.GetDirectoryName(path: targetPath);
-        if (dir == null) return;
+        if (dir == null)
+        {
+            return;
+        }
+
         string prefix = Path.GetFileName(path: targetPath) + ".stale-";
         try
         {
             foreach (string old in Directory.EnumerateFiles(path: dir,
                          searchPattern: prefix + "*"))
             {
-                try { File.Delete(path: old); } catch { /* still locked — leave it */ }
+                try { File.Delete(path: old); }
+                catch
+                {
+                    /* still locked — leave it */
+                }
             }
         }
-        catch { /* directory access issue — non-fatal */ }
+        catch
+        {
+            /* directory access issue — non-fatal */
+        }
     }
 
     /// <summary>
@@ -259,7 +281,9 @@ internal static class NativeToolchain
     /// </summary>
     private static string ResolveToolchainTool(string name)
     {
-        string exeName = OperatingSystem.IsWindows() ? name + ".exe" : name;
+        string exeName = OperatingSystem.IsWindows()
+            ? name + ".exe"
+            : name;
 
         string? llvmHome = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_LLVM_HOME");
         if (!string.IsNullOrWhiteSpace(value: llvmHome))
@@ -271,13 +295,20 @@ internal static class NativeToolchain
             }
         }
 
-        string bundled = Path.Combine(path1: AppContext.BaseDirectory, path2: "toolchain",
-            path3: "bin", path4: exeName);
-        return File.Exists(path: bundled) ? bundled : name;
+        string bundled = Path.Combine(path1: AppContext.BaseDirectory,
+            path2: "toolchain",
+            path3: "bin",
+            path4: exeName);
+        return File.Exists(path: bundled)
+            ? bundled
+            : name;
     }
 
-    private static readonly Lazy<string> ClangTool = new(valueFactory: () => ResolveToolchainTool(name: ClangToolName));
-    private static readonly Lazy<string> OptTool = new(valueFactory: () => ResolveToolchainTool(name: OptToolName));
+    private static readonly Lazy<string> ClangTool =
+        new(valueFactory: () => ResolveToolchainTool(name: ClangToolName));
+
+    private static readonly Lazy<string> OptTool =
+        new(valueFactory: () => ResolveToolchainTool(name: OptToolName));
 
     private static void ConfigureToolchainEnvironment(ProcessStartInfo psi, string toolPath)
     {
@@ -287,7 +318,9 @@ internal static class NativeToolchain
         }
 
         string? binDir = Path.GetDirectoryName(path: toolPath);
-        string? toolchainDir = binDir == null ? null : Path.GetDirectoryName(path: binDir);
+        string? toolchainDir = binDir == null
+            ? null
+            : Path.GetDirectoryName(path: binDir);
         if (toolchainDir == null)
         {
             return;
@@ -301,18 +334,19 @@ internal static class NativeToolchain
 
         if (OperatingSystem.IsLinux())
         {
-            PrependEnvironmentPath(psi, variableName: "LD_LIBRARY_PATH", path: libDir);
+            PrependEnvironmentPath(psi: psi, variableName: "LD_LIBRARY_PATH", path: libDir);
         }
         else if (OperatingSystem.IsMacOS())
         {
-            PrependEnvironmentPath(psi, variableName: "DYLD_LIBRARY_PATH", path: libDir);
+            PrependEnvironmentPath(psi: psi, variableName: "DYLD_LIBRARY_PATH", path: libDir);
         }
     }
 
-    private static void PrependEnvironmentPath(ProcessStartInfo psi, string variableName, string path)
+    private static void PrependEnvironmentPath(ProcessStartInfo psi, string variableName,
+        string path)
     {
         psi.Environment.TryGetValue(key: variableName, value: out string? existing);
-        psi.Environment[variableName] = string.IsNullOrWhiteSpace(value: existing)
+        psi.Environment[key: variableName] = string.IsNullOrWhiteSpace(value: existing)
             ? path
             : path + Path.PathSeparator + existing;
     }
@@ -348,7 +382,9 @@ internal static class NativeToolchain
                 return false;
             }
 
-            string triple = proc.StandardOutput.ReadToEnd().Trim();
+            string triple = proc.StandardOutput
+                                .ReadToEnd()
+                                .Trim();
             proc.WaitForExit();
             return triple.Contains(value: "mingw") || triple.Contains(value: "windows-gnu");
         }
@@ -376,17 +412,26 @@ internal static class NativeToolchain
                 CreateNoWindow = true
             };
             ConfigureToolchainEnvironment(psi: psi, toolPath: ClangTool.Value);
-            using var proc = Process.Start(psi);
-            if (proc == null) return null;
-            string output = proc.StandardOutput.ReadToEnd().Trim();
+            using var proc = Process.Start(startInfo: psi);
+            if (proc == null)
+            {
+                return null;
+            }
+
+            string output = proc.StandardOutput
+                                .ReadToEnd()
+                                .Trim();
             proc.WaitForExit();
-            if (proc.ExitCode == 0 && File.Exists(output))
+            if (proc.ExitCode == 0 && File.Exists(path: output))
+            {
                 return output;
+            }
         }
         catch
         {
             // clang not available or doesn't support --print-libgcc-file-name
         }
+
         return null;
     }
 
@@ -474,7 +519,8 @@ internal static class NativeToolchain
             if (optProcess.ExitCode != 0)
             {
                 Console.Error.WriteLine(value: optStderr.Trim());
-                Console.WriteLine(value: $"Optimization failed (opt exited with code {optProcess.ExitCode})");
+                Console.WriteLine(
+                    value: $"Optimization failed (opt exited with code {optProcess.ExitCode})");
                 return 1;
             }
         }
@@ -527,14 +573,20 @@ internal static class NativeToolchain
         var sb = new System.Text.StringBuilder();
         if (libraryPaths != null)
         {
-            foreach (string path in libraryPaths.Where(p => !string.IsNullOrWhiteSpace(p)))
+            foreach (string path in libraryPaths.Where(predicate: p =>
+                         !string.IsNullOrWhiteSpace(value: p)))
+            {
                 sb.Append(value: $" -L\"{path}\"");
+            }
         }
 
         if (cLibraries != null)
         {
-            foreach (string lib in cLibraries.Where(l => !string.IsNullOrWhiteSpace(l)))
+            foreach (string lib in cLibraries.Where(predicate: l =>
+                         !string.IsNullOrWhiteSpace(value: l)))
+            {
                 sb.Append(value: $" -l{lib.Trim()}");
+            }
         }
 
         return sb.ToString();
@@ -543,20 +595,24 @@ internal static class NativeToolchain
     // MSVC-target clang needs the CRT and kernel32 import libraries named explicitly when
     // linking from LLVM IR. The mingw-target clang (bundled self-contained toolchain) links
     // its own CRT and the Win32 import libraries automatically.
-    private static string WindowsThreadingLibsFragment() =>
-        OperatingSystem.IsWindows() && !ClangIsMingw.Value
+    private static string WindowsThreadingLibsFragment()
+    {
+        return OperatingSystem.IsWindows() && !ClangIsMingw.Value
             ? " -lucrt -lmsvcrt -lkernel32"
             : "";
+    }
 
     // On Linux/macOS the LLVM IR emits direct calls into libm (floor, exp, pow, …) and the
     // pthread/dl runtime. Modern ld defaults to --as-needed, so libm must be named explicitly
     // on the command line or linking fails with "DSO missing from command line". We also embed
     // an rpath pointing at the runtime library directory so the produced executable can locate
     // librazorforge_runtime.so at load time without requiring LD_LIBRARY_PATH.
-    private static string UnixRuntimeLibsFragment(string runtimeLibDir) =>
-        OperatingSystem.IsWindows()
+    private static string UnixRuntimeLibsFragment(string runtimeLibDir)
+    {
+        return OperatingSystem.IsWindows()
             ? ""
             : $" -lm -lpthread -ldl -Wl,-rpath,\"{runtimeLibDir}\"";
+    }
 
     // Compiler-RT builtins resolve softfloat/softint symbols that LLVM emits for types
     // without direct hardware support:
@@ -600,30 +656,40 @@ internal static class NativeToolchain
     private static string LldFlagFragment()
     {
         bool clangIsBundled = ClangTool.Value != ClangToolName;
-        return OperatingSystem.IsWindows() || clangIsBundled ? " -fuse-ld=lld" : "";
+        return OperatingSystem.IsWindows() || clangIsBundled
+            ? " -fuse-ld=lld"
+            : "";
     }
 
     // lld-link-only flag (MSVC-target clang). The mingw toolchain's GNU-flavored ld.lld rejects
     // /slash-style options. /errorlimit:0 surfaces every undefined-symbol error instead of
     // capping at ~20.
-    private static string LinkerErrorLimitFragment() =>
-        OperatingSystem.IsWindows() && !ClangIsMingw.Value ? " -Wl,/errorlimit:0" : "";
+    private static string LinkerErrorLimitFragment()
+    {
+        return OperatingSystem.IsWindows() && !ClangIsMingw.Value
+            ? " -Wl,/errorlimit:0"
+            : "";
+    }
 
     // lld-link-only flag (MSVC-target clang). The embedded asInvoker manifest stops Windows'
     // Application Information Service from heuristically requesting UAC elevation for exe names
     // containing "install"/"update"/"setup"/"patch"/"test_dispatch"/… (it never inspects the
     // binary itself).
-    private static string ManifestUacFragment() =>
-        OperatingSystem.IsWindows() && !ClangIsMingw.Value
+    private static string ManifestUacFragment()
+    {
+        return OperatingSystem.IsWindows() && !ClangIsMingw.Value
             ? " -Wl,\"/MANIFESTUAC:level='asInvoker' uiAccess='false'\" -Wl,/MANIFEST:EMBED"
             : "";
+    }
 
     // The macOS system libraries (-lm/-lSystem/...) only exist as SDK stubs; point the driver at
     // the Command Line Tools SDK explicitly (see MacSdkPath).
-    private static string MacSysrootFragment() =>
-        OperatingSystem.IsMacOS() && !string.IsNullOrWhiteSpace(value: MacSdkPath.Value)
+    private static string MacSysrootFragment()
+    {
+        return OperatingSystem.IsMacOS() && !string.IsNullOrWhiteSpace(value: MacSdkPath.Value)
             ? $" -isysroot \"{MacSdkPath.Value}\""
             : "";
+    }
 
     internal static int LinkExecutable(string optFile, string exeFile, string runtimeLibDir,
         RfBuildMode buildMode, IReadOnlyList<string>? cLibraries = null,
@@ -649,7 +715,8 @@ internal static class NativeToolchain
         string macSysrootArg = MacSysrootFragment();
         // User-declared C libraries (config.toml [target] c_libraries / library_paths). Placed
         // after the user object + runtime so `-l` symbol resolution sees the referencing objects first.
-        string userLibArgs = BuildUserLibraryArgs(cLibraries: cLibraries, libraryPaths: libraryPaths);
+        string userLibArgs =
+            BuildUserLibraryArgs(cLibraries: cLibraries, libraryPaths: libraryPaths);
         string clangArgs =
             $"{clangOptLevel}{framePointerFlag}{TargetCodegenFlags()}{lldFlag}{macSysrootArg} -o \"{exeFile}\" \"{optFile}\" -L\"{runtimeLibDir}\" -lrazorforge_runtime{userLibArgs}{compilerRtArg}{windowsThreadingLibs}{unixRuntimeLibs}{linkerErrorLimitFlag}{manifestUacFlag}";
 
@@ -676,8 +743,10 @@ internal static class NativeToolchain
             // emits a lot of output (e.g. many LNK2019 errors on a ~60k-line IR).
             string clangStdout = "";
             string clangStderr = "";
-            var stdoutThread = new Thread(() => clangStdout = clangProcess.StandardOutput.ReadToEnd());
-            var stderrThread = new Thread(() => clangStderr = clangProcess.StandardError.ReadToEnd());
+            var stdoutThread =
+                new Thread(start: () => clangStdout = clangProcess.StandardOutput.ReadToEnd());
+            var stderrThread =
+                new Thread(start: () => clangStderr = clangProcess.StandardError.ReadToEnd());
             stdoutThread.Start();
             stderrThread.Start();
             clangProcess.WaitForExit();
@@ -748,8 +817,7 @@ internal static class NativeToolchain
     /// simply not copied. Mirrors <see cref="StageRuntimeDlls"/> for the runtime's own DLL.
     /// </summary>
     internal static void StageUserLibraryDlls(string exeFile, IReadOnlyList<string> cLibraries,
-        IReadOnlyList<string>? libraryPaths,
-        IReadOnlyDictionary<string, CLibrary>? libraryConfigs)
+        IReadOnlyList<string>? libraryPaths, IReadOnlyDictionary<string, CLibrary>? libraryConfigs)
     {
         if (libraryPaths is not { Count: > 0 })
         {
@@ -763,7 +831,8 @@ internal static class NativeToolchain
         }
 
         HashSet<string> staticNames = CollectStaticLibraryNames(libraryConfigs: libraryConfigs);
-        foreach (string lib in cLibraries.Where(lib => !staticNames.Contains(lib)))
+        foreach (string lib in
+                 cLibraries.Where(predicate: lib => !staticNames.Contains(item: lib)))
         {
             StageDynamicLibrary(lib: lib, libraryPaths: libraryPaths, outputDir: outputDir);
         }
@@ -773,7 +842,8 @@ internal static class NativeToolchain
     /// Builds the set of library names that are statically linked (baked into the exe at link time)
     /// and therefore have no runtime DLL to stage.
     /// </summary>
-    private static HashSet<string> CollectStaticLibraryNames(IReadOnlyDictionary<string, CLibrary>? libraryConfigs)
+    private static HashSet<string> CollectStaticLibraryNames(
+        IReadOnlyDictionary<string, CLibrary>? libraryConfigs)
     {
         var staticNames = new HashSet<string>(comparer: StringComparer.Ordinal);
         if (libraryConfigs != null)
@@ -786,6 +856,7 @@ internal static class NativeToolchain
                 }
             }
         }
+
         return staticNames;
     }
 
@@ -793,7 +864,8 @@ internal static class NativeToolchain
     /// Searches <paramref name="libraryPaths"/> for the shared-object file for <paramref name="lib"/>
     /// and copies it to <paramref name="outputDir"/> if found.
     /// </summary>
-    private static void StageDynamicLibrary(string lib, IReadOnlyList<string> libraryPaths, string outputDir)
+    private static void StageDynamicLibrary(string lib, IReadOnlyList<string> libraryPaths,
+        string outputDir)
     {
         string dllName = SharedObjectFileName(libName: lib);
         foreach (string dir in libraryPaths)
@@ -811,8 +883,16 @@ internal static class NativeToolchain
     /// <c>libNAME.dylib</c> on macOS, <c>libNAME.so</c> elsewhere.</summary>
     private static string SharedObjectFileName(string libName)
     {
-        if (OperatingSystem.IsWindows()) return $"{libName}.dll";
-        if (OperatingSystem.IsMacOS()) return $"lib{libName}.dylib";
+        if (OperatingSystem.IsWindows())
+        {
+            return $"{libName}.dll";
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return $"lib{libName}.dylib";
+        }
+
         return $"lib{libName}.so";
     }
 
@@ -826,20 +906,21 @@ internal static class NativeToolchain
         // "smoke.exe" GetDirectoryName returns "" (not null), and enumerating ""
         // throws. Full-path first makes the working-directory case work.
         string outputDir = Path.GetDirectoryName(path: Path.GetFullPath(path: exeFile)) ?? ".";
-        string basePath = Path.Combine(
-            path1: outputDir,
+        string basePath = Path.Combine(path1: outputDir,
             path2: Path.GetFileNameWithoutExtension(path: exeFile));
 
         // Sweep any leftover *.stale.* files from prior runs where TryRemoveBuildArtifact
         // had to fall back to rename-aside because the original was locked.
         try
         {
-            foreach (string stale in Directory.EnumerateFiles(path: outputDir, searchPattern: "*.stale.*"))
+            foreach (string stale in Directory.EnumerateFiles(path: outputDir,
+                         searchPattern: "*.stale.*"))
             {
                 TryRemoveBuildArtifact(path: stale);
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or DirectoryNotFoundException)
         {
             // Directory unreadable — non-fatal, just skip the sweep.
         }
@@ -874,12 +955,19 @@ internal static class NativeToolchain
     /// </summary>
     private static void TryRemoveBuildArtifact(string path)
     {
-        if (!File.Exists(path: path)) return;
+        if (!File.Exists(path: path))
+        {
+            return;
+        }
 
         int[] delaysMs = [0, 50, 100, 200];
         foreach (int delay in delaysMs)
         {
-            if (delay > 0) Thread.Sleep(millisecondsTimeout: delay);
+            if (delay > 0)
+            {
+                Thread.Sleep(millisecondsTimeout: delay);
+            }
+
             try
             {
                 File.Delete(path: path);
@@ -896,9 +984,12 @@ internal static class NativeToolchain
                         File.Move(sourceFileName: path, destFileName: aside);
                         return;
                     }
-                    catch (Exception renameEx) when (renameEx is IOException or UnauthorizedAccessException)
+                    catch (Exception renameEx) when (renameEx is IOException
+                                                         or UnauthorizedAccessException)
                     {
-                        Console.WriteLine(value: $"Warning: Could not remove or rename stale build artifact '{path}': {ex.Message}");
+                        Console.WriteLine(
+                            value:
+                            $"Warning: Could not remove or rename stale build artifact '{path}': {ex.Message}");
                     }
                 }
             }

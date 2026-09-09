@@ -11,10 +11,10 @@ using static TestHelpers;
 public class RoutineDeclarationTests
 {
     #region Duplicate Routine Definition
+
     /// <summary>
     /// Verifies semantic analysis behavior for duplicate routine and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_DuplicateRoutine_ReportsError()
     {
@@ -32,7 +32,6 @@ public class RoutineDeclarationTests
     /// <summary>
     /// Verifies semantic analysis behavior for unique routines no duplicate error.
     /// </summary>
-
     [Fact]
     public void Analyze_UniqueRoutines_NoDuplicateError()
     {

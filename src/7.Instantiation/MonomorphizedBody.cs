@@ -19,13 +19,8 @@ namespace Compiler.Instantiation;
 /// <param name="IsSynthesized">Whether this is synthesized.</param>
 public sealed record MonomorphizedBody(
     RoutineDeclaration Ast,
-
     RoutineInfo Info,
-
     Dictionary<string, TypeInfo> TypeSubs,
-
     FailableVariant? VariantStatus,
-
     TypeInfo? VariantInnerType,
-
     bool IsSynthesized);

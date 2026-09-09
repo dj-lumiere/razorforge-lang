@@ -16,8 +16,7 @@ public partial class Parser
     /// Also supports compound annotations: @[attr1, attr2, attr3]
     /// </summary>
     private VariableDeclaration ParseVariableDeclaration(
-        VisibilityModifier visibility = VisibilityModifier.Open,
-        List<string>? annotations = null,
+        VisibilityModifier visibility = VisibilityModifier.Open, List<string>? annotations = null,
         bool isLateInit = false)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -43,7 +42,9 @@ public partial class Parser
             Initializer: initializer,
             Visibility: visibility,
             Location: location,
-            Annotations: annotations?.Count > 0 ? annotations : null,
+            Annotations: annotations?.Count > 0
+                ? annotations
+                : null,
             IsLateInit: isLateInit);
     }
 
@@ -55,15 +56,15 @@ public partial class Parser
     /// visitor churn; SA/codegen branch on the flag. The leading <c>global</c> keyword is already consumed.
     /// </summary>
     private VariableDeclaration ParseGlobalDeclaration(
-        VisibilityModifier visibility = VisibilityModifier.Open,
-        List<string>? annotations = null)
+        VisibilityModifier visibility = VisibilityModifier.Open, List<string>? annotations = null)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         string name = ConsumeIdentifier(errorMessage: "Expected global name");
         Consume(type: TokenType.Colon, errorMessage: "Expected ':' after global name");
         TypeExpression type = ParseType();
-        Consume(type: TokenType.Assign, errorMessage: "Expected '=' after global type (a global must be initialized)");
+        Consume(type: TokenType.Assign,
+            errorMessage: "Expected '=' after global type (a global must be initialized)");
         Expression initializer = ParseExpression();
         ConsumeStatementTerminator();
 
@@ -72,7 +73,9 @@ public partial class Parser
             Initializer: initializer,
             Visibility: visibility,
             Location: location,
-            Annotations: annotations?.Count > 0 ? annotations : null,
+            Annotations: annotations?.Count > 0
+                ? annotations
+                : null,
             IsGlobal: true);
     }
 
@@ -140,8 +143,10 @@ public partial class Parser
                 {
                     continue;
                 }
+
                 templates.Add(item: ParseExpandMemberTemplate(handle: handle));
             }
+
             if (Check(type: TokenType.Dedent))
             {
                 ProcessDedentTokens();
@@ -182,7 +187,9 @@ public partial class Parser
                 throw ThrowParseError(code: GrammarDiagnosticCode.UnexpectedToken,
                     message: $"An expand-column name must be '$nameof({handle})'.");
             }
-            Consume(type: TokenType.Colon, errorMessage: "Expected ':' after '$nameof(m)' column name");
+
+            Consume(type: TokenType.Colon,
+                errorMessage: "Expected ':' after '$nameof(m)' column name");
             TypeExpression colType = ParseType();
             ConsumeStatementTerminator();
             return new ExpandMemberTemplate(NamePrefix: "",
@@ -198,25 +205,34 @@ public partial class Parser
         string prefix = "";
         if (Check(type: TokenType.TextLiteral))
         {
-            prefix = Advance().Text;
+            prefix = Advance()
+               .Text;
             Consume(type: TokenType.Plus,
-                errorMessage: "Expected '+' after the name prefix in a '${...}' member-name splice");
+                errorMessage:
+                "Expected '+' after the name prefix in a '${...}' member-name splice");
         }
 
-        string nameHandle = ConsumeIdentifier(errorMessage: "Expected the expand handle in '${...}' splice");
+        string nameHandle =
+            ConsumeIdentifier(errorMessage: "Expected the expand handle in '${...}' splice");
         if (nameHandle != handle)
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.UnexpectedToken,
-                message: $"Expected the expand handle '{handle}' in '${{...}}', got '{nameHandle}'.");
+                message:
+                $"Expected the expand handle '{handle}' in '${{...}}', got '{nameHandle}'.");
         }
-        Consume(type: TokenType.Dot, errorMessage: "Expected '.name' in the '${...}' member-name splice");
+
+        Consume(type: TokenType.Dot,
+            errorMessage: "Expected '.name' in the '${...}' member-name splice");
         string proj = ConsumeIdentifier(errorMessage: "Expected 'name' after '.' in name splice");
         if (proj != "name")
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.UnexpectedToken,
-                message: $"A member-name splice must be '${{{handle}.name}}', not '${{{handle}.{proj}}}'.");
+                message:
+                $"A member-name splice must be '${{{handle}.name}}', not '${{{handle}.{proj}}}'.");
         }
-        Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' to close the '${...}' name splice");
+
+        Consume(type: TokenType.RightBrace,
+            errorMessage: "Expected '}' to close the '${...}' name splice");
 
         Consume(type: TokenType.Colon, errorMessage: "Expected ':' after the member-name splice");
         TypeExpression type = ParseType();
@@ -296,6 +312,7 @@ public partial class Parser
         {
             _routineNameWired = true;
         }
+
         // `None` (a keyword — the void type) is a legal routine owner: `routine None.represent()`.
         string name = CheckAndAdvance(type: TokenType.None)
             ? "None"
@@ -327,7 +344,7 @@ public partial class Parser
         //   "List[T].append"          -> name="List[T].append" (generics embedded in name)
         //   "Dict[K, V].get[I]"       -> name="Dict[K, V].get", genericParams=["K","V","I"]
         // ===============================================================================
-        var nameSb = new System.Text.StringBuilder(name);
+        var nameSb = new System.Text.StringBuilder(value: name);
 
         // Structural owner/memberRoutine capture (name-canonicalization): the parser knows the owner base
         // identifier (`name`) and each memberRoutine segment as SEPARATE tokens; record them so consumers
@@ -343,8 +360,7 @@ public partial class Parser
 
         while (CheckAndAdvance(type: TokenType.Dot))
         {
-            AppendRoutineMemberSegment(
-                baseName: name,
+            AppendRoutineMemberSegment(baseName: name,
                 nameSb: nameSb,
                 memberInfo: memberInfo,
                 hasGenericParams: ref hasGenericParams,
@@ -438,7 +454,8 @@ public partial class Parser
             HasReceiverTypeArgs = memberInfo.HasReceiverTypeArgs,
             RenderedReceiver = memberInfo.RenderedReceiver,
             ReceiverType = memberInfo.OwnerName != null
-                ? new TypeExpression(Name: memberInfo.OwnerName, GenericArguments: receiverArgExprs,
+                ? new TypeExpression(Name: memberInfo.OwnerName,
+                    GenericArguments: receiverArgExprs,
                     Location: location)
                 : null
         };
@@ -525,9 +542,9 @@ public partial class Parser
         bool isInnate = annotations != null && annotations.Contains(item: "innate");
         // A body exists when the next tokens are Newline+Indent or just Indent.
         // A bare Newline without a following Indent means no body (next declaration follows).
-        bool hasBody = Check(type: TokenType.Indent) ||
-                       (Check(type: TokenType.Newline) &&
-                        PeekToken(offset: 1).Type == TokenType.Indent);
+        bool hasBody = Check(type: TokenType.Indent) || Check(type: TokenType.Newline) &&
+            PeekToken(offset: 1)
+               .Type == TokenType.Indent;
 
         _inRoutineBody = true;
         try
@@ -576,8 +593,8 @@ public partial class Parser
         }
         else
         {
-            (List<string> genericParams, List<GenericConstraintDeclaration>?
-                inlineConstraints) result = ParseGenericParametersWithConstraints();
+            (List<string> genericParams, List<GenericConstraintDeclaration>? inlineConstraints)
+                result = ParseGenericParametersWithConstraints();
 
             // Merge type-level and member-routine-level generic parameters
             if (genericParams is { Count: > 0 })
@@ -587,8 +604,7 @@ public partial class Parser
                 if (inlineConstraints != null && result.inlineConstraints != null)
                 {
                     inlineConstraints =
-                        new List<GenericConstraintDeclaration>(
-                            collection: inlineConstraints);
+                        new List<GenericConstraintDeclaration>(collection: inlineConstraints);
                     inlineConstraints.AddRange(collection: result.inlineConstraints);
                 }
                 else if (result.inlineConstraints != null)
@@ -612,12 +628,9 @@ public partial class Parser
     /// is consumed. Handles both nested generics (e.g. <c>DictEntry[K, V]</c>) and plain param lists
     /// (e.g. <c>[T, U]</c>), populating the out parameters and consuming the closing <c>]</c>.
     /// </summary>
-    private void ParseReceiverTypeArgs(
-        out List<string>? genericParams,
-        out List<string>? receiverTypeArgStrings,
-        out List<TypeExpression>? receiverArgExprs,
-        out List<GenericConstraintDeclaration>? inlineConstraints,
-        out bool hasGenericParams)
+    private void ParseReceiverTypeArgs(out List<string>? genericParams,
+        out List<string>? receiverTypeArgStrings, out List<TypeExpression>? receiverArgExprs,
+        out List<GenericConstraintDeclaration>? inlineConstraints, out bool hasGenericParams)
     {
         if (HasNestedBrackets())
         {
@@ -653,9 +666,10 @@ public partial class Parser
             // Receiver args as structured type expressions (each param name is a named type,
             // e.g. `List[T]` → [T]); mirrors ParseTypeExpressionString on the serialized owner.
             receiverArgExprs = result.genericParams
-               .Select(selector: p => new TypeExpression(Name: p, GenericArguments: null,
-                    Location: GetLocation()))
-               .ToList();
+                                     .Select(selector: p => new TypeExpression(Name: p,
+                                          GenericArguments: null,
+                                          Location: GetLocation()))
+                                     .ToList();
             receiverTypeArgStrings = null;
             Consume(type: TokenType.RightBracket,
                 errorMessage: ExpectedRightBracketAfterGenericParameters);
@@ -671,10 +685,13 @@ public partial class Parser
     {
         /// <summary>The bare owner name (e.g. "List", "S32") captured on the first dot-segment.</summary>
         public string? OwnerName;
+
         /// <summary>The bare member name (e.g. "append", "get") from the most recent dot-segment.</summary>
         public string? MemberRoutineName;
+
         /// <summary>True when the owner carried explicit type-args (e.g. "List[T]").</summary>
         public bool HasReceiverTypeArgs;
+
         /// <summary>The owner as written with type-args when present (e.g. "List[T]", "Iterable[Text]").</summary>
         public string? RenderedReceiver;
     }
@@ -684,16 +701,13 @@ public partial class Parser
     /// Embeds previously parsed type-args into the name builder on the first segment, appends the member
     /// name on subsequent segments, and parses any member-routine-level generics that follow.
     /// </summary>
-    private void AppendRoutineMemberSegment(
-        string baseName,
-        System.Text.StringBuilder nameSb,
-        RoutineMemberSegmentInfo memberInfo,
-        ref bool hasGenericParams,
-        List<string>? receiverTypeArgStrings,
-        ref List<string>? genericParams,
+    private void AppendRoutineMemberSegment(string baseName, System.Text.StringBuilder nameSb,
+        RoutineMemberSegmentInfo memberInfo, ref bool hasGenericParams,
+        List<string>? receiverTypeArgStrings, ref List<string>? genericParams,
         ref List<GenericConstraintDeclaration>? inlineConstraints)
     {
-        string part = ConsumeMemberRoutineName(errorMessage: "Expected member routine name after '.'");
+        string part =
+            ConsumeMemberRoutineName(errorMessage: "Expected member routine name after '.'");
         memberInfo.OwnerName ??= baseName;
         memberInfo.MemberRoutineName = part;
 
@@ -701,16 +715,17 @@ public partial class Parser
         // This transforms: name="List", generics=["T"], part="append"  ->  "List[T].append".
         // For nested receivers (e.g. List[DictEntry[K, V]]), use the serialized type-arg
         // strings rather than the bound leaf identifiers so the name preserves structure.
-        if (hasGenericParams && !nameSb.ToString().Contains(value: '.') &&
-            (receiverTypeArgStrings != null || genericParams != null))
+        if (hasGenericParams && !nameSb.ToString()
+                                       .Contains(value: '.') && (receiverTypeArgStrings != null ||
+                                                                 genericParams != null))
         {
             List<string> nameArgs = receiverTypeArgStrings ?? genericParams!;
             string renderedArgs = string.Join(separator: ", ", values: nameArgs);
             memberInfo.RenderedReceiver = $"{baseName}[{renderedArgs}]";
-            nameSb.Append('[');
-            nameSb.Append(renderedArgs);
-            nameSb.Append("].");
-            nameSb.Append(part);
+            nameSb.Append(value: '[');
+            nameSb.Append(value: renderedArgs);
+            nameSb.Append(value: "].");
+            nameSb.Append(value: part);
             memberInfo.HasReceiverTypeArgs = true; // owner carried type-args (List[T].append)
             hasGenericParams = false; // Only embed once
         }
@@ -719,8 +734,8 @@ public partial class Parser
             // Owner rendered so far (the bare owner, e.g. "S32", "Iterable") — captured BEFORE the
             // member segment is appended.
             memberInfo.RenderedReceiver = nameSb.ToString();
-            nameSb.Append('.');
-            nameSb.Append(part);
+            nameSb.Append(value: '.');
+            nameSb.Append(value: part);
         }
 
         // Check for member-routine-level generic params AFTER the routine name
@@ -827,11 +842,20 @@ public partial class Parser
             {
                 CollectLeafGenericParams(type: arg, into: into);
             }
+
             return;
         }
 
-        if (type.Name.Contains(value: '.')) return;
-        if (into.Contains(item: type.Name)) return;
+        if (type.Name.Contains(value: '.'))
+        {
+            return;
+        }
+
+        if (into.Contains(item: type.Name))
+        {
+            return;
+        }
+
         into.Add(item: type.Name);
     }
 

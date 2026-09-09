@@ -10,10 +10,10 @@ using static TestHelpers;
 public class ParserErrorTests
 {
     #region Record Errors
+
     /// <summary>
     /// Verifies that the parser accepts record missing brace throws or recovers.
     /// </summary>
-
     [Fact]
     public void Parse_Record_MissingBrace_ThrowsOrRecovers()
     {
@@ -28,13 +28,14 @@ public class ParserErrorTests
         Compiler.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
-        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
-            userMessage: "Expected parse to throw or report errors for a record missing its closing brace.");
+
+        Assert.True(condition: thrownEx != null || recoveredParser!.HasErrors,
+            userMessage:
+            "Expected parse to throw or report errors for a record missing its closing brace.");
     }
     /// <summary>
     /// Verifies that the parser accepts record missing member variable type throws or recovers.
     /// </summary>
-
     [Fact]
     public void Parse_Record_MissingMemberVariableType_ThrowsOrRecovers()
     {
@@ -49,13 +50,14 @@ public class ParserErrorTests
         Compiler.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
-        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
-            userMessage: "Expected parse to throw or report errors for a member variable with a missing type.");
+
+        Assert.True(condition: thrownEx != null || recoveredParser!.HasErrors,
+            userMessage:
+            "Expected parse to throw or report errors for a member variable with a missing type.");
     }
     /// <summary>
     /// Verifies that the parser accepts record var keyword as invalid input for later validation.
     /// </summary>
-
     [Fact]
     public void Parse_Record_VarKeyword_ShouldBeInvalid()
     {
@@ -76,7 +78,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser reports in-scope record routines as invalid.
     /// </summary>
-
     [Fact]
     public void Parse_Record_InScopeRoutine_ReportsError()
     {
@@ -94,10 +95,10 @@ public class ParserErrorTests
     #endregion
 
     #region Entity Errors
+
     /// <summary>
     /// Verifies that the parser accepts entity member variable without var or let is valid.
     /// </summary>
-
     [Fact]
     public void Parse_Entity_MemberVariableWithoutVarOrLet_IsValid()
     {
@@ -112,7 +113,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts entity var in body rejected.
     /// </summary>
-
     [Fact]
     public void Parse_Entity_VarInBody_Rejected()
     {
@@ -127,7 +127,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts entity missing type name and fails in the expected way.
     /// </summary>
-
     [Fact]
     public void Parse_Entity_MissingTypeName_Throws()
     {
@@ -142,7 +141,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser reports in-scope entity routines as invalid.
     /// </summary>
-
     [Fact]
     public void Parse_Entity_InScopeRoutine_ReportsError()
     {
@@ -160,10 +158,10 @@ public class ParserErrorTests
     #endregion
 
     #region Choice Errors
+
     /// <summary>
     /// Verifies that the parser accepts choice mixed values and no values as invalid input for later validation.
     /// </summary>
-
     [Fact]
     public void Parse_Choice_MixedValuesAndNoValues_ShouldBeInvalid()
     {
@@ -183,7 +181,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts choice lowercase case successfully.
     /// </summary>
-
     [Fact]
     public void Parse_Choice_LowercaseCase_ShouldBeValid()
     {
@@ -200,7 +197,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser reports in-scope choice routines as invalid.
     /// </summary>
-
     [Fact]
     public void Parse_Choice_InScopeRoutine_ReportsError()
     {
@@ -219,10 +215,10 @@ public class ParserErrorTests
     #endregion
 
     #region Variant Errors
+
     /// <summary>
     /// Verifies that the parser accepts variant empty body and fails in the expected way.
     /// </summary>
-
     [Fact]
     public void Parse_Variant_EmptyBody_Throws()
     {
@@ -235,13 +231,13 @@ public class ParserErrorTests
         Compiler.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
-        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
+
+        Assert.True(condition: thrownEx != null || recoveredParser!.HasErrors,
             userMessage: "Expected parse to throw or report errors for an empty variant body.");
     }
     /// <summary>
     /// Verifies that the parser accepts variant follows protocol and fails in the expected way.
     /// </summary>
-
     [Fact]
     public void Parse_Variant_FollowsProtocol_Throws()
     {
@@ -256,17 +252,18 @@ public class ParserErrorTests
         Compiler.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
-        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
+
+        Assert.True(condition: thrownEx != null || recoveredParser!.HasErrors,
             userMessage: "Expected parse to throw or report errors when a variant uses 'obeys'.");
     }
 
     #endregion
 
     #region Protocol Errors
+
     /// <summary>
     /// Verifies that the parser accepts protocol memberRoutine with body as invalid input for later validation.
     /// </summary>
-
     [Fact]
     public void Parse_Protocol_memberRoutineWithBody_ShouldBeInvalid()
     {
@@ -284,7 +281,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts protocol missing me as invalid input for later validation.
     /// </summary>
-
     [Fact]
     public void Parse_Protocol_MissingMe_ShouldBeInvalid()
     {
@@ -303,7 +299,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser reports member variables in protocol bodies.
     /// </summary>
-
     [Fact]
     public void Parse_Protocol_MemberVariable_ReportsError()
     {
@@ -318,7 +313,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser reports unexpected statements in protocol bodies.
     /// </summary>
-
     [Fact]
     public void Parse_Protocol_StatementInBody_ReportsError()
     {
@@ -334,10 +328,10 @@ public class ParserErrorTests
     #endregion
 
     #region Generic Constraint Errors
+
     /// <summary>
     /// Verifies that the parser accepts constraint unknown type parameter as invalid input for later validation.
     /// </summary>
-
     [Fact]
     public void Parse_Constraint_UnknownTypeParameter_ShouldBeInvalid()
     {
@@ -355,7 +349,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts constraint invalid constraint kind and fails in the expected way.
     /// </summary>
-
     [Fact]
     public void Parse_Constraint_InvalidConstraintKind_Throws()
     {
@@ -373,10 +366,10 @@ public class ParserErrorTests
     #endregion
 
     #region Syntax Errors
+
     /// <summary>
     /// Verifies that the parser accepts unterminated string and fails in the expected way.
     /// </summary>
-
     [Fact]
     public void Parse_UnterminatedString_Throws()
     {
@@ -389,7 +382,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts invalid operator and fails in the expected way.
     /// </summary>
-
     [Fact]
     public void Parse_InvalidOperator_Throws()
     {
@@ -401,7 +393,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts mismatched braces and fails in the expected way.
     /// </summary>
-
     [Fact]
     public void Parse_MismatchedBraces_Throws()
     {
@@ -416,13 +407,13 @@ public class ParserErrorTests
         Compiler.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
-        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
+
+        Assert.True(condition: thrownEx != null || recoveredParser!.HasErrors,
             userMessage: "Expected parse to throw or report errors for mismatched braces.");
     }
     /// <summary>
     /// Verifies that the parser accepts mismatched parens and fails in the expected way.
     /// </summary>
-
     [Fact]
     public void Parse_MismatchedParens_Throws()
     {
@@ -436,17 +427,18 @@ public class ParserErrorTests
         Compiler.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
-        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
+
+        Assert.True(condition: thrownEx != null || recoveredParser!.HasErrors,
             userMessage: "Expected parse to throw or report errors for a mismatched parenthesis.");
     }
 
     #endregion
 
     #region Nested Routine Errors
+
     /// <summary>
     /// Verifies that the parser accepts nested routine and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Parse_NestedRoutine_ReportsError()
     {
@@ -463,7 +455,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts nested routine in if and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Parse_NestedRoutineInIf_ReportsError()
     {
@@ -482,10 +473,10 @@ public class ParserErrorTests
     #endregion
 
     #region Inline Conditional Errors
+
     /// <summary>
     /// Verifies that the parser accepts nested inline if then else and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Parse_NestedInlineIfThenElse_ReportsError()
     {
@@ -504,10 +495,10 @@ public class ParserErrorTests
     #endregion
 
     #region Reserved Prefix Errors
+
     /// <summary>
     /// Verifies that the parser accepts reserved prefix try so semantic analysis can validate it.
     /// </summary>
-
     [Fact]
     public void Parse_ReservedPrefix_Try_ShouldParse()
     {
@@ -525,7 +516,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts reserved prefix check so semantic analysis can validate it.
     /// </summary>
-
     [Fact]
     public void Parse_ReservedPrefix_Check_ShouldParse()
     {
@@ -541,7 +531,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts reserved prefix find so semantic analysis can validate it.
     /// </summary>
-
     [Fact]
     public void Parse_ReservedPrefix_Find_ShouldParse()
     {
@@ -558,10 +547,10 @@ public class ParserErrorTests
     #endregion
 
     #region Storage Class On Type Declaration Errors
+
     /// <summary>
     /// Verifies that the parser accepts common variant and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Parse_CommonVariant_ReportsError()
     {
@@ -576,7 +565,6 @@ public class ParserErrorTests
     /// <summary>
     /// Verifies that the parser accepts common record and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Parse_CommonRecord_ReportsError()
     {

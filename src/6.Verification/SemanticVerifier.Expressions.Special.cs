@@ -50,7 +50,7 @@ public sealed partial class SemanticVerifier
             location: location);
     }
 
-/// <summary>
+    /// <summary>
     /// Substitutes type parameters in a type based on a generic resolution.
     /// For example, if genericType is List&lt;S32&gt; and type is T, returns S32.
     /// </summary>
@@ -118,31 +118,47 @@ public sealed partial class SemanticVerifier
     {
         // Associated-type projection (`S/Iter`): substitute the base, then resolve via its binding.
         if (type is AssociatedProjectionTypeInfo proj)
+        {
             return SubstituteProjection(proj: proj, substitutions: substitutions);
+        }
 
         // Direct type parameter replacement (covers ProtocolSelf via its Name "Me").
         if (substitutions.TryGetValue(key: type.Name, value: out TypeSymbol? replacement))
+        {
             return replacement;
+        }
 
         // For generic resolutions, recursively substitute in type arguments.
         if (type is { IsGenericResolution: true, TypeArguments: not null })
         {
-            TypeSymbol? resolved = SubstituteGenericResolution(type: type, substitutions: substitutions);
-            if (resolved != null) return resolved;
+            TypeSymbol? resolved =
+                SubstituteGenericResolution(type: type, substitutions: substitutions);
+            if (resolved != null)
+            {
+                return resolved;
+            }
         }
 
         // Routine types: substitute inside parameter and return types.
         if (type is RoutineTypeInfo routineType)
         {
-            TypeSymbol? resolved = SubstituteRoutineType(routineType: routineType, substitutions: substitutions);
-            if (resolved != null) return resolved;
+            TypeSymbol? resolved =
+                SubstituteRoutineType(routineType: routineType, substitutions: substitutions);
+            if (resolved != null)
+            {
+                return resolved;
+            }
         }
 
         // Tuple types: substitute inside element types.
         if (type is TupleTypeInfo tupleType)
         {
-            TypeSymbol? resolved = SubstituteTupleType(tupleType: tupleType, substitutions: substitutions);
-            if (resolved != null) return resolved;
+            TypeSymbol? resolved =
+                SubstituteTupleType(tupleType: tupleType, substitutions: substitutions);
+            if (resolved != null)
+            {
+                return resolved;
+            }
         }
 
         return type;
@@ -162,7 +178,10 @@ public sealed partial class SemanticVerifier
         TypeInfo? bound = RecordTypeInfo.ProjectAssociatedBinding(baseType: newBase,
             slot: proj.SlotName);
         if (bound != null)
+        {
             return SubstituteWithMapping(type: bound, substitutions: substitutions);
+        }
+
         return ReferenceEquals(objA: newBase, objB: proj.Base)
             ? proj
             : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: proj.SlotName);
@@ -179,12 +198,20 @@ public sealed partial class SemanticVerifier
         bool anyChanged = false;
         foreach (TypeSymbol arg in type.TypeArguments!)
         {
-            TypeSymbol substitutedArg = SubstituteWithMapping(type: arg, substitutions: substitutions);
+            TypeSymbol substitutedArg =
+                SubstituteWithMapping(type: arg, substitutions: substitutions);
             substitutedArgs.Add(item: substitutedArg);
             if (!ReferenceEquals(objA: substitutedArg, objB: arg))
+            {
                 anyChanged = true;
+            }
         }
-        if (!anyChanged) return null;
+
+        if (!anyChanged)
+        {
+            return null;
+        }
+
         TypeSymbol? baseDef = GetGenericDefinition(resolution: type);
         return baseDef != null
             ? _registry.GetOrCreateResolution(genericDef: baseDef, typeArguments: substitutedArgs)
@@ -204,20 +231,26 @@ public sealed partial class SemanticVerifier
         bool anyChanged = false;
         foreach (TypeInfo p in routineType.ParameterTypes)
         {
-            var substituted = SubstituteWithMapping(type: p, substitutions: substitutions);
+            TypeSymbol substituted = SubstituteWithMapping(type: p, substitutions: substitutions);
             newParams.Add(item: substituted);
-            if (!ReferenceEquals(objA: substituted, objB: p)) anyChanged = true;
+            if (!ReferenceEquals(objA: substituted, objB: p))
+            {
+                anyChanged = true;
+            }
         }
+
         TypeInfo? newReturn = routineType.ReturnType;
         if (newReturn != null)
         {
-            var substitutedRet = SubstituteWithMapping(type: newReturn, substitutions: substitutions);
+            TypeSymbol substitutedRet =
+                SubstituteWithMapping(type: newReturn, substitutions: substitutions);
             if (!ReferenceEquals(objA: substitutedRet, objB: newReturn))
             {
                 newReturn = substitutedRet;
                 anyChanged = true;
             }
         }
+
         return anyChanged
             ? _registry.GetOrCreateRoutineType(parameterTypes: newParams,
                 returnType: newReturn,
@@ -236,11 +269,17 @@ public sealed partial class SemanticVerifier
         bool anyChanged = false;
         foreach (TypeInfo el in tupleType.ElementTypes)
         {
-            var substituted = SubstituteWithMapping(type: el, substitutions: substitutions);
+            TypeSymbol substituted = SubstituteWithMapping(type: el, substitutions: substitutions);
             newElems.Add(item: substituted);
-            if (!ReferenceEquals(objA: substituted, objB: el)) anyChanged = true;
+            if (!ReferenceEquals(objA: substituted, objB: el))
+            {
+                anyChanged = true;
+            }
         }
-        return anyChanged ? _registry.GetOrCreateTupleType(elementTypes: newElems) : null;
+
+        return anyChanged
+            ? _registry.GetOrCreateTupleType(elementTypes: newElems)
+            : null;
     }
 
     /// <summary>
@@ -295,10 +334,11 @@ public sealed partial class SemanticVerifier
         if (isAggregatePart)
         {
             ReportError(code: SemanticDiagnosticCode.StealAggregatePart,
-                message: "You are trying to steal a value out of the middle of an aggregate, which " +
-                         "would leave a hole where it used to sit. Move it out with a repairing " +
-                         "removal (e.g. 'remove_at', which closes the gap), or keep a shareable " +
-                         "handle instead.",
+                message:
+                "You are trying to steal a value out of the middle of an aggregate, which " +
+                "would leave a hole where it used to sit. Move it out with a repairing " +
+                "removal (e.g. 'remove_at', which closes the gap), or keep a shareable " +
+                "handle instead.",
                 location: steal.Location);
             steal.ResolvedType = operandType;
             return operandType;
@@ -324,7 +364,8 @@ public sealed partial class SemanticVerifier
         if (!isOwned && !isRecord && !IsRawEntityType(type: operandType))
         {
             ReportError(code: SemanticDiagnosticCode.StealScopeBoundToken,
-                message: $"Cannot steal '{operandType.Name}' - only raw entities and T can be stolen.",
+                message:
+                $"Cannot steal '{operandType.Name}' - only raw entities and T can be stolen.",
                 location: steal.Location);
             steal.ResolvedType = operandType;
             return operandType;
@@ -385,8 +426,8 @@ public sealed partial class SemanticVerifier
         // so `steal` (an exclusive-transfer marker) is a category error: moving one handle proves
         // nothing about the others. Clone with `.retain()`/`.track()`, or convert to `Guarded`/
         // `Witnessed` (atomic Arc) to move ownership across a coroutine/thread boundary.
-        if (operandType.BareName is
-            Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Tracked)
+        if (operandType.BareName is Declaration.RuntimeContract.Retained
+            or Declaration.RuntimeContract.Tracked)
         {
             ReportError(code: SemanticDiagnosticCode.StealSharedOwnership,
                 message:
@@ -406,7 +447,8 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsMemoryToken(TypeSymbol type)
     {
-        return type.Name is Declaration.RuntimeContract.Viewing or Declaration.RuntimeContract.Modifying;
+        return type.Name is Declaration.RuntimeContract.Viewing
+            or Declaration.RuntimeContract.Modifying;
     }
 
     /// <summary>

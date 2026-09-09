@@ -396,9 +396,8 @@ public record WhileStatement(
 /// </summary>
 /// <param name="Body">Statement to execute on every iteration</param>
 /// <param name="Location">Source location information</param>
-public record LoopStatement(
-    Statement Body,
-    SourceLocation Location) : Statement(Location: Location)
+public record LoopStatement(Statement Body, SourceLocation Location)
+    : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(ISyntaxTreeVisitor<T> visitor)
@@ -534,17 +533,23 @@ public static class ExpandSources
         };
 
     /// <summary>True if <paramref name="name"/> is a recognized reflection-source intrinsic.</summary>
-    public static bool IsSource(string name) => Names.Contains(item: name);
+    public static bool IsSource(string name)
+    {
+        return Names.Contains(item: name);
+    }
 
     /// <summary>Maps a source intrinsic name to its <see cref="ExpandSourceKind"/>.</summary>
-    public static ExpandSourceKind KindOf(string name) => name switch
+    public static ExpandSourceKind KindOf(string name)
     {
-        "openmemvarof" => ExpandSourceKind.OpenMemberVariables,
-        "allmemvarof" => ExpandSourceKind.AllMemberVariables,
-        "caseof" => ExpandSourceKind.Cases,
-        "branchof" => ExpandSourceKind.Arms,
-        _ => ExpandSourceKind.AllMemberVariables
-    };
+        return name switch
+        {
+            "openmemvarof" => ExpandSourceKind.OpenMemberVariables,
+            "allmemvarof" => ExpandSourceKind.AllMemberVariables,
+            "caseof" => ExpandSourceKind.Cases,
+            "branchof" => ExpandSourceKind.Arms,
+            _ => ExpandSourceKind.AllMemberVariables
+        };
+    }
 }
 
 /// <summary>
@@ -746,10 +751,8 @@ public record TypePattern(
 /// <see cref="TypePattern"/> bound to the current arm's type. <see cref="VariableName"/> is null
 /// for a payload-less arm (<c>is ${m.type} =></c>).
 /// </summary>
-public record SpliceTypePattern(
-    string HandleName,
-    string? VariableName,
-    SourceLocation Location) : Pattern(Location: Location);
+public record SpliceTypePattern(string HandleName, string? VariableName, SourceLocation Location)
+    : Pattern(Location: Location);
 
 /// <summary>
 /// Pattern that matches when a value is NOT a specific type.
@@ -1038,12 +1041,13 @@ public record VariantReturnStatement(
     ErrorHandlingVariantKind VariantKind,
     VariantSiteKind SiteKind,
     Expression? Value,
-    SourceLocation Location
-) : Statement(Location: Location)
+    SourceLocation Location) : Statement(Location: Location)
 {
-
     /// <inheritdoc/>
-    public override T Accept<T>(ISyntaxTreeVisitor<T> visitor) => visitor.VisitVariantReturnStatement(node: this);
+    public override T Accept<T>(ISyntaxTreeVisitor<T> visitor)
+    {
+        return visitor.VisitVariantReturnStatement(node: this);
+    }
 }
 
 /// <summary>

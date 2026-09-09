@@ -1,34 +1,40 @@
 namespace Builder;
+
 /// <summary>
 /// Describes the package metadata declared in <c>config.toml</c>.
 /// </summary>
-
 public sealed class PackageInfo
 {
     /// <summary>
     /// Gets the package name.
     /// </summary>
     public string Name { get; set; } = "";
+
     /// <summary>
     /// Gets the package version string.
     /// </summary>
     public string? Version { get; set; }
+
     /// <summary>
     /// Gets the list of package authors.
     /// </summary>
     public List<string>? Authors { get; set; }
+
     /// <summary>
     /// Gets the declared package license identifier or text.
     /// </summary>
     public string? License { get; set; }
+
     /// <summary>
     /// Gets the human-readable package description.
     /// </summary>
     public string? Description { get; set; }
+
     /// <summary>
     /// Gets the repository URL for the package.
     /// </summary>
     public string? Repository { get; set; }
+
     /// <summary>
     /// Gets the required RazorForge version constraint.
     /// </summary>
@@ -84,7 +90,8 @@ public sealed class BuildTarget
     /// sites. Source associates a <c>C::</c> extern with one of these via <c>@link(lib: "NAME")</c>.
     /// Coexists with <see cref="CLibraries"/> (the name-only simple form, which defaults to dynamic/C).
     /// </summary>
-    public Dictionary<string, CLibrary> LibraryConfigs { get; set; } = new(comparer: StringComparer.Ordinal);
+    public Dictionary<string, CLibrary> LibraryConfigs { get; set; } =
+        new(comparer: StringComparer.Ordinal);
 
     /// <summary>
     /// Build mode for the whole build: "debug" (default), "release", "release-time",
@@ -124,7 +131,6 @@ public sealed class DebugOptions
     public bool ShowBuildStages { get; set; }
 
     /// <summary>Survey unresolved marker-protocol conformances (<c>marker-survey</c>).</summary>
-
     /// <summary>Print codegen DCE prune statistics (<c>prune-stats</c>).</summary>
     public bool PruneStats { get; set; }
 
@@ -177,19 +183,21 @@ public sealed class CLibrary
 /// <summary>
 /// Represents the parsed contents of a project manifest file.
 /// </summary>
-
 public sealed class ProjectManifest
 {
     /// <summary>
     /// Gets the package metadata section.
     /// </summary>
     public PackageInfo Package { get; set; } = new();
+
     /// <summary>
     /// Gets the single build target declared by the <c>[target]</c> section.
     /// </summary>
     public BuildTarget Target { get; set; } = new();
+
     /// <summary>Gets the optional <c>[debug]</c> section (internal compiler diagnostics).</summary>
     public DebugOptions Debug { get; set; } = new();
+
     /// <summary>
     /// Gets the directory containing the loaded manifest file.
     /// </summary>

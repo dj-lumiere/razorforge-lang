@@ -4,7 +4,6 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 using Compiler.Verification;
-
 using Compiler.Desugaring;
 
 namespace Compiler.Declaration;
@@ -29,12 +28,16 @@ internal sealed class CallOverloadResolutionPass
     /// Stores the registry state used by this compiler phase.
     /// </summary>
     private readonly TypeRegistry _registry;
+
     private readonly Dictionary<string, Statement>? _variantBodies;
+
     private readonly Dictionary<string, Statement>? _synthesizedBodies;
+
     // Per-body local-variable types (name → declared/inferred type), populated as the walk visits declarations
     // in order. Recovers a monomorphized body's member-call receiver whose reference ResolvedType is null
     // (`n.eq(...)` where `var n = me.count()`). Cleared per top-level body via WalkBody.
-    private readonly Dictionary<string, TypeInfo> _localVarTypes = new(comparer: StringComparer.Ordinal);
+    private readonly Dictionary<string, TypeInfo> _localVarTypes =
+        new(comparer: StringComparer.Ordinal);
 
     /// <summary>
     /// Initializes a new instance with the dependencies required for its compiler phase.
@@ -56,16 +59,16 @@ internal sealed class CallOverloadResolutionPass
             switch (decl)
             {
                 case RoutineDeclaration r:
-                    WalkBody(r.Body);
+                    WalkBody(body: r.Body);
                     break;
                 case EntityDeclaration e:
-                    WalkMemberList(e.Members);
+                    WalkMemberList(members: e.Members);
                     break;
                 case RecordDeclaration rec:
-                    WalkMemberList(rec.Members);
+                    WalkMemberList(members: rec.Members);
                     break;
                 case CrashableDeclaration cr:
-                    WalkMemberList(cr.Members);
+                    WalkMemberList(members: cr.Members);
                     break;
             }
         }
@@ -76,9 +79,15 @@ internal sealed class CallOverloadResolutionPass
     /// </summary>
     public void RunOnVariantBodies()
     {
-        if (_variantBodies == null) return;
+        if (_variantBodies == null)
+        {
+            return;
+        }
+
         foreach (Statement body in _variantBodies.Values)
-            WalkBody(body);
+        {
+            WalkBody(body: body);
+        }
     }
 
     /// <summary>
@@ -90,7 +99,9 @@ internal sealed class CallOverloadResolutionPass
     public void RunOnStatements(IEnumerable<Statement> statements)
     {
         foreach (Statement body in statements)
-            WalkBody(body);
+        {
+            WalkBody(body: body);
+        }
     }
 
     /// <summary>
@@ -99,10 +110,14 @@ internal sealed class CallOverloadResolutionPass
     /// cascading from it, e.g. `var n = me.count()`) arrive un-typed.
     /// </summary>
     public void RunOnBodiesWithOwners(
-        IEnumerable<(Statement body, TypeInfo? owner, IReadOnlyList<ParameterInfo>? parameters)> bodies)
+        IEnumerable<(Statement body, TypeInfo? owner, IReadOnlyList<ParameterInfo>? parameters)>
+            bodies)
     {
-        foreach ((Statement body, TypeInfo? owner, IReadOnlyList<ParameterInfo>? parameters) in bodies)
-            WalkBody(body, owner: owner, parameters: parameters);
+        foreach ((Statement body, TypeInfo? owner,
+                     IReadOnlyList<ParameterInfo>? parameters) in bodies)
+        {
+            WalkBody(body: body, owner: owner, parameters: parameters);
+        }
     }
 
     /// <summary>
@@ -113,9 +128,15 @@ internal sealed class CallOverloadResolutionPass
     /// </summary>
     public void RunOnSynthesizedBodies()
     {
-        if (_synthesizedBodies == null) return;
+        if (_synthesizedBodies == null)
+        {
+            return;
+        }
+
         foreach (Statement body in _synthesizedBodies.Values)
-            WalkBody(body);
+        {
+            WalkBody(body: body);
+        }
     }
 
     /// <summary>
@@ -124,16 +145,24 @@ internal sealed class CallOverloadResolutionPass
     private void WalkMemberList(List<SyntaxTree.Declaration> members)
     {
         foreach (SyntaxTree.Declaration m in members)
-            if (m is RoutineDeclaration r) WalkBody(r.Body);
+        {
+            if (m is RoutineDeclaration r)
+            {
+                WalkBody(body: r.Body);
+            }
+        }
     }
 
     // -----------------------------------------------------------------------------
 
     /// <summary>True when <paramref name="type"/> still carries a generic parameter (directly or nested in a
     /// type argument) — i.e. it is not yet a fully-concrete monomorphized type.</summary>
-    private static bool TypeContainsGenericParameter(TypeInfo type) =>
-        type is GenericParameterTypeInfo or ProtocolSelfTypeInfo or ComptimeConstGenericTypeInfo
-        || (type.TypeArguments?.Any(predicate: TypeContainsGenericParameter) ?? false);
+    private static bool TypeContainsGenericParameter(TypeInfo type)
+    {
+        return type is GenericParameterTypeInfo or ProtocolSelfTypeInfo
+                   or ComptimeConstGenericTypeInfo ||
+               (type.TypeArguments?.Any(predicate: TypeContainsGenericParameter) ?? false);
+    }
 
     /// <summary>Walks one top-level routine body, resetting the per-body local-variable type scope first.
     /// When <paramref name="owner"/> is known (a monomorphized member routine), seeds the implicit receiver
@@ -141,19 +170,35 @@ internal sealed class CallOverloadResolutionPass
     private void WalkBody(Statement? body, TypeInfo? owner = null,
         IReadOnlyList<ParameterInfo>? parameters = null)
     {
-        if (body == null) return;
+        if (body == null)
+        {
+            return;
+        }
+
         _localVarTypes.Clear();
-        if (owner is { } o and not ErrorTypeInfo) _localVarTypes[key: "me"] = o;
+        if (owner is { } o and not ErrorTypeInfo)
+        {
+            _localVarTypes[key: "me"] = o;
+        }
+
         // Seed the routine's PARAMETERS so a bare param reference used as a member-call receiver resolves.
         // A comptime-`expand` monomorph body (SplitArray.getitem's `index >= N` → `index.ge(N)`) leaves the
         // `index` reference un-typed (the clone doesn't re-annotate every ref), so without this the receiver
         // type is unknown and `.ge` reaches codegen unresolved. Concrete param types only (skip any that
         // still carry a generic parameter).
         if (parameters != null)
+        {
             foreach (ParameterInfo p in parameters)
-                if (p.Type is { } pt and not ErrorTypeInfo && !TypeContainsGenericParameter(type: pt))
+            {
+                if (p.Type is { } pt and not ErrorTypeInfo &&
+                    !TypeContainsGenericParameter(type: pt))
+                {
                     _localVarTypes[key: p.Name] = pt;
-        WalkStatement(body);
+                }
+            }
+        }
+
+        WalkStatement(stmt: body);
     }
 
     private void WalkStatement(Statement stmt)
@@ -161,63 +206,85 @@ internal sealed class CallOverloadResolutionPass
         switch (stmt)
         {
             case BlockStatement block:
-                foreach (Statement s in block.Statements) WalkStatement(s);
+                foreach (Statement s in block.Statements)
+                {
+                    WalkStatement(stmt: s);
+                }
+
                 break;
             case IfStatement ifs:
-                WalkExpression(ifs.Condition);
-                WalkStatement(ifs.ThenStatement);
-                if (ifs.ElseStatement != null) WalkStatement(ifs.ElseStatement);
+                WalkExpression(expr: ifs.Condition);
+                WalkStatement(stmt: ifs.ThenStatement);
+                if (ifs.ElseStatement != null)
+                {
+                    WalkStatement(stmt: ifs.ElseStatement);
+                }
+
                 break;
             case WhileStatement w:
-                WalkExpression(w.Condition);
-                WalkStatement(w.Body);
+                WalkExpression(expr: w.Condition);
+                WalkStatement(stmt: w.Body);
                 break;
             case LoopStatement loop:
-                WalkStatement(loop.Body);
+                WalkStatement(stmt: loop.Body);
                 break;
             case EachStatement f:
-                WalkExpression(f.Iterable);
-                WalkStatement(f.Body);
+                WalkExpression(expr: f.Iterable);
+                WalkStatement(stmt: f.Body);
                 break;
             case WhenStatement ws:
-                WalkExpression(ws.Expression);
-                foreach (WhenClause c in ws.Clauses) WalkStatement(c.Body);
+                WalkExpression(expr: ws.Expression);
+                foreach (WhenClause c in ws.Clauses)
+                {
+                    WalkStatement(stmt: c.Body);
+                }
+
                 break;
             case ReturnStatement { Value: not null } ret:
-                WalkExpression(ret.Value);
+                WalkExpression(expr: ret.Value);
                 break;
             case AssignmentStatement assign:
-                WalkExpression(assign.Target);
-                WalkExpression(assign.Value);
+                WalkExpression(expr: assign.Target);
+                WalkExpression(expr: assign.Value);
                 break;
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd }:
-                WalkExpression(vd.Initializer);
+            case DeclarationStatement
+            {
+                Declaration: VariableDeclaration { Initializer: not null } vd
+            }:
+                WalkExpression(expr: vd.Initializer);
                 // Track the local's inferred type (from the walked initializer) so a later member call on a
                 // reference to it can recover a receiver type the monomorph clone left un-annotated.
                 if (vd.Initializer.ResolvedType is { } vt and not ErrorTypeInfo)
+                {
                     _localVarTypes[key: vd.Name] = vt;
+                }
+
                 break;
             case ExpressionStatement es:
-                WalkExpression(es.Expression);
+                WalkExpression(expr: es.Expression);
                 break;
             case DiscardStatement ds:
-                WalkExpression(ds.Expression);
+                WalkExpression(expr: ds.Expression);
                 break;
             case ThrowStatement ts:
-                WalkExpression(ts.Error);
+                WalkExpression(expr: ts.Error);
                 break;
             case VariantReturnStatement { Value: not null } vrs:
-                WalkExpression(vrs.Value);
+                WalkExpression(expr: vrs.Value);
                 break;
             case BecomesStatement bs:
-                WalkExpression(bs.Value);
+                WalkExpression(expr: bs.Value);
                 break;
             case UsingStatement us:
-                WalkStatement(us.Body);
-                if (us.FallbackBody != null) WalkStatement(us.FallbackBody);
+                WalkStatement(stmt: us.Body);
+                if (us.FallbackBody != null)
+                {
+                    WalkStatement(stmt: us.FallbackBody);
+                }
+
                 break;
             case DangerStatement danger:
-                WalkStatement(danger.Body);
+                WalkStatement(stmt: danger.Body);
                 break;
         }
     }
@@ -235,69 +302,81 @@ internal sealed class CallOverloadResolutionPass
                 return;
 
             case CallExpression call:
-                ClassifyCall(call);
-                WalkExpression(call.Callee);
-                foreach (Expression arg in call.Arguments) WalkExpression(arg);
+                ClassifyCall(call: call);
+                WalkExpression(expr: call.Callee);
+                foreach (Expression arg in call.Arguments)
+                {
+                    WalkExpression(expr: arg);
+                }
+
                 break;
 
             case BinaryExpression bin:
-                WalkExpression(bin.Left);
-                WalkExpression(bin.Right);
+                WalkExpression(expr: bin.Left);
+                WalkExpression(expr: bin.Right);
                 break;
 
             case UnaryExpression un:
-                WalkExpression(un.Operand);
+                WalkExpression(expr: un.Operand);
                 break;
 
             case MemberExpression mem:
-                WalkExpression(mem.Object);
+                WalkExpression(expr: mem.Object);
                 break;
 
             case OptionalMemberExpression omem:
-                WalkExpression(omem.Object);
+                WalkExpression(expr: omem.Object);
                 break;
 
             case NamedArgumentExpression named:
-                WalkExpression(named.Value);
+                WalkExpression(expr: named.Value);
                 break;
 
             case IndexExpression idx:
-                WalkExpression(idx.Object);
-                WalkExpression(idx.Index);
+                WalkExpression(expr: idx.Object);
+                WalkExpression(expr: idx.Index);
                 break;
 
             case TypeConversionExpression conv:
-                WalkExpression(conv.Expression);
+                WalkExpression(expr: conv.Expression);
                 break;
 
             case StealExpression steal:
-                WalkExpression(steal.Operand);
+                WalkExpression(expr: steal.Operand);
                 break;
 
             case GenericMemberRoutineCallExpression gmc:
-                WalkExpression(gmc.Object);
-                foreach (Expression arg in gmc.Arguments) WalkExpression(arg);
+                WalkExpression(expr: gmc.Object);
+                foreach (Expression arg in gmc.Arguments)
+                {
+                    WalkExpression(expr: arg);
+                }
+
                 break;
 
             case GenericMemberExpression gmem:
-                WalkExpression(gmem.Object);
+                WalkExpression(expr: gmem.Object);
                 break;
 
             case IsPatternExpression ip:
-                WalkExpression(ip.Expression);
+                WalkExpression(expr: ip.Expression);
                 break;
 
             case FlagsTestExpression flags:
-                WalkExpression(flags.Subject);
+                WalkExpression(expr: flags.Subject);
                 break;
 
             case ChainedComparisonExpression chain:
-                foreach (Expression op in chain.Operands) WalkExpression(op);
+                foreach (Expression op in chain.Operands)
+                {
+                    WalkExpression(expr: op);
+                }
+
                 break;
 
             case CompoundAssignmentExpression comp:
-                WalkExpression(comp.Target);
-                WalkExpression(comp.Value);
+                WalkExpression(expr: comp.Target);
+                WalkExpression(expr: comp.Value);
                 break;
 
             case RangeExpression range:
@@ -305,21 +384,33 @@ internal sealed class CallOverloadResolutionPass
                 break;
 
             case ConditionalExpression cond:
-                WalkExpression(cond.Condition);
-                WalkExpression(cond.TrueExpression);
-                WalkExpression(cond.FalseExpression);
+                WalkExpression(expr: cond.Condition);
+                WalkExpression(expr: cond.TrueExpression);
+                WalkExpression(expr: cond.FalseExpression);
                 break;
 
             case TupleLiteralExpression tuple:
-                foreach (Expression e in tuple.Elements) WalkExpression(e);
+                foreach (Expression e in tuple.Elements)
+                {
+                    WalkExpression(expr: e);
+                }
+
                 break;
 
             case ListLiteralExpression list:
-                foreach (Expression e in list.Elements) WalkExpression(e);
+                foreach (Expression e in list.Elements)
+                {
+                    WalkExpression(expr: e);
+                }
+
                 break;
 
             case SetLiteralExpression set:
-                foreach (Expression e in set.Elements) WalkExpression(e);
+                foreach (Expression e in set.Elements)
+                {
+                    WalkExpression(expr: e);
+                }
+
                 break;
 
             case DictLiteralExpression dict:
@@ -327,7 +418,11 @@ internal sealed class CallOverloadResolutionPass
                 break;
 
             case CreatorExpression creator:
-                foreach ((_, Expression v) in creator.MemberVariables) WalkExpression(v);
+                foreach ((_, Expression v) in creator.MemberVariables)
+                {
+                    WalkExpression(expr: v);
+                }
+
                 break;
 
             case InsertedTextExpression fstr:
@@ -338,17 +433,20 @@ internal sealed class CallOverloadResolutionPass
 
     private void WalkRangeExpression(RangeExpression range)
     {
-        WalkExpression(range.Start);
-        WalkExpression(range.End);
-        if (range.Step != null) WalkExpression(range.Step);
+        WalkExpression(expr: range.Start);
+        WalkExpression(expr: range.End);
+        if (range.Step != null)
+        {
+            WalkExpression(expr: range.Step);
+        }
     }
 
     private void WalkDictExpression(DictLiteralExpression dict)
     {
         foreach ((Expression k, Expression v) in dict.Pairs)
         {
-            WalkExpression(k);
-            WalkExpression(v);
+            WalkExpression(expr: k);
+            WalkExpression(expr: v);
         }
     }
 
@@ -356,7 +454,10 @@ internal sealed class CallOverloadResolutionPass
     {
         foreach (InsertedTextPart part in fstr.Parts)
         {
-            if (part is ExpressionPart ep) WalkExpression(ep.Expression);
+            if (part is ExpressionPart ep)
+            {
+                WalkExpression(expr: ep.Expression);
+            }
         }
     }
 
@@ -367,22 +468,27 @@ internal sealed class CallOverloadResolutionPass
     /// </summary>
     private void ClassifyCall(CallExpression call)
     {
-        TryBackfillAlreadyResolvedType(call);
+        TryBackfillAlreadyResolvedType(call: call);
 
-        bool staleProtocolReturn = IsStaleProtocolReturn(call);
+        bool staleProtocolReturn = IsStaleProtocolReturn(call: call);
 
         // Skip only when FULLY classified — both the lowering kind AND the target routine are known. A body
         // may arrive with LoweringKind set (by GenericAstRewriter) yet ResolvedRoutine still null (a cloned
         // derive's me.assign()); the demand collector relies on this pass as the sole member-call resolver
         // (codegen no longer resolves call targets at emission), so it must still resolve those.
-        if (call.LoweringKind != CallLoweringKind.Unknown && call.ResolvedRoutine != null
-            && !staleProtocolReturn)
+        if (call.LoweringKind != CallLoweringKind.Unknown && call.ResolvedRoutine != null &&
+            !staleProtocolReturn)
+        {
             return;
+        }
 
         // A stale abstract-protocol ResolvedType must fall through to the FULL member-call resolver,
         // not the fast path below (which keeps the stale ResolvedType). Drop the routine so
         // ClassifyMemberCall re-binds iter on the concrete receiver and refreshes ResolvedType.
-        if (staleProtocolReturn) call.ResolvedRoutine = null;
+        if (staleProtocolReturn)
+        {
+            call.ResolvedRoutine = null;
+        }
 
         // Fast path: routine already resolved by DerivedOperatorPass or SA.
         // Wired routines like ComparisonSign.eq may not be findable via LookupMemberRoutineOverload
@@ -395,16 +501,21 @@ internal sealed class CallOverloadResolutionPass
             return;
         }
 
-        List<TypeInfo> argTypes = CollectCallArgTypes(call, out bool allArgTypesKnown);
+        List<TypeInfo> argTypes =
+            CollectCallArgTypes(call: call, allKnown: out bool allArgTypesKnown);
 
         switch (call.Callee)
         {
             case MemberExpression member:
-                ClassifyMemberCall(call: call, member: member, argTypes: argTypes,
+                ClassifyMemberCall(call: call,
+                    member: member,
+                    argTypes: argTypes,
                     allArgTypesKnown: allArgTypesKnown);
                 break;
             case IdentifierExpression { Name: var name }:
-                ClassifyStandaloneCall(call: call, name: name, argTypes: argTypes,
+                ClassifyStandaloneCall(call: call,
+                    name: name,
+                    argTypes: argTypes,
                     allArgTypesKnown: allArgTypesKnown);
                 break;
         }
@@ -418,10 +529,12 @@ internal sealed class CallOverloadResolutionPass
     /// </summary>
     private static void TryBackfillAlreadyResolvedType(CallExpression call)
     {
-        if (call.ResolvedRoutine is { ReturnType: { } rrRet }
-            && rrRet is not ProtocolTypeInfo and not ErrorTypeInfo
-            && call.ResolvedType is null or ErrorTypeInfo)
+        if (call.ResolvedRoutine is { ReturnType: { } rrRet } &&
+            rrRet is not ProtocolTypeInfo and not ErrorTypeInfo &&
+            call.ResolvedType is null or ErrorTypeInfo)
+        {
             call.ResolvedType = rrRet;
+        }
     }
 
     /// <summary>
@@ -432,14 +545,14 @@ internal sealed class CallOverloadResolutionPass
     /// Only fires when the receiver has no generic parameters — a still-generic receiver would
     /// spawn unbounded RangeEmittable[RangeEmittable[…]] monomorphization.
     /// </summary>
-    private static bool IsStaleProtocolReturn(CallExpression call) =>
-        call.ResolvedType is ProtocolTypeInfo
-        && call.Callee is MemberExpression
+    private static bool IsStaleProtocolReturn(CallExpression call)
+    {
+        return call.ResolvedType is ProtocolTypeInfo && call.Callee is MemberExpression
         {
-            Object.ResolvedType: { } recvT and not ProtocolTypeInfo and not GenericParameterTypeInfo
-                and not ErrorTypeInfo
-        }
-        && !TypeContainsGenericParameter(type: recvT);
+            Object.ResolvedType: { } recvT and not ProtocolTypeInfo
+            and not GenericParameterTypeInfo and not ErrorTypeInfo
+        } && !TypeContainsGenericParameter(type: recvT);
+    }
 
     /// <summary>
     /// Collects the resolved argument types from a call's argument list, setting
@@ -456,10 +569,15 @@ internal sealed class CallOverloadResolutionPass
                 ? named.Value.ResolvedType
                 : arg.ResolvedType;
             if (t == null)
+            {
                 allKnown = false;
+            }
             else
-                argTypes.Add(t);
+            {
+                argTypes.Add(item: t);
+            }
         }
+
         return argTypes;
     }
 
@@ -470,8 +588,11 @@ internal sealed class CallOverloadResolutionPass
     private void ClassifyMemberCall(CallExpression call, MemberExpression member,
         List<TypeInfo> argTypes, bool allArgTypesKnown)
     {
-        TypeInfo? receiverType = RecoverReceiverType(member);
-        if (receiverType == null) return;
+        TypeInfo? receiverType = RecoverReceiverType(member: member);
+        if (receiverType == null)
+        {
+            return;
+        }
 
         // Const-generic value types (e.g. ConstGenericValueTypeInfo for N=63 in Array[T,63]) are
         // not registered in _routinesByOwner. Resolve to the underlying numeric type so member-routine
@@ -480,14 +601,23 @@ internal sealed class CallOverloadResolutionPass
         if (receiverType is ConstGenericValueTypeInfo constVal)
         {
             string underlyingName = constVal.ExplicitTypeName ?? "U64";
-            TypeInfo? resolved = _registry.LookupType(underlyingName);
-            if (resolved == null) return;
+            TypeInfo? resolved = _registry.LookupType(name: underlyingName);
+            if (resolved == null)
+            {
+                return;
+            }
+
             receiverType = resolved;
         }
 
-        RoutineInfo? memberRoutine = LookupMemberRoutineWithFallback(
-            receiverType, member, argTypes, allArgTypesKnown);
-        if (memberRoutine == null) return;
+        RoutineInfo? memberRoutine = LookupMemberRoutineWithFallback(receiverType: receiverType,
+            member: member,
+            argTypes: argTypes,
+            allArgTypesKnown: allArgTypesKnown);
+        if (memberRoutine == null)
+        {
+            return;
+        }
 
         call.ResolvedRoutine = memberRoutine;
         call.LoweringKind = CallClassifier.ClassifyMemberRoutineCall(memberRoutine: memberRoutine);
@@ -497,10 +627,12 @@ internal sealed class CallOverloadResolutionPass
         // untyped and a later `n.eq(...)` can't recover its receiver; `var it = r.iter()` keeps the abstract
         // Emittable[S64] which leaks into codegen. Propagating the concrete return forward types the local
         // (count→U64 lets `n` resolve, iter→RangeEmittable[S64] fixes the each-loop var).
-        if (call.ResolvedType is null or ErrorTypeInfo or ProtocolTypeInfo
-            && memberRoutine.ReturnType is { } concreteRet
-            && concreteRet is not ProtocolTypeInfo and not ErrorTypeInfo)
+        if (call.ResolvedType is null or ErrorTypeInfo or ProtocolTypeInfo &&
+            memberRoutine.ReturnType is { } concreteRet &&
+            concreteRet is not ProtocolTypeInfo and not ErrorTypeInfo)
+        {
             call.ResolvedType = concreteRet;
+        }
     }
 
     /// <summary>
@@ -522,19 +654,23 @@ internal sealed class CallOverloadResolutionPass
         // A monomorphized body's local-variable reference can arrive with a null/deferred ResolvedType
         // (the clone doesn't re-annotate every reference). Recover from the var's DECLARATION type,
         // tracked as this walk visits declarations in body order.
-        if (receiverType is null or ErrorTypeInfo
-            && member.Object is IdentifierExpression idRecv
-            && _localVarTypes.TryGetValue(key: idRecv.Name, value: out TypeInfo? declaredT))
+        if (receiverType is null or ErrorTypeInfo &&
+            member.Object is IdentifierExpression idRecv &&
+            _localVarTypes.TryGetValue(key: idRecv.Name, value: out TypeInfo? declaredT))
+        {
             receiverType = declaredT;
+        }
 
         // TYPEWISE TYPE RECEIVER: T.blank() → Point.blank() after T→Point. The receiver is a bare
         // identifier naming a concrete TYPE (not a local/param — checked above). A comptime-expand
         // monomorph body leaves it un-typed; type it as the type it names so the static/wired member
         // resolves. Checked AFTER locals/params so a same-named local still wins.
-        if (receiverType is null or ErrorTypeInfo
-            && member.Object is IdentifierExpression typeRecv
-            && _registry.LookupType(name: typeRecv.Name) is { IsGenericDefinition: false } typeRecvTy)
+        if (receiverType is null or ErrorTypeInfo &&
+            member.Object is IdentifierExpression typeRecv &&
+            _registry.LookupType(name: typeRecv.Name) is { IsGenericDefinition: false } typeRecvTy)
+        {
             receiverType = typeRecvTy;
+        }
 
         return receiverType;
     }
@@ -553,7 +689,8 @@ internal sealed class CallOverloadResolutionPass
     {
         RoutineInfo? memberRoutine = allArgTypesKnown
             ? _registry.LookupMemberRoutineOverload(type: receiverType,
-                memberRoutineName: member.MemberName, argTypes: argTypes)
+                memberRoutineName: member.MemberName,
+                argTypes: argTypes)
             : null;
         memberRoutine ??= _registry.LookupMemberRoutine(type: receiverType,
             memberRoutineName: member.MemberName);
@@ -564,10 +701,12 @@ internal sealed class CallOverloadResolutionPass
         {
             memberRoutine = allArgTypesKnown
                 ? _registry.LookupMemberRoutineOverload(type: receiverType,
-                    memberRoutineName: member.MemberName, argTypes: argTypes)
+                    memberRoutineName: member.MemberName,
+                    argTypes: argTypes)
                 : null;
             memberRoutine ??= _registry.LookupMemberRoutine(type: receiverType,
-                memberRoutineName: member.MemberName, isFailable: true);
+                memberRoutineName: member.MemberName,
+                isFailable: true);
         }
 
         return memberRoutine;
@@ -584,14 +723,23 @@ internal sealed class CallOverloadResolutionPass
     private static TypeInfo? ComputeDeferredType(Expression expr)
     {
         if (expr.ResolvedType is { } t and not ErrorTypeInfo)
+        {
             return t;
+        }
+
         if (expr is MemberExpression member)
         {
             TypeInfo? ownerType = ComputeDeferredType(expr: member.Object);
             return ownerType switch
             {
-                RecordTypeInfo record => record.LookupMemberVariable(memberVariableName: member.MemberName)?.Type,
-                EntityTypeInfo entity => entity.LookupMemberVariable(memberVariableName: member.MemberName)?.Type,
+                RecordTypeInfo record => record
+                                        .LookupMemberVariable(
+                                             memberVariableName: member.MemberName)
+                                       ?.Type,
+                EntityTypeInfo entity => entity
+                                        .LookupMemberVariable(
+                                             memberVariableName: member.MemberName)
+                                       ?.Type,
                 _ => null
             };
         }
@@ -603,8 +751,8 @@ internal sealed class CallOverloadResolutionPass
     /// Resolves and classifies a standalone (free-routine) call by overload-by-arg-types,
     /// falling back to a unique by-name lookup.
     /// </summary>
-    private void ClassifyStandaloneCall(CallExpression call, string name,
-        List<TypeInfo> argTypes, bool allArgTypesKnown)
+    private void ClassifyStandaloneCall(CallExpression call, string name, List<TypeInfo> argTypes,
+        bool allArgTypesKnown)
     {
         // Overload-by-arg-types when all arg types are known; otherwise fall back to a
         // unique by-name lookup. Stdlib bodies aren't fully type-annotated, so a free call
@@ -622,15 +770,18 @@ internal sealed class CallOverloadResolutionPass
             // SA'd). SA normally stamps ConstructedType + `create` here; do the same so codegen's constructor
             // path emits it instead of tripping the RF-S959 gate. Only fires on an unresolved call whose name
             // is a concrete type (idempotent; no effect on resolved calls or real free-routine names).
-            if (call is { ConstructedType: null }
-                && _registry.LookupType(name: name) is { IsGenericDefinition: false } ctorType)
+            if (call is { ConstructedType: null } && _registry.LookupType(name: name) is
+                    { IsGenericDefinition: false } ctorType)
             {
                 call.ConstructedType = ctorType;
                 call.ResolvedType ??= ctorType;
                 call.LoweringKind = CallLoweringKind.TypeConstructor;
                 if (_registry.LookupCreator(type: ctorType) is { } ctorCreate)
+                {
                     call.ResolvedRoutine = ctorCreate;
+                }
             }
+
             return;
         }
 

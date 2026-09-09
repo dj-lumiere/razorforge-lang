@@ -4,11 +4,14 @@ using Compiler.Instantiation;
 using Compiler.Verification;
 using Compiler.Verification.Results;
 using System.Collections;
+using System.Reflection;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Reprs;
 using TypeModel.Symbols;
 using TypeModel.Types;
+using ParameterInfo = TypeModel.Symbols.ParameterInfo;
+using TypeInfo = TypeModel.Types.TypeInfo;
 
 namespace RazorForge.Tests.Analyzer;
 
@@ -190,12 +193,12 @@ public class CompilerPipelineLoweringTests
         // `fetch` (not `peek`) — `peek` now also names the stdlib `Hijacked[T].peek` accessor, whose
         // many monomorphizations would make this filter ambiguous.
         MonomorphizedBody body = Assert.Single(
-            collection: result.InstantiatedGenericBodies.Values.Where(candidate =>
+            collection: result.InstantiatedGenericBodies.Values.Where(predicate: candidate =>
                 candidate.Info.Name == "fetch"));
 
         Assert.False(condition: ContainsGenericPlaceholder(type: body.Info.OwnerType));
-        Assert.DoesNotContain(body.Info.Parameters,
-            param => ContainsGenericPlaceholder(type: param.Type));
+        Assert.DoesNotContain(collection: body.Info.Parameters,
+            filter: param => ContainsGenericPlaceholder(type: param.Type));
         Assert.False(condition: ContainsGenericPlaceholder(type: body.Info.ReturnType));
     }
 
@@ -224,14 +227,14 @@ public class CompilerPipelineLoweringTests
         Assert.Empty(collection: result.Errors);
 
         MonomorphizedBody body = Assert.Single(
-            collection: result.InstantiatedGenericBodies.Values.Where(candidate =>
+            collection: result.InstantiatedGenericBodies.Values.Where(predicate: candidate =>
                 candidate.Info.Name == "none_ptr"));
 
         // A record memberwise construction lowers to a CreatorExpression; after monomorphization
         // its ConstructedType must be the concrete owner (Box[S32]), not the generic definition.
-        BlockStatement block = Assert.IsType<BlockStatement>(body.Ast.Body);
-        ReturnStatement ret = Assert.IsType<ReturnStatement>(block.Statements.Last());
-        CreatorExpression creator = Assert.IsType<CreatorExpression>(ret.Value);
+        BlockStatement block = Assert.IsType<BlockStatement>(@object: body.Ast.Body);
+        ReturnStatement ret = Assert.IsType<ReturnStatement>(@object: block.Statements.Last());
+        CreatorExpression creator = Assert.IsType<CreatorExpression>(@object: ret.Value);
         Assert.False(condition: ContainsGenericPlaceholder(type: creator.ConstructedType));
         Assert.Equal(expected: "Box[Core.S32]", actual: creator.ConstructedType?.Name);
     }
@@ -264,10 +267,10 @@ public class CompilerPipelineLoweringTests
         Assert.Empty(collection: result.Errors);
 
         MonomorphizedBody body = Assert.Single(
-            collection: result.InstantiatedGenericBodies.Values.Where(candidate =>
+            collection: result.InstantiatedGenericBodies.Values.Where(predicate: candidate =>
                 candidate.Info.Name == "copy_value"));
 
-        CallExpression call = GetReturnedCall(body.Ast.Body);
+        CallExpression call = GetReturnedCall(body: body.Ast.Body);
         Assert.False(condition: ContainsGenericPlaceholder(type: call.ResolvedType));
     }
 
@@ -406,7 +409,7 @@ public class CompilerPipelineLoweringTests
                                             .OfType<RoutineDeclaration>()
                                             .Single(predicate: declaration =>
                                                  declaration.Name == "test");
-        BlockStatement body = Assert.IsType<BlockStatement>(routine.Body);
+        BlockStatement body = Assert.IsType<BlockStatement>(@object: routine.Body);
         VariableDeclaration variable = body.Statements
                                            .OfType<DeclarationStatement>()
                                            .Select(selector: statement => statement.Declaration)
@@ -512,9 +515,11 @@ public class CompilerPipelineLoweringTests
             actualString: llvmIr);
         Assert.Contains(expectedSubstring: "\"[crashable, member] Core.S32.add(you: Core.S32)\"",
             actualString: llvmIr);
-        Assert.DoesNotContain(expectedSubstring: "declare void @\"[crashable, member] Core.S32.sub",
+        Assert.DoesNotContain(
+            expectedSubstring: "declare void @\"[crashable, member] Core.S32.sub",
             actualString: llvmIr);
-        Assert.DoesNotContain(expectedSubstring: "declare void @\"[crashable, member] Core.S32.add",
+        Assert.DoesNotContain(
+            expectedSubstring: "declare void @\"[crashable, member] Core.S32.add",
             actualString: llvmIr);
     }
 
@@ -749,10 +754,13 @@ public class CompilerPipelineLoweringTests
 
         string llvmIr = generator.Generate();
         string tryToU8Body = ExtractFunctionDefinition(llvmIr: llvmIr,
-            functionMarker: "define internal %\"Record.Core.Maybe[Core.U8]\" @\"[member] Collections.BitList.try_to_u8");
-        Assert.Contains(expectedSubstring: "call i64 @\"[dangerous, member] Core.Hijacked[Core.U64].peek()\"",
+            functionMarker:
+            "define internal %\"Record.Core.Maybe[Core.U8]\" @\"[member] Collections.BitList.try_to_u8");
+        Assert.Contains(
+            expectedSubstring: "call i64 @\"[dangerous, member] Core.Hijacked[Core.U64].peek()\"",
             actualString: tryToU8Body);
-        Assert.DoesNotContain(expectedSubstring: "@\"[dangerous, member] Core.Hijacked[Core.Bytes].peek()\"",
+        Assert.DoesNotContain(
+            expectedSubstring: "@\"[dangerous, member] Core.Hijacked[Core.Bytes].peek()\"",
             actualString: tryToU8Body);
         Assert.DoesNotContain(expectedSubstring: "Core.Bytes.bitand", actualString: tryToU8Body);
     }
@@ -785,26 +793,29 @@ public class CompilerPipelineLoweringTests
         TypeInfo maybeS64 = result.Registry.GetOrCreateResolution(genericDef: maybeDef,
             typeArguments: [s64Type]);
 
-        string fromS8 = LlvmCodeGenerator.MangleRoutineName(new RoutineInfo(name: "try_create")
-        {
-            OwnerType = s64Type,
-            Parameters = [new ParameterInfo("from", s8Type)],
-            ReturnType = maybeS64,
-            OriginalName = "$create",
-            IsSynthesized = true
-        });
+        string fromS8 = LlvmCodeGenerator.MangleRoutineName(
+            routine: new RoutineInfo(name: "try_create")
+            {
+                OwnerType = s64Type,
+                Parameters = [new ParameterInfo(name: "from", type: s8Type)],
+                ReturnType = maybeS64,
+                OriginalName = "$create",
+                IsSynthesized = true
+            });
 
-        string fromText = LlvmCodeGenerator.MangleRoutineName(new RoutineInfo(name: "try_create")
-        {
-            OwnerType = s64Type,
-            Parameters = [new ParameterInfo("from_text", textType)],
-            ReturnType = maybeS64,
-            OriginalName = "$create",
-            IsSynthesized = true
-        });
+        string fromText = LlvmCodeGenerator.MangleRoutineName(
+            routine: new RoutineInfo(name: "try_create")
+            {
+                OwnerType = s64Type,
+                Parameters = [new ParameterInfo(name: "from_text", type: textType)],
+                ReturnType = maybeS64,
+                OriginalName = "$create",
+                IsSynthesized = true
+            });
 
         Assert.Equal(expected: "\"[member] Core.S64.try_create(from: Core.S8)\"", actual: fromS8);
-        Assert.Equal(expected: "\"[member] Core.S64.try_create(from_text: Core.Text)\"", actual: fromText);
+        Assert.Equal(expected: "\"[member] Core.S64.try_create(from_text: Core.Text)\"",
+            actual: fromText);
         Assert.NotEqual(expected: fromS8, actual: fromText);
     }
 
@@ -872,7 +883,8 @@ public class CompilerPipelineLoweringTests
         Assert.DoesNotContain(expectedSubstring: "call ptr @Core.hijacked_from(",
             actualString: llvmIr);
         Assert.Contains(
-            expectedSubstring: "define ptr @\"[independent] Core.hijacked_from(S64)(addr: Core.Address)\"(i64 %addr)",
+            expectedSubstring:
+            "define ptr @\"[independent] Core.hijacked_from(S64)(addr: Core.Address)\"(i64 %addr)",
             actualString: llvmIr);
     }
 
@@ -912,8 +924,10 @@ public class CompilerPipelineLoweringTests
             });
 
         string llvmIr = generator.Generate();
-        Assert.Contains(expectedSubstring: "define i32 @\"[independent] test()\"", actualString: llvmIr);
-        Assert.Contains(expectedSubstring: "@\"[member] Box[Core.S32].peek()\"", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "define i32 @\"[independent] test()\"",
+            actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "@\"[member] Box[Core.S32].peek()\"",
+            actualString: llvmIr);
     }
 
     /// <summary>
@@ -943,9 +957,12 @@ public class CompilerPipelineLoweringTests
             });
 
         string llvmIr = generator.Generate();
-        Assert.Contains(expectedSubstring: "define i64 @\"[dangerous, independent] test(ptr: Core.Hijacked[Core.S64])\"(ptr %ptr)",
+        Assert.Contains(
+            expectedSubstring:
+            "define i64 @\"[dangerous, independent] test(ptr: Core.Hijacked[Core.S64])\"(ptr %ptr)",
             actualString: llvmIr);
-        Assert.Contains(expectedSubstring: "@\"[dangerous, member] Core.Hijacked[Core.S64].peek()\"",
+        Assert.Contains(
+            expectedSubstring: "@\"[dangerous, member] Core.Hijacked[Core.S64].peek()\"",
             actualString: llvmIr);
     }
 
@@ -983,9 +1000,12 @@ public class CompilerPipelineLoweringTests
             });
 
         string llvmIr = generator.Generate();
-        Assert.Contains(expectedSubstring: "define i32 @\"[independent] test(text: Core.Text)\"(", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "define i32 @\"[independent] test(text: Core.Text)\"(",
+            actualString: llvmIr);
         Assert.Contains(expectedSubstring: "trunc i64", actualString: llvmIr);
-        Assert.Contains(expectedSubstring: "call i32 @\"[independent] helper(value: Core.S32)\"(i32 ", actualString: llvmIr);
+        Assert.Contains(
+            expectedSubstring: "call i32 @\"[independent] helper(value: Core.S32)\"(i32 ",
+            actualString: llvmIr);
     }
 
     /// <summary>
@@ -1006,11 +1026,11 @@ public class CompilerPipelineLoweringTests
         Assert.Empty(collection: result.Errors);
 
         var matchingBodies = result.SynthesizedBodies
-                                   .Where(pair =>
-                                        pair.Key.Contains("BytesUtf8Emittable.try_emit",
-                                            StringComparison.Ordinal) ||
-                                        pair.Key.Contains("BytesUtf8Emittable.lookup_emit",
-                                            StringComparison.Ordinal))
+                                   .Where(predicate: pair =>
+                                        pair.Key.Contains(value: "BytesUtf8Emittable.try_emit",
+                                            comparisonType: StringComparison.Ordinal) ||
+                                        pair.Key.Contains(value: "BytesUtf8Emittable.lookup_emit",
+                                            comparisonType: StringComparison.Ordinal))
                                    .ToList();
 
         Assert.NotEmpty(collection: matchingBodies);
@@ -1019,17 +1039,15 @@ public class CompilerPipelineLoweringTests
             // The lowering pipeline may leave Character(...) as a classified CallExpression
             // or lower it to a CreatorExpression — both must carry constructor metadata.
             var constructions = EnumerateExpressions(statement: body)
-                               .Where(predicate: e =>
-                                    e is CallExpression
-                                    {
-                                        Callee: IdentifierExpression { Name: "Character" }
-                                    }
-                                    or CreatorExpression { TypeName: "Character" })
+                               .Where(predicate: e => e is CallExpression
+                                {
+                                    Callee: IdentifierExpression { Name: "Character" }
+                                } or CreatorExpression { TypeName: "Character" })
                                .ToList();
 
             Assert.NotEmpty(collection: constructions);
-            Assert.All(constructions,
-                expr =>
+            Assert.All(collection: constructions,
+                action: expr =>
                 {
                     switch (expr)
                     {
@@ -1150,7 +1168,7 @@ public class CompilerPipelineLoweringTests
         Assert.Empty(collection: result.Errors);
 
         TypeInfo characterType = Assert.IsType<RecordTypeInfo>(
-            result.Registry.LookupType(name: "Character"));
+            @object: result.Registry.LookupType(name: "Character"));
         var leakedCall = new CallExpression(
             Callee: new IdentifierExpression(Name: "Character", Location: program.Location),
             Arguments:
@@ -1223,9 +1241,10 @@ public class CompilerPipelineLoweringTests
                                                 .OfType<RoutineDeclaration>()
                                                 .Single(predicate: declaration =>
                                                      declaration.Name == "test");
-        var body = Assert.IsType<BlockStatement>(testRoutine.Body);
-        var returnStatement = Assert.IsType<ReturnStatement>(body.Statements.Single());
-        var index = Assert.IsType<IndexExpression>(returnStatement.Value);
+        BlockStatement body = Assert.IsType<BlockStatement>(@object: testRoutine.Body);
+        ReturnStatement returnStatement =
+            Assert.IsType<ReturnStatement>(@object: body.Statements.Single());
+        IndexExpression index = Assert.IsType<IndexExpression>(@object: returnStatement.Value);
         TypeInfo resolvedType = index.ResolvedType!;
         Assert.NotNull(@object: resolvedType);
         Assert.Equal(expected: "S64", actual: resolvedType.Name);
@@ -1300,11 +1319,11 @@ public class CompilerPipelineLoweringTests
                                                 .Single(predicate: declaration =>
                                                      declaration.Name == "start");
         TypeExpression parameterType =
-            Assert.IsType<TypeExpression>(testRoutine.Parameters[0].Type);
+            Assert.IsType<TypeExpression>(@object: testRoutine.Parameters[index: 0].Type);
         TypeExpression widthArg =
-            Assert.IsType<TypeExpression>(parameterType.GenericArguments![1]);
+            Assert.IsType<TypeExpression>(@object: parameterType.GenericArguments![index: 1]);
         ConstGenericValueTypeInfo resolvedWidth =
-            Assert.IsType<ConstGenericValueTypeInfo>(widthArg.ResolvedType);
+            Assert.IsType<ConstGenericValueTypeInfo>(@object: widthArg.ResolvedType);
         Assert.Equal(expected: 16, actual: resolvedWidth.Value);
         Assert.Equal(expected: "Address", actual: resolvedWidth.ExplicitTypeName);
 
@@ -1318,7 +1337,8 @@ public class CompilerPipelineLoweringTests
             });
 
         string llvmIr = generator.Generate();
-        Assert.Contains(expectedSubstring: "define i8 @\"[independent] start(", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "define i8 @\"[independent] start(",
+            actualString: llvmIr);
     }
 
     /// <summary>
@@ -1390,10 +1410,13 @@ public class CompilerPipelineLoweringTests
             });
 
         string llvmIr = generator.Generate();
-        Assert.Contains(expectedSubstring: "define ptr @\"[dangerous, independent] wrap_addr(S64)(addr: Core.Address)\"(i64 %addr)",
+        Assert.Contains(
+            expectedSubstring:
+            "define ptr @\"[dangerous, independent] wrap_addr(S64)(addr: Core.Address)\"(i64 %addr)",
             actualString: llvmIr);
         Assert.Contains(
-            expectedSubstring: "define ptr @\"[independent] Core.hijacked_from(S64)(addr: Core.Address)\"(i64 %addr)",
+            expectedSubstring:
+            "define ptr @\"[independent] Core.hijacked_from(S64)(addr: Core.Address)\"(i64 %addr)",
             actualString: llvmIr);
     }
 
@@ -1414,11 +1437,12 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        RoutineInfo resolvedHijack = Assert.Single(result.Registry.GetAllRoutineResolutions(),
-            routine => routine.BaseName == "S64.hijack");
-        Assert.Contains(result.InstantiatedGenericBodies.Values,
-            body => body.Info.RegistryKey == resolvedHijack.RegistryKey &&
-                    !ContainsGenericPlaceholder(type: body.Info.ReturnType));
+        RoutineInfo resolvedHijack =
+            Assert.Single(collection: result.Registry.GetAllRoutineResolutions(),
+                predicate: routine => routine.BaseName == "S64.hijack");
+        Assert.Contains(collection: result.InstantiatedGenericBodies.Values,
+            filter: body => body.Info.RegistryKey == resolvedHijack.RegistryKey &&
+                            !ContainsGenericPlaceholder(type: body.Info.ReturnType));
     }
 
     private static bool ContainsTupleLiteral(Program program)
@@ -1449,14 +1473,14 @@ public class CompilerPipelineLoweringTests
                                             .OfType<RoutineDeclaration>()
                                             .Single(predicate: declaration =>
                                                  declaration.Name == routineName);
-        return GetReturnedCall(routine.Body);
+        return GetReturnedCall(body: routine.Body);
     }
 
     private static CallExpression GetReturnedCall(Statement body)
     {
-        BlockStatement block = Assert.IsType<BlockStatement>(body);
-        ReturnStatement ret = Assert.IsType<ReturnStatement>(block.Statements.Last());
-        return Assert.IsType<CallExpression>(ret.Value);
+        BlockStatement block = Assert.IsType<BlockStatement>(@object: body);
+        ReturnStatement ret = Assert.IsType<ReturnStatement>(@object: block.Statements.Last());
+        return Assert.IsType<CallExpression>(@object: ret.Value);
     }
 
     private static CallExpression GetVariableInitializerCall(Program program, string variableName)
@@ -1465,7 +1489,7 @@ public class CompilerPipelineLoweringTests
                                             .OfType<RoutineDeclaration>()
                                             .Single(predicate: declaration =>
                                                  declaration.Name == "test");
-        BlockStatement block = Assert.IsType<BlockStatement>(routine.Body);
+        BlockStatement block = Assert.IsType<BlockStatement>(@object: routine.Body);
         VariableDeclaration variable = block.Statements
                                             .OfType<DeclarationStatement>()
                                             .Select(selector: declaration =>
@@ -1473,7 +1497,7 @@ public class CompilerPipelineLoweringTests
                                             .OfType<VariableDeclaration>()
                                             .Single(predicate: declaration =>
                                                  declaration.Name == variableName);
-        return Assert.IsType<CallExpression>(variable.Initializer);
+        return Assert.IsType<CallExpression>(@object: variable.Initializer);
     }
 
     private static CreatorExpression GetVariableInitializerCreator(Program program,
@@ -1483,7 +1507,7 @@ public class CompilerPipelineLoweringTests
                                             .OfType<RoutineDeclaration>()
                                             .Single(predicate: declaration =>
                                                  declaration.Name == "test");
-        BlockStatement block = Assert.IsType<BlockStatement>(routine.Body);
+        BlockStatement block = Assert.IsType<BlockStatement>(@object: routine.Body);
         VariableDeclaration variable = block.Statements
                                             .OfType<DeclarationStatement>()
                                             .Select(selector: declaration =>
@@ -1491,14 +1515,14 @@ public class CompilerPipelineLoweringTests
                                             .OfType<VariableDeclaration>()
                                             .Single(predicate: declaration =>
                                                  declaration.Name == variableName);
-        return Assert.IsType<CreatorExpression>(variable.Initializer);
+        return Assert.IsType<CreatorExpression>(@object: variable.Initializer);
     }
 
     private static bool ContainsTupleLiteral(Statement statement)
     {
         return statement switch
         {
-            BlockStatement block => block.Statements.Any(ContainsTupleLiteral),
+            BlockStatement block => block.Statements.Any(predicate: ContainsTupleLiteral),
             DeclarationStatement { Declaration: VariableDeclaration { Initializer: { } init } } =>
                 ContainsTupleLiteral(expression: init),
             AssignmentStatement assign => ContainsTupleLiteral(expression: assign.Target) ||
@@ -1525,7 +1549,7 @@ public class CompilerPipelineLoweringTests
             CreatorExpression creator => creator.MemberVariables.Any(predicate: mv =>
                 ContainsTupleLiteral(expression: mv.Value)),
             CallExpression call => ContainsTupleLiteral(expression: call.Callee) ||
-                                   call.Arguments.Any(ContainsTupleLiteral),
+                                   call.Arguments.Any(predicate: ContainsTupleLiteral),
             BinaryExpression binary => ContainsTupleLiteral(expression: binary.Left) ||
                                        ContainsTupleLiteral(expression: binary.Right),
             UnaryExpression unary => ContainsTupleLiteral(expression: unary.Operand),
@@ -1557,7 +1581,7 @@ public class CompilerPipelineLoweringTests
         return statement switch
         {
             BecomesStatement => true,
-            BlockStatement block => block.Statements.Any(ContainsBecomes),
+            BlockStatement block => block.Statements.Any(predicate: ContainsBecomes),
             IfStatement ifs => ContainsBecomes(statement: ifs.ThenStatement) ||
                                ifs.ElseStatement != null &&
                                ContainsBecomes(statement: ifs.ElseStatement),
@@ -1574,7 +1598,7 @@ public class CompilerPipelineLoweringTests
     {
         return statement switch
         {
-            BlockStatement block => block.Statements.Any(ContainsLambda),
+            BlockStatement block => block.Statements.Any(predicate: ContainsLambda),
             DeclarationStatement { Declaration: VariableDeclaration { Initializer: { } init } } =>
                 ContainsLambda(expression: init),
             AssignmentStatement assign => ContainsLambda(expression: assign.Target) ||
@@ -1591,9 +1615,9 @@ public class CompilerPipelineLoweringTests
                                         ContainsLambda(statement: whileStmt.ElseBranch),
             LoopStatement loop => ContainsLambda(statement: loop.Body),
             EachStatement eachStmt => ContainsLambda(expression: eachStmt.Iterable) ||
-                                    ContainsLambda(statement: eachStmt.Body) ||
-                                    eachStmt.ElseBranch != null &&
-                                    ContainsLambda(statement: eachStmt.ElseBranch),
+                                      ContainsLambda(statement: eachStmt.Body) ||
+                                      eachStmt.ElseBranch != null &&
+                                      ContainsLambda(statement: eachStmt.ElseBranch),
             WhenStatement whenStmt => ContainsLambda(expression: whenStmt.Expression) ||
                                       whenStmt.Clauses.Any(predicate: clause =>
                                           ContainsLambda(statement: clause.Body)),
@@ -1616,7 +1640,7 @@ public class CompilerPipelineLoweringTests
                                        ContainsLambda(expression: binary.Right),
             UnaryExpression unary => ContainsLambda(expression: unary.Operand),
             CallExpression call => ContainsLambda(expression: call.Callee) ||
-                                   call.Arguments.Any(ContainsLambda),
+                                   call.Arguments.Any(predicate: ContainsLambda),
             MemberExpression member => ContainsLambda(expression: member.Object),
             OptionalMemberExpression member => ContainsLambda(expression: member.Object),
             IndexExpression index => ContainsLambda(expression: index.Object) ||
@@ -1627,22 +1651,23 @@ public class CompilerPipelineLoweringTests
                 ContainsLambda(expression: conditional.FalseExpression),
             CreatorExpression creator => creator.MemberVariables.Any(predicate: mv =>
                 ContainsLambda(expression: mv.Value)),
-            GenericMemberRoutineCallExpression generic => ContainsLambda(expression: generic.Object) ||
-                                                   generic.Arguments.Any(ContainsLambda),
+            GenericMemberRoutineCallExpression generic =>
+                ContainsLambda(expression: generic.Object) ||
+                generic.Arguments.Any(predicate: ContainsLambda),
             NamedArgumentExpression named => ContainsLambda(expression: named.Value),
             WithExpression withExpr => ContainsLambda(expression: withExpr.Base) ||
                                        withExpr.Updates.Any(predicate: update =>
                                            ContainsLambda(expression: update.Value) ||
                                            update.Index != null &&
                                            ContainsLambda(expression: update.Index)),
-            ListLiteralExpression list => list.Elements.Any(ContainsLambda),
-            SetLiteralExpression set => set.Elements.Any(ContainsLambda),
+            ListLiteralExpression list => list.Elements.Any(predicate: ContainsLambda),
+            SetLiteralExpression set => set.Elements.Any(predicate: ContainsLambda),
             DictLiteralExpression dict => dict.Pairs.Any(predicate: pair =>
                 ContainsLambda(expression: pair.Key) || ContainsLambda(expression: pair.Value)),
-            TupleLiteralExpression tuple => tuple.Elements.Any(ContainsLambda),
+            TupleLiteralExpression tuple => tuple.Elements.Any(predicate: ContainsLambda),
             TypeConversionExpression conversion => ContainsLambda(
                 expression: conversion.Expression),
-            ChainedComparisonExpression chained => chained.Operands.Any(ContainsLambda),
+            ChainedComparisonExpression chained => chained.Operands.Any(predicate: ContainsLambda),
             BlockExpression block => ContainsLambda(expression: block.Value),
             DictEntryLiteralExpression dictEntry => ContainsLambda(expression: dictEntry.Key) ||
                                                     ContainsLambda(expression: dictEntry.Value),
@@ -1678,41 +1703,67 @@ public class CompilerPipelineLoweringTests
         {
             case BlockStatement block:
                 foreach (Statement inner in block.Statements)
-                foreach (CallExpression call in FindCalls(inner))
+                foreach (CallExpression call in FindCalls(statement: inner))
+                {
                     yield return call;
+                }
+
                 yield break;
             case ReturnStatement { Value: { } value }:
-                foreach (CallExpression call in FindCalls(value))
+                foreach (CallExpression call in FindCalls(expression: value))
+                {
                     yield return call;
+                }
+
                 yield break;
             case VariantReturnStatement { Value: { } value }:
-                foreach (CallExpression call in FindCalls(value))
+                foreach (CallExpression call in FindCalls(expression: value))
+                {
                     yield return call;
+                }
+
                 yield break;
             case DeclarationStatement
             {
                 Declaration: VariableDeclaration { Initializer: { } init }
             }:
-                foreach (CallExpression call in FindCalls(init))
+                foreach (CallExpression call in FindCalls(expression: init))
+                {
                     yield return call;
+                }
+
                 yield break;
             case ExpressionStatement exprStmt:
-                foreach (CallExpression call in FindCalls(exprStmt.Expression))
+                foreach (CallExpression call in FindCalls(expression: exprStmt.Expression))
+                {
                     yield return call;
+                }
+
                 yield break;
             case IfStatement ifStmt:
-                foreach (CallExpression call in FindCalls(ifStmt.Condition))
+                foreach (CallExpression call in FindCalls(expression: ifStmt.Condition))
+                {
                     yield return call;
-                foreach (CallExpression call in FindCalls(ifStmt.ThenStatement))
+                }
+
+                foreach (CallExpression call in FindCalls(statement: ifStmt.ThenStatement))
+                {
                     yield return call;
+                }
+
                 if (ifStmt.ElseStatement != null)
-                    foreach (CallExpression call in FindCalls(ifStmt.ElseStatement))
+                {
+                    foreach (CallExpression call in FindCalls(statement: ifStmt.ElseStatement))
+                    {
                         yield return call;
+                    }
+                }
+
                 yield break;
             case WhenStatement whenStmt:
                 if (whenStmt.Expression != null)
                 {
-                    foreach (CallExpression call in FindCalls(whenStmt.Expression))
+                    foreach (CallExpression call in FindCalls(expression: whenStmt.Expression))
                     {
                         yield return call;
                     }
@@ -1720,7 +1771,7 @@ public class CompilerPipelineLoweringTests
 
                 foreach (WhenClause clause in whenStmt.Clauses)
                 {
-                    foreach (CallExpression call in FindCalls(clause.Body))
+                    foreach (CallExpression call in FindCalls(statement: clause.Body))
                     {
                         yield return call;
                     }
@@ -1736,14 +1787,14 @@ public class CompilerPipelineLoweringTests
         {
             case CallExpression call:
                 yield return call;
-                foreach (CallExpression nested in FindCalls(call.Callee))
+                foreach (CallExpression nested in FindCalls(expression: call.Callee))
                 {
                     yield return nested;
                 }
 
                 foreach (Expression arg in call.Arguments)
                 {
-                    foreach (CallExpression nested in FindCalls(arg))
+                    foreach (CallExpression nested in FindCalls(expression: arg))
                     {
                         yield return nested;
                     }
@@ -1751,50 +1802,52 @@ public class CompilerPipelineLoweringTests
 
                 yield break;
             case MemberExpression member:
-                foreach (CallExpression nested in FindCalls(member.Object))
+                foreach (CallExpression nested in FindCalls(expression: member.Object))
                 {
                     yield return nested;
                 }
 
                 yield break;
             case NamedArgumentExpression named:
-                foreach (CallExpression nested in FindCalls(named.Value))
+                foreach (CallExpression nested in FindCalls(expression: named.Value))
                 {
                     yield return nested;
                 }
 
                 yield break;
             case BinaryExpression binary:
-                foreach (CallExpression nested in FindCalls(binary.Left))
+                foreach (CallExpression nested in FindCalls(expression: binary.Left))
                 {
                     yield return nested;
                 }
 
-                foreach (CallExpression nested in FindCalls(binary.Right))
+                foreach (CallExpression nested in FindCalls(expression: binary.Right))
                 {
                     yield return nested;
                 }
 
                 yield break;
             case UnaryExpression unary:
-                foreach (CallExpression nested in FindCalls(unary.Operand))
+                foreach (CallExpression nested in FindCalls(expression: unary.Operand))
                 {
                     yield return nested;
                 }
 
                 yield break;
             case ConditionalExpression conditional:
-                foreach (CallExpression nested in FindCalls(conditional.Condition))
+                foreach (CallExpression nested in FindCalls(expression: conditional.Condition))
                 {
                     yield return nested;
                 }
 
-                foreach (CallExpression nested in FindCalls(conditional.TrueExpression))
+                foreach (CallExpression nested in
+                         FindCalls(expression: conditional.TrueExpression))
                 {
                     yield return nested;
                 }
 
-                foreach (CallExpression nested in FindCalls(conditional.FalseExpression))
+                foreach (CallExpression nested in FindCalls(
+                             expression: conditional.FalseExpression))
                 {
                     yield return nested;
                 }
@@ -1802,7 +1855,7 @@ public class CompilerPipelineLoweringTests
                 yield break;
             case CreatorExpression creator:
                 foreach ((string _, Expression value) in creator.MemberVariables)
-                foreach (CallExpression nested in FindCalls(value))
+                foreach (CallExpression nested in FindCalls(expression: value))
                 {
                     yield return nested;
                 }
@@ -1823,75 +1876,140 @@ public class CompilerPipelineLoweringTests
             case BlockStatement block:
                 foreach (Statement inner in block.Statements)
                 foreach (Expression e in EnumerateExpressions(statement: inner))
+                {
                     yield return e;
+                }
+
                 yield break;
             case DangerStatement danger:
                 foreach (Expression e in EnumerateExpressions(statement: danger.Body))
+                {
                     yield return e;
+                }
+
                 yield break;
             case ReturnStatement { Value: { } returnValue }:
                 foreach (Expression e in EnumerateExpressions(expression: returnValue))
+                {
                     yield return e;
+                }
+
                 yield break;
             case VariantReturnStatement { Value: { } variantValue }:
                 foreach (Expression e in EnumerateExpressions(expression: variantValue))
+                {
                     yield return e;
+                }
+
                 yield break;
             case ThrowStatement throwStmt:
                 foreach (Expression e in EnumerateExpressions(expression: throwStmt.Error))
+                {
                     yield return e;
+                }
+
                 yield break;
             case ExpressionStatement exprStmt:
                 foreach (Expression e in EnumerateExpressions(expression: exprStmt.Expression))
+                {
                     yield return e;
+                }
+
                 yield break;
             case DeclarationStatement
             {
                 Declaration: VariableDeclaration { Initializer: { } init }
             }:
                 foreach (Expression e in EnumerateExpressions(expression: init))
+                {
                     yield return e;
+                }
+
                 yield break;
             case IfStatement ifStmt:
                 foreach (Expression e in EnumerateExpressions(expression: ifStmt.Condition))
+                {
                     yield return e;
+                }
+
                 foreach (Expression e in EnumerateExpressions(statement: ifStmt.ThenStatement))
+                {
                     yield return e;
+                }
+
                 if (ifStmt.ElseStatement != null)
+                {
                     foreach (Expression e in EnumerateExpressions(statement: ifStmt.ElseStatement))
+                    {
                         yield return e;
+                    }
+                }
+
                 yield break;
             case WhileStatement whileStmt:
                 foreach (Expression e in EnumerateExpressions(expression: whileStmt.Condition))
+                {
                     yield return e;
+                }
+
                 foreach (Expression e in EnumerateExpressions(statement: whileStmt.Body))
+                {
                     yield return e;
+                }
+
                 if (whileStmt.ElseBranch != null)
+                {
                     foreach (Expression e in EnumerateExpressions(statement: whileStmt.ElseBranch))
+                    {
                         yield return e;
+                    }
+                }
+
                 yield break;
             case EachStatement eachStmt:
                 foreach (Expression e in EnumerateExpressions(statement: eachStmt.Body))
+                {
                     yield return e;
+                }
+
                 if (eachStmt.ElseBranch != null)
+                {
                     foreach (Expression e in EnumerateExpressions(statement: eachStmt.ElseBranch))
+                    {
                         yield return e;
+                    }
+                }
+
                 yield break;
             case WhenStatement whenStmt:
                 if (whenStmt.Expression != null)
+                {
                     foreach (Expression e in EnumerateExpressions(expression: whenStmt.Expression))
+                    {
                         yield return e;
+                    }
+                }
+
                 foreach (WhenClause clause in whenStmt.Clauses)
                 foreach (Expression e in EnumerateExpressions(statement: clause.Body))
+                {
                     yield return e;
+                }
+
                 yield break;
             case UsingStatement usingStmt:
                 foreach (Expression e in EnumerateExpressions(statement: usingStmt.Body))
+                {
                     yield return e;
+                }
+
                 yield break;
             case LoopStatement loopStmt:
                 foreach (Expression e in EnumerateExpressions(statement: loopStmt.Body))
+                {
                     yield return e;
+                }
+
                 yield break;
         }
     }
@@ -1906,41 +2024,76 @@ public class CompilerPipelineLoweringTests
         {
             case CallExpression call:
                 foreach (Expression e in EnumerateExpressions(expression: call.Callee))
+                {
                     yield return e;
+                }
+
                 foreach (Expression arg in call.Arguments)
                 foreach (Expression e in EnumerateExpressions(expression: arg))
+                {
                     yield return e;
+                }
+
                 yield break;
             case CreatorExpression creator:
                 foreach ((string _, Expression value) in creator.MemberVariables)
                 foreach (Expression e in EnumerateExpressions(expression: value))
+                {
                     yield return e;
+                }
+
                 yield break;
             case MemberExpression member:
                 foreach (Expression e in EnumerateExpressions(expression: member.Object))
+                {
                     yield return e;
+                }
+
                 yield break;
             case NamedArgumentExpression named:
                 foreach (Expression e in EnumerateExpressions(expression: named.Value))
+                {
                     yield return e;
+                }
+
                 yield break;
             case BinaryExpression binary:
                 foreach (Expression e in EnumerateExpressions(expression: binary.Left))
+                {
                     yield return e;
+                }
+
                 foreach (Expression e in EnumerateExpressions(expression: binary.Right))
+                {
                     yield return e;
+                }
+
                 yield break;
             case UnaryExpression unary:
                 foreach (Expression e in EnumerateExpressions(expression: unary.Operand))
+                {
                     yield return e;
+                }
+
                 yield break;
             case ConditionalExpression conditional:
                 foreach (Expression e in EnumerateExpressions(expression: conditional.Condition))
+                {
                     yield return e;
-                foreach (Expression e in EnumerateExpressions(expression: conditional.TrueExpression))
+                }
+
+                foreach (Expression e in EnumerateExpressions(
+                             expression: conditional.TrueExpression))
+                {
                     yield return e;
-                foreach (Expression e in EnumerateExpressions(expression: conditional.FalseExpression))
+                }
+
+                foreach (Expression e in EnumerateExpressions(
+                             expression: conditional.FalseExpression))
+                {
                     yield return e;
+                }
+
                 yield break;
         }
     }
@@ -1963,7 +2116,7 @@ public class CompilerPipelineLoweringTests
         }
 
         if (type.TypeArguments is { Count: > 0 } &&
-            type.TypeArguments.Any(ContainsGenericPlaceholder))
+            type.TypeArguments.Any(predicate: ContainsGenericPlaceholder))
         {
             return true;
         }
@@ -1971,8 +2124,8 @@ public class CompilerPipelineLoweringTests
         return type switch
         {
             WrapperTypeInfo wrapper => ContainsGenericPlaceholder(type: wrapper.InnerType),
-            TupleTypeInfo tuple => tuple.ElementTypes.Any(ContainsGenericPlaceholder),
-            VariantTypeInfo variant => variant.Members.Any(member =>
+            TupleTypeInfo tuple => tuple.ElementTypes.Any(predicate: ContainsGenericPlaceholder),
+            VariantTypeInfo variant => variant.Members.Any(predicate: member =>
                 member.Type != null && ContainsGenericPlaceholder(type: member.Type)),
             _ => false
         };
@@ -1985,9 +2138,9 @@ public class CompilerPipelineLoweringTests
             yield return index;
         }
 
-        foreach (ISyntaxTreeNode child in EnumerateChildren(node))
+        foreach (ISyntaxTreeNode child in EnumerateChildren(node: node))
         {
-            foreach (IndexExpression nested in FindIndexExpressions(child))
+            foreach (IndexExpression nested in FindIndexExpressions(node: child))
             {
                 yield return nested;
             }
@@ -1996,9 +2149,12 @@ public class CompilerPipelineLoweringTests
 
     private static IEnumerable<ISyntaxTreeNode> EnumerateChildren(ISyntaxTreeNode node)
     {
-        foreach (var property in node.GetType()
-                                     .GetProperties(System.Reflection.BindingFlags.Instance |
-                                                    System.Reflection.BindingFlags.Public))
+        foreach (PropertyInfo property in node.GetType()
+                                              .GetProperties(
+                                                   bindingAttr: System.Reflection.BindingFlags
+                                                                   .Instance |
+                                                                System.Reflection.BindingFlags
+                                                                   .Public))
         {
             if (!property.CanRead || property.GetIndexParameters()
                                              .Length != 0 || property.Name ==
@@ -2007,7 +2163,7 @@ public class CompilerPipelineLoweringTests
                 continue;
             }
 
-            object? value = property.GetValue(node);
+            object? value = property.GetValue(obj: node);
             switch (value)
             {
                 case null:

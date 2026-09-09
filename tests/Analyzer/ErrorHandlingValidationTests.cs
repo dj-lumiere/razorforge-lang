@@ -12,10 +12,10 @@ using static TestHelpers;
 public class ErrorHandlingValidationTests
 {
     #region Throw Needs Named Crashable Type
+
     /// <summary>
     /// Verifies semantic analysis behavior for throw entity no record error.
     /// </summary>
-
     [Fact]
     public void Analyze_ThrowEntity_NoRecordError()
     {
@@ -33,7 +33,6 @@ public class ErrorHandlingValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for throw record no record error.
     /// </summary>
-
     [Fact]
     public void Analyze_ThrowRecord_NoRecordError()
     {
@@ -52,10 +51,10 @@ public class ErrorHandlingValidationTests
     #endregion
 
     #region Failable Without Throw or Absent
+
     /// <summary>
     /// Verifies semantic analysis behavior for failable without throw or absent and reports the expected warning.
     /// </summary>
-
     [Fact]
     public void Analyze_FailableWithoutThrowOrAbsent_ReportsWarning()
     {
@@ -71,7 +70,6 @@ public class ErrorHandlingValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for failable with throw without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_FailableWithThrow_NoError()
     {
@@ -89,7 +87,6 @@ public class ErrorHandlingValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for failable with absent without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_FailableWithAbsent_NoError()
     {
@@ -107,10 +104,10 @@ public class ErrorHandlingValidationTests
     #endregion
 
     #region @crash_only Validation (#76)
+
     /// <summary>
     /// Verifies semantic analysis behavior for crash only on non failable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_CrashOnlyOnNonFailable_ReportsError()
     {
@@ -127,7 +124,6 @@ public class ErrorHandlingValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for crash only on failable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_CrashOnlyOnFailable_NoError()
     {
@@ -146,7 +142,6 @@ public class ErrorHandlingValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for crash only suppresses variant generation.
     /// </summary>
-
     [Fact]
     public void Analyze_CrashOnlySuppressesVariantGeneration()
     {
@@ -168,7 +163,6 @@ public class ErrorHandlingValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for non crash only generates variants.
     /// </summary>
-
     [Fact]
     public void Analyze_NonCrashOnlyGeneratesVariants()
     {
@@ -192,11 +186,11 @@ public class ErrorHandlingValidationTests
     #endregion
 
     #region Unhandled Crashable Call (#159)
+
     /// <summary>
     /// A bare failable call used as a statement is currently NOT flagged with the
     /// UnhandledCrashableCall warning — that advisory is intentionally not enforced.
     /// </summary>
-
     [Fact]
     public void Analyze_FailableCallAsStatement_InNonFailable_NotFlagged()
     {
@@ -217,7 +211,6 @@ public class ErrorHandlingValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for failable call as statement in failable without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_FailableCallAsStatement_InFailable_NoError()
     {
@@ -239,7 +232,6 @@ public class ErrorHandlingValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for lookup variable not dismantled before scope exit and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_LookupVariable_NotDismantledBeforeScopeExit_ReportsError()
     {
@@ -271,7 +263,6 @@ public class ErrorHandlingValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for result copied from variable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ResultCopiedFromVariable_ReportsError()
     {

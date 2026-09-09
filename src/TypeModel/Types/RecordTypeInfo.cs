@@ -31,7 +31,11 @@ public class RecordTypeInfo : TypeInfo
     /// clause, stored on the generic DEFINITION and keyed by the conditionally-obeyed protocol's bare name.
     /// Each entry is the AND-list of <c>(paramName, protocolName)</c> conditions. A concrete instance obeys
     /// that protocol only when every condition holds for its bound type args. Null/absent = unconditional.</summary>
-    public Dictionary<string, List<(string ParamName, string ProtocolName)>>? ConditionalObeys { get; set; }
+    public Dictionary<string, List<(string ParamName, string ProtocolName)>>? ConditionalObeys
+    {
+        get;
+        set;
+    }
 
     /// <summary>
     /// Associated-type bindings declared via <c>relates Concrete as Name</c> — maps a protocol
@@ -59,9 +63,10 @@ public class RecordTypeInfo : TypeInfo
     /// string regardless of member-population order.
     /// </summary>
     private string? LiveBackendType =>
-        GenericDefinition is { BackendType: { } template } def && template.Contains(value: '{')
-        && TypeArguments is { Count: > 0 }
-            ? ResolveBackendTypeTemplate(template: template, genericParams: def.GenericParameters,
+        GenericDefinition is { BackendType: { } template } def && template.Contains(value: '{') &&
+        TypeArguments is { Count: > 0 }
+            ? ResolveBackendTypeTemplate(template: template,
+                genericParams: def.GenericParameters,
                 typeArguments: TypeArguments)
             : BackendType;
 
@@ -115,23 +120,28 @@ public class RecordTypeInfo : TypeInfo
 
         // Result[T] / Lookup[T]: 8-byte type-id tag + max(payload, 8). Maybe is handled by
         // the member-sum path since its layout is just {i1, T}.
-        if (CarrierKind is CarrierKind.Result or CarrierKind.Lookup
-            && TypeArguments is { Count: 1 } args)
+        if (CarrierKind is CarrierKind.Result or CarrierKind.Lookup &&
+            TypeArguments is { Count: 1 } args)
         {
-            return 8 + Math.Max(val1: args[index: 0].SizeBytes(pointerSize: pointerSize), val2: 8);
+            return 8 + Math.Max(val1: args[index: 0]
+                   .SizeBytes(pointerSize: pointerSize),
+                val2: 8);
         }
 
         int size = 0;
         int maxAlignment = 1;
-        foreach (TypeInfo memberType in MemberVariables.Select(mv => mv.Type))
+        foreach (TypeInfo memberType in MemberVariables.Select(selector: mv => mv.Type))
         {
             int memberSize = memberType.SizeBytes(pointerSize: pointerSize);
             // @layout("packed"): fields sit at alignment 1 — no inter-field padding (C `packed`).
-            int alignment = IsPacked ? 1 : memberType.Alignment(pointerSize: pointerSize);
+            int alignment = IsPacked
+                ? 1
+                : memberType.Alignment(pointerSize: pointerSize);
             maxAlignment = Math.Max(val1: maxAlignment, val2: alignment);
             size = AlignTo(size: size, alignment: alignment);
             size += memberSize;
         }
+
         return AlignTo(size: size, alignment: StructAlignment(naturalMax: maxAlignment));
     }
 
@@ -139,11 +149,14 @@ public class RecordTypeInfo : TypeInfo
     /// raised to <see cref="ForcedAlignment"/> (<c>@layout("align=N")</c>) if that is larger.</summary>
     private int StructAlignment(int naturalMax)
     {
-        int align = IsPacked ? 1 : naturalMax;
+        int align = IsPacked
+            ? 1
+            : naturalMax;
         if (ForcedAlignment is { } forced && forced > align)
         {
             align = forced;
         }
+
         return align;
     }
 
@@ -162,10 +175,12 @@ public class RecordTypeInfo : TypeInfo
             return AlignOfLlvmType(llvmType: be, pointerSize: pointerSize);
         }
 
-        if (CarrierKind is CarrierKind.Result or CarrierKind.Lookup
-            && TypeArguments is { Count: 1 } args)
+        if (CarrierKind is CarrierKind.Result or CarrierKind.Lookup &&
+            TypeArguments is { Count: 1 } args)
         {
-            return Math.Max(val1: 8, val2: args[index: 0].Alignment(pointerSize: pointerSize));
+            return Math.Max(val1: 8,
+                val2: args[index: 0]
+                   .Alignment(pointerSize: pointerSize));
         }
 
         int maxAlignment = 1;
@@ -174,7 +189,8 @@ public class RecordTypeInfo : TypeInfo
         {
             foreach (MemberVariableInfo mv in MemberVariables)
             {
-                maxAlignment = Math.Max(val1: maxAlignment, val2: mv.Type.Alignment(pointerSize: pointerSize));
+                maxAlignment = Math.Max(val1: maxAlignment,
+                    val2: mv.Type.Alignment(pointerSize: pointerSize));
             }
         }
 
@@ -183,7 +199,10 @@ public class RecordTypeInfo : TypeInfo
 
     /// <summary>RC wrapper base names that need retain-on-copy / release-on-drop.</summary>
     private static readonly HashSet<string> RCWrapperBaseNames =
-        [RuntimeContract.Retained, RuntimeContract.Guarded, RuntimeContract.Tracked, RuntimeContract.Witnessed];
+    [
+        RuntimeContract.Retained, RuntimeContract.Guarded, RuntimeContract.Tracked,
+        RuntimeContract.Witnessed
+    ];
 
     /// <summary>Whether this record has RC wrapper fields needing retain-on-copy / release-on-drop.</summary>
     public bool HasRCMemberVariables => MemberVariables.Any(predicate: f =>
@@ -257,12 +276,13 @@ public class RecordTypeInfo : TypeInfo
         string resolvedName = $"{Name}[{string.Join(separator: ", ",
             values: typeArguments.Select(selector: t => t.FullName))}]";
 
-        var substitutedProtocols = ImplementedProtocols
-            .Select(selector: p => (TypeInfo)(ProtocolTypeInfo)SubstituteType(type: p, substitution: substitution))
-            .ToList();
+        var substitutedProtocols = ImplementedProtocols.Select(selector: p =>
+                                                            (TypeInfo)(ProtocolTypeInfo)
+                                                            SubstituteType(type: p,
+                                                                substitution: substitution))
+                                                       .ToList();
 
-        var substitutedBindings = AssociatedTypeBindings.ToDictionary(
-            keySelector: kv => kv.Key,
+        var substitutedBindings = AssociatedTypeBindings.ToDictionary(keySelector: kv => kv.Key,
             elementSelector: kv => SubstituteType(type: kv.Value, substitution: substitution));
 
         return new RecordTypeInfo(name: resolvedName)
@@ -385,7 +405,9 @@ public class RecordTypeInfo : TypeInfo
     /// Supports: integer literals, parameter references, +, -, *, // (integer division), parentheses.
     /// </summary>
     internal static long EvaluateConstExprPublic(string expr, Dictionary<string, long> paramValues)
-        => EvaluateConstExpr(expr: expr, paramValues: paramValues);
+    {
+        return EvaluateConstExpr(expr: expr, paramValues: paramValues);
+    }
 
     private static long EvaluateConstExpr(string expr, Dictionary<string, long> paramValues)
     {
@@ -468,7 +490,8 @@ public class RecordTypeInfo : TypeInfo
     }
 
     // Parenthesized subexpression: `( ... )`.
-    private static long ParseParenAtom(string expr, ref int pos, Dictionary<string, long> paramValues)
+    private static long ParseParenAtom(string expr, ref int pos,
+        Dictionary<string, long> paramValues)
     {
         pos++;
         long val = ParseAddSub(expr: expr, pos: ref pos, paramValues: paramValues);
@@ -494,7 +517,8 @@ public class RecordTypeInfo : TypeInfo
     }
 
     // Parameter reference resolved against the const-generic value map.
-    private static long ParseNameAtom(string expr, ref int pos, Dictionary<string, long> paramValues)
+    private static long ParseNameAtom(string expr, ref int pos,
+        Dictionary<string, long> paramValues)
     {
         int start = pos;
         while (pos < expr.Length &&
@@ -580,8 +604,10 @@ public class RecordTypeInfo : TypeInfo
             {
                 subs[key: defParams[index: i]] = typeArgs[index: i];
             }
+
             return SubstituteType(type: defBound, substitution: subs);
         }
+
         return defBound;
     }
 
@@ -593,7 +619,8 @@ public class RecordTypeInfo : TypeInfo
         // Otherwise keep a (re-based) deferred projection.
         if (type is AssociatedProjectionTypeInfo projection)
         {
-            return SubstituteAssociatedProjection(projection: projection, substitution: substitution);
+            return SubstituteAssociatedProjection(projection: projection,
+                substitution: substitution);
         }
 
         // Comptime const-generic (`${max(T.data_size().byte_size(), 8)}`): fold to a concrete value
@@ -601,11 +628,12 @@ public class RecordTypeInfo : TypeInfo
         // overload's fold on the TypeSymbol map).
         if (type is ComptimeConstGenericTypeInfo comptime)
         {
-            return comptime.TryFold(
-                    resolveTypeParam: name => substitution.TryGetValue(key: name, value: out TypeInfo? bound)
+            return comptime.TryFold(resolveTypeParam: name =>
+                    substitution.TryGetValue(key: name, value: out TypeInfo? bound)
                         ? bound
                         : null,
-                    pointerSize: 8, out long folded)
+                pointerSize: 8,
+                result: out long folded)
                 ? new ConstGenericValueTypeInfo(literalText: folded.ToString(),
                     value: folded,
                     explicitTypeName: "U64")
@@ -639,6 +667,7 @@ public class RecordTypeInfo : TypeInfo
             // The binding may still carry params/projections of its own — substitute again.
             return SubstituteType(type: bound, substitution: substitution);
         }
+
         return ReferenceEquals(objA: newBase, objB: projection.Base)
             ? projection
             : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: projection.SlotName);
@@ -661,21 +690,24 @@ public class RecordTypeInfo : TypeInfo
         if (type is RecordTypeInfo { GenericDefinition: not null } recordType)
         {
             return registry != null
-                ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition, typeArguments: newArgs)
+                ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition,
+                    typeArguments: newArgs)
                 : recordType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
         if (type is EntityTypeInfo { GenericDefinition: not null } entityType)
         {
             return registry != null
-                ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition, typeArguments: newArgs)
+                ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition,
+                    typeArguments: newArgs)
                 : entityType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
         if (type is ProtocolTypeInfo { GenericDefinition: not null } protocolType)
         {
             return registry != null
-                ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition, typeArguments: newArgs)
+                ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition,
+                    typeArguments: newArgs)
                 : protocolType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 

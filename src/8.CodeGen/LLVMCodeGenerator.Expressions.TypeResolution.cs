@@ -108,13 +108,15 @@ public partial class LlvmCodeGenerator
         // AST node can still carry the bare inner entity `E` as its ResolvedType. Prefer the
         // Roamed handle so member access deref's through the RC controller instead of reading
         // the controller's refcount off the bare entity pointer.
-        bool localRoamsResolved = expr.ResolvedType is { } rt
-            && concreteLocal is RecordTypeInfo { GenericDefinition.Name: Declaration.RuntimeContract.Roamed, TypeArguments: [{ } roamInner] }
-            && roamInner.FullName == rt.FullName;
-        if (concreteLocal is not GenericParameterTypeInfo && !concreteLocal.IsGenericDefinition && (expr.ResolvedType is null or ErrorTypeInfo or GenericParameterTypeInfo ||
-                localRoamsResolved ||
-                ShouldPreferLocalIdentifierType(localType: concreteLocal,
-                    resolvedType: expr.ResolvedType)))
+        bool localRoamsResolved = expr.ResolvedType is { } rt && concreteLocal is RecordTypeInfo
+        {
+            GenericDefinition.Name: Declaration.RuntimeContract.Roamed,
+            TypeArguments: [{ } roamInner]
+        } && roamInner.FullName == rt.FullName;
+        if (concreteLocal is not GenericParameterTypeInfo && !concreteLocal.IsGenericDefinition &&
+            (expr.ResolvedType is null or ErrorTypeInfo or GenericParameterTypeInfo ||
+             localRoamsResolved || ShouldPreferLocalIdentifierType(localType: concreteLocal,
+                 resolvedType: expr.ResolvedType)))
         {
             preferred = concreteLocal;
             return true;
@@ -141,9 +143,10 @@ public partial class LlvmCodeGenerator
             UnaryExpression unary => GetUnaryExpressionType(unary: unary),
             CallExpression call => GetCallReturnType(call: call),
             GenericMemberRoutineCallExpression gmc2 => throw new InvalidOperationException(
+                message:
                 $"GenericMemberRoutineCallExpression must be lowered by GenericCallLoweringPass before codegen. " +
                 $"GMCE: {(gmc2.Object is IdentifierExpression eid ? eid.Name : gmc2.Object.GetType().Name)}.{gmc2.MemberRoutineName}" +
-                $"[{string.Join(", ", gmc2.TypeArguments?.Select(t => t.Name) ?? [])}], " +
+                $"[{string.Join(separator: ", ", values: gmc2.TypeArguments?.Select(selector: t => t.Name) ?? [])}], " +
                 $"in routine: {_currentEmittingRoutine?.Name ?? "<unknown>"} (owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"})"),
             StealExpression steal => GetExpressionType(expr: steal.Operand),
             IndexExpression index => GetIndexReturnType(index: index),
@@ -179,7 +182,7 @@ public partial class LlvmCodeGenerator
             return false;
         }
 
-        return (name[0] == 'S' || name[0] == 'U') &&
+        return (name[index: 0] == 'S' || name[index: 0] == 'U') &&
                int.TryParse(s: name[1..], result: out _);
     }
 
@@ -243,7 +246,8 @@ public partial class LlvmCodeGenerator
     private TypeInfo? GetUnaryExpressionType(UnaryExpression unary)
     {
         TypeInfo? operandType = GetExpressionType(expr: unary.Operand);
-        if (unary.Operator == UnaryOperator.ForceUnwrap && operandType != null && IsCarrierType(type: operandType) && operandType.TypeArguments is { Count: 1 })
+        if (unary.Operator == UnaryOperator.ForceUnwrap && operandType != null &&
+            IsCarrierType(type: operandType) && operandType.TypeArguments is { Count: 1 })
         {
             // Force-unwrap: return the value type inside the Maybe/Result/Lookup wrapper
             return operandType.TypeArguments[index: 0];
@@ -259,8 +263,9 @@ public partial class LlvmCodeGenerator
     {
         return binary.Operator is BinaryOperator.Equal or BinaryOperator.NotEqual
             or BinaryOperator.Less or BinaryOperator.LessEqual or BinaryOperator.Greater
-            or BinaryOperator.GreaterEqual or BinaryOperator.And or BinaryOperator.Or or BinaryOperator.In or BinaryOperator.NotIn
-            or BinaryOperator.IdentityEqual or BinaryOperator.IdentityNotEqual
+            or BinaryOperator.GreaterEqual or BinaryOperator.And or BinaryOperator.Or
+            or BinaryOperator.In or BinaryOperator.NotIn or BinaryOperator.IdentityEqual
+            or BinaryOperator.IdentityNotEqual
             ? _registry.LookupType(name: "Bool")
             : GetExpressionType(expr: binary.Left);
     }
@@ -287,7 +292,9 @@ public partial class LlvmCodeGenerator
                 TypeArguments: not null
             } staleEntity:
             {
-                var refreshed = genDef.CreateInstance(typeArguments: staleEntity.TypeArguments!) as EntityTypeInfo;
+                var refreshed =
+                    genDef.CreateInstance(typeArguments: staleEntity.TypeArguments!) as
+                        EntityTypeInfo;
                 if (refreshed is { MemberVariables.Count: > 0 })
                 {
                     objType = refreshed;
@@ -323,7 +330,8 @@ public partial class LlvmCodeGenerator
         // name-only first-wins lookup could pick the range form and report the wrong element type.
         TypeInfo? u64ForIndex = _registry.LookupType(name: "U64");
         RoutineInfo? getItem = u64ForIndex != null
-            ? _registry.LookupMemberRoutineOverload(type: memberType, memberRoutineName: "getitem",
+            ? _registry.LookupMemberRoutineOverload(type: memberType,
+                memberRoutineName: "getitem",
                 argTypes: [u64ForIndex])
             : null;
         return getItem?.ReturnType;
@@ -383,10 +391,13 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static TypeInfo? MarkerProtocolInner(TypeInfo? type)
     {
-        if (type is ProtocolTypeInfo { TypeArguments: [{ } inner] } proto
-            && Declaration.RuntimeContract.IsMarkerProtocol(
+        if (type is ProtocolTypeInfo { TypeArguments: [{ } inner] } proto &&
+            Declaration.RuntimeContract.IsMarkerProtocol(
                 baseName: (proto.GenericDefinition ?? proto).BareName))
+        {
             return inner;
+        }
+
         return null;
     }
 
@@ -476,28 +487,40 @@ public partial class LlvmCodeGenerator
     /// <summary>
     /// Performs the substitute type params step for this compiler phase.
     /// </summary>
-    internal TypeInfo SubstituteTypeParams(TypeInfo type, Dictionary<string, TypeInfo> substitutions)
+    internal TypeInfo SubstituteTypeParams(TypeInfo type,
+        Dictionary<string, TypeInfo> substitutions)
     {
         if (substitutions.TryGetValue(key: type.Name, value: out TypeInfo? sub))
+        {
             return sub;
+        }
 
-        TypeInfo? resolvedGenericResolution = TrySubstituteGenericResolution(
-            type: type, substitutions: substitutions);
+        TypeInfo? resolvedGenericResolution =
+            TrySubstituteGenericResolution(type: type, substitutions: substitutions);
         if (resolvedGenericResolution != null)
+        {
             return resolvedGenericResolution;
+        }
 
         TypeInfo? resolvedWrapper = TrySubstituteWrapper(type: type, substitutions: substitutions);
         if (resolvedWrapper != null)
+        {
             return resolvedWrapper;
+        }
 
         TypeInfo? resolvedGenericDef = TrySubstituteGenericDefinition(
-            type: type, substitutions: substitutions);
+            type: type,
+            substitutions: substitutions);
         if (resolvedGenericDef != null)
+        {
             return resolvedGenericDef;
+        }
 
         TypeInfo? resolvedTuple = TrySubstituteTuple(type: type, substitutions: substitutions);
         if (resolvedTuple != null)
+        {
             return resolvedTuple;
+        }
 
         return type;
     }
@@ -511,18 +534,23 @@ public partial class LlvmCodeGenerator
         Dictionary<string, TypeInfo> substitutions)
     {
         if (type is not { IsGenericResolution: true, TypeArguments: not null })
+        {
             return null;
+        }
 
         bool needsResolution = false;
         var resolvedArgs = new List<TypeInfo>();
         foreach (TypeInfo ta in type.TypeArguments)
         {
             resolvedArgs.Add(item: SubstituteTypeArgument(ta: ta,
-                substitutions: substitutions, needsResolution: ref needsResolution));
+                substitutions: substitutions,
+                needsResolution: ref needsResolution));
         }
 
         if (!needsResolution)
+        {
             return null;
+        }
 
         TypeInfo? genericBase = GetGenericBase(type: type);
         return genericBase != null
@@ -534,20 +562,30 @@ public partial class LlvmCodeGenerator
     /// Tries to substitute the inner type of a wrapper type. Returns the substituted wrapper (or
     /// a resolved generic record) when the inner type changed; returns null if the type is not a wrapper.
     /// </summary>
-    private TypeInfo? TrySubstituteWrapper(TypeInfo type, Dictionary<string, TypeInfo> substitutions)
+    private TypeInfo? TrySubstituteWrapper(TypeInfo type,
+        Dictionary<string, TypeInfo> substitutions)
     {
         if (type is not WrapperTypeInfo wrapperT)
+        {
             return null;
+        }
 
         TypeInfo resolvedInner = SubstituteTypeParams(type: wrapperT.InnerType,
             substitutions: substitutions);
         TypeInfo? wrapperRecordDef = _registry.LookupType(name: wrapperT.Name);
         if (wrapperRecordDef is { IsGenericDefinition: true })
+        {
             return _registry.GetOrCreateResolution(genericDef: wrapperRecordDef,
                 typeArguments: [resolvedInner]);
-        if (!ReferenceEquals(resolvedInner, wrapperT.InnerType))
-            return new WrapperTypeInfo(wrapperName: wrapperT.Name, innerType: resolvedInner,
+        }
+
+        if (!ReferenceEquals(objA: resolvedInner, objB: wrapperT.InnerType))
+        {
+            return new WrapperTypeInfo(wrapperName: wrapperT.Name,
+                innerType: resolvedInner,
                 isReadOnly: wrapperT.IsReadOnly);
+        }
+
         return null;
     }
 
@@ -559,15 +597,21 @@ public partial class LlvmCodeGenerator
         Dictionary<string, TypeInfo> substitutions)
     {
         if (type is not { IsGenericDefinition: true, GenericParameters: not null })
+        {
             return null;
+        }
 
         var resolvedArgs = new List<TypeInfo>();
         foreach (string param in type.GenericParameters)
         {
             if (substitutions.TryGetValue(key: param, value: out TypeInfo? paramSub))
+            {
                 resolvedArgs.Add(item: paramSub);
+            }
             else
+            {
                 return null;
+            }
         }
 
         return resolvedArgs.Count > 0
@@ -579,21 +623,30 @@ public partial class LlvmCodeGenerator
     /// Tries to substitute element types inside a tuple type. Returns the new tuple when any element
     /// changed; null when the type is not a tuple or no element changed.
     /// </summary>
-    private TupleTypeInfo? TrySubstituteTuple(TypeInfo type, Dictionary<string, TypeInfo> substitutions)
+    private TupleTypeInfo? TrySubstituteTuple(TypeInfo type,
+        Dictionary<string, TypeInfo> substitutions)
     {
         if (type is not TupleTypeInfo tuple)
+        {
             return null;
+        }
 
         bool anyChanged = false;
         var resolvedElems = new List<TypeInfo>();
         foreach (TypeInfo elem in tuple.ElementTypes)
         {
             TypeInfo resolved = SubstituteTypeParams(type: elem, substitutions: substitutions);
-            if (resolved != elem) anyChanged = true;
+            if (resolved != elem)
+            {
+                anyChanged = true;
+            }
+
             resolvedElems.Add(item: resolved);
         }
 
-        return anyChanged ? new TupleTypeInfo(elementTypes: resolvedElems.ToList()) : null;
+        return anyChanged
+            ? new TupleTypeInfo(elementTypes: resolvedElems.ToList())
+            : null;
     }
 
     /// <summary>
@@ -613,7 +666,11 @@ public partial class LlvmCodeGenerator
         if (ta is { IsGenericResolution: true, TypeArguments: not null })
         {
             TypeInfo innerResolved = SubstituteTypeParams(type: ta, substitutions: substitutions);
-            if (innerResolved != ta) needsResolution = true;
+            if (innerResolved != ta)
+            {
+                needsResolution = true;
+            }
+
             return innerResolved;
         }
 
@@ -625,8 +682,14 @@ public partial class LlvmCodeGenerator
             foreach (string param in ta.GenericParameters)
             {
                 if (substitutions.TryGetValue(key: param, value: out TypeInfo? paramSub))
+                {
                     innerArgs.Add(item: paramSub);
-                else { canResolve = false; break; }
+                }
+                else
+                {
+                    canResolve = false;
+                    break;
+                }
             }
 
             if (canResolve)
@@ -798,7 +861,8 @@ public partial class LlvmCodeGenerator
         // (`getitem(range) -> List[T]`) is not first-wins-picked.
         TypeInfo? u64ForIndex = _registry.LookupType(name: "U64");
         RoutineInfo? getItem = u64ForIndex != null
-            ? _registry.LookupMemberRoutineOverload(type: lookupType, memberRoutineName: "getitem",
+            ? _registry.LookupMemberRoutineOverload(type: lookupType,
+                memberRoutineName: "getitem",
                 argTypes: [u64ForIndex])
             : null;
         if (getItem?.ReturnType == null)
@@ -815,12 +879,14 @@ public partial class LlvmCodeGenerator
             getItem: getItem);
         return ownerGenericParams is { Count: > 0 }
             ? SubstituteIndexReturnType(returnType: getItem.ReturnType,
-                ownerGenericParams: ownerGenericParams, typeArgs: typeArgs)
+                ownerGenericParams: ownerGenericParams,
+                typeArgs: typeArgs)
             : getItem.ReturnType;
     }
 
     /// <summary>Resolves the owner generic-parameter names for a generic-resolution index target.</summary>
-    private static List<string>? ResolveOwnerGenericParams(TypeInfo lookupType, RoutineInfo getItem)
+    private static List<string>? ResolveOwnerGenericParams(TypeInfo lookupType,
+        RoutineInfo getItem)
     {
         TypeInfo? lookupGenericDef = lookupType switch
         {
@@ -846,6 +912,7 @@ public partial class LlvmCodeGenerator
             {
                 return typeArgs[index: i];
             }
+
             substitutions[key: ownerGenericParams[index: i]] = typeArgs[index: i];
         }
 
@@ -860,10 +927,11 @@ public partial class LlvmCodeGenerator
     /// use as a LLVM return type (i.e., not a generic parameter, not an error, not a generic definition,
     /// and contains no unresolved generic parameters).
     /// </summary>
-    private static bool IsConcreteReturnType(TypeInfo type) =>
-        type is not GenericParameterTypeInfo and not ErrorTypeInfo
-        && !type.IsGenericDefinition
-        && !ContainsGenericParameter(type: type);
+    private static bool IsConcreteReturnType(TypeInfo type)
+    {
+        return type is not GenericParameterTypeInfo and not ErrorTypeInfo &&
+               !type.IsGenericDefinition && !ContainsGenericParameter(type: type);
+    }
 
     /// <summary>
     /// Gets the return type of a call expression.
@@ -904,7 +972,9 @@ public partial class LlvmCodeGenerator
         {
             TypeInfo fallback = ApplyTypeSubstitutions(type: call.ResolvedType);
             if (fallback is not GenericParameterTypeInfo and not ErrorTypeInfo)
+            {
                 return fallback;
+            }
         }
 
         throw UnresolvedCallReturnType(call: call);
@@ -924,7 +994,8 @@ public partial class LlvmCodeGenerator
         {
             MemberExpression m => $"{m.Object.GetType().Name}.{m.MemberName}",
             IdentifierExpression id => id.Name,
-            _ => call.Callee.GetType().Name
+            _ => call.Callee.GetType()
+                     .Name
         };
         string memberObjResolvedDesc = call.Callee is MemberExpression me
             ? me.Object.ResolvedType?.FullName ?? NullTypePlaceholder
@@ -933,12 +1004,11 @@ public partial class LlvmCodeGenerator
             ? $"{rr.FullName} -> {rr.ReturnType?.FullName ?? NullTypePlaceholder}"
             : NullTypePlaceholder;
         return new InvalidOperationException(
-            $"CallExpression '{calleeDesc}' has no concrete SA-resolved return type " +
-            $"(ResolvedRoutine={resolvedRoutineDesc}, " +
-            $"ConstructedType={call.ConstructedType?.FullName ?? NullTypePlaceholder}, " +
-            $"ResolvedType={call.ResolvedType?.FullName ?? NullTypePlaceholder}, " +
-            $"ObjectResolvedType={memberObjResolvedDesc}). " +
-            $"Semantic analysis must annotate all calls. Routine: {_currentEmittingRoutine?.Name ?? "<unknown>"}.");
+            message: $"CallExpression '{calleeDesc}' has no concrete SA-resolved return type " +
+                     $"(ResolvedRoutine={resolvedRoutineDesc}, " +
+                     $"ConstructedType={call.ConstructedType?.FullName ?? NullTypePlaceholder}, " +
+                     $"ResolvedType={call.ResolvedType?.FullName ?? NullTypePlaceholder}, " +
+                     $"ObjectResolvedType={memberObjResolvedDesc}). " +
+                     $"Semantic analysis must annotate all calls. Routine: {_currentEmittingRoutine?.Name ?? "<unknown>"}.");
     }
-
 }

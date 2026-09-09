@@ -11,10 +11,10 @@ using static TestHelpers;
 public class VariantValidationTests
 {
     #region #59: Variant member containment
+
     /// <summary>
     /// Verifies semantic analysis behavior for variant with record member without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_VariantWithRecordMember_NoError()
     {
@@ -34,7 +34,6 @@ public class VariantValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for variant with primitive member without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_VariantWithPrimitiveMember_NoError()
     {

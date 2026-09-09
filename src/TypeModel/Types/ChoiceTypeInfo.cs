@@ -29,7 +29,7 @@ public sealed class ChoiceTypeInfo : RecordTypeInfo
         BackendType = "i32";
     }
 
- 
+
     /// <inheritdoc/>
     public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
     {

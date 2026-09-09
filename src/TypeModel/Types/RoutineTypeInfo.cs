@@ -19,10 +19,16 @@ public sealed class RoutineTypeInfo : TypeInfo
     /// <c>{ ptr, ptr }</c> via GetLlvmType, so the store overruns an under-sized heap block).
     /// See [[cabi-callback-ffi]].
     /// </summary>
-    public override int SizeBytes(int pointerSize) => 2 * pointerSize;
+    public override int SizeBytes(int pointerSize)
+    {
+        return 2 * pointerSize;
+    }
 
     /// <inheritdoc/>
-    public override int Alignment(int pointerSize) => pointerSize;
+    public override int Alignment(int pointerSize)
+    {
+        return pointerSize;
+    }
 
     /// <summary>Parameter types for this function type.</summary>
     public List<TypeInfo> ParameterTypes { get; }

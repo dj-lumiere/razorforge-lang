@@ -37,5 +37,5 @@ public enum CallLoweringKind
     RuntimeIntrinsic,
 
     /// <summary>Indirect or dynamic call through a callable value.</summary>
-    DynamicCall,
+    DynamicCall
 }

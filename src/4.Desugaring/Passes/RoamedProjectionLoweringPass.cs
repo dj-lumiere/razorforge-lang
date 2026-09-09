@@ -35,11 +35,16 @@ internal sealed class RoamedProjectionLoweringPass(PostprocessingContext ctx) : 
 
     /// <summary>Lowers Roamed receiver projections across a whole program.</summary>
     public void Run(Program program)
-        => BodyDispatch.RunOnProgram(program, lower: r => VisitStatement(r.Body));
+    {
+        BodyDispatch.RunOnProgram(program: program, lower: r => VisitStatement(stmt: r.Body));
+    }
 
     /// <summary>Lowers Roamed receiver projections in synthesized variant bodies.</summary>
     public void RunOnVariantBodies()
-        => BodyDispatch.RunOnVariantBodies(ctx.VariantBodies, lower: (_, body) => VisitStatement(body));
+    {
+        BodyDispatch.RunOnVariantBodies(bodies: ctx.VariantBodies,
+            lower: (_, body) => VisitStatement(stmt: body));
+    }
 
     // ---- The core rewrite -----------------------------------------------------------------------
 
@@ -49,8 +54,10 @@ internal sealed class RoamedProjectionLoweringPass(PostprocessingContext ctx) : 
     /// </summary>
     protected override Expression VisitCall(CallExpression e)
     {
-        Expression lowered = base.VisitCall(e);
-        return lowered is CallExpression call ? ProjectRoamedReceiver(call) : lowered;
+        Expression lowered = base.VisitCall(e: e);
+        return lowered is CallExpression call
+            ? ProjectRoamedReceiver(call: call)
+            : lowered;
     }
 
     // The core rewrite: when the callee is a member call on a Roamed[E] receiver and
@@ -58,28 +65,53 @@ internal sealed class RoamedProjectionLoweringPass(PostprocessingContext ctx) : 
     // bare-`me` inner memberRoutine — rewrite the receiver to `receiver.raw_inner()`.
     private CallExpression ProjectRoamedReceiver(CallExpression call)
     {
-        if (call.Callee is not MemberExpression member) return call;
+        if (call.Callee is not MemberExpression member)
+        {
+            return call;
+        }
+
         TypeInfo? receiverType = member.Object.ResolvedType;
-        if (receiverType is null) return call;
+        if (receiverType is null)
+        {
+            return call;
+        }
 
         // The initial memberRoutine: the SA/operator-stamped routine, or (when unresolved on a Roamed
         // receiver — an operator-lowered `d[i]`/`x in d` whose owner has no such memberRoutine) a transparent
         // lookup on the wrapper, matching the codegen path this pass replaces.
-        RoutineInfo? memberRoutine = call.ResolvedRoutine
-            ?? Registry.LookupMemberRoutine(type: receiverType, memberRoutineName: member.MemberName);
+        RoutineInfo? memberRoutine = call.ResolvedRoutine ??
+                                     Registry.LookupMemberRoutine(type: receiverType,
+                                         memberRoutineName: member.MemberName);
 
-        RoamedTransparency.Projection? proj = RoamedTransparency.Project(receiverType: receiverType,
-            memberRoutine: memberRoutine, memberName: member.MemberName, registry: Registry);
-        if (proj is not { } roamProj) return call;
+        RoamedTransparency.Projection? proj = RoamedTransparency.Project(
+            receiverType: receiverType,
+            memberRoutine: memberRoutine,
+            memberName: member.MemberName,
+            registry: Registry);
+        if (proj is not { } roamProj)
+        {
+            return call;
+        }
 
         // Stamp the inner memberRoutine (represent/diagnose shadowed by the wrapper → inner's; a null-stamped
         // operator call → the transparently-resolved inner memberRoutine) so codegen emits it directly.
         call.ResolvedRoutine = roamProj.MemberRoutine;
-        call.LoweringKind = Verification.CallClassifier.ClassifyMemberRoutineCall(memberRoutine: roamProj.MemberRoutine);
-        if (!roamProj.ProjectToInner) return call;
+        call.LoweringKind =
+            Verification.CallClassifier.ClassifyMemberRoutineCall(
+                memberRoutine: roamProj.MemberRoutine);
+        if (!roamProj.ProjectToInner)
+        {
+            return call;
+        }
 
-        Expression innerRecv = MakeControlCall(member.Object, receiverType, roamProj.InnerType);
-        if (ReferenceEquals(innerRecv, member.Object)) return call;
+        Expression innerRecv = MakeControlCall(receiver: member.Object,
+            receiverType: receiverType,
+            innerType: roamProj.InnerType);
+        if (ReferenceEquals(objA: innerRecv, objB: member.Object))
+        {
+            return call;
+        }
+
         return call with { Callee = member with { Object = innerRecv } };
     }
 
@@ -88,22 +120,21 @@ internal sealed class RoamedProjectionLoweringPass(PostprocessingContext ctx) : 
     // real, already-resolved call. Reachability seeds control via ImplicitCallContract.ForLiveType, so
     // the target is live/monomorphized. The access lock is applied around the enclosing statement by
     // RoamedLockBracketLoweringPass (which recognizes this control() coercion), so the deref is safe.
-    private Expression MakeControlCall(Expression receiver, TypeInfo receiverType, TypeInfo innerType)
+    private Expression MakeControlCall(Expression receiver, TypeInfo receiverType,
+        TypeInfo innerType)
     {
         RoutineInfo? control = Registry.LookupMemberRoutine(type: receiverType,
             memberRoutineName: RuntimeContract.Control);
-        if (control is null) return receiver;
+        if (control is null)
+        {
+            return receiver;
+        }
 
         var callee = new MemberExpression(Object: receiver,
-            MemberName: RuntimeContract.Control, Location: receiver.Location)
-        {
-            ResolvedType = innerType
-        };
-        return new CallExpression(Callee: callee, Arguments: new List<Expression>(),
-            Location: receiver.Location)
-        {
-            ResolvedRoutine = control,
-            ResolvedType = innerType
-        };
+            MemberName: RuntimeContract.Control,
+            Location: receiver.Location) { ResolvedType = innerType };
+        return new CallExpression(Callee: callee,
+            Arguments: new List<Expression>(),
+            Location: receiver.Location) { ResolvedRoutine = control, ResolvedType = innerType };
     }
 }

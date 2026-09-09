@@ -17,9 +17,8 @@ public partial class LlvmCodeGenerator
     /// Called from <see cref="EmitRoutineCall"/> and <see cref="EmitMemberRoutineCall"/> when
     /// <c>resolvedRoutine.LlvmIrTemplate != null</c>.
     /// </summary>
-    private string EmitLlvmIntrinsicCall(StringBuilder sb, RoutineInfo routine,
-        string? receiver, List<Expression> arguments,
-        List<TypeExpression>? typeArguments,
+    private string EmitLlvmIntrinsicCall(StringBuilder sb, RoutineInfo routine, string? receiver,
+        List<Expression> arguments, List<TypeExpression>? typeArguments,
         TypeInfo? resolvedReturnType = null)
     {
         // Named arguments may be written out of order; the template substitution and generic
@@ -30,9 +29,14 @@ public partial class LlvmCodeGenerator
         // Emit argument values.
         var argValues = new List<string>();
         if (receiver != null)
-            argValues.Add(receiver);
+        {
+            argValues.Add(item: receiver);
+        }
+
         foreach (Expression arg in arguments)
-            argValues.Add(EmitExpression(sb: sb, expr: arg));
+        {
+            argValues.Add(item: EmitExpression(sb: sb, expr: arg));
+        }
 
         // Resolve type arguments to LLVM type strings.
         List<string>? genericParameters =
@@ -41,7 +45,9 @@ public partial class LlvmCodeGenerator
         if (typeArguments != null)
         {
             foreach (TypeExpression ta in typeArguments)
-                llvmTypeArgs.Add(ResolveTypeExpressionToLlvm(typeExpr: ta));
+            {
+                llvmTypeArgs.Add(item: ResolveTypeExpressionToLlvm(typeExpr: ta));
+            }
         }
 
         List<string> inferredTypeArgs = InferLlvmIntrinsicTypeArguments(routine: routine,
@@ -50,27 +56,29 @@ public partial class LlvmCodeGenerator
 
         if (typeArguments == null)
         {
-            llvmTypeArgs.AddRange(inferredTypeArgs);
+            llvmTypeArgs.AddRange(collection: inferredTypeArgs);
         }
         else if (inferredTypeArgs.Count == llvmTypeArgs.Count)
         {
             for (int i = 0; i < llvmTypeArgs.Count; i++)
             {
-                bool unresolvedExplicit = !LooksLikeLlvmType(llvmTypeArgs[i]);
-                bool namedGenericMatch =
-                    genericParameters is { Count: > 0 } &&
-                    i < genericParameters.Count &&
-                    llvmTypeArgs[i] == genericParameters[i];
+                bool unresolvedExplicit = !LooksLikeLlvmType(value: llvmTypeArgs[index: i]);
+                bool namedGenericMatch = genericParameters is { Count: > 0 } &&
+                                         i < genericParameters.Count && llvmTypeArgs[index: i] ==
+                                         genericParameters[index: i];
                 if (unresolvedExplicit || namedGenericMatch)
                 {
-                    llvmTypeArgs[i] = inferredTypeArgs[i];
+                    llvmTypeArgs[index: i] = inferredTypeArgs[index: i];
                 }
             }
         }
 
         string mold = routine.LlvmIrTemplate!;
-        return EmitFromTemplate(sb: sb, mold: mold, memberRoutine: routine,
-            llvmTypeArgs: llvmTypeArgs, args: argValues);
+        return EmitFromTemplate(sb: sb,
+            mold: mold,
+            memberRoutine: routine,
+            llvmTypeArgs: llvmTypeArgs,
+            args: argValues);
     }
 
     /// <summary>
@@ -87,15 +95,16 @@ public partial class LlvmCodeGenerator
             return template;
         }
 
-        List<string>? genericParameters =
-            memberRoutine.GenericParameters ?? memberRoutine.GenericDefinition?.GenericParameters;
+        List<string>? genericParameters = memberRoutine.GenericParameters ??
+                                          memberRoutine.GenericDefinition?.GenericParameters;
         if (genericParameters is not { Count: > 0 })
         {
             return template;
         }
 
         Dictionary<string, long> paramValues = BuildConstParamValues(
-            genericParameters: genericParameters, routineTypeArgs: memberRoutine.TypeArguments,
+            genericParameters: genericParameters,
+            routineTypeArgs: memberRoutine.TypeArguments,
             llvmTypeArgs: llvmTypeArgs);
         if (paramValues.Count == 0)
         {
@@ -112,6 +121,7 @@ public partial class LlvmCodeGenerator
                 sb.Append(value: template, startIndex: pos, count: template.Length - pos);
                 break;
             }
+
             sb.Append(value: template, startIndex: pos, count: open - pos);
             int close = template.IndexOf(value: '}', startIndex: open + 1);
             if (close < 0)
@@ -119,10 +129,15 @@ public partial class LlvmCodeGenerator
                 sb.Append(value: template, startIndex: open, count: template.Length - open);
                 break;
             }
-            AppendResolvedHole(sb: sb, template: template, open: open, close: close,
+
+            AppendResolvedHole(sb: sb,
+                template: template,
+                open: open,
+                close: close,
                 paramValues: paramValues);
             pos = close + 1;
         }
+
         return sb.ToString();
     }
 
@@ -136,18 +151,20 @@ public partial class LlvmCodeGenerator
         var paramValues = new Dictionary<string, long>(comparer: StringComparer.Ordinal);
         for (int i = 0; i < genericParameters.Count; i++)
         {
-            if (routineTypeArgs is { } rta && i < rta.Count
-                && rta[index: i] is ConstGenericValueTypeInfo constVal)
+            if (routineTypeArgs is { } rta && i < rta.Count &&
+                rta[index: i] is ConstGenericValueTypeInfo constVal)
             {
                 paramValues[key: genericParameters[index: i]] = constVal.Value;
                 continue;
             }
-            if (i < llvmTypeArgs.Count
-                && long.TryParse(s: llvmTypeArgs[index: i], result: out long v))
+
+            if (i < llvmTypeArgs.Count &&
+                long.TryParse(s: llvmTypeArgs[index: i], result: out long v))
             {
                 paramValues[key: genericParameters[index: i]] = v;
             }
         }
+
         return paramValues;
     }
 
@@ -156,8 +173,8 @@ public partial class LlvmCodeGenerator
     /// when the hole references a known param, or the verbatim <c>{…}</c> text otherwise. Only holes
     /// naming a known param are evaluated (a conservative guard against non-arithmetic braces).
     /// </summary>
-    private static void AppendResolvedHole(StringBuilder sb, string template, int open, int close,
-        Dictionary<string, long> paramValues)
+    private static void AppendResolvedHole(StringBuilder sb, string template, int open,
+        int close, Dictionary<string, long> paramValues)
     {
         string hole = template[(open + 1)..close];
         if (!paramValues.Keys.Any(predicate: p => hole.Contains(value: p)))
@@ -165,9 +182,11 @@ public partial class LlvmCodeGenerator
             sb.Append(value: template, startIndex: open, count: close - open + 1);
             return;
         }
+
         try
         {
-            long val = RecordTypeInfo.EvaluateConstExprPublic(expr: hole, paramValues: paramValues);
+            long val =
+                RecordTypeInfo.EvaluateConstExprPublic(expr: hole, paramValues: paramValues);
             sb.Append(value: val);
         }
         catch
@@ -181,7 +200,9 @@ public partial class LlvmCodeGenerator
     {
         if (routine.TypeArguments is { Count: > 0 })
         {
-            return routine.TypeArguments.Select(selector: GetLlvmIntrinsicTypeArgument).ToList();
+            return routine.TypeArguments
+                          .Select(selector: GetLlvmIntrinsicTypeArgument)
+                          .ToList();
         }
 
         List<string>? genericParameters =
@@ -191,25 +212,25 @@ public partial class LlvmCodeGenerator
             return [];
         }
 
-        var inferred = new Dictionary<string, TypeInfo>(StringComparer.Ordinal);
-        var inferredLlvmTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+        var inferred = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
+        var inferredLlvmTypes = new Dictionary<string, string>(comparer: StringComparer.Ordinal);
         for (int i = 0; i < routine.Parameters.Count && i < arguments.Count; i++)
         {
-            TypeInfo? argType = GetExpressionType(expr: arguments[i]);
+            TypeInfo? argType = GetExpressionType(expr: arguments[index: i]);
             if (argType != null)
             {
-                InferGenericBindings(pattern: routine.Parameters[i].Type,
+                InferGenericBindings(pattern: routine.Parameters[index: i].Type,
                     concrete: argType,
                     inferred: inferred);
             }
 
-            InferGenericLlvmBindings(pattern: routine.Parameters[i].Type,
-                concreteLlvmType: GetExpressionLlvmType(expr: arguments[i]),
+            InferGenericLlvmBindings(pattern: routine.Parameters[index: i].Type,
+                concreteLlvmType: GetExpressionLlvmType(expr: arguments[index: i]),
                 inferredLlvmTypes: inferredLlvmTypes);
         }
 
-        if (resolvedReturnType != null && routine.ReturnType != null
-            && resolvedReturnType is not GenericParameterTypeInfo)
+        if (resolvedReturnType != null && routine.ReturnType != null &&
+            resolvedReturnType is not GenericParameterTypeInfo)
         {
             InferGenericBindings(pattern: routine.ReturnType,
                 concrete: resolvedReturnType,
@@ -224,13 +245,14 @@ public partial class LlvmCodeGenerator
         {
             if (inferred.TryGetValue(key: genericParam, value: out TypeInfo? concreteType))
             {
-                llvmTypeArgs.Add(GetLlvmIntrinsicTypeArgument(type: concreteType));
+                llvmTypeArgs.Add(item: GetLlvmIntrinsicTypeArgument(type: concreteType));
                 continue;
             }
 
-            if (inferredLlvmTypes.TryGetValue(key: genericParam, value: out string? concreteLlvmType))
+            if (inferredLlvmTypes.TryGetValue(key: genericParam,
+                    value: out string? concreteLlvmType))
             {
-                llvmTypeArgs.Add(concreteLlvmType);
+                llvmTypeArgs.Add(item: concreteLlvmType);
                 continue;
             }
 
@@ -240,10 +262,12 @@ public partial class LlvmCodeGenerator
         return llvmTypeArgs;
     }
 
-    private string GetLlvmIntrinsicTypeArgument(TypeInfo type) =>
-        type is ConstGenericValueTypeInfo constValue
+    private string GetLlvmIntrinsicTypeArgument(TypeInfo type)
+    {
+        return type is ConstGenericValueTypeInfo constValue
             ? constValue.Value.ToString()
             : GetLlvmType(type: type);
+    }
 
     private static void InferGenericBindings(TypeInfo pattern, TypeInfo concrete,
         Dictionary<string, TypeInfo> inferred)
@@ -254,24 +278,28 @@ public partial class LlvmCodeGenerator
             return;
         }
 
-        if (pattern is RoutineTypeInfo patternRoutine && concrete is RoutineTypeInfo concreteRoutine)
+        if (pattern is RoutineTypeInfo patternRoutine &&
+            concrete is RoutineTypeInfo concreteRoutine)
         {
             InferRoutineBindings(patternRoutine: patternRoutine,
-                concreteRoutine: concreteRoutine, inferred: inferred);
+                concreteRoutine: concreteRoutine,
+                inferred: inferred);
             return;
         }
 
         if (pattern is TupleTypeInfo patternTuple && concrete is TupleTypeInfo concreteTuple)
         {
             InferPairwiseBindings(patterns: patternTuple.ElementTypes,
-                concretes: concreteTuple.ElementTypes, inferred: inferred);
+                concretes: concreteTuple.ElementTypes,
+                inferred: inferred);
             return;
         }
 
-        if (pattern.TypeArguments is { Count: > 0 } patternArgs &&
-            concrete.TypeArguments is { Count: > 0 } concreteArgs)
+        if (pattern.TypeArguments is { Count: > 0 } patternArgs && concrete.TypeArguments is
+                { Count: > 0 } concreteArgs)
         {
-            InferPairwiseBindings(patterns: patternArgs, concretes: concreteArgs,
+            InferPairwiseBindings(patterns: patternArgs,
+                concretes: concreteArgs,
                 inferred: inferred);
         }
     }
@@ -281,21 +309,25 @@ public partial class LlvmCodeGenerator
         RoutineTypeInfo concreteRoutine, Dictionary<string, TypeInfo> inferred)
     {
         InferPairwiseBindings(patterns: patternRoutine.ParameterTypes,
-            concretes: concreteRoutine.ParameterTypes, inferred: inferred);
+            concretes: concreteRoutine.ParameterTypes,
+            inferred: inferred);
         if (patternRoutine.ReturnType != null && concreteRoutine.ReturnType != null)
         {
             InferGenericBindings(pattern: patternRoutine.ReturnType,
-                concrete: concreteRoutine.ReturnType, inferred: inferred);
+                concrete: concreteRoutine.ReturnType,
+                inferred: inferred);
         }
     }
 
     /// <summary>Infers generic bindings pairwise across two positionally-aligned type lists.</summary>
-    private static void InferPairwiseBindings(List<TypeInfo> patterns,
-        List<TypeInfo> concretes, Dictionary<string, TypeInfo> inferred)
+    private static void InferPairwiseBindings(List<TypeInfo> patterns, List<TypeInfo> concretes,
+        Dictionary<string, TypeInfo> inferred)
     {
         for (int i = 0; i < patterns.Count && i < concretes.Count; i++)
         {
-            InferGenericBindings(pattern: patterns[i], concrete: concretes[i], inferred: inferred);
+            InferGenericBindings(pattern: patterns[index: i],
+                concrete: concretes[index: i],
+                inferred: inferred);
         }
     }
 
@@ -310,23 +342,16 @@ public partial class LlvmCodeGenerator
 
     private static bool LooksLikeLlvmType(string value)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (string.IsNullOrWhiteSpace(value: value))
         {
             return false;
         }
 
-        return value == "void" ||
-               value == "ptr" ||
-               value == "half" ||
-               value == "float" ||
-               value == "double" ||
-               value == "fp128" ||
-               value.StartsWith('i') &&
-               value.Length > 1 &&
-               char.IsDigit(value[1]) ||
-               value.StartsWith('%') ||
-               value.StartsWith('{') ||
-               value.StartsWith('[');
+        return value == "void" || value == "ptr" || value == "half" || value == "float" ||
+               value == "double" || value == "fp128" ||
+               value.StartsWith(value: 'i') && value.Length > 1 &&
+               char.IsDigit(c: value[index: 1]) || value.StartsWith(value: '%') ||
+               value.StartsWith(value: '{') || value.StartsWith(value: '[');
     }
 
     /// <summary>
@@ -355,25 +380,40 @@ public partial class LlvmCodeGenerator
         if (operand.StartsWith(value: '[') || operand.StartsWith(value: '<'))
         {
             char open = operand[index: 0];
-            char closeCh = open == '[' ? ']' : '>';
+            char closeCh = open == '['
+                ? ']'
+                : '>';
             int depth = 0;
             int close = -1;
             for (int i = 0; i < operand.Length; i++)
             {
-                if (operand[index: i] == open) depth++;
+                if (operand[index: i] == open)
+                {
+                    depth++;
+                }
                 else if (operand[index: i] == closeCh && --depth == 0)
                 {
                     close = i;
                     break;
                 }
             }
-            if (close < 0 || close + 1 >= operand.Length) return null;
-            return (operand.Substring(startIndex: 0, length: close + 1),
-                operand.Substring(startIndex: close + 1).Trim());
+
+            if (close < 0 || close + 1 >= operand.Length)
+            {
+                return null;
+            }
+
+            return (operand.Substring(startIndex: 0, length: close + 1), operand
+               .Substring(startIndex: close + 1)
+               .Trim());
         }
 
         int sep = operand.IndexOf(value: ' ');
-        if (sep < 0) return null;
+        if (sep < 0)
+        {
+            return null;
+        }
+
         return (operand.Substring(startIndex: 0, length: sep),
             operand.Substring(startIndex: sep + 1));
     }
@@ -382,26 +422,42 @@ public partial class LlvmCodeGenerator
         TryDetectStructToPtrBitcast(string line)
     {
         int eqIdx = line.IndexOf(value: " = bitcast ", comparisonType: StringComparison.Ordinal);
-        if (eqIdx < 0) return null;
+        if (eqIdx < 0)
+        {
+            return null;
+        }
+
         string resultName = line.Substring(startIndex: 0, length: eqIdx);
         int valueStart = eqIdx + " = bitcast ".Length;
-        int toIdx = line.IndexOf(value: " to ", startIndex: valueStart,
+        int toIdx = line.IndexOf(value: " to ",
+            startIndex: valueStart,
             comparisonType: StringComparison.Ordinal);
-        if (toIdx < 0) return null;
+        if (toIdx < 0)
+        {
+            return null;
+        }
+
         string operand = line.Substring(startIndex: valueStart, length: toIdx - valueStart);
         if (SplitBitcastOperand(operand: operand) is not { } split)
         {
             return null;
         }
+
         (string fromType, string val) = split;
-        string toType = line.Substring(startIndex: toIdx + 4).Trim();
-        if (toType != "ptr") return null;
+        string toType = line.Substring(startIndex: toIdx + 4)
+                            .Trim();
+        if (toType != "ptr")
+        {
+            return null;
+        }
+
         // Struct types in our IR are named %"Record.X" or %"Entity.X" or anonymous %Record.X.
         // Also handle non-pointer scalar value types that can't bitcast to ptr — e.g.
         // `fp128` (used by F128's @llvm("fp128") layout). Integer→ptr is already rewritten
         // to inttoptr upstream by FixIntPtrBitcast; ptr→ptr is a no-op and need not match.
         bool isStruct = fromType.StartsWith(value: '%');
-        bool isFloat = fromType is "fp128" or "double" or "float" or "half" or "bfloat" or "x86_fp80" or "ppc_fp128";
+        bool isFloat = fromType is "fp128" or "double" or "float" or "half" or "bfloat"
+            or "x86_fp80" or "ppc_fp128";
         // Inline-array aggregate backends (`[N x T]`, e.g. Array[T,N] / BitArray[N]) also cannot
         // bitcast to ptr. Their universal `get_address`/`hijack` bodies are dead code (the real call
         // is intercepted at the call site), but the materialized definition must still compile —
@@ -410,7 +466,11 @@ public partial class LlvmCodeGenerator
         // SIMD vector backends (`<N x T>`, e.g. Simd.Vector[F32, 4]'s @llvm("<{N} x {T}>") layout) likewise
         // cannot bitcast to ptr — same dead-but-must-compile universal get_address/hijack body. Spill too.
         bool isVector = fromType.StartsWith(value: '<');
-        if (!isStruct && !isFloat && !isArray && !isVector) return null;
+        if (!isStruct && !isFloat && !isArray && !isVector)
+        {
+            return null;
+        }
+
         return (fromType, val, resultName);
     }
 
@@ -418,31 +478,52 @@ public partial class LlvmCodeGenerator
     {
         const string marker = "= bitcast ";
         int idx = line.IndexOf(value: marker, comparisonType: StringComparison.Ordinal);
-        if (idx < 0) return line;
+        if (idx < 0)
+        {
+            return line;
+        }
+
         int valueStart = idx + marker.Length;
-        int toIdx = line.IndexOf(value: " to ", startIndex: valueStart,
+        int toIdx = line.IndexOf(value: " to ",
+            startIndex: valueStart,
             comparisonType: StringComparison.Ordinal);
-        if (toIdx < 0) return line;
+        if (toIdx < 0)
+        {
+            return line;
+        }
+
         string fromType = line.Substring(startIndex: valueStart, length: toIdx - valueStart)
-            .Split(separator: ' ')[0];
-        string toType = line.Substring(startIndex: toIdx + 4).Trim();
-        bool fromIsInt = fromType.Length > 1 && fromType[0] == 'i' && char.IsDigit(c: fromType[1]);
-        bool toIsInt = toType.Length > 1 && toType[0] == 'i' && char.IsDigit(c: toType[1]);
+                              .Split(separator: ' ')[0];
+        string toType = line.Substring(startIndex: toIdx + 4)
+                            .Trim();
+        bool fromIsInt = fromType.Length > 1 && fromType[index: 0] == 'i' &&
+                         char.IsDigit(c: fromType[index: 1]);
+        bool toIsInt = toType.Length > 1 && toType[index: 0] == 'i' &&
+                       char.IsDigit(c: toType[index: 1]);
         bool fromIsPtr = fromType == "ptr";
         bool toIsPtr = toType == "ptr";
         if (fromIsInt && toIsPtr)
-            return string.Concat(line.AsSpan(start: 0, length: idx + 2), "inttoptr ",
-                line.AsSpan(start: valueStart));
+        {
+            return string.Concat(str0: line.AsSpan(start: 0, length: idx + 2),
+                str1: "inttoptr ",
+                str2: line.AsSpan(start: valueStart));
+        }
+
         if (fromIsPtr && toIsInt)
-            return string.Concat(line.AsSpan(start: 0, length: idx + 2), "ptrtoint ",
-                line.AsSpan(start: valueStart));
+        {
+            return string.Concat(str0: line.AsSpan(start: 0, length: idx + 2),
+                str1: "ptrtoint ",
+                str2: line.AsSpan(start: valueStart));
+        }
+
         return line;
     }
 
     private string EmitFromTemplate(StringBuilder sb, string mold, RoutineInfo memberRoutine,
         List<string> llvmTypeArgs, List<string> args)
     {
-        string[] lines = mold.Split(separator: '\n', options: StringSplitOptions.RemoveEmptyEntries);
+        string[] lines =
+            mold.Split(separator: '\n', options: StringSplitOptions.RemoveEmptyEntries);
         string? lastResult = null;
         string? prevResult = null;
         string? firstResult = null;
@@ -450,14 +531,21 @@ public partial class LlvmCodeGenerator
         foreach (string rawLine in lines)
         {
             string line = rawLine.Trim();
-            if (line.Length == 0) continue;
+            if (line.Length == 0)
+            {
+                continue;
+            }
 
             string currentResult = NextTemp();
             bool hasResult = line.Contains(value: "{result}");
 
-            string substituted = SubstituteTemplateLine(line: line, memberRoutine: memberRoutine,
-                llvmTypeArgs: llvmTypeArgs, args: args, currentResult: currentResult,
-                prevResult: prevResult, firstResult: firstResult);
+            string substituted = SubstituteTemplateLine(line: line,
+                memberRoutine: memberRoutine,
+                llvmTypeArgs: llvmTypeArgs,
+                args: args,
+                currentResult: currentResult,
+                prevResult: prevResult,
+                firstResult: firstResult);
 
             // `bitcast %Record.Foo %val to ptr` is illegal in LLVM (struct -> ptr bitcasts
             // are forbidden). Routines like the universal `T.get_address()` use
@@ -472,7 +560,7 @@ public partial class LlvmCodeGenerator
                 TryDetectStructToPtrBitcast(line: substituted);
             if (rewritten.HasValue)
             {
-                var (structType2, val2, resultName2) = rewritten.Value;
+                (string structType2, string val2, string resultName2) = rewritten.Value;
                 EmitLine(sb: sb, line: $"  {resultName2} = alloca {structType2}");
                 EmitLine(sb: sb, line: $"  store {structType2} {val2}, ptr {resultName2}");
                 if (hasResult)
@@ -481,6 +569,7 @@ public partial class LlvmCodeGenerator
                     prevResult = currentResult;
                     lastResult = currentResult;
                 }
+
                 continue;
             }
 
@@ -499,11 +588,14 @@ public partial class LlvmCodeGenerator
         // so the caller receives the named LLVM type (%"Record.Tuple[...]").
         if (lastResult != null && memberRoutine.ReturnType is TupleTypeInfo tupleReturn)
         {
-            return CoerceAnonStructToNamedTuple(sb: sb, tupleReturn: tupleReturn,
+            return CoerceAnonStructToNamedTuple(sb: sb,
+                tupleReturn: tupleReturn,
                 lastResult: lastResult);
         }
 
-        return lastResult ?? (args.Count > 0 ? args[index: 0] : "undef");
+        return lastResult ?? (args.Count > 0
+            ? args[index: 0]
+            : "undef");
     }
 
     /// <summary>
@@ -520,14 +612,18 @@ public partial class LlvmCodeGenerator
         substituted = substituted.Replace(oldValue: "{result}", newValue: currentResult);
 
         if (prevResult != null)
+        {
             substituted = substituted.Replace(oldValue: "{prev}", newValue: prevResult);
+        }
 
         if (firstResult != null)
+        {
             substituted = substituted.Replace(oldValue: "{first}", newValue: firstResult);
+        }
 
         // {T}, {From}, {To}, etc. — named generic parameters -> LLVM types
-        List<string>? genericParameters =
-            memberRoutine.GenericParameters ?? memberRoutine.GenericDefinition?.GenericParameters;
+        List<string>? genericParameters = memberRoutine.GenericParameters ??
+                                          memberRoutine.GenericDefinition?.GenericParameters;
         if (genericParameters != null)
         {
             for (int i = 0; i < genericParameters.Count && i < llvmTypeArgs.Count; i++)
@@ -541,7 +637,7 @@ public partial class LlvmCodeGenerator
                 {
                     substituted = substituted.Replace(oldValue: sizeofPattern,
                         newValue: (GetTypeBitWidth(llvmType: llvmTypeArgs[index: i]) / 8)
-                                  .ToString());
+                       .ToString());
                 }
             }
         }
@@ -558,7 +654,8 @@ public partial class LlvmCodeGenerator
         // BackendType templates (resolved in RecordTypeInfo.CreateInstance) handle these
         // already; @llvm_ir templates need the same support so e.g. BitArray[N]'s
         // byte_at_bits intrinsic emits `[1 x i8]` for N=8 instead of `[{(N+7)//8} x i8]`.
-        substituted = ResolveArithmeticHoles(template: substituted, memberRoutine: memberRoutine,
+        substituted = ResolveArithmeticHoles(template: substituted,
+            memberRoutine: memberRoutine,
             llvmTypeArgs: llvmTypeArgs);
 
         return FixIntPtrBitcast(line: substituted);
@@ -585,9 +682,11 @@ public partial class LlvmCodeGenerator
             elem = CoerceBoolToStorage(sb: sb, value: elem, fieldType: elemType);
             string ins = NextTemp();
             EmitLine(sb: sb,
-                line: $"  {ins} = insertvalue {namedType} {tupleVal}, {GetFieldStorageLlvmType(type: elemType)} {elem}, {i}");
+                line:
+                $"  {ins} = insertvalue {namedType} {tupleVal}, {GetFieldStorageLlvmType(type: elemType)} {elem}, {i}");
             tupleVal = ins;
         }
+
         return tupleVal;
     }
 
@@ -602,7 +701,7 @@ public partial class LlvmCodeGenerator
             return GetLlvmType(type: ApplyTypeSubstitutions(type: resolvedType));
         }
 
-        var type = _registry.LookupType(name: typeExpr.Name);
+        TypeInfo? type = _registry.LookupType(name: typeExpr.Name);
         if (type != null)
         {
             return type.IsGenericDefinition && typeExpr.GenericArguments is { Count: > 0 }
@@ -611,7 +710,9 @@ public partial class LlvmCodeGenerator
         }
 
         type = LookupTypeInCurrentModule(name: typeExpr.Name);
-        return type != null ? GetLlvmType(type: type) : typeExpr.Name;
+        return type != null
+            ? GetLlvmType(type: type)
+            : typeExpr.Name;
     }
 
     /// <summary>
@@ -623,7 +724,7 @@ public partial class LlvmCodeGenerator
     {
         string fullName =
             $"{typeExpr.Name}[{string.Join(separator: ", ", values: typeExpr.GenericArguments!.Select(selector: g => g.Name))}]";
-        var fullType = _registry.LookupType(name: fullName);
+        TypeInfo? fullType = _registry.LookupType(name: fullName);
         if (fullType != null)
         {
             return GetLlvmType(type: fullType);
@@ -632,15 +733,16 @@ public partial class LlvmCodeGenerator
         var resolvedArgs = new List<TypeInfo>();
         foreach (TypeExpression ga in typeExpr.GenericArguments!)
         {
-            var r = ResolveTypeArgument(ta: ga);
+            TypeInfo? r = ResolveTypeArgument(ta: ga);
             if (r != null)
             {
-                resolvedArgs.Add(r);
+                resolvedArgs.Add(item: r);
             }
         }
+
         return resolvedArgs.Count == genericDef.GenericParameters!.Count
-            ? GetLlvmType(type: _registry.GetOrCreateResolution(
-                genericDef: genericDef, typeArguments: resolvedArgs))
+            ? GetLlvmType(type: _registry.GetOrCreateResolution(genericDef: genericDef,
+                typeArguments: resolvedArgs))
             : GetLlvmType(type: genericDef);
     }
 
@@ -659,24 +761,37 @@ public partial class LlvmCodeGenerator
         {
             routine = _registry.LookupRoutineOverload(baseName: gmc.MemberRoutineName,
                 argTypes: gmc.Arguments
-                    .Select(selector: a => GetExpressionType(
-                        expr: a is NamedArgumentExpression na ? na.Value : a))
-                    .OfType<TypeInfo>()
-                    .ToList());
+                             .Select(selector: a => GetExpressionType(
+                                  expr: a is NamedArgumentExpression na
+                                      ? na.Value
+                                      : a))
+                             .OfType<TypeInfo>()
+                             .ToList());
         }
 
         if (routine?.LlvmIrTemplate != null)
-            return EmitLlvmIntrinsicCall(sb: sb, routine: routine, receiver: null,
-                arguments: gmc.Arguments, typeArguments: gmc.TypeArguments,
+        {
+            return EmitLlvmIntrinsicCall(sb: sb,
+                routine: routine,
+                receiver: null,
+                arguments: gmc.Arguments,
+                typeArguments: gmc.TypeArguments,
                 resolvedReturnType: gmc.ResolvedType);
+        }
 
-        string objectDesc = gmc.Object is IdentifierExpression id2 ? id2.Name : gmc.Object.GetType().Name;
-        string typeArgDesc = (gmc.TypeArguments?.Select(
-            t => $"{t.Name}(resolved={t.ResolvedType?.FullName ?? "null"})").ToList() ?? []).Repr();
+        string objectDesc = gmc.Object is IdentifierExpression id2
+            ? id2.Name
+            : gmc.Object.GetType()
+                 .Name;
+        string typeArgDesc = (gmc.TypeArguments
+                                ?.Select(selector: t =>
+                                      $"{t.Name}(resolved={t.ResolvedType?.FullName ?? "null"})")
+                                 .ToList() ?? []).Repr();
         string routineDesc = gmc.ResolvedRoutine is { } rr
-            ? $"key={rr.RegistryKey} isGenDef={rr.IsGenericDefinition} hasGenDef={rr.GenericDefinition != null} typeArgs={(rr.TypeArguments?.Select(t => t.FullName).ToList() ?? []).Repr()}"
+            ? $"key={rr.RegistryKey} isGenDef={rr.IsGenericDefinition} hasGenDef={rr.GenericDefinition != null} typeArgs={(rr.TypeArguments?.Select(selector: t => t.FullName).ToList() ?? []).Repr()}"
             : "ResolvedRoutine=NULL";
         throw new InvalidOperationException(
+            message:
             $"GenericMemberRoutineCallExpression reached codegen — GenericCallLoweringPass must lower all GMCEs to CallExpression before codegen. " +
             $"GMCE: {objectDesc}.{gmc.MemberRoutineName}[{typeArgDesc}] ({routineDesc}), " +
             $"in routine: {_currentEmittingRoutine?.Name ?? "<unknown>"} (owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"})");

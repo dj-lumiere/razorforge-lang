@@ -11,10 +11,10 @@ using static TestHelpers;
 public class PatternOrderTests
 {
     #region #88: Pattern order enforcement
+
     /// <summary>
     /// Verifies semantic analysis behavior for when else before other patterns and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenElseBeforeOtherPatterns_ReportsError()
     {
@@ -36,7 +36,6 @@ public class PatternOrderTests
     /// <summary>
     /// Verifies semantic analysis behavior for when else last without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenElseLast_NoError()
     {
@@ -60,7 +59,6 @@ public class PatternOrderTests
     /// <summary>
     /// Verifies semantic analysis behavior for when wildcard before specific pattern and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenWildcardBeforeSpecificPattern_ReportsError()
     {
@@ -142,10 +140,10 @@ public class PatternOrderTests
     #endregion
 
     #region #130/#148: Duplicate pattern detection
+
     /// <summary>
     /// Verifies semantic analysis behavior for duplicate literal pattern and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_DuplicateLiteralPattern_ReportsError()
     {
@@ -164,7 +162,6 @@ public class PatternOrderTests
     /// <summary>
     /// Verifies semantic analysis behavior for duplicate choice case pattern and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_DuplicateChoiceCasePattern_ReportsError()
     {
@@ -187,7 +184,6 @@ public class PatternOrderTests
     /// <summary>
     /// Verifies semantic analysis behavior for distinct patterns without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_DistinctPatterns_NoError()
     {

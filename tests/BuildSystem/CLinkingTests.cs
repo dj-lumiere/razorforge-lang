@@ -15,20 +15,20 @@ public sealed class CLinkingTests
     [Fact]
     public void Manifest_ParsesCLibrariesAndResolvesLibraryPaths()
     {
-        string root = CreateTempProject(new()
+        string root = CreateTempProject(files: new Dictionary<string, string>
         {
-            ["config.toml"] = """
-                [package]
-                name = "test"
-                version = "0.0.1"
+            [key: "config.toml"] = """
+                                   [package]
+                                   name = "test"
+                                   version = "0.0.1"
 
-                [target]
-                executable = "App"
-                mode = "debug"
-                c_libraries = ["SDL2", "m"]
-                library_paths = ["vendor/lib"]
-                """,
-            ["App.rf"] = "module App\n\nroutine start()\n  return\n",
+                                   [target]
+                                   executable = "App"
+                                   mode = "debug"
+                                   c_libraries = ["SDL2", "m"]
+                                   library_paths = ["vendor/lib"]
+                                   """,
+            [key: "App.rf"] = "module App\n\nroutine start()\n  return\n"
         });
         try
         {
@@ -40,7 +40,9 @@ public sealed class CLinkingTests
             // library_paths entries are resolved to absolute paths against the manifest directory.
             Assert.Single(collection: manifest.Target.LibraryPaths);
             Assert.Equal(
-                expected: Path.GetFullPath(path: Path.Combine(path1: root, path2: "vendor", path3: "lib")),
+                expected: Path.GetFullPath(path: Path.Combine(path1: root,
+                    path2: "vendor",
+                    path3: "lib")),
                 actual: manifest.Target.LibraryPaths[index: 0],
                 comparer: StringComparer.OrdinalIgnoreCase);
         }
@@ -53,26 +55,26 @@ public sealed class CLinkingTests
     [Fact]
     public void Manifest_ParsesLibraryConfigs()
     {
-        string root = CreateTempProject(new()
+        string root = CreateTempProject(files: new Dictionary<string, string>
         {
-            ["config.toml"] = """
-                [package]
-                name = "test"
-                version = "0.0.1"
+            [key: "config.toml"] = """
+                                   [package]
+                                   name = "test"
+                                   version = "0.0.1"
 
-                [target]
-                executable = "App"
-                mode = "debug"
+                                   [target]
+                                   executable = "App"
+                                   mode = "debug"
 
-                [libraries.SDL2]
-                kind = "dynamic"
-                calling-convention = "c"
+                                   [libraries.SDL2]
+                                   kind = "dynamic"
+                                   calling-convention = "c"
 
-                [libraries.physx]
-                kind = "static"
-                name = "physx_static"
-                """,
-            ["App.rf"] = "module App\n\nroutine start()\n  return\n",
+                                   [libraries.physx]
+                                   kind = "static"
+                                   name = "physx_static"
+                                   """,
+            [key: "App.rf"] = "module App\n\nroutine start()\n  return\n"
         });
         try
         {
@@ -81,13 +83,13 @@ public sealed class CLinkingTests
 
             Assert.Equal(expected: 2, actual: manifest.Target.LibraryConfigs.Count);
 
-            CLibrary sdl = manifest.Target.LibraryConfigs["SDL2"];
+            CLibrary sdl = manifest.Target.LibraryConfigs[key: "SDL2"];
             Assert.Equal(expected: "SDL2", actual: sdl.Name);
             Assert.Equal(expected: CLinkKind.Dynamic, actual: sdl.Kind);
             Assert.Equal(expected: "c", actual: sdl.CallingConvention);
 
             // `kind = "static"` + a `name` override that differs from the table key.
-            CLibrary physx = manifest.Target.LibraryConfigs["physx"];
+            CLibrary physx = manifest.Target.LibraryConfigs[key: "physx"];
             Assert.Equal(expected: "physx_static", actual: physx.Name);
             Assert.Equal(expected: CLinkKind.Static, actual: physx.Kind);
         }
@@ -100,10 +102,11 @@ public sealed class CLinkingTests
     [Fact]
     public void Manifest_NoCLinkingKeys_YieldsEmptyLists()
     {
-        string root = CreateTempProject(new()
+        string root = CreateTempProject(files: new Dictionary<string, string>
         {
-            ["config.toml"] = "[package]\nname = \"t\"\nversion = \"0.0.1\"\n\n[target]\nexecutable = \"App\"\n",
-            ["App.rf"] = "module App\n\nroutine start()\n  return\n",
+            [key: "config.toml"] =
+                "[package]\nname = \"t\"\nversion = \"0.0.1\"\n\n[target]\nexecutable = \"App\"\n",
+            [key: "App.rf"] = "module App\n\nroutine start()\n  return\n"
         });
         try
         {
@@ -121,8 +124,8 @@ public sealed class CLinkingTests
     [Fact]
     public void BuildUserLibraryArgs_EmitsSearchPathsThenLibraries()
     {
-        string args = NativeToolchain.BuildUserLibraryArgs(
-            cLibraries: ["SDL2", "m"],
+        string args = NativeToolchain.BuildUserLibraryArgs(cLibraries:
+            ["SDL2", "m"],
             libraryPaths: ["/opt/libs", "C:/vendor"]);
 
         Assert.Contains(expectedSubstring: "-L\"/opt/libs\"", actualString: args);
@@ -130,15 +133,19 @@ public sealed class CLinkingTests
         Assert.Contains(expectedSubstring: "-lSDL2", actualString: args);
         Assert.Contains(expectedSubstring: "-lm", actualString: args);
         // Search paths must precede the library names so `-l` resolution can find them.
-        Assert.True(condition: args.IndexOf(value: "-L\"/opt/libs\"", comparisonType: StringComparison.Ordinal)
-                               < args.IndexOf(value: "-lSDL2", comparisonType: StringComparison.Ordinal));
+        Assert.True(
+            condition: args.IndexOf(value: "-L\"/opt/libs\"",
+                comparisonType: StringComparison.Ordinal) < args.IndexOf(value: "-lSDL2",
+                comparisonType: StringComparison.Ordinal));
     }
 
     [Fact]
     public void BuildUserLibraryArgs_EmptyOrNull_ReturnsEmpty()
     {
-        Assert.Equal(expected: "", actual: NativeToolchain.BuildUserLibraryArgs(cLibraries: null, libraryPaths: null));
-        Assert.Equal(expected: "", actual: NativeToolchain.BuildUserLibraryArgs(cLibraries: [], libraryPaths: []));
+        Assert.Equal(expected: "",
+            actual: NativeToolchain.BuildUserLibraryArgs(cLibraries: null, libraryPaths: null));
+        Assert.Equal(expected: "",
+            actual: NativeToolchain.BuildUserLibraryArgs(cLibraries: [], libraryPaths: []));
     }
 
     [Fact]
@@ -152,9 +159,11 @@ public sealed class CLinkingTests
 
         // Named library, with and without a symbol-name override.
         Assert.Equal(expected: ("SDL2", (string?)null),
-            actual: global::TypeModel.Symbols.LinkAnnotation.Parse(annotation: "link(lib=\"SDL2\")"));
+            actual: global::TypeModel.Symbols.LinkAnnotation.Parse(
+                annotation: "link(lib=\"SDL2\")"));
         Assert.Equal(expected: ("SDL2", (string?)"SDL_Init"),
-            actual: global::TypeModel.Symbols.LinkAnnotation.Parse(annotation: "link(lib=\"SDL2\", symbol=\"SDL_Init\")"));
+            actual: global::TypeModel.Symbols.LinkAnnotation.Parse(
+                annotation: "link(lib=\"SDL2\", symbol=\"SDL_Init\")"));
     }
 
     [Fact]
@@ -169,7 +178,8 @@ public sealed class CLinkingTests
     private static string CreateTempProject(Dictionary<string, string> files)
     {
         string root = Path.Combine(path1: Path.GetTempPath(),
-            path2: "rf_clink_" + Guid.NewGuid().ToString(format: "N"));
+            path2: "rf_clink_" + Guid.NewGuid()
+                                     .ToString(format: "N"));
         Directory.CreateDirectory(path: root);
         foreach ((string relPath, string content) in files)
         {

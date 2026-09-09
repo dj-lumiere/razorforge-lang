@@ -17,17 +17,15 @@ public static class BackendReprResolver
     {
         return type switch
         {
-            TupleTypeInfo tuple => new BackendRepr(
-                Kind: BackendReprKind.Aggregate,
+            TupleTypeInfo tuple => new BackendRepr(Kind: BackendReprKind.Aggregate,
                 SourceType: type,
                 LlvmAbiType: $"{{ {string.Join(separator: ", ",
-                    values: tuple.ElementTypes.Select(selector =>
+                    values: tuple.ElementTypes.Select(selector: selector =>
                         Resolve(type: selector, registry: registry, target: target).LlvmAbiType))} }}",
                 AggregateLayoutKey: type.FullName),
 
             // Variant is a RecordTypeInfo subclass — must precede the Record arms.
-            VariantTypeInfo => new BackendRepr(
-                Kind: BackendReprKind.Aggregate,
+            VariantTypeInfo => new BackendRepr(Kind: BackendReprKind.Aggregate,
                 SourceType: type,
                 LlvmAbiType: type.FullName,
                 AggregateLayoutKey: type.FullName),
@@ -37,61 +35,52 @@ public static class BackendReprResolver
                 BackendType: not null, IsGenericDefinition: false
             } record => ResolveDirectBackendRecord(record: record),
 
-            RecordTypeInfo record => new BackendRepr(
-                Kind: BackendReprKind.Aggregate,
+            RecordTypeInfo record => new BackendRepr(Kind: BackendReprKind.Aggregate,
                 SourceType: type,
                 LlvmAbiType: record.LlvmType,
                 AggregateLayoutKey: type.FullName,
                 IsPassedIndirectly: false),
 
             // Entity (and Crashable, an entity subclass) -> entity ref pointer.
-            EntityTypeInfo => new BackendRepr(
-                Kind: BackendReprKind.EntityRef,
+            EntityTypeInfo => new BackendRepr(Kind: BackendReprKind.EntityRef,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Entity,
                 PointeeType: type),
 
-            ProtocolTypeInfo => new BackendRepr(
-                Kind: BackendReprKind.ProtocolRef,
+            ProtocolTypeInfo => new BackendRepr(Kind: BackendReprKind.ProtocolRef,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Protocol,
                 PointeeType: type),
 
-            WrapperTypeInfo wrapper => new BackendRepr(
-                Kind: BackendReprKind.WrapperRef,
+            WrapperTypeInfo wrapper => new BackendRepr(Kind: BackendReprKind.WrapperRef,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: ClassifyPointerFlavor(typeName: wrapper.Name),
                 PointeeType: wrapper.InnerType,
                 IsTransparent: true),
 
-            RoutineTypeInfo => new BackendRepr(
-                Kind: BackendReprKind.RoutineRef,
+            RoutineTypeInfo => new BackendRepr(Kind: BackendReprKind.RoutineRef,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Routine),
 
-            ConstGenericValueTypeInfo => new BackendRepr(
-                Kind: BackendReprKind.Scalar,
+            ConstGenericValueTypeInfo => new BackendRepr(Kind: BackendReprKind.Scalar,
                 SourceType: type,
                 LlvmAbiType: "i64"),
 
-            GenericParameterTypeInfo => new BackendRepr(
-                Kind: BackendReprKind.RawPtr,
+            GenericParameterTypeInfo => new BackendRepr(Kind: BackendReprKind.RawPtr,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Raw),
 
-            ErrorTypeInfo => new BackendRepr(
-                Kind: BackendReprKind.RawPtr,
+            ErrorTypeInfo => new BackendRepr(Kind: BackendReprKind.RawPtr,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Raw),
 
-            _ => new BackendRepr(
-                Kind: BackendReprKind.RawPtr,
+            _ => new BackendRepr(Kind: BackendReprKind.RawPtr,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Raw)
@@ -105,8 +94,7 @@ public static class BackendReprResolver
     {
         if (record.BackendType == "void")
         {
-            return new BackendRepr(
-                Kind: BackendReprKind.Void,
+            return new BackendRepr(Kind: BackendReprKind.Void,
                 SourceType: record,
                 LlvmAbiType: "void");
         }
@@ -118,11 +106,10 @@ public static class BackendReprResolver
                 ? BackendReprKind.RawPtr
                 : BackendReprKind.WrapperRef;
             TypeInfo? pointeeType = record.TypeArguments is { Count: > 0 }
-                ? record.TypeArguments[0]
+                ? record.TypeArguments[index: 0]
                 : null;
 
-            return new BackendRepr(
-                Kind: kind,
+            return new BackendRepr(Kind: kind,
                 SourceType: record,
                 LlvmAbiType: "ptr",
                 PointerFlavor: flavor,
@@ -131,8 +118,7 @@ public static class BackendReprResolver
                 IsTransparent: kind == BackendReprKind.WrapperRef);
         }
 
-        return new BackendRepr(
-            Kind: BackendReprKind.Scalar,
+        return new BackendRepr(Kind: BackendReprKind.Scalar,
             SourceType: record,
             LlvmAbiType: record.BackendType!,
             AggregateLayoutKey: record.FullName);

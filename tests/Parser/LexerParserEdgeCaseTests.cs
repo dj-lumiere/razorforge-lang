@@ -27,8 +27,7 @@ public class LexerParserEdgeCaseTests
     [InlineData("routine test()\n  return\t\n", 2, 9)]
     [InlineData("routine\ttest()\n  return\n", 1, 8)]
     [InlineData("routine test()\n  # comment\twith tab\n  return\n", 2, 12)]
-    public void Tokenize_Tabs_ThrowsInvalidCharacter(string source,
-        int expectedLine,
+    public void Tokenize_Tabs_ThrowsInvalidCharacter(string source, int expectedLine,
         int expectedColumn)
     {
         GrammarException exception = AssertInvalidCharacter(source: source);
@@ -74,8 +73,7 @@ public class LexerParserEdgeCaseTests
     [InlineData("routine test()\n  var va\0lue = 1\n  return\n", 2, 9)]
     [InlineData("routine test()\n  var value = \"a\0b\"\n  return\n", 2, 17)]
     [InlineData("routine test()\n  return\n\0", 3, 1)]
-    public void Tokenize_NullBytes_ThrowsInvalidCharacter(string source,
-        int expectedLine,
+    public void Tokenize_NullBytes_ThrowsInvalidCharacter(string source, int expectedLine,
         int expectedColumn)
     {
         GrammarException exception = AssertInvalidCharacter(source: source);
@@ -127,8 +125,7 @@ public class LexerParserEdgeCaseTests
     [InlineData("routine \uFEFFtest()\n  return\n", 1, 9)]
     [InlineData("\uFEFF\uFEFFroutine test()\n  return\n", 1, 1)]
     [InlineData("routine test()\n  \uFEFFreturn\n", 2, 3)]
-    public void Tokenize_NonLeadingBom_ThrowsInvalidCharacter(string source,
-        int expectedLine,
+    public void Tokenize_NonLeadingBom_ThrowsInvalidCharacter(string source, int expectedLine,
         int expectedColumn)
     {
         GrammarException exception = AssertInvalidCharacter(source: source);
@@ -146,7 +143,7 @@ public class LexerParserEdgeCaseTests
         string source = "\uFEFFroutine test()\n  return\n";
 
         Token routine = Tokenize(source: source)
-                        .First(predicate: token => token.Type == TokenType.Routine);
+           .First(predicate: token => token.Type == TokenType.Routine);
 
         Assert.Equal(expected: 1, actual: routine.Line);
         Assert.Equal(expected: 1, actual: routine.Column);
@@ -163,12 +160,13 @@ public class LexerParserEdgeCaseTests
     public void Parse_LineEndings_Parses(string lineEnding)
     {
         string source = string.Join(separator: lineEnding,
-        [
-            RoutineTestSignature,
-            "  var value = 1",
-            ReturnStatement,
-            ""
-        ]);
+            value:
+            [
+                RoutineTestSignature,
+                "  var value = 1",
+                ReturnStatement,
+                ""
+            ]);
 
         AssertParses(source: source);
     }
@@ -184,12 +182,13 @@ public class LexerParserEdgeCaseTests
     public void Tokenize_LineEndings_PreserveTokenLineNumbers(string lineEnding)
     {
         string source = string.Join(separator: lineEnding,
-        [
-            RoutineTestSignature,
-            "  var value = 1",
-            ReturnStatement,
-            ""
-        ]);
+            value:
+            [
+                RoutineTestSignature,
+                "  var value = 1",
+                ReturnStatement,
+                ""
+            ]);
 
         List<Token> tokens = Tokenize(source: source);
         Token returnToken = tokens.Single(predicate: token => token.Type == TokenType.Return);
@@ -291,7 +290,7 @@ public class LexerParserEdgeCaseTests
         string source = $"routine test()\n  var {longName} = 1\n  return\n";
 
         Token identifier = Tokenize(source: source)
-                           .Single(predicate: token => token.Text == longName);
+           .Single(predicate: token => token.Text == longName);
 
         Assert.Equal(expected: TokenType.Identifier, actual: identifier.Type);
     }
@@ -302,8 +301,7 @@ public class LexerParserEdgeCaseTests
     [Fact]
     public void Parse_VeryLongCommentLine_ParsesFollowingStatement()
     {
-        string source = "routine test()\n  #" + new string(c: 'x', count: 25_000) +
-                        "\n  return\n";
+        string source = "routine test()\n  #" + new string(c: 'x', count: 25_000) + "\n  return\n";
 
         AssertParses(source: source);
     }
@@ -502,8 +500,7 @@ public class LexerParserEdgeCaseTests
     {
         GrammarException exception = Assert.Throws<GrammarException>(
             testCode: () => Tokenize(source: source));
-        Assert.Equal(expected: GrammarDiagnosticCode.InvalidCharacter,
-            actual: exception.Code);
+        Assert.Equal(expected: GrammarDiagnosticCode.InvalidCharacter, actual: exception.Code);
         return exception;
     }
 

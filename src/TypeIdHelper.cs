@@ -15,13 +15,19 @@ internal static class TypeIdHelper
     internal static ulong ComputeTypeId(string fullName)
     {
         if (fullName is "None" || fullName.EndsWith(value: ".None"))
+        {
             return 0UL;
+        }
+
         ulong hash = 14695981039346656037UL; // FNV-1a offset basis
         foreach (byte b in Encoding.UTF8.GetBytes(s: fullName))
         {
             hash ^= b;
             hash *= 1099511628211UL; // FNV-1a prime
         }
-        return hash == 0UL ? 1UL : hash;
+
+        return hash == 0UL
+            ? 1UL
+            : hash;
     }
 }

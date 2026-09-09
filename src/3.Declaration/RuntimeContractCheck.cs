@@ -56,17 +56,18 @@ public static class RuntimeContractCheck
         var declaredRoutines = new HashSet<string>(comparer: StringComparer.Ordinal);
         foreach ((Program program, _, _) in registry.StdlibPrograms)
         {
-            AstWalker.Walk(root: program, visit: node =>
-            {
-                switch (node)
+            AstWalker.Walk(root: program,
+                visit: node =>
                 {
-                    // .Name is the canonical bare member identifier (parser stores owner in the
-                    // structured OwnerName/RenderedReceiver fields; `!` is IsFailable) — matches the
-                    // bare routine-name contracts directly, no owner/generic-suffix splitting needed.
-                    case RoutineDeclaration d: declaredRoutines.Add(item: d.Name); break;
-                    case RoutineSignature s: declaredRoutines.Add(item: s.Name); break;
-                }
-            });
+                    switch (node)
+                    {
+                        // .Name is the canonical bare member identifier (parser stores owner in the
+                        // structured OwnerName/RenderedReceiver fields; `!` is IsFailable) — matches the
+                        // bare routine-name contracts directly, no owner/generic-suffix splitting needed.
+                        case RoutineDeclaration d: declaredRoutines.Add(item: d.Name); break;
+                        case RoutineSignature s: declaredRoutines.Add(item: s.Name); break;
+                    }
+                });
         }
 
         return declaredRoutines;
@@ -76,13 +77,15 @@ public static class RuntimeContractCheck
     /// Asserts every routine-name contract resolves to a declared stdlib routine, appending a
     /// description for each broken one.
     /// </summary>
-    private static void CheckRoutineContracts(HashSet<string> declaredRoutines, List<string> errors)
+    private static void CheckRoutineContracts(HashSet<string> declaredRoutines,
+        List<string> errors)
     {
-        errors.AddRange(
-            RuntimeContract.StdlibRoutineContracts
-                .Where(name => !declaredRoutines.Contains(item: name))
-                .Select(name => $"routine contract '{name}' resolves to NO declared stdlib routine "
-                                + "(renamed in stdlib without updating RuntimeContract?)"));
+        errors.AddRange(collection: RuntimeContract.StdlibRoutineContracts
+                                                   .Where(predicate: name =>
+                                                        !declaredRoutines.Contains(item: name))
+                                                   .Select(selector: name =>
+                                                        $"routine contract '{name}' resolves to NO declared stdlib routine " +
+                                                        "(renamed in stdlib without updating RuntimeContract?)"));
     }
 
     /// <summary>
@@ -90,10 +93,14 @@ public static class RuntimeContractCheck
     /// </summary>
     private static void CheckTypeContracts(TypeRegistry registry, List<string> errors)
     {
-        errors.AddRange(
-            RuntimeContract.WrapperTypes.Concat(second: RuntimeContract.StdlibTypeContracts)
-                .Where(typeName => registry.LookupType(name: typeName) is null)
-                .Select(typeName => $"type contract '{typeName}' resolves to NO registered type"));
+        errors.AddRange(collection: RuntimeContract.WrapperTypes
+                                                   .Concat(second: RuntimeContract
+                                                       .StdlibTypeContracts)
+                                                   .Where(predicate: typeName =>
+                                                        registry.LookupType(
+                                                            name: typeName) is null)
+                                                   .Select(selector: typeName =>
+                                                        $"type contract '{typeName}' resolves to NO registered type"));
     }
 
     /// <summary>
@@ -105,16 +112,19 @@ public static class RuntimeContractCheck
         TypeInfo? carrier = registry.LookupType(name: CarrierTypeName);
         if (carrier is null)
         {
-            errors.Add(item: $"carrier type '{CarrierTypeName}' is not registered "
-                             + "(cannot verify the present/value field contracts)");
+            errors.Add(item: $"carrier type '{CarrierTypeName}' is not registered " +
+                             "(cannot verify the present/value field contracts)");
             return;
         }
 
         HashSet<string> fields = MemberVariableNames(type: carrier);
-        errors.AddRange(
-            new[] { RuntimeContract.Carrier.PresentField, RuntimeContract.Carrier.ValueField }
-                .Where(field => !fields.Contains(item: field))
-                .Select(field => $"carrier-field contract '{CarrierTypeName}.{field}' resolves to NO member variable"));
+        errors.AddRange(collection: new[]
+            {
+                RuntimeContract.Carrier.PresentField,
+                RuntimeContract.Carrier.ValueField
+            }.Where(predicate: field => !fields.Contains(item: field))
+             .Select(selector: field =>
+                  $"carrier-field contract '{CarrierTypeName}.{field}' resolves to NO member variable"));
     }
 
     private static HashSet<string> MemberVariableNames(TypeInfo type)

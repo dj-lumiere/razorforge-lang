@@ -31,7 +31,8 @@ internal static unsafe class OrcJitExecutor
 
     // LLVM 21 replaced LLVMOrcThreadSafeContextGetContext with this; LLVMSharp 20 doesn't bind it, so we
     // resolve it from our own libLLVM handle and call it through a function pointer.
-    private static delegate* unmanaged[Cdecl]<LLVMOpaqueContext*, LLVMOrcOpaqueThreadSafeContext*> _fromCtx;
+    private static delegate* unmanaged[Cdecl]<LLVMOpaqueContext*, LLVMOrcOpaqueThreadSafeContext*>
+        _fromCtx;
 
     /// <summary>Whether a JIT run is even possible in this layout (libLLVM + runtime DLL locatable).
     /// A false lets the caller fall back to the AOT build path with a clear message.</summary>
@@ -47,7 +48,8 @@ internal static unsafe class OrcJitExecutor
 
             try
             {
-                string dir = Path.GetDirectoryName(path: typeof(OrcJitExecutor).Assembly.Location) ?? ".";
+                string dir =
+                    Path.GetDirectoryName(path: typeof(OrcJitExecutor).Assembly.Location) ?? ".";
 
                 // libLLVM: the LLVM-C shared library staged next to our assembly (falls back to a system
                 // install). Loaded by absolute path so the export hand-resolution binds unambiguously.
@@ -55,22 +57,28 @@ internal static unsafe class OrcJitExecutor
                 string llvmSrc = File.Exists(path: stagedLlvm)
                     ? stagedLlvm
                     : @"C:\Program Files\LLVM\bin\LLVM-C.dll";
-                IntPtr llvmHandle = NativeLibrary.Load(libraryPath: llvmSrc);
+                nint llvmHandle = NativeLibrary.Load(libraryPath: llvmSrc);
                 if (!NativeLibrary.TryGetExport(handle: llvmHandle,
-                        name: "LLVMOrcCreateNewThreadSafeContextFromLLVMContext", address: out IntPtr fromCtxPtr))
+                        name: "LLVMOrcCreateNewThreadSafeContextFromLLVMContext",
+                        address: out nint fromCtxPtr))
                 {
-                    error = $"libLLVM at '{llvmSrc}' is missing LLVMOrcCreateNewThreadSafeContextFromLLVMContext.";
+                    error =
+                        $"libLLVM at '{llvmSrc}' is missing LLVMOrcCreateNewThreadSafeContextFromLLVMContext.";
                     return false;
                 }
-                _fromCtx = (delegate* unmanaged[Cdecl]<LLVMOpaqueContext*, LLVMOrcOpaqueThreadSafeContext*>)fromCtxPtr;
+
+                _fromCtx =
+                    (delegate* unmanaged[Cdecl]<LLVMOpaqueContext*, LLVMOrcOpaqueThreadSafeContext*
+                        >)fromCtxPtr;
 
                 // Load the native runtime so its rf_* exports are visible to ORC's process-wide symbol
                 // search (this is what lets JIT'd RF code link against rf_console_show, the scheduler, …).
                 // The handle is intentionally not stored: the library stays loaded for the process lifetime
                 // by virtue of NativeLibrary.Load, so no explicit reference is needed.
                 string rtPath = Path.Combine(path1: dir, path2: "razorforge_runtime.dll");
-                _ = NativeLibrary.Load(
-                    libraryPath: File.Exists(path: rtPath) ? rtPath : "razorforge_runtime");
+                _ = NativeLibrary.Load(libraryPath: File.Exists(path: rtPath)
+                    ? rtPath
+                    : "razorforge_runtime");
 
                 LLVM.InitializeNativeTarget();
                 LLVM.InitializeNativeAsmPrinter();
@@ -96,7 +104,7 @@ internal static unsafe class OrcJitExecutor
     /// </summary>
     public static int JitAndRun(string llvmIr, string programName, string[] programArgs)
     {
-        if (!TryInitialize(out string? error))
+        if (!TryInitialize(error: out string? error))
         {
             throw new InvalidOperationException(message: $"ORC JIT unavailable: {error}");
         }
@@ -110,39 +118,57 @@ internal static unsafe class OrcJitExecutor
         fixed (byte* irp = ir)
         fixed (byte* np = modName)
         {
-            LLVMOpaqueMemoryBuffer* buf =
-                LLVM.CreateMemoryBufferWithMemoryRangeCopy(InputData: (sbyte*)irp, InputDataLength: (UIntPtr)ir.Length,
-                    BufferName: (sbyte*)np);
-            int rc = LLVM.ParseIRInContext(ContextRef: ctx, MemBuf: buf, OutM: &mod, OutMessage: &parseErr);
+            LLVMOpaqueMemoryBuffer* buf = LLVM.CreateMemoryBufferWithMemoryRangeCopy(
+                InputData: (sbyte*)irp,
+                InputDataLength: (nuint)ir.Length,
+                BufferName: (sbyte*)np);
+            int rc = LLVM.ParseIRInContext(ContextRef: ctx,
+                MemBuf: buf,
+                OutM: &mod,
+                OutMessage: &parseErr);
             if (rc != 0)
             {
-                string m = parseErr != null ? new string(value: parseErr) : "unknown parse error";
+                string m = parseErr != null
+                    ? new string(value: parseErr)
+                    : "unknown parse error";
                 throw new InvalidOperationException(message: $"JIT IR parse failed: {m}");
             }
         }
 
         LLVMOrcOpaqueThreadSafeContext* tsCtx = _fromCtx(ctx);
-        LLVMOrcOpaqueThreadSafeModule* tsm = LLVM.OrcCreateNewThreadSafeModule(M: mod, TSCtx: tsCtx);
+        LLVMOrcOpaqueThreadSafeModule* tsm =
+            LLVM.OrcCreateNewThreadSafeModule(M: mod, TSCtx: tsCtx);
 
         LLVMOrcOpaqueLLJITBuilder* builder = LLVM.OrcCreateLLJITBuilder();
         // Windows: link each object into ONE contiguous slab so SEH-unwind IMAGE_REL_AMD64_ADDR32NB
         // relocations resolve (default SectionMemoryManager lays sections out unordered → intermittent
         // "relocation requires an ordered section layout" crash). No-op elsewhere.
         bool traceJit = Compiler.Diagnostics.DiagnosticFlags.JitTrace;
-        void JitStage(string s) { if (traceJit) { Console.Error.WriteLine(value: $"[jit-stage] {s}"); Console.Error.Flush(); } }
+
+        void JitStage(string s)
+        {
+            if (traceJit)
+            {
+                Console.Error.WriteLine(value: $"[jit-stage] {s}");
+                Console.Error.Flush();
+            }
+        }
+
         JitStage(s: "IR parsed, builder created");
         if (OperatingSystem.IsWindows())
         {
             OrcContiguousMemoryManager.InstallOn(builder: builder);
             JitStage(s: "contiguous MM installed on builder");
         }
+
         LLVMOrcOpaqueLLJIT* jit;
         CheckErr(err: LLVM.OrcCreateLLJIT(Result: &jit, Builder: builder), what: "OrcCreateLLJIT");
         JitStage(s: "LLJIT created");
 
         LLVMOrcOpaqueJITDylib* dylib = AddProcessSearchGenerator(jit: jit);
 
-        CheckErr(err: LLVM.OrcLLJITAddLLVMIRModule(J: jit, JD: dylib, TSM: tsm), what: "OrcLLJITAddLLVMIRModule");
+        CheckErr(err: LLVM.OrcLLJITAddLLVMIRModule(J: jit, JD: dylib, TSM: tsm),
+            what: "OrcLLJITAddLLVMIRModule");
         JitStage(s: "IR module added");
 
         ulong addr = ResolveMain(jit: jit);
@@ -159,8 +185,10 @@ internal static unsafe class OrcJitExecutor
         LLVMOrcOpaqueJITDylib* dylib = LLVM.OrcLLJITGetMainJITDylib(J: jit);
         sbyte prefix = LLVM.OrcLLJITGetGlobalPrefix(J: jit);
         LLVMOrcOpaqueDefinitionGenerator* gen;
-        CheckErr(err: LLVM.OrcCreateDynamicLibrarySearchGeneratorForProcess(Result: &gen, GlobalPrefx: prefix,
-                Filter: null, FilterCtx: null),
+        CheckErr(err: LLVM.OrcCreateDynamicLibrarySearchGeneratorForProcess(Result: &gen,
+                GlobalPrefx: prefix,
+                Filter: null,
+                FilterCtx: null),
             what: "GeneratorForProcess");
         LLVM.OrcJITDylibAddGenerator(JD: dylib, DG: gen);
         return dylib;
@@ -173,12 +201,15 @@ internal static unsafe class OrcJitExecutor
         ulong addr;
         fixed (byte* sp = mainName)
         {
-            CheckErr(err: LLVM.OrcLLJITLookup(J: jit, Result: &addr, Name: (sbyte*)sp), what: "OrcLLJITLookup(main)");
+            CheckErr(err: LLVM.OrcLLJITLookup(J: jit, Result: &addr, Name: (sbyte*)sp),
+                what: "OrcLLJITLookup(main)");
         }
+
         if (addr == 0)
         {
             throw new InvalidOperationException(message: "JIT could not resolve @main.");
         }
+
         return addr;
     }
 
@@ -187,9 +218,12 @@ internal static unsafe class OrcJitExecutor
     private static int InvokeMain(ulong addr, string programName, string[] programArgs)
     {
         // Build a C argv: argv[0] = program name, then the program args, NULL-terminated (argv[argc]).
-        var args = new string[programArgs.Length + 1];
+        string[] args = new string[programArgs.Length + 1];
         args[0] = programName;
-        Array.Copy(sourceArray: programArgs, sourceIndex: 0, destinationArray: args, destinationIndex: 1,
+        Array.Copy(sourceArray: programArgs,
+            sourceIndex: 0,
+            destinationArray: args,
+            destinationIndex: 1,
             length: programArgs.Length);
         int argc = args.Length;
 
@@ -200,6 +234,7 @@ internal static unsafe class OrcJitExecutor
             {
                 argv[i] = (byte*)Marshal.StringToHGlobalAnsi(s: args[i]);
             }
+
             argv[argc] = null;
 
             var fn = (delegate* unmanaged[Cdecl]<int, byte**, int>)addr;
@@ -211,10 +246,11 @@ internal static unsafe class OrcJitExecutor
             {
                 if (argv[i] != null)
                 {
-                    Marshal.FreeHGlobal(hglobal: (IntPtr)argv[i]);
+                    Marshal.FreeHGlobal(hglobal: (nint)argv[i]);
                 }
             }
-            Marshal.FreeHGlobal(hglobal: (IntPtr)argv);
+
+            Marshal.FreeHGlobal(hglobal: (nint)argv);
         }
     }
 
@@ -226,7 +262,7 @@ internal static unsafe class OrcJitExecutor
     /// </summary>
     public static bool TryParseIr(string llvmIr, out string? error)
     {
-        if (!TryInitialize(out error))
+        if (!TryInitialize(error: out error))
         {
             return false;
         }
@@ -240,11 +276,18 @@ internal static unsafe class OrcJitExecutor
         fixed (byte* np = nm)
         {
             LLVMOpaqueMemoryBuffer* buf = LLVM.CreateMemoryBufferWithMemoryRangeCopy(
-                InputData: (sbyte*)irp, InputDataLength: (UIntPtr)ir.Length, BufferName: (sbyte*)np);
-            int rc = LLVM.ParseIRInContext(ContextRef: ctx, MemBuf: buf, OutM: &mod, OutMessage: &parseErr);
+                InputData: (sbyte*)irp,
+                InputDataLength: (nuint)ir.Length,
+                BufferName: (sbyte*)np);
+            int rc = LLVM.ParseIRInContext(ContextRef: ctx,
+                MemBuf: buf,
+                OutM: &mod,
+                OutMessage: &parseErr);
             if (rc != 0)
             {
-                error = parseErr != null ? new string(value: parseErr) : "unknown parse error";
+                error = parseErr != null
+                    ? new string(value: parseErr)
+                    : "unknown parse error";
                 LLVM.ContextDispose(C: ctx);
                 return false;
             }
@@ -260,7 +303,9 @@ internal static unsafe class OrcJitExecutor
         if (err != null)
         {
             sbyte* msg = LLVM.GetErrorMessage(Err: err);
-            string m = msg != null ? new string(value: msg) : "<null>";
+            string m = msg != null
+                ? new string(value: msg)
+                : "<null>";
             throw new InvalidOperationException(message: $"{what} failed: {m}");
         }
     }
@@ -281,12 +326,20 @@ internal static unsafe class OrcJitExecutor
         fixed (byte* np = nm)
         {
             LLVMOpaqueMemoryBuffer* buf = LLVM.CreateMemoryBufferWithMemoryRangeCopy(
-                InputData: (sbyte*)irp, InputDataLength: (UIntPtr)ir.Length, BufferName: (sbyte*)np);
-            int rc = LLVM.ParseIRInContext(ContextRef: ctx, MemBuf: buf, OutM: &mod, OutMessage: &parseErr);
+                InputData: (sbyte*)irp,
+                InputDataLength: (nuint)ir.Length,
+                BufferName: (sbyte*)np);
+            int rc = LLVM.ParseIRInContext(ContextRef: ctx,
+                MemBuf: buf,
+                OutM: &mod,
+                OutMessage: &parseErr);
             if (rc != 0)
             {
-                string m = parseErr != null ? new string(value: parseErr) : "unknown parse error";
-                throw new InvalidOperationException(message: $"JIT IR parse failed ({modName}): {m}");
+                string m = parseErr != null
+                    ? new string(value: parseErr)
+                    : "unknown parse error";
+                throw new InvalidOperationException(
+                    message: $"JIT IR parse failed ({modName}): {m}");
             }
         }
 
@@ -310,15 +363,24 @@ internal static unsafe class OrcJitExecutor
     /// lazily, so only what <c>@main</c> transitively reaches is actually compiled. See
     /// <c>internal-wiki/RESIDENT-JIT-INCREMENTAL-V0.5.md</c> §2A.5 / Phase 0a. Returns the program exit code.
     /// </summary>
-    public static int JitAndRunSplit(string baseIr, string deltaIr, string programName, string[] programArgs)
+    public static int JitAndRunSplit(string baseIr, string deltaIr, string programName,
+        string[] programArgs)
     {
-        if (!TryInitialize(out string? error))
+        if (!TryInitialize(error: out string? error))
         {
             throw new InvalidOperationException(message: $"ORC JIT unavailable: {error}");
         }
 
         bool traceJit = Compiler.Diagnostics.DiagnosticFlags.JitTrace;
-        void JitStage(string s) { if (traceJit) { Console.Error.WriteLine(value: $"[jit-stage] {s}"); Console.Error.Flush(); } }
+
+        void JitStage(string s)
+        {
+            if (traceJit)
+            {
+                Console.Error.WriteLine(value: $"[jit-stage] {s}");
+                Console.Error.Flush();
+            }
+        }
 
         LLVMOrcOpaqueThreadSafeModule* tsmBase = ParseToTsm(llvmIr: baseIr, modName: "rf_base");
         LLVMOrcOpaqueThreadSafeModule* tsmDelta = ParseToTsm(llvmIr: deltaIr, modName: "rf_delta");
@@ -330,15 +392,18 @@ internal static unsafe class OrcJitExecutor
             OrcContiguousMemoryManager.InstallOn(builder: builder);
             JitStage(s: "contiguous MM installed on builder");
         }
+
         LLVMOrcOpaqueLLJIT* jit;
         CheckErr(err: LLVM.OrcCreateLLJIT(Result: &jit, Builder: builder), what: "OrcCreateLLJIT");
 
         LLVMOrcOpaqueJITDylib* dylib = AddProcessSearchGenerator(jit: jit);
 
         // Base + delta into ONE dylib: delta's extern declares for base symbols resolve to base's defines.
-        CheckErr(err: LLVM.OrcLLJITAddLLVMIRModule(J: jit, JD: dylib, TSM: tsmBase), what: "AddLLVMIRModule(base)");
+        CheckErr(err: LLVM.OrcLLJITAddLLVMIRModule(J: jit, JD: dylib, TSM: tsmBase),
+            what: "AddLLVMIRModule(base)");
         JitStage(s: "base module added");
-        CheckErr(err: LLVM.OrcLLJITAddLLVMIRModule(J: jit, JD: dylib, TSM: tsmDelta), what: "AddLLVMIRModule(delta)");
+        CheckErr(err: LLVM.OrcLLJITAddLLVMIRModule(J: jit, JD: dylib, TSM: tsmDelta),
+            what: "AddLLVMIRModule(delta)");
         JitStage(s: "delta module added — resolving main");
 
         return RunMain(jit: jit, programName: programName, programArgs: programArgs);

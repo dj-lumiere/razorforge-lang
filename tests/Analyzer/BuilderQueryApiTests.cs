@@ -13,379 +13,364 @@ using static TestHelpers;
 public class BuilderQueryApiTests
 {
     #region Per-Type Routines -> Records
+
     /// <summary>
     /// Verifies that the test validates type name available.
     /// </summary>
-
     [Fact]
     public void Record_TypeName_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.type_name()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.type_name()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates type kind available.
     /// </summary>
-
     [Fact]
     public void Record_TypeKind_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.type_kind()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.type_kind()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates type id available.
     /// </summary>
-
     [Fact]
     public void Record_TypeId_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.type_id()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.type_id()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates module name available.
     /// </summary>
-
     [Fact]
     public void Record_ModuleName_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.module_name()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.module_name()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates is generic available.
     /// </summary>
-
     [Fact]
     public void Record_IsGeneric_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.is_generic()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.is_generic()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates data size available.
     /// </summary>
-
     [Fact]
     public void Record_DataSize_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.data_size()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.data_size()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates member variable count available.
     /// </summary>
-
     [Fact]
     public void Record_MemberVariableCount_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.member_variable_count()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.member_variable_count()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates generic args available.
     /// </summary>
-
     [Fact]
     public void Record_GenericArgs_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.generic_args()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.generic_args()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates protocols available.
     /// </summary>
-
     [Fact]
     public void Record_Protocols_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.protocols()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.protocols()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates routine names available.
     /// </summary>
-
     [Fact]
     public void Record_RoutineNames_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.routine_names()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.routine_names()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates annotations available.
     /// </summary>
-
     [Fact]
     public void Record_Annotations_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.annotations()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.annotations()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates dependencies available.
     /// </summary>
-
     [Fact]
     public void Record_Dependencies_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.dependencies()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.dependencies()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates origin module available.
     /// </summary>
-
     [Fact]
     public void Record_OriginModule_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Point
-                         x: S64
-                         y: S64
+                                 record Point
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Point(x: 1, y: 2)
-                         var v = p.full_type_name()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Point(x: 1, y: 2)
+                                   var v = p.full_type_name()
+                                   return
+                                 """);
     }
 
     #endregion
 
     #region Per-Type Routines -> Entities
+
     /// <summary>
     /// Verifies that the test validates type name available.
     /// </summary>
-
     [Fact]
     public void Entity_TypeName_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       entity Counter
-                         value: S64
+                                 entity Counter
+                                   value: S64
 
-                       routine test()
-                         var c = Counter(value: 0)
-                         var v = c.type_name()
-                         return
-                       """);
+                                 routine test()
+                                   var c = Counter(value: 0)
+                                   var v = c.type_name()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates type kind available.
     /// </summary>
-
     [Fact]
     public void Entity_TypeKind_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       entity Counter
-                         value: S64
+                                 entity Counter
+                                   value: S64
 
-                       routine test()
-                         var c = Counter(value: 0)
-                         var v = c.type_kind()
-                         return
-                       """);
+                                 routine test()
+                                   var c = Counter(value: 0)
+                                   var v = c.type_kind()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates member variable count available.
     /// </summary>
-
     [Fact]
     public void Entity_MemberVariableCount_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       entity Counter
-                         value: S64
+                                 entity Counter
+                                   value: S64
 
-                       routine test()
-                         var c = Counter(value: 0)
-                         var v = c.member_variable_count()
-                         return
-                       """);
+                                 routine test()
+                                   var c = Counter(value: 0)
+                                   var v = c.member_variable_count()
+                                   return
+                                 """);
     }
 
     #endregion
 
     #region Per-Type Routines -> Choices
+
     /// <summary>
     /// Verifies that the test validates type name available.
     /// </summary>
-
     [Fact]
     public void Choice_TypeName_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       choice Color
-                         RED
-                         GREEN
-                         BLUE
+                                 choice Color
+                                   RED
+                                   GREEN
+                                   BLUE
 
-                       routine test()
-                         var c = Color.RED
-                         var v = c.type_name()
-                         return
-                       """);
+                                 routine test()
+                                   var c = Color.RED
+                                   var v = c.type_name()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates type kind available.
     /// </summary>
-
     [Fact]
     public void Choice_TypeKind_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       choice Color
-                         RED
-                         GREEN
-                         BLUE
+                                 choice Color
+                                   RED
+                                   GREEN
+                                   BLUE
 
-                       routine test()
-                         var c = Color.RED
-                         var v = c.type_kind()
-                         return
-                       """);
+                                 routine test()
+                                   var c = Color.RED
+                                   var v = c.type_kind()
+                                   return
+                                 """);
     }
 
     #endregion
 
     #region Per-Type Routines -> Import Gating (every routine without import)
-    /// <summary>Verifies that the routine without import reports the expected error.</summary>
 
+    /// <summary>Verifies that the routine without import reports the expected error.</summary>
     [Theory]
     [InlineData("type_name")]
     [InlineData("type_kind")]
@@ -418,7 +403,6 @@ public class BuilderQueryApiTests
             filter: e => e.Code == SemanticDiagnosticCode.BuilderQueryImportRequired);
     }
     /// <summary>Verifies that the routine with import produces no unexpected diagnostics.</summary>
-
     [Theory]
     [InlineData("type_name")]
     [InlineData("type_kind")]
@@ -456,8 +440,8 @@ public class BuilderQueryApiTests
     #endregion
 
     #region Standalone Routines -> Source Location
-    /// <summary>Verifies that the routine without import reports the expected error.</summary>
 
+    /// <summary>Verifies that the routine without import reports the expected error.</summary>
     [Theory]
     [InlineData("source_file")]
     [InlineData("source_line")]
@@ -484,7 +468,6 @@ public class BuilderQueryApiTests
             filter: e => e.Code == SemanticDiagnosticCode.UnknownIdentifier);
     }
     /// <summary>Verifies that the routine with import produces no unexpected diagnostics.</summary>
-
     [Theory]
     [InlineData("source_file")]
     [InlineData("source_line")]
@@ -513,8 +496,8 @@ public class BuilderQueryApiTests
     #endregion
 
     #region Standalone Routines -> Platform/Build Info
-    /// <summary>Verifies that the routine without import reports the expected error.</summary>
 
+    /// <summary>Verifies that the routine without import reports the expected error.</summary>
     [Theory]
     [InlineData("target_os")]
     [InlineData("target_arch")]
@@ -539,7 +522,6 @@ public class BuilderQueryApiTests
             filter: e => e.Code == SemanticDiagnosticCode.UnknownIdentifier);
     }
     /// <summary>Verifies that the routine with import produces no unexpected diagnostics.</summary>
-
     [Theory]
     [InlineData("target_os")]
     [InlineData("target_arch")]
@@ -567,10 +549,10 @@ public class BuilderQueryApiTests
     #endregion
 
     #region Wired Routines -> Never Gated
+
     /// <summary>
     /// Verifies that the test validates routine without import without unexpected diagnostics.
     /// </summary>
-
     [Theory]
     [InlineData("""var s = f"{p}" """)]
     [InlineData("""var s = f"{p:?}" """)]
@@ -599,148 +581,145 @@ public class BuilderQueryApiTests
     #endregion
 
     #region Multiple Routines Combined
+
     /// <summary>
     /// Verifies that the test validates per type routines on record available.
     /// </summary>
-
     [Fact]
     public void AllPerTypeRoutines_OnRecord_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Pair
-                         x: S64
-                         y: S64
+                                 record Pair
+                                   x: S64
+                                   y: S64
 
-                       routine test()
-                         var p = Pair(x: 1, y: 2)
-                         var a = p.type_name()
-                         var b = p.type_kind()
-                         var c = p.type_id()
-                         var d = p.module_name()
-                         var e = p.is_generic()
-                         var f = p.data_size()
-                         var g = p.member_variable_count()
-                         var h = p.generic_args()
-                         var i = p.protocols()
-                         var j = p.routine_names()
-                         var k = p.annotations()
-                         var l = p.dependencies()
-                         var m = p.full_type_name()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Pair(x: 1, y: 2)
+                                   var a = p.type_name()
+                                   var b = p.type_kind()
+                                   var c = p.type_id()
+                                   var d = p.module_name()
+                                   var e = p.is_generic()
+                                   var f = p.data_size()
+                                   var g = p.member_variable_count()
+                                   var h = p.generic_args()
+                                   var i = p.protocols()
+                                   var j = p.routine_names()
+                                   var k = p.annotations()
+                                   var l = p.dependencies()
+                                   var m = p.full_type_name()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates standalone routines available.
     /// </summary>
-
     [Fact]
     public void AllStandaloneRoutines_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       routine test()
-                         var a = source_file()
-                         var b = source_line()
-                         var c = source_column()
-                         var d = source_routine()
-                         var e = source_module()
-                         var f = source_text()
-                         var g = caller_file()
-                         var h = caller_line()
-                         var i = caller_routine()
-                         var j = target_os()
-                         var k = target_arch()
-                         var l = builder_version()
-                         var m = build_timestamp()
-                         var n = build_mode()
-                         var o = page_size()
-                         var p = cache_line()
-                         var q = word_size()
-                         return
-                       """);
+                                 routine test()
+                                   var a = source_file()
+                                   var b = source_line()
+                                   var c = source_column()
+                                   var d = source_routine()
+                                   var e = source_module()
+                                   var f = source_text()
+                                   var g = caller_file()
+                                   var h = caller_line()
+                                   var i = caller_routine()
+                                   var j = target_os()
+                                   var k = target_arch()
+                                   var l = builder_version()
+                                   var m = build_timestamp()
+                                   var n = build_mode()
+                                   var o = page_size()
+                                   var p = cache_line()
+                                   var q = word_size()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates per type and standalone available.
     /// </summary>
-
     [Fact]
     public void MixedPerTypeAndStandalone_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       record Pair
-                         a: S64
-                         b: S64
+                                 record Pair
+                                   a: S64
+                                   b: S64
 
-                       routine test()
-                         var p = Pair(a: 1, b: 2)
-                         var name = p.type_name()
-                         var file = source_file()
-                         var os = target_os()
-                         var sz = p.data_size()
-                         var line = source_line()
-                         return
-                       """);
+                                 routine test()
+                                   var p = Pair(a: 1, b: 2)
+                                   var name = p.type_name()
+                                   var file = source_file()
+                                   var os = target_os()
+                                   var sz = p.data_size()
+                                   var line = source_line()
+                                   return
+                                 """);
     }
 
     #endregion
 
 
     #region Per-Type Routines -> On Different Type Kinds
+
     /// <summary>
     /// Verifies that the test validates all metadata available.
     /// </summary>
-
     [Fact]
     public void Entity_AllMetadata_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       entity Node
-                         value: S64
+                                 entity Node
+                                   value: S64
 
-                       routine test()
-                         var n = Node(value: 42)
-                         var a = n.type_name()
-                         var b = n.type_kind()
-                         var c = n.type_id()
-                         var d = n.module_name()
-                         var e = n.is_generic()
-                         var f = n.member_variable_count()
-                         var g = n.protocols()
-                         var h = n.routine_names()
-                         return
-                       """);
+                                 routine test()
+                                   var n = Node(value: 42)
+                                   var a = n.type_name()
+                                   var b = n.type_kind()
+                                   var c = n.type_id()
+                                   var d = n.module_name()
+                                   var e = n.is_generic()
+                                   var f = n.member_variable_count()
+                                   var g = n.protocols()
+                                   var h = n.routine_names()
+                                   return
+                                 """);
     }
     /// <summary>
     /// Verifies that the test validates all metadata available.
     /// </summary>
-
     [Fact]
     public void Choice_AllMetadata_Available()
     {
-        AssertAnalyzesSa("""
-                       import BuilderQuery
+        AssertAnalyzesSa(source: """
+                                 import BuilderQuery
 
-                       choice Direction
-                         NORTH
-                         SOUTH
-                         EAST
-                         WEST
+                                 choice Direction
+                                   NORTH
+                                   SOUTH
+                                   EAST
+                                   WEST
 
-                       routine test()
-                         var d = Direction.NORTH
-                         var a = d.type_name()
-                         var b = d.type_kind()
-                         var c = d.type_id()
-                         var e = d.module_name()
-                         return
-                       """);
+                                 routine test()
+                                   var d = Direction.NORTH
+                                   var a = d.type_name()
+                                   var b = d.type_kind()
+                                   var c = d.type_id()
+                                   var e = d.module_name()
+                                   return
+                                 """);
     }
 
     #endregion

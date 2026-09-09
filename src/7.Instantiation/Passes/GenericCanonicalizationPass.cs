@@ -6,7 +6,7 @@ namespace Compiler.Instantiation.Passes;
 /// </summary>
 #pragma warning disable CS9113
 internal sealed class GenericCanonicalizationPass(InstantiationContext ctx)
-#pragma warning restore CS9113
+    #pragma warning restore CS9113
 {
     public static void Run()
     {

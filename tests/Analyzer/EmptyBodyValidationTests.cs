@@ -13,10 +13,10 @@ using static TestHelpers;
 public class EmptyBodyValidationTests
 {
     #region Statement Blocks
+
     /// <summary>
     /// Verifies semantic analysis behavior for routine body with pass without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_RoutineBodyWithPass_NoError()
     {
@@ -54,10 +54,10 @@ public class EmptyBodyValidationTests
     #endregion
 
     #region Type Bodies
+
     /// <summary>
     /// Verifies semantic analysis behavior for empty record body and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_EmptyRecordBody_ReportsError()
     {
@@ -71,7 +71,6 @@ public class EmptyBodyValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for record with pass without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_RecordWithPass_NoError()
     {
@@ -87,7 +86,6 @@ public class EmptyBodyValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for empty entity body and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_EmptyEntityBody_ReportsError()
     {
@@ -101,7 +99,6 @@ public class EmptyBodyValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for entity with pass without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_EntityWithPass_NoError()
     {
@@ -118,10 +115,10 @@ public class EmptyBodyValidationTests
     #endregion
 
     #region Enumerations (always error when empty)
+
     /// <summary>
     /// Verifies semantic analysis behavior for empty choice and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_EmptyChoice_ReportsError()
     {
@@ -135,7 +132,6 @@ public class EmptyBodyValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for empty variant and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_EmptyVariant_ReportsError()
     {
@@ -149,7 +145,6 @@ public class EmptyBodyValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for empty flags and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_EmptyFlags_ReportsError()
     {

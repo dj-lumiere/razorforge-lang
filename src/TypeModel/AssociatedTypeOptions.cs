@@ -17,9 +17,7 @@ namespace TypeModel;
 /// library sources; user programs may consume associated types but not declare/project them.
 /// Set false to allow user-defined associated types.
 /// </param>
-public sealed record AssociatedTypeOptions(
-    int MaxProjectionDepth = 1,
-    bool StdlibOnly = true)
+public sealed record AssociatedTypeOptions(int MaxProjectionDepth = 1, bool StdlibOnly = true)
 {
     /// <summary>The current default limits: single-level projection, stdlib-only.</summary>
     public static readonly AssociatedTypeOptions Default = new();

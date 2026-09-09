@@ -29,16 +29,18 @@ internal static unsafe partial class OrcContiguousMemoryManager
     private const uint MEM_COMMIT = 0x1000, MEM_RESERVE = 0x2000, MEM_RELEASE = 0x8000;
     private const uint PAGE_READWRITE = 0x04, PAGE_EXECUTE_READWRITE = 0x40;
 
-    [LibraryImport("kernel32", SetLastError = true)]
-    private static partial void* VirtualAlloc(void* addr, nuint size, uint type, uint protect);
-    [LibraryImport("kernel32", SetLastError = true)]
+    [LibraryImport(libraryName: "kernel32", SetLastError = true)]
+    private static partial void* VirtualAlloc(void* addr, nuint size, uint type,
+        uint protect);
+    [LibraryImport(libraryName: "kernel32", SetLastError = true)]
     private static partial int VirtualFree(void* addr, nuint size, uint type);
-    [LibraryImport("kernel32", SetLastError = true)]
-    private static partial int VirtualProtect(void* addr, nuint size, uint newProtect, uint* oldProtect);
-    [LibraryImport("kernel32")]
-    private static partial int FlushInstructionCache(IntPtr process, void* addr, nuint size);
-    [LibraryImport("kernel32")]
-    private static partial IntPtr GetCurrentProcess();
+    [LibraryImport(libraryName: "kernel32", SetLastError = true)]
+    private static partial int VirtualProtect(void* addr, nuint size, uint newProtect,
+        uint* oldProtect);
+    [LibraryImport(libraryName: "kernel32")]
+    private static partial int FlushInstructionCache(nint process, void* addr, nuint size);
+    [LibraryImport(libraryName: "kernel32")]
+    private static partial nint GetCurrentProcess();
 
     /// <summary>Per-linked-object slab state: one contiguous block, bump-allocated. The whole used range is
     /// flipped to RWX at finalize — a dev-loop JIT trades W^X for simplicity, and some sections genuinely
@@ -52,12 +54,16 @@ internal static unsafe partial class OrcContiguousMemoryManager
 
     private static byte* Bump(Slab slab, nuint size, uint alignment)
     {
-        nuint align = alignment == 0 ? 1 : alignment;
-        nuint aligned = (slab.Offset + (align - 1)) & ~(align - 1);
+        nuint align = alignment == 0
+            ? 1
+            : alignment;
+        nuint aligned = slab.Offset + (align - 1) & ~(align - 1);
         if (aligned + size > SlabSize)
         {
-            return null; // slab exhausted — the module is larger than SlabSize (raise it if this ever trips)
+            return
+                null; // slab exhausted — the module is larger than SlabSize (raise it if this ever trips)
         }
+
         byte* p = slab.Base + aligned;
         slab.Offset = aligned + size;
         return p;
@@ -70,13 +76,17 @@ internal static unsafe partial class OrcContiguousMemoryManager
     {
         try
         {
-            void* baseAddr = VirtualAlloc(null, SlabSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+            void* baseAddr = VirtualAlloc(addr: null,
+                size: SlabSize,
+                type: MEM_RESERVE | MEM_COMMIT,
+                protect: PAGE_READWRITE);
             if (baseAddr == null)
             {
                 return null;
             }
+
             var slab = new Slab { Base = (byte*)baseAddr, Offset = 0 };
-            return (void*)(IntPtr)GCHandle.Alloc(value: slab);
+            return (void*)(nint)GCHandle.Alloc(value: slab);
         }
         catch
         {
@@ -92,11 +102,13 @@ internal static unsafe partial class OrcContiguousMemoryManager
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte* AllocateCodeSection(void* opaque, nuint size, uint align, uint sectionId, sbyte* name)
+    private static byte* AllocateCodeSection(void* opaque, nuint size, uint align,
+        uint sectionId, sbyte* name)
     {
         try
         {
-            var slab = (Slab)GCHandle.FromIntPtr(value: (IntPtr)opaque).Target!;
+            var slab = (Slab)GCHandle.FromIntPtr(value: (nint)opaque)
+                                     .Target!;
             return Bump(slab: slab, size: size, alignment: align);
         }
         catch
@@ -106,12 +118,13 @@ internal static unsafe partial class OrcContiguousMemoryManager
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte* AllocateDataSection(void* opaque, nuint size, uint align, uint sectionId, sbyte* name,
-        int isReadOnly)
+    private static byte* AllocateDataSection(void* opaque, nuint size, uint align,
+        uint sectionId, sbyte* name, int isReadOnly)
     {
         try
         {
-            var slab = (Slab)GCHandle.FromIntPtr(value: (IntPtr)opaque).Target!;
+            var slab = (Slab)GCHandle.FromIntPtr(value: (nint)opaque)
+                                     .Target!;
             return Bump(slab: slab, size: size, alignment: align);
         }
         catch
@@ -125,14 +138,20 @@ internal static unsafe partial class OrcContiguousMemoryManager
     {
         try
         {
-            var slab = (Slab)GCHandle.FromIntPtr(value: (IntPtr)opaque).Target!;
+            var slab = (Slab)GCHandle.FromIntPtr(value: (nint)opaque)
+                                     .Target!;
             uint old;
             // DIAGNOSTIC: whole slab RWX to rule out any page-protection fault (data mutated at runtime,
             // e.g. emulated-TLS control blocks). Will tighten to code=RX / data=RW once execution is clean.
             // Return values indicate Win32 success/failure; failure is best-effort here — if protection
             // change fails the JIT will fault on execute, which surfaces as a clear crash rather than silence.
-            _ = VirtualProtect(addr: slab.Base, size: slab.Offset, newProtect: PAGE_EXECUTE_READWRITE, oldProtect: &old);
-            _ = FlushInstructionCache(process: GetCurrentProcess(), addr: slab.Base, size: slab.Offset);
+            _ = VirtualProtect(addr: slab.Base,
+                size: slab.Offset,
+                newProtect: PAGE_EXECUTE_READWRITE,
+                oldProtect: &old);
+            _ = FlushInstructionCache(process: GetCurrentProcess(),
+                addr: slab.Base,
+                size: slab.Offset);
             return 0; // LLVMBool: 0 = success
         }
         catch
@@ -146,13 +165,14 @@ internal static unsafe partial class OrcContiguousMemoryManager
     {
         try
         {
-            GCHandle h = GCHandle.FromIntPtr(value: (IntPtr)opaque);
+            var h = GCHandle.FromIntPtr(value: (nint)opaque);
             if (h.Target is Slab slab && slab.Base != null)
             {
                 // Return value indicates Win32 success/failure; failure during teardown is non-recoverable
                 // (best-effort release — the OS will reclaim the reservation when the process exits).
                 _ = VirtualFree(addr: slab.Base, size: 0, type: MEM_RELEASE);
             }
+
             h.Free();
         }
         catch
@@ -167,8 +187,7 @@ internal static unsafe partial class OrcContiguousMemoryManager
     private static LLVMOrcOpaqueObjectLayer* CreateObjectLinkingLayer(void* ctx,
         LLVMOrcOpaqueExecutionSession* es, sbyte* triple)
     {
-        return LLVM.OrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks(
-            ES: es,
+        return LLVM.OrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks(ES: es,
             CreateContextCtx: null,
             CreateContext: &CreateContext,
             NotifyTerminating: &NotifyTerminating,
@@ -183,6 +202,7 @@ internal static unsafe partial class OrcContiguousMemoryManager
     public static void InstallOn(LLVMOrcOpaqueLLJITBuilder* builder)
     {
         LLVM.OrcLLJITBuilderSetObjectLinkingLayerCreator(Builder: builder,
-            F: &CreateObjectLinkingLayer, Ctx: null);
+            F: &CreateObjectLinkingLayer,
+            Ctx: null);
     }
 }

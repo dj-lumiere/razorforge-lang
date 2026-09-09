@@ -48,7 +48,9 @@ public sealed class ErrorHandlingGenerator
         // the constructor stays anonymous at the call site (`K(x)`); this token exists only in the recovery
         // spelling. (Surface `try_K` vs `K.try_create` is a pending design decision; this is the internal
         // variant name either resolves to.)
-        string baseName = original.IsCreator ? "create" : original.Name;
+        string baseName = original.IsCreator
+            ? "create"
+            : original.Name;
         return $"{prefix}_{baseName}";
     }
 
@@ -58,8 +60,10 @@ public sealed class ErrorHandlingGenerator
     /// <param name="routine">The routine to analyze.</param>
     /// <param name="body">The routine's body statement.</param>
     /// <returns>The result containing generated variants and any errors.</returns>
-    public ErrorHandlingResult GenerateVariants(RoutineInfo routine, Statement body) =>
-        GenerateVariants(routine: routine, body: body, pessimistic: false);
+    public ErrorHandlingResult GenerateVariants(RoutineInfo routine, Statement body)
+    {
+        return GenerateVariants(routine: routine, body: body, pessimistic: false);
+    }
 
     /// <summary>
     /// Generates wrapper variants. When <paramref name="pessimistic"/> is true, the analysis is
@@ -69,7 +73,8 @@ public sealed class ErrorHandlingGenerator
     /// stub variants exist by name for SA resolution. <see cref="ErrorHandlingVariantPass"/>
     /// later refines them after fixpoint propagation.
     /// </summary>
-    public ErrorHandlingResult GenerateVariants(RoutineInfo routine, Statement body, bool pessimistic)
+    public ErrorHandlingResult GenerateVariants(RoutineInfo routine, Statement body,
+        bool pessimistic)
     {
         if (!routine.IsFailable)
         {
@@ -77,8 +82,8 @@ public sealed class ErrorHandlingGenerator
         }
 
         // Phase 1: Keyword Detection (+ pessimistic override + propagated failability merge).
-        ErrorHandlingAnalysis analysis = BuildFailabilityAnalysis(routine: routine, body: body,
-            pessimistic: pessimistic);
+        ErrorHandlingAnalysis analysis =
+            BuildFailabilityAnalysis(routine: routine, body: body, pessimistic: pessimistic);
 
         // Validate: ! functions must use throw, absent, or call other failable functions
         if (analysis is { HasThrow: false, HasAbsent: false })
@@ -92,7 +97,7 @@ public sealed class ErrorHandlingGenerator
         }
 
         // Phase 2: Variant Generation
-        var variants = BuildVariants(routine: routine, analysis: analysis);
+        List<GeneratedVariant> variants = BuildVariants(routine: routine, analysis: analysis);
 
         return new ErrorHandlingResult
         {
@@ -108,8 +113,8 @@ public sealed class ErrorHandlingGenerator
     /// applies the <paramref name="pessimistic"/> override, merges propagated failability from
     /// called <c>!</c> routines, and applies the failable-calls fallback.
     /// </summary>
-    private static ErrorHandlingAnalysis BuildFailabilityAnalysis(RoutineInfo routine, Statement body,
-        bool pessimistic)
+    private static ErrorHandlingAnalysis BuildFailabilityAnalysis(RoutineInfo routine,
+        Statement body, bool pessimistic)
     {
         ErrorHandlingAnalysis analysis = AnalyzeBody(body: body);
 
@@ -124,9 +129,17 @@ public sealed class ErrorHandlingGenerator
         // so by the time we land here, routine.HasThrow/HasAbsent already reflect the
         // transitive closure for routines whose failability is purely propagated
         // (e.g. `routine S64_from_text!(t: Text) -> S64 return S64!(from_text: t)`).
-        if (routine.HasThrow) analysis.HasThrow = true;
-        if (routine.HasAbsent) analysis.HasAbsent = true;
-        analysis.ThrownTypes.UnionWith(routine.ThrowableTypes);
+        if (routine.HasThrow)
+        {
+            analysis.HasThrow = true;
+        }
+
+        if (routine.HasAbsent)
+        {
+            analysis.HasAbsent = true;
+        }
+
+        analysis.ThrownTypes.UnionWith(other: routine.ThrowableTypes);
 
         // If no direct or propagated throw/absent info but the routine calls failable
         // routines, conservatively assume throw (legacy behavior for arithmetic-overflow
@@ -143,7 +156,8 @@ public sealed class ErrorHandlingGenerator
     /// Phase 2: builds the list of wrapper variants (try_ always; check_ for throw-only;
     /// lookup_ for throw+absent) for a failable routine from its <paramref name="analysis"/>.
     /// </summary>
-    private List<GeneratedVariant> BuildVariants(RoutineInfo routine, ErrorHandlingAnalysis analysis)
+    private List<GeneratedVariant> BuildVariants(RoutineInfo routine,
+        ErrorHandlingAnalysis analysis)
     {
         var variants = new List<GeneratedVariant>();
 
@@ -196,7 +210,7 @@ public sealed class ErrorHandlingGenerator
     /// </summary>
     public static bool BodyHasThrowOrAbsent(Statement body)
     {
-        ErrorHandlingAnalysis analysis = AnalyzeBody(body);
+        ErrorHandlingAnalysis analysis = AnalyzeBody(body: body);
         return analysis.HasThrow || analysis.HasAbsent;
     }
 
@@ -205,7 +219,8 @@ public sealed class ErrorHandlingGenerator
     /// </summary>
     /// <param name="statement">The statement to analyze.</param>
     /// <param name="analysis">The analysis result to update.</param>
-    private static void AnalyzeStatementRecursive(Statement statement, ErrorHandlingAnalysis analysis)
+    private static void AnalyzeStatementRecursive(Statement statement,
+        ErrorHandlingAnalysis analysis)
     {
         switch (statement)
         {
@@ -217,7 +232,10 @@ public sealed class ErrorHandlingGenerator
             case ThrowStatement ts:
                 analysis.HasThrow = true;
                 if (ts.Error?.ResolvedType is { } thrownType)
+                {
                     analysis.ThrownTypes.Add(item: thrownType);
+                }
+
                 break;
 
             case AbsentStatement:
@@ -279,13 +297,16 @@ public sealed class ErrorHandlingGenerator
     /// memberRoutines (e.g. <c>Iterator[T].emit!</c>) so that for-loop desugaring's call to
     /// <c>iter.try_emit()</c> resolves when <c>iter</c> is typed as the bare protocol.
     /// </summary>
-    public RoutineInfo GenerateTryVariantStub(RoutineInfo original) =>
-        GenerateTryVariant(original: original);
+    public RoutineInfo GenerateTryVariantStub(RoutineInfo original)
+    {
+        return GenerateTryVariant(original: original);
+    }
 
     private RoutineInfo GenerateTryVariant(RoutineInfo original)
     {
         TypeInfo noneType = _registry.LookupType(name: NoneTypeName) ??
-            throw new InvalidOperationException(message: "None type not registered");
+                            throw new InvalidOperationException(
+                                message: "None type not registered");
         TypeInfo returnType = original.ReturnType ?? noneType;
 
         // try_x on a None-returning routine -> returns Bool (true=success, false=absent/throw)
@@ -293,7 +314,8 @@ public sealed class ErrorHandlingGenerator
         if (returnType.Name == NoneTypeName)
         {
             TypeInfo boolType = _registry.LookupType(name: "Bool") ??
-                throw new InvalidOperationException(message: "Bool type not registered");
+                                throw new InvalidOperationException(
+                                    message: "Bool type not registered");
 
             return new RoutineInfo(name: GenerateVariantName(prefix: "try", original: original))
             {
@@ -322,33 +344,33 @@ public sealed class ErrorHandlingGenerator
         TypeInfo carrierInner = WrapBareEntityForCarrier(type: returnType);
 
         TypeInfo maybeDef = _registry.LookupType(name: "Maybe") ??
-            throw new InvalidOperationException(message: "Maybe type not registered");
+                            throw new InvalidOperationException(
+                                message: "Maybe type not registered");
         TypeInfo maybeType = _registry.GetOrCreateResolution(
             genericDef: maybeDef,
             typeArguments: [carrierInner]);
 
-        return new
-            RoutineInfo(name: GenerateVariantName(prefix: "try", original: original))
-            {
-                Kind = original.Kind,
-                OwnerType = original.OwnerType,
-                MeType = original.MeType,
-                Parameters = original.Parameters,
-                ReturnType = maybeType,
-                IsFailable = false, // try_ variants don't fail
-                IsSynthesized = true,
-                DeclaredMutation = original.DeclaredMutation,
-                MutationCategory = original.MutationCategory,
-                GenericParameters = original.GenericParameters,
-                GenericConstraints = original.GenericConstraints,
-                Visibility = original.Visibility,
-                Location = original.Location,
-                Module = original.Module,
-                ModulePath = original.ModulePath,
-                Annotations = original.Annotations,
-                CallingConvention = original.CallingConvention,
-                OriginalName = original.Name
-            };
+        return new RoutineInfo(name: GenerateVariantName(prefix: "try", original: original))
+        {
+            Kind = original.Kind,
+            OwnerType = original.OwnerType,
+            MeType = original.MeType,
+            Parameters = original.Parameters,
+            ReturnType = maybeType,
+            IsFailable = false, // try_ variants don't fail
+            IsSynthesized = true,
+            DeclaredMutation = original.DeclaredMutation,
+            MutationCategory = original.MutationCategory,
+            GenericParameters = original.GenericParameters,
+            GenericConstraints = original.GenericConstraints,
+            Visibility = original.Visibility,
+            Location = original.Location,
+            Module = original.Module,
+            ModulePath = original.ModulePath,
+            Annotations = original.Annotations,
+            CallingConvention = original.CallingConvention,
+            OriginalName = original.Name
+        };
     }
 
     /// <summary>
@@ -360,40 +382,39 @@ public sealed class ErrorHandlingGenerator
     private RoutineInfo GenerateCheckVariant(RoutineInfo original)
     {
         // check_ returns Result[T] — success carries T, throw carries the error.
-        TypeInfo innerType = original.ReturnType ??
-            _registry.LookupType(name: NoneTypeName) ??
+        TypeInfo innerType = original.ReturnType ?? _registry.LookupType(name: NoneTypeName) ??
             throw new InvalidOperationException(message: "None type not registered");
 
         TypeInfo carrierInner = WrapBareEntityForCarrier(type: innerType);
 
         TypeInfo resultDef = _registry.LookupType(name: "Result") ??
-            throw new InvalidOperationException(message: "Result type not registered");
+                             throw new InvalidOperationException(
+                                 message: "Result type not registered");
         TypeInfo resultType = _registry.GetOrCreateResolution(
             genericDef: resultDef,
             typeArguments: [carrierInner]);
 
-        return new
-            RoutineInfo(name: GenerateVariantName(prefix: "check", original: original))
-            {
-                Kind = original.Kind,
-                OwnerType = original.OwnerType,
-                MeType = original.MeType,
-                Parameters = original.Parameters,
-                ReturnType = resultType,
-                IsFailable = false, // check_ variants don't fail
-                IsSynthesized = true,
-                DeclaredMutation = original.DeclaredMutation,
-                MutationCategory = original.MutationCategory,
-                GenericParameters = original.GenericParameters,
-                GenericConstraints = original.GenericConstraints,
-                Visibility = original.Visibility,
-                Location = original.Location,
-                Module = original.Module,
-                ModulePath = original.ModulePath,
-                Annotations = original.Annotations,
-                CallingConvention = original.CallingConvention,
-                OriginalName = original.Name
-            };
+        return new RoutineInfo(name: GenerateVariantName(prefix: "check", original: original))
+        {
+            Kind = original.Kind,
+            OwnerType = original.OwnerType,
+            MeType = original.MeType,
+            Parameters = original.Parameters,
+            ReturnType = resultType,
+            IsFailable = false, // check_ variants don't fail
+            IsSynthesized = true,
+            DeclaredMutation = original.DeclaredMutation,
+            MutationCategory = original.MutationCategory,
+            GenericParameters = original.GenericParameters,
+            GenericConstraints = original.GenericConstraints,
+            Visibility = original.Visibility,
+            Location = original.Location,
+            Module = original.Module,
+            ModulePath = original.ModulePath,
+            Annotations = original.Annotations,
+            CallingConvention = original.CallingConvention,
+            OriginalName = original.Name
+        };
     }
 
     /// <summary>
@@ -406,7 +427,8 @@ public sealed class ErrorHandlingGenerator
     private RoutineInfo GenerateLookupVariant(RoutineInfo original)
     {
         TypeInfo noneType = _registry.LookupType(name: NoneTypeName) ??
-            throw new InvalidOperationException(message: "None type not registered");
+                            throw new InvalidOperationException(
+                                message: "None type not registered");
         TypeInfo returnType = original.ReturnType ?? noneType;
 
         // Lookup[None] degenerates to Result[None]: absent and return are both None,
@@ -414,7 +436,8 @@ public sealed class ErrorHandlingGenerator
         if (returnType.Name == NoneTypeName)
         {
             TypeInfo resultDef = _registry.LookupType(name: "Result") ??
-                throw new InvalidOperationException(message: "Result type not registered");
+                                 throw new InvalidOperationException(
+                                     message: "Result type not registered");
             TypeInfo resultType = _registry.GetOrCreateResolution(
                 genericDef: resultDef,
                 typeArguments: [noneType]);
@@ -446,33 +469,33 @@ public sealed class ErrorHandlingGenerator
         TypeInfo carrierInner = WrapBareEntityForCarrier(type: returnType);
 
         TypeInfo lookupDef = _registry.LookupType(name: "Lookup") ??
-            throw new InvalidOperationException(message: "Lookup type not registered");
+                             throw new InvalidOperationException(
+                                 message: "Lookup type not registered");
         TypeInfo lookupType = _registry.GetOrCreateResolution(
             genericDef: lookupDef,
             typeArguments: [carrierInner]);
 
-        return new
-            RoutineInfo(name: GenerateVariantName(prefix: "lookup", original: original))
-            {
-                Kind = original.Kind,
-                OwnerType = original.OwnerType,
-                MeType = original.MeType,
-                Parameters = original.Parameters,
-                ReturnType = lookupType,
-                IsFailable = false, // lookup_ variants don't fail
-                IsSynthesized = true,
-                DeclaredMutation = original.DeclaredMutation,
-                MutationCategory = original.MutationCategory,
-                GenericParameters = original.GenericParameters,
-                GenericConstraints = original.GenericConstraints,
-                Visibility = original.Visibility,
-                Location = original.Location,
-                Module = original.Module,
-                ModulePath = original.ModulePath,
-                Annotations = original.Annotations,
-                CallingConvention = original.CallingConvention,
-                OriginalName = original.Name
-            };
+        return new RoutineInfo(name: GenerateVariantName(prefix: "lookup", original: original))
+        {
+            Kind = original.Kind,
+            OwnerType = original.OwnerType,
+            MeType = original.MeType,
+            Parameters = original.Parameters,
+            ReturnType = lookupType,
+            IsFailable = false, // lookup_ variants don't fail
+            IsSynthesized = true,
+            DeclaredMutation = original.DeclaredMutation,
+            MutationCategory = original.MutationCategory,
+            GenericParameters = original.GenericParameters,
+            GenericConstraints = original.GenericConstraints,
+            Visibility = original.Visibility,
+            Location = original.Location,
+            Module = original.Module,
+            ModulePath = original.ModulePath,
+            Annotations = original.Annotations,
+            CallingConvention = original.CallingConvention,
+            OriginalName = original.Name
+        };
     }
 
     /// <summary>
@@ -484,5 +507,8 @@ public sealed class ErrorHandlingGenerator
     /// carrier-element transforms (e.g., needs-RecordType relaxation) want a single
     /// chokepoint.
     /// </summary>
-    private static TypeInfo WrapBareEntityForCarrier(TypeInfo type) => type;
+    private static TypeInfo WrapBareEntityForCarrier(TypeInfo type)
+    {
+        return type;
+    }
 }

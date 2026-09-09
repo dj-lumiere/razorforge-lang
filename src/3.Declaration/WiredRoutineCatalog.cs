@@ -32,46 +32,67 @@ public enum WiredKind
 {
     /// <summary>Object creation (create, from_literal).</summary>
     Creator,
+
     /// <summary>Equality and ordering (eq, cmp, etc.).</summary>
     Comparison,
+
     /// <summary>Checked arithmetic (add, sub, mul, div, mod, floordiv, pow).</summary>
     Arithmetic,
+
     /// <summary>Wrapping arithmetic variants (add%, sub%, mul%).</summary>
     ArithmeticWrap,
+
     /// <summary>Clamping arithmetic variants (add|, sub|, mul|).</summary>
     ArithmeticClamp,
+
     /// <summary>Unchecked arithmetic variants (add!, sub!, mul!).</summary>
     ArithmeticUnchecked,
+
     /// <summary>Bitwise operations (and, or, xor, not).</summary>
     Bitwise,
+
     /// <summary>Bit-shift operations (shl, shr).</summary>
     Shift,
+
     /// <summary>Unary prefix operations (neg).</summary>
     Unary,
+
     /// <summary>Carrier unwrap (unwrap_or, unwrap).</summary>
     Unwrap,
+
     /// <summary>Container membership (contains, notcontains).</summary>
     Container,
+
     /// <summary>Iteration protocol (iter, emit).</summary>
     Iteration,
+
     /// <summary>Indexing protocol (getitem, setitem).</summary>
     Indexing,
+
     /// <summary>Context/scope protocol (enter, exit).</summary>
     Context,
+
     /// <summary>Object lifecycle (destroy).</summary>
     Lifecycle,
+
     /// <summary>Display and diagnostic formatting (represent, diagnose).</summary>
     Display,
+
     /// <summary>Cycle-collector visit hook (cyclic_visit) — universal no-op, Roamed overrides.</summary>
     CycleTrace,
+
     /// <summary>Hash computation (hash).</summary>
     Hash,
+
     /// <summary>Value copy (store).</summary>
     Copy,
+
     /// <summary>In-place arithmetic assignment (iadd, isub, etc.).</summary>
     InPlaceArithmetic,
+
     /// <summary>In-place bitwise assignment (iand, ior, ixor).</summary>
     InPlaceBitwise,
+
     /// <summary>In-place shift assignment (ishl, ishr).</summary>
     InPlaceShift
 }
@@ -81,8 +102,10 @@ public sealed class WiredEntry
 {
     /// <summary>The bare canonical wired name (e.g. <c>getitem</c>). Never includes a <c>!</c> suffix; failability is tracked by <see cref="Failable"/>.</summary>
     public required string Name { get; init; }
+
     /// <summary>Coarse classification used by generation and lifecycle policy.</summary>
     public required WiredKind Kind { get; init; }
+
     /// <summary>Bitmask of consumer lists this entry participates in.</summary>
     public required WiredViews Views { get; init; }
 
@@ -139,125 +162,556 @@ public static class WiredRoutineCatalog
     /// <summary>All wired-routine entries in canonical order. Every consumer projection is a filtered view of this list.</summary>
     public static readonly IReadOnlyList<WiredEntry> All = BuildAll();
 
-    private static WiredEntry[] BuildAll() =>
-    [
-        // ---- Creator / context / lifecycle (declarable, not protocol-bound) ----
-        // The anonymous constructor carries no name (RoutineInfo.CreatorName) — matched by the empty
-        // key; its identity is the Creator kind.
-        new() { Name = TypeModel.Symbols.RoutineInfo.CreatorName,  Kind = WiredKind.Creator, Views = Known },
-        // Infallible literal constructor synthesized by LiteralLoweringPass for `n`/`dn`
-        // arbitrary-precision literals (Integer/Decimal.from_literal(text:)). Declarable in
-        // stdlib (Known) and seeded live so the synthesized calls keep their link symbols (Seed).
-        new() { Name = "from_literal", Kind = WiredKind.Creator, Views = Known | Seed },
-        new() { Name = "enter",   Kind = WiredKind.Context, Views = Known },
-        new() { Name = "exit",    Kind = WiredKind.Context, Views = Known },
-        new() { Name = "destroy", Kind = WiredKind.Lifecycle, Views = Known, AlwaysLive = true },
-        new() { Name = "assign",    Kind = WiredKind.Copy, Views = Cap | Seed,
-                Protocols = ["Assignable"], AlwaysLive = true },
-        // Deep `copy` (Copyable). Like `store`, it is INJECTED during postprocessing (the record/
-        // collection/variant deep-copy point in RecordCopyLoweringPass) — after reachability has run —
-        // so it must be AlwaysLive to bypass the GMP reachability gate and Seed to be marked live per
-        // concrete owner. Cap gates it on `Copyable`: only owners whose element/arm types are copyable
-        // emit a body (e.g. Dict[Text, SerialValue].copy needs SerialValue copyable), so a
-        // Dict[Text, NonCopyable] correctly carries no `copy` symbol.
-        new() { Name = "duplicate",      Kind = WiredKind.Copy, Views = Cap | Seed,
-                Protocols = ["Copyable"], AlwaysLive = true },
+    private static WiredEntry[] BuildAll()
+    {
+        return
+        [
+            // ---- Creator / context / lifecycle (declarable, not protocol-bound) ----
+            // The anonymous constructor carries no name (RoutineInfo.CreatorName) — matched by the empty
+            // key; its identity is the Creator kind.
+            new()
+            {
+                Name = TypeModel.Symbols.RoutineInfo.CreatorName,
+                Kind = WiredKind.Creator,
+                Views = Known
+            },
+            // Infallible literal constructor synthesized by LiteralLoweringPass for `n`/`dn`
+            // arbitrary-precision literals (Integer/Decimal.from_literal(text:)). Declarable in
+            // stdlib (Known) and seeded live so the synthesized calls keep their link symbols (Seed).
+            new() { Name = "from_literal", Kind = WiredKind.Creator, Views = Known | Seed },
+            new() { Name = "enter", Kind = WiredKind.Context, Views = Known },
+            new() { Name = "exit", Kind = WiredKind.Context, Views = Known },
+            new()
+            {
+                Name = "destroy", Kind = WiredKind.Lifecycle, Views = Known, AlwaysLive = true
+            },
+            new()
+            {
+                Name = "assign",
+                Kind = WiredKind.Copy,
+                Views = Cap | Seed,
+                Protocols = ["Assignable"],
+                AlwaysLive = true
+            },
+            // Deep `copy` (Copyable). Like `store`, it is INJECTED during postprocessing (the record/
+            // collection/variant deep-copy point in RecordCopyLoweringPass) — after reachability has run —
+            // so it must be AlwaysLive to bypass the GMP reachability gate and Seed to be marked live per
+            // concrete owner. Cap gates it on `Copyable`: only owners whose element/arm types are copyable
+            // emit a body (e.g. Dict[Text, SerialValue].copy needs SerialValue copyable), so a
+            // Dict[Text, NonCopyable] correctly carries no `copy` symbol.
+            new()
+            {
+                Name = "duplicate",
+                Kind = WiredKind.Copy,
+                Views = Cap | Seed,
+                Protocols = ["Copyable"],
+                AlwaysLive = true
+            },
 
-        // ---- Display / hash ----
-        new() { Name = "represent", Kind = WiredKind.Display, Views = Cap | Known | Seed, Protocols = ["Representable"] },
-        new() { Name = "diagnose",  Kind = WiredKind.Display, Views = Cap | Known | Seed, Protocols = ["Diagnosable"] },
-        // Cycle-collector visit hook: a universal `@overridable` no-op auto-conferred on EVERY type
-        // (like represent/diagnose), so a generic container buffer-walk can call `element.cyclic_visit()`
-        // uniformly. `Roamed[T].cyclic_visit` (hand-written) overrides it to report the controller.
-        new() { Name = "cyclic_visit", Kind = WiredKind.CycleTrace, Views = Cap | Known | Seed, Protocols = ["CycleTraceable"] },
-        new() { Name = "hash",      Kind = WiredKind.Hash,    Views = Cap | Known | Seed, Protocols = ["Hashable"] },
+            // ---- Display / hash ----
+            new()
+            {
+                Name = "represent",
+                Kind = WiredKind.Display,
+                Views = Cap | Known | Seed,
+                Protocols = ["Representable"]
+            },
+            new()
+            {
+                Name = "diagnose",
+                Kind = WiredKind.Display,
+                Views = Cap | Known | Seed,
+                Protocols = ["Diagnosable"]
+            },
+            // Cycle-collector visit hook: a universal `@overridable` no-op auto-conferred on EVERY type
+            // (like represent/diagnose), so a generic container buffer-walk can call `element.cyclic_visit()`
+            // uniformly. `Roamed[T].cyclic_visit` (hand-written) overrides it to report the controller.
+            new()
+            {
+                Name = "cyclic_visit",
+                Kind = WiredKind.CycleTrace,
+                Views = Cap | Known | Seed,
+                Protocols = ["CycleTraceable"]
+            },
+            new()
+            {
+                Name = "hash",
+                Kind = WiredKind.Hash,
+                Views = Cap | Known | Seed,
+                Protocols = ["Hashable"]
+            },
 
-        // ---- Comparison (cmp family shares the cmp body; ne shares eq) ----
-        new() { Name = "eq",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = ["Equatable"] },
-        new() { Name = "ne",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = ["Equatable"], CapabilityWiredOverride = "eq" },
-        new() { Name = "cmp", Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = [ComparableProtocol] },
-        new() { Name = "lt",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = [ComparableProtocol], CapabilityWiredOverride = "cmp" },
-        new() { Name = "le",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = [ComparableProtocol], CapabilityWiredOverride = "cmp" },
-        new() { Name = "gt",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = [ComparableProtocol], CapabilityWiredOverride = "cmp" },
-        new() { Name = "ge",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = [ComparableProtocol], CapabilityWiredOverride = "cmp" },
+            // ---- Comparison (cmp family shares the cmp body; ne shares eq) ----
+            new()
+            {
+                Name = "eq",
+                Kind = WiredKind.Comparison,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Equatable"]
+            },
+            new()
+            {
+                Name = "ne",
+                Kind = WiredKind.Comparison,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Equatable"],
+                CapabilityWiredOverride = "eq"
+            },
+            new()
+            {
+                Name = "cmp",
+                Kind = WiredKind.Comparison,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [ComparableProtocol]
+            },
+            new()
+            {
+                Name = "lt",
+                Kind = WiredKind.Comparison,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [ComparableProtocol],
+                CapabilityWiredOverride = "cmp"
+            },
+            new()
+            {
+                Name = "le",
+                Kind = WiredKind.Comparison,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [ComparableProtocol],
+                CapabilityWiredOverride = "cmp"
+            },
+            new()
+            {
+                Name = "gt",
+                Kind = WiredKind.Comparison,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [ComparableProtocol],
+                CapabilityWiredOverride = "cmp"
+            },
+            new()
+            {
+                Name = "ge",
+                Kind = WiredKind.Comparison,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [ComparableProtocol],
+                CapabilityWiredOverride = "cmp"
+            },
 
-        // ---- Container / iteration / indexing ----
-        new() { Name = "contains",    Kind = WiredKind.Container, Views = Cap | Known | Proto | Seed, Protocols = ["Container"], CapabilityWiredOverride = "contains" },
-        new() { Name = "notcontains", Kind = WiredKind.Container, Views = Cap | Known | Proto | Seed, Protocols = ["Container"], CapabilityWiredOverride = "contains" },
-        new() { Name = "iter",        Kind = WiredKind.Iteration, Views = Cap | Known | Proto | Seed, Protocols = ["Iterable"] },
-        new() { Name = "emit",        Kind = WiredKind.Iteration, Views = Cap | Known | Proto | Seed, Protocols = ["Emittable"], Failable = true },
-        new() { Name = "try_emit",     Kind = WiredKind.Iteration, Views = Seed },
-        new() { Name = "getitem",     Kind = WiredKind.Indexing, Views = Cap | Known | Proto | Seed, Protocols = ["Indexable"], Failable = true },
-        new() { Name = "setitem",     Kind = WiredKind.Indexing, Views = Cap | Known | Proto | Seed, Protocols = ["MutableIndexable"], Failable = true },
+            // ---- Container / iteration / indexing ----
+            new()
+            {
+                Name = "contains",
+                Kind = WiredKind.Container,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Container"],
+                CapabilityWiredOverride = "contains"
+            },
+            new()
+            {
+                Name = "notcontains",
+                Kind = WiredKind.Container,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Container"],
+                CapabilityWiredOverride = "contains"
+            },
+            new()
+            {
+                Name = "iter",
+                Kind = WiredKind.Iteration,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Iterable"]
+            },
+            new()
+            {
+                Name = "emit",
+                Kind = WiredKind.Iteration,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Emittable"],
+                Failable = true
+            },
+            new() { Name = "try_emit", Kind = WiredKind.Iteration, Views = Seed },
+            new()
+            {
+                Name = "getitem",
+                Kind = WiredKind.Indexing,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Indexable"],
+                Failable = true
+            },
+            new()
+            {
+                Name = "setitem",
+                Kind = WiredKind.Indexing,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["MutableIndexable"],
+                Failable = true
+            },
 
-        // ---- Unwrap (Maybe / Result / Lookup) ----
-        new() { Name = "unwrap",    Kind = WiredKind.Unwrap, Views = Known | Seed, Failable = true },
-        new() { Name = "unwrap_or", Kind = WiredKind.Unwrap, Views = Known | Seed },
+            // ---- Unwrap (Maybe / Result / Lookup) ----
+            new()
+            {
+                Name = "unwrap", Kind = WiredKind.Unwrap, Views = Known | Seed, Failable = true
+            },
+            new() { Name = "unwrap_or", Kind = WiredKind.Unwrap, Views = Known | Seed },
 
-        // ---- Arithmetic (standard) ----
-        new() { Name = "add",      Kind = WiredKind.Arithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["Addable", "DurationAddable"] },
-        new() { Name = "sub",      Kind = WiredKind.Arithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["Subtractable", "DurationSubtractable"] },
-        new() { Name = "mul",      Kind = WiredKind.Arithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["Multiplicable", "TextRepeatable", "Scalable"] },
-        new() { Name = "truediv",  Kind = WiredKind.Arithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["Divisible", "ScalarDivisible"] },
-        new() { Name = "floordiv", Kind = WiredKind.Arithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["FloorDivisible", "ScalarFloorDivisible"] },
-        new() { Name = "mod",      Kind = WiredKind.Arithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["FloorDivisible"], CapabilityWiredOverride = "floordiv" },
-        new() { Name = "pow",      Kind = WiredKind.Arithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["Exponentiable"] },
-        new() { Name = "neg",      Kind = WiredKind.Unary,      Views = Cap | Known | Proto | Seed, Protocols = ["Negatable"] },
+            // ---- Arithmetic (standard) ----
+            new()
+            {
+                Name = "add",
+                Kind = WiredKind.Arithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Addable", "DurationAddable"]
+            },
+            new()
+            {
+                Name = "sub",
+                Kind = WiredKind.Arithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Subtractable", "DurationSubtractable"]
+            },
+            new()
+            {
+                Name = "mul",
+                Kind = WiredKind.Arithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Multiplicable", "TextRepeatable", "Scalable"]
+            },
+            new()
+            {
+                Name = "truediv",
+                Kind = WiredKind.Arithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Divisible", "ScalarDivisible"]
+            },
+            new()
+            {
+                Name = "floordiv",
+                Kind = WiredKind.Arithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["FloorDivisible", "ScalarFloorDivisible"]
+            },
+            new()
+            {
+                Name = "mod",
+                Kind = WiredKind.Arithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["FloorDivisible"],
+                CapabilityWiredOverride = "floordiv"
+            },
+            new()
+            {
+                Name = "pow",
+                Kind = WiredKind.Arithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Exponentiable"]
+            },
+            new()
+            {
+                Name = "neg",
+                Kind = WiredKind.Unary,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Negatable"]
+            },
 
-        // ---- Arithmetic (wrapping) ----
-        new() { Name = "add_wrap", Kind = WiredKind.ArithmeticWrap, Views = Cap | Known | Proto | Seed, Protocols = ["WrappingAddable"] },
-        new() { Name = "sub_wrap", Kind = WiredKind.ArithmeticWrap, Views = Cap | Known | Proto | Seed, Protocols = ["WrappingSubtractable"] },
-        new() { Name = "mul_wrap", Kind = WiredKind.ArithmeticWrap, Views = Cap | Known | Proto | Seed, Protocols = ["WrappingMultiplicable"] },
-        new() { Name = "pow_wrap", Kind = WiredKind.ArithmeticWrap, Views = Cap | Known | Proto | Seed, Protocols = ["WrappingExponentiable"] },
+            // ---- Arithmetic (wrapping) ----
+            new()
+            {
+                Name = "add_wrap",
+                Kind = WiredKind.ArithmeticWrap,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["WrappingAddable"]
+            },
+            new()
+            {
+                Name = "sub_wrap",
+                Kind = WiredKind.ArithmeticWrap,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["WrappingSubtractable"]
+            },
+            new()
+            {
+                Name = "mul_wrap",
+                Kind = WiredKind.ArithmeticWrap,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["WrappingMultiplicable"]
+            },
+            new()
+            {
+                Name = "pow_wrap",
+                Kind = WiredKind.ArithmeticWrap,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["WrappingExponentiable"]
+            },
 
-        // ---- Arithmetic (clamping) ----
-        new() { Name = "add_clamp",     Kind = WiredKind.ArithmeticClamp, Views = Cap | Known | Proto | Seed, Protocols = ["ClampingAddable"] },
-        new() { Name = "sub_clamp",     Kind = WiredKind.ArithmeticClamp, Views = Cap | Known | Proto | Seed, Protocols = ["ClampingSubtractable"] },
-        new() { Name = "mul_clamp",     Kind = WiredKind.ArithmeticClamp, Views = Cap | Known | Proto | Seed, Protocols = ["ClampingMultiplicable"] },
-        new() { Name = "truediv_clamp", Kind = WiredKind.ArithmeticClamp, Views = Cap | Known | Proto | Seed, Protocols = ["ClampingDivisible"] },
-        new() { Name = "pow_clamp",     Kind = WiredKind.ArithmeticClamp, Views = Cap | Known | Proto | Seed, Protocols = ["ClampingExponentiable"] },
+            // ---- Arithmetic (clamping) ----
+            new()
+            {
+                Name = "add_clamp",
+                Kind = WiredKind.ArithmeticClamp,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["ClampingAddable"]
+            },
+            new()
+            {
+                Name = "sub_clamp",
+                Kind = WiredKind.ArithmeticClamp,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["ClampingSubtractable"]
+            },
+            new()
+            {
+                Name = "mul_clamp",
+                Kind = WiredKind.ArithmeticClamp,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["ClampingMultiplicable"]
+            },
+            new()
+            {
+                Name = "truediv_clamp",
+                Kind = WiredKind.ArithmeticClamp,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["ClampingDivisible"]
+            },
+            new()
+            {
+                Name = "pow_clamp",
+                Kind = WiredKind.ArithmeticClamp,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["ClampingExponentiable"]
+            },
 
-        // ---- Arithmetic (unchecked) ----
-        new() { Name = "add_unchecked",      Kind = WiredKind.ArithmeticUnchecked, Views = Cap | Seed, Protocols = ["UncheckedAddable"] },
-        new() { Name = "sub_unchecked",      Kind = WiredKind.ArithmeticUnchecked, Views = Cap | Seed, Protocols = ["UncheckedSubtractable"] },
-        new() { Name = "mul_unchecked",      Kind = WiredKind.ArithmeticUnchecked, Views = Cap | Seed, Protocols = ["UncheckedMultiplicable"] },
-        new() { Name = "truediv_unchecked",  Kind = WiredKind.ArithmeticUnchecked, Views = Cap | Seed, Protocols = ["UncheckedTrueDivisible"] },
-        new() { Name = "floordiv_unchecked", Kind = WiredKind.ArithmeticUnchecked, Views = Cap | Seed, Protocols = ["UncheckedFloorDivisible"] },
-        new() { Name = "mod_unchecked",      Kind = WiredKind.ArithmeticUnchecked, Views = Cap | Seed, Protocols = ["UncheckedFloorDivisible"], CapabilityWiredOverride = "floordiv_unchecked" },
-        new() { Name = "pow_unchecked",      Kind = WiredKind.ArithmeticUnchecked, Views = Cap | Seed, Protocols = ["UncheckedExponentiable"] },
+            // ---- Arithmetic (unchecked) ----
+            new()
+            {
+                Name = "add_unchecked",
+                Kind = WiredKind.ArithmeticUnchecked,
+                Views = Cap | Seed,
+                Protocols = ["UncheckedAddable"]
+            },
+            new()
+            {
+                Name = "sub_unchecked",
+                Kind = WiredKind.ArithmeticUnchecked,
+                Views = Cap | Seed,
+                Protocols = ["UncheckedSubtractable"]
+            },
+            new()
+            {
+                Name = "mul_unchecked",
+                Kind = WiredKind.ArithmeticUnchecked,
+                Views = Cap | Seed,
+                Protocols = ["UncheckedMultiplicable"]
+            },
+            new()
+            {
+                Name = "truediv_unchecked",
+                Kind = WiredKind.ArithmeticUnchecked,
+                Views = Cap | Seed,
+                Protocols = ["UncheckedTrueDivisible"]
+            },
+            new()
+            {
+                Name = "floordiv_unchecked",
+                Kind = WiredKind.ArithmeticUnchecked,
+                Views = Cap | Seed,
+                Protocols = ["UncheckedFloorDivisible"]
+            },
+            new()
+            {
+                Name = "mod_unchecked",
+                Kind = WiredKind.ArithmeticUnchecked,
+                Views = Cap | Seed,
+                Protocols = ["UncheckedFloorDivisible"],
+                CapabilityWiredOverride = "floordiv_unchecked"
+            },
+            new()
+            {
+                Name = "pow_unchecked",
+                Kind = WiredKind.ArithmeticUnchecked,
+                Views = Cap | Seed,
+                Protocols = ["UncheckedExponentiable"]
+            },
 
-        // ---- Bitwise (the bitand body covers and/or/xor) ----
-        new() { Name = BitandCapability, Kind = WiredKind.Bitwise, Views = Cap | Known | Proto | Seed, Protocols = [BitwiseableProtocol], CapabilityWiredOverride = BitandCapability },
-        new() { Name = "bitor",  Kind = WiredKind.Bitwise, Views = Cap | Known | Proto | Seed, Protocols = [BitwiseableProtocol], CapabilityWiredOverride = BitandCapability },
-        new() { Name = "bitxor", Kind = WiredKind.Bitwise, Views = Cap | Known | Proto | Seed, Protocols = [BitwiseableProtocol], CapabilityWiredOverride = BitandCapability },
-        new() { Name = "bitnot", Kind = WiredKind.Unary,   Views = Cap | Known | Proto | Seed, Protocols = ["Invertible"] },
+            // ---- Bitwise (the bitand body covers and/or/xor) ----
+            new()
+            {
+                Name = BitandCapability,
+                Kind = WiredKind.Bitwise,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [BitwiseableProtocol],
+                CapabilityWiredOverride = BitandCapability
+            },
+            new()
+            {
+                Name = "bitor",
+                Kind = WiredKind.Bitwise,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [BitwiseableProtocol],
+                CapabilityWiredOverride = BitandCapability
+            },
+            new()
+            {
+                Name = "bitxor",
+                Kind = WiredKind.Bitwise,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [BitwiseableProtocol],
+                CapabilityWiredOverride = BitandCapability
+            },
+            new()
+            {
+                Name = "bitnot",
+                Kind = WiredKind.Unary,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["Invertible"]
+            },
 
-        // ---- Shift (the ashl body covers all four) ----
-        new() { Name = AshlCapability, Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = [ShiftableProtocol], CapabilityWiredOverride = AshlCapability },
-        new() { Name = "ashr", Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = [ShiftableProtocol], CapabilityWiredOverride = AshlCapability },
-        new() { Name = "lshl", Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = [ShiftableProtocol], CapabilityWiredOverride = AshlCapability },
-        new() { Name = "lshr", Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = [ShiftableProtocol], CapabilityWiredOverride = AshlCapability },
+            // ---- Shift (the ashl body covers all four) ----
+            new()
+            {
+                Name = AshlCapability,
+                Kind = WiredKind.Shift,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [ShiftableProtocol],
+                CapabilityWiredOverride = AshlCapability
+            },
+            new()
+            {
+                Name = "ashr",
+                Kind = WiredKind.Shift,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [ShiftableProtocol],
+                CapabilityWiredOverride = AshlCapability
+            },
+            new()
+            {
+                Name = "lshl",
+                Kind = WiredKind.Shift,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [ShiftableProtocol],
+                CapabilityWiredOverride = AshlCapability
+            },
+            new()
+            {
+                Name = "lshr",
+                Kind = WiredKind.Shift,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [ShiftableProtocol],
+                CapabilityWiredOverride = AshlCapability
+            },
 
-        // ---- In-place arithmetic (imod shares ifloordiv) ----
-        new() { Name = "iadd",      Kind = WiredKind.InPlaceArithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceAddable"] },
-        new() { Name = "isub",      Kind = WiredKind.InPlaceArithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceSubtractable"] },
-        new() { Name = "imul",      Kind = WiredKind.InPlaceArithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceMultiplicable"] },
-        new() { Name = "itruediv",  Kind = WiredKind.InPlaceArithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceDivisible"] },
-        new() { Name = "ifloordiv", Kind = WiredKind.InPlaceArithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceFloorDivisible"] },
-        new() { Name = "imod",      Kind = WiredKind.InPlaceArithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceFloorDivisible"], CapabilityWiredOverride = "ifloordiv" },
-        new() { Name = "ipow",      Kind = WiredKind.InPlaceArithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceExponentiable"] },
+            // ---- In-place arithmetic (imod shares ifloordiv) ----
+            new()
+            {
+                Name = "iadd",
+                Kind = WiredKind.InPlaceArithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["InPlaceAddable"]
+            },
+            new()
+            {
+                Name = "isub",
+                Kind = WiredKind.InPlaceArithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["InPlaceSubtractable"]
+            },
+            new()
+            {
+                Name = "imul",
+                Kind = WiredKind.InPlaceArithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["InPlaceMultiplicable"]
+            },
+            new()
+            {
+                Name = "itruediv",
+                Kind = WiredKind.InPlaceArithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["InPlaceDivisible"]
+            },
+            new()
+            {
+                Name = "ifloordiv",
+                Kind = WiredKind.InPlaceArithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["InPlaceFloorDivisible"]
+            },
+            new()
+            {
+                Name = "imod",
+                Kind = WiredKind.InPlaceArithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["InPlaceFloorDivisible"],
+                CapabilityWiredOverride = "ifloordiv"
+            },
+            new()
+            {
+                Name = "ipow",
+                Kind = WiredKind.InPlaceArithmetic,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = ["InPlaceExponentiable"]
+            },
 
-        // ---- In-place bitwise (ibitor/ibitxor share ibitand) ----
-        new() { Name = IbitandCapability, Kind = WiredKind.InPlaceBitwise, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceBitandeableProtocol], CapabilityWiredOverride = IbitandCapability },
-        new() { Name = "ibitor",  Kind = WiredKind.InPlaceBitwise, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceBitandeableProtocol], CapabilityWiredOverride = IbitandCapability },
-        new() { Name = "ibitxor", Kind = WiredKind.InPlaceBitwise, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceBitandeableProtocol], CapabilityWiredOverride = IbitandCapability },
+            // ---- In-place bitwise (ibitor/ibitxor share ibitand) ----
+            new()
+            {
+                Name = IbitandCapability,
+                Kind = WiredKind.InPlaceBitwise,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [InPlaceBitandeableProtocol],
+                CapabilityWiredOverride = IbitandCapability
+            },
+            new()
+            {
+                Name = "ibitor",
+                Kind = WiredKind.InPlaceBitwise,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [InPlaceBitandeableProtocol],
+                CapabilityWiredOverride = IbitandCapability
+            },
+            new()
+            {
+                Name = "ibitxor",
+                Kind = WiredKind.InPlaceBitwise,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [InPlaceBitandeableProtocol],
+                CapabilityWiredOverride = IbitandCapability
+            },
 
-        // ---- In-place shift (iashr/ilshl/ilshr share iashl) ----
-        new() { Name = IashlCapability, Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceShiftableProtocol], CapabilityWiredOverride = IashlCapability },
-        new() { Name = "iashr", Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceShiftableProtocol], CapabilityWiredOverride = IashlCapability },
-        new() { Name = "ilshl", Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceShiftableProtocol], CapabilityWiredOverride = IashlCapability },
-        new() { Name = "ilshr", Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceShiftableProtocol], CapabilityWiredOverride = IashlCapability },
-    ];
+            // ---- In-place shift (iashr/ilshl/ilshr share iashl) ----
+            new()
+            {
+                Name = IashlCapability,
+                Kind = WiredKind.InPlaceShift,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [InPlaceShiftableProtocol],
+                CapabilityWiredOverride = IashlCapability
+            },
+            new()
+            {
+                Name = "iashr",
+                Kind = WiredKind.InPlaceShift,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [InPlaceShiftableProtocol],
+                CapabilityWiredOverride = IashlCapability
+            },
+            new()
+            {
+                Name = "ilshl",
+                Kind = WiredKind.InPlaceShift,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [InPlaceShiftableProtocol],
+                CapabilityWiredOverride = IashlCapability
+            },
+            new()
+            {
+                Name = "ilshr",
+                Kind = WiredKind.InPlaceShift,
+                Views = Cap | Known | Proto | Seed,
+                Protocols = [InPlaceShiftableProtocol],
+                CapabilityWiredOverride = IashlCapability
+            }
+        ];
+    }
 
     // ---------------------------------------------------------------------------
     // Projections — each reproduces a historical hard-coded list exactly.
@@ -269,26 +723,38 @@ public static class WiredRoutineCatalog
     {
         var map = new Dictionary<string, (string, string)>(comparer: StringComparer.Ordinal);
         foreach (WiredEntry e in All.Where(predicate: e => e.Views.HasFlag(flag: Cap)))
+        {
             map[key: e.Name] = (e.Protocols[index: 0], e.CapabilityWired);
+        }
+
         return map;
     }
 
     /// <summary>Valid declarable <c>$</c>-names. Reproduces <c>SemanticVerifier.KnownWiredMemberRoutines</c>.</summary>
-    public static HashSet<string> BuildKnownWiredMemberRoutines() =>
-        new(collection: All.Where(predicate: e => e.Views.HasFlag(flag: Known)).Select(selector: e => e.Name),
+    public static HashSet<string> BuildKnownWiredMemberRoutines()
+    {
+        return new HashSet<string>(collection: All
+                                              .Where(predicate: e => e.Views.HasFlag(flag: Known))
+                                              .Select(selector: e => e.Name),
             comparer: StringComparer.Ordinal);
+    }
 
     /// <summary>Operator → permitting protocols. Reproduces <c>SemanticVerifier.WiredToProtocols</c>.</summary>
-    public static Dictionary<string, List<string>> BuildWiredToProtocols() =>
-        All.Where(predicate: e => e.Views.HasFlag(flag: Proto))
-           .ToDictionary(keySelector: e => e.Name, elementSelector: e => e.Protocols.ToList());
+    public static Dictionary<string, List<string>> BuildWiredToProtocols()
+    {
+        return All.Where(predicate: e => e.Views.HasFlag(flag: Proto))
+                  .ToDictionary(keySelector: e => e.Name,
+                       elementSelector: e => e.Protocols.ToList());
+    }
 
     /// <summary>Names seeded live per concrete owner. Reproduces
     /// <c>RoutineReachabilityPass.WiredRoutineNames</c> (order-independent).</summary>
-    public static string[] BuildReachabilitySeedNames() =>
-        All.Where(predicate: e => e.Views.HasFlag(flag: Seed))
-           .Select(selector: e => e.Name)
-           .ToArray();
+    public static string[] BuildReachabilitySeedNames()
+    {
+        return All.Where(predicate: e => e.Views.HasFlag(flag: Seed))
+                  .Select(selector: e => e.Name)
+                  .ToArray();
+    }
 
     // ---------------------------------------------------------------------------
     // Query API for the generation/lifecycle stages (S2/S3).
@@ -299,17 +765,23 @@ public static class WiredRoutineCatalog
 
     /// <summary>Names that must be emitted for every live owner (the unified-teardown lifecycle
     /// routines). Used by the GMP gate-bypass and codegen always-live policy in S3.</summary>
-    public static readonly IReadOnlySet<string> AlwaysLiveNames =
-        All.Where(predicate: e => e.AlwaysLive).Select(selector: e => e.Name)
-           .ToHashSet(comparer: StringComparer.Ordinal);
+    public static readonly IReadOnlySet<string> AlwaysLiveNames = All
+       .Where(predicate: e => e.AlwaysLive)
+       .Select(selector: e => e.Name)
+       .ToHashSet(comparer: StringComparer.Ordinal);
 
     /// <summary>Looks up a wired entry by its bare canonical name. Returns false when the name is not wired.</summary>
-    public static bool TryGet(string name, out WiredEntry entry) => _byName.TryGetValue(key: name, value: out entry!);
+    public static bool TryGet(string name, out WiredEntry entry)
+    {
+        return _byName.TryGetValue(key: name, value: out entry!);
+    }
 
     /// <summary>Returns true when <paramref name="name"/> is a lifecycle-category wired routine (<c>destroy</c> or <c>store</c>).</summary>
-    public static bool IsLifecycle(string name) =>
-        _byName.TryGetValue(key: name, value: out WiredEntry? e) &&
-        e.Kind is WiredKind.Lifecycle or WiredKind.Copy;
+    public static bool IsLifecycle(string name)
+    {
+        return _byName.TryGetValue(key: name, value: out WiredEntry? e) &&
+               e.Kind is WiredKind.Lifecycle or WiredKind.Copy;
+    }
 
     /// <summary>Protocols whose derived capability is conferred on EVERY type: <c>Representable</c>
     /// (<c>represent</c>) and <c>Diagnosable</c> (<c>diagnose</c>) are structurally satisfied by all
@@ -334,8 +806,10 @@ public static class WiredRoutineCatalog
     /// non-auto-conferred protocol, is opt-in by default.
     /// </para>
     /// </summary>
-    public static bool IsAutoConferredDerive(string memberRoutine) =>
-        _byName.TryGetValue(key: memberRoutine, value: out WiredEntry? e) && e.Protocols.Count > 0 &&
-        e.Protocols.All(predicate: p => _autoConferredProtocols.Contains(item: p));
-
+    public static bool IsAutoConferredDerive(string memberRoutine)
+    {
+        return _byName.TryGetValue(key: memberRoutine, value: out WiredEntry? e) &&
+               e.Protocols.Count > 0 &&
+               e.Protocols.All(predicate: p => _autoConferredProtocols.Contains(item: p));
+    }
 }

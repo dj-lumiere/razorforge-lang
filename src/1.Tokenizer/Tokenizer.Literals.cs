@@ -35,7 +35,7 @@ public partial class Tokenizer
 
         char firstChar = _source[index: startPos];
         var prefixSb = new StringBuilder();
-        prefixSb.Append(firstChar);
+        prefixSb.Append(value: firstChar);
 
         // Greedy match: build the longest valid prefix
         while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
@@ -43,7 +43,7 @@ public partial class Tokenizer
             string testPrefix = prefixSb.ToString() + Peek();
             if (_textPrefixes.Any(predicate: p => p.StartsWith(value: testPrefix)))
             {
-                prefixSb.Append(Advance());
+                prefixSb.Append(value: Advance());
             }
             else
             {
@@ -248,8 +248,7 @@ public partial class Tokenizer
             else
             {
                 ScanEscapeSequence(bitWidth: 32);
-                textBuffer.Append(
-                    value: ParseEscapeSequence(escapeStart: escapeStart));
+                textBuffer.Append(value: ParseEscapeSequence(escapeStart: escapeStart));
             }
 
             return false;
@@ -367,8 +366,7 @@ public partial class Tokenizer
     /// </summary>
     private void SkipInsertionWhitespace()
     {
-        while (!IsAtEnd() &&
-               (Peek() == ' ' || Peek() == '\t' || Peek() == '\r' || Peek() == '\n'))
+        while (!IsAtEnd() && (Peek() == ' ' || Peek() == '\t' || Peek() == '\r' || Peek() == '\n'))
         {
             if (Peek() == '\n')
             {
@@ -386,7 +384,10 @@ public partial class Tokenizer
     /// </summary>
     private void DecrementBracketDepth()
     {
-        if (_bracketDepth > 0) _bracketDepth--;
+        if (_bracketDepth > 0)
+        {
+            _bracketDepth--;
+        }
     }
 
     /// <summary>
@@ -524,7 +525,9 @@ public partial class Tokenizer
     {
         if (Match(expected: '='))
         {
-            AddToken(type: Match(expected: '=') ? TokenType.IdentityEqual : TokenType.Equal);
+            AddToken(type: Match(expected: '=')
+                ? TokenType.IdentityEqual
+                : TokenType.Equal);
         }
         else if (Match(expected: '>'))
         {
@@ -541,7 +544,9 @@ public partial class Tokenizer
     {
         if (Match(expected: '='))
         {
-            AddToken(type: Match(expected: '=') ? TokenType.IdentityNotEqual : TokenType.NotEqual);
+            AddToken(type: Match(expected: '=')
+                ? TokenType.IdentityNotEqual
+                : TokenType.NotEqual);
         }
         else if (Match(expected: '!'))
         {
@@ -607,16 +612,14 @@ public partial class Tokenizer
             Advance(); // consume 'x'/'X'
             ScanPrefixedNumber(isHex: true);
         }
-        else if (c == '0' && (Peek() == 'b' || Peek() == 'B') &&
-                 (Peek(offset: 1) == '0' || Peek(offset: 1) == '1' ||
-                  Peek(offset: 1) == '_'))
+        else if (c == '0' && (Peek() == 'b' || Peek() == 'B') && (Peek(offset: 1) == '0' ||
+                     Peek(offset: 1) == '1' || Peek(offset: 1) == '_'))
         {
             Advance(); // consume 'b'/'B'
             ScanPrefixedNumber(isHex: false);
         }
         else if (c == '0' && (Peek() == 'o' || Peek() == 'O') &&
-                 ((Peek(offset: 1) >= '0' && Peek(offset: 1) <= '7') ||
-                  Peek(offset: 1) == '_'))
+                 (Peek(offset: 1) >= '0' && Peek(offset: 1) <= '7' || Peek(offset: 1) == '_'))
         {
             Advance(); // consume 'o'/'O'
             ScanOctalNumber();

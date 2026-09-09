@@ -29,7 +29,6 @@ public class FTextFormatSpecTests
     /// <summary>
     /// Verifies semantic analysis behavior for f text name spec without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_FTextNameSpec_NoError()
     {
@@ -46,7 +45,6 @@ public class FTextFormatSpecTests
     /// <summary>
     /// Verifies semantic analysis behavior for f text name diagnose spec without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_FTextNameDiagnoseSpec_NoError()
     {
@@ -63,7 +61,6 @@ public class FTextFormatSpecTests
     /// <summary>
     /// Verifies semantic analysis behavior for f text no spec without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_FTextNoSpec_NoError()
     {
@@ -80,7 +77,6 @@ public class FTextFormatSpecTests
     /// <summary>
     /// Verifies semantic analysis behavior for f text wrong order spec and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_FTextWrongOrderSpec_ReportsError()
     {
@@ -97,7 +93,6 @@ public class FTextFormatSpecTests
     /// <summary>
     /// Verifies semantic analysis behavior for f text invalid spec d and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_FTextInvalidSpec_d_ReportsError()
     {
@@ -114,7 +109,6 @@ public class FTextFormatSpecTests
     /// <summary>
     /// Verifies semantic analysis behavior for f text invalid spec format and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_FTextInvalidSpec_Format_ReportsError()
     {

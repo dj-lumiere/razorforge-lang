@@ -75,8 +75,10 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
     /// <summary>Store primitives whose value argument is MOVED into raw storage — its arg must NOT be
     /// torn down at the caller (it lives on in the container). Mirrors
     /// <see cref="RuntimeContract.StorePrimitives"/> / RecordCopyLoweringPass's store-primitive gate.</summary>
-    private static bool IsStorePrimitiveCall(string calleeName) =>
-        RuntimeContract.StorePrimitives.Contains(item: calleeName);
+    private static bool IsStorePrimitiveCall(string calleeName)
+    {
+        return RuntimeContract.StorePrimitives.Contains(item: calleeName);
+    }
 
     private sealed record Spill(string Name, TypeInfo Type, RoutineInfo Destroy, Expression Init);
 
@@ -84,19 +86,19 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
     {
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration r:
-                    program.Declarations[i] = LowerRoutine(r);
+                    program.Declarations[index: i] = LowerRoutine(r: r);
                     break;
                 case EntityDeclaration e:
-                    LowerMemberList(e.Members);
+                    LowerMemberList(members: e.Members);
                     break;
                 case RecordDeclaration rec:
-                    LowerMemberList(rec.Members);
+                    LowerMemberList(members: rec.Members);
                     break;
                 case CrashableDeclaration cr:
-                    LowerMemberList(cr.Members);
+                    LowerMemberList(members: cr.Members);
                     break;
             }
         }
@@ -105,22 +107,34 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
     /// <summary>Lowers free-standing bodies (variant / synthesized routine bodies) in place.</summary>
     public void RunOnBodies(Dictionary<string, Statement>? bodies)
     {
-        if (bodies is null) return;
+        if (bodies is null)
+        {
+            return;
+        }
+
         foreach (string key in bodies.Keys.ToList())
-            bodies[key] = TransformStatement(bodies[key]);
+        {
+            bodies[key: key] = TransformStatement(stmt: bodies[key: key]);
+        }
     }
 
     private void LowerMemberList(List<SyntaxTree.Declaration> members)
     {
         for (int j = 0; j < members.Count; j++)
-            if (members[j] is RoutineDeclaration m)
-                members[j] = LowerRoutine(m);
+        {
+            if (members[index: j] is RoutineDeclaration m)
+            {
+                members[index: j] = LowerRoutine(r: m);
+            }
+        }
     }
 
     private RoutineDeclaration LowerRoutine(RoutineDeclaration r)
     {
-        Statement body = TransformStatement(r.Body);
-        return r.Body == body ? r : r with { Body = body };
+        Statement body = TransformStatement(stmt: r.Body);
+        return r.Body == body
+            ? r
+            : r with { Body = body };
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -133,7 +147,9 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         {
             case BlockStatement b:
             {
-                List<Statement> stmts = b.Statements.Select(TransformStatement).ToList();
+                var stmts = b.Statements
+                             .Select(selector: TransformStatement)
+                             .ToList();
                 return b with { Statements = stmts };
             }
 
@@ -142,38 +158,49 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
                 // The condition is evaluated where the if sits (and re-evaluated each iteration when
                 // the if is inside a loop body), so hoisting its temps just before the if — and
                 // freeing them just after — is correct per-entry RAII.
-                Statement then = TransformStatement(ifs.ThenStatement);
+                Statement then = TransformStatement(stmt: ifs.ThenStatement);
                 Statement? elseS = ifs.ElseStatement != null
-                    ? TransformStatement(ifs.ElseStatement)
+                    ? TransformStatement(stmt: ifs.ElseStatement)
                     : null;
                 IfStatement rebuilt = ifs with { ThenStatement = then, ElseStatement = elseS };
-                return SpillAround(rebuilt, ifs.Condition,
+                return SpillAround(owner: rebuilt,
+                    root: ifs.Condition,
                     rebuildWithCondition: c => rebuilt with { Condition = c });
             }
 
             case LoopStatement loop:
-                return loop with { Body = TransformStatement(loop.Body) };
+                return loop with { Body = TransformStatement(stmt: loop.Body) };
 
             case WhileStatement w:
                 // `while` desugars to LoopStatement before this pass; if one survives, only descend
                 // into the body (hoisting a pre-checked condition's temps outside would change when
                 // they evaluate). Condition temps in this rare case are left as-is.
-                return w with { Body = TransformStatement(w.Body),
-                    ElseBranch = w.ElseBranch != null ? TransformStatement(w.ElseBranch) : null };
+                return w with
+                {
+                    Body = TransformStatement(stmt: w.Body),
+                    ElseBranch = w.ElseBranch != null
+                        ? TransformStatement(stmt: w.ElseBranch)
+                        : null
+                };
 
             case EachStatement f:
-                return f with { Body = TransformStatement(f.Body),
-                    ElseBranch = f.ElseBranch != null ? TransformStatement(f.ElseBranch) : null };
+                return f with
+                {
+                    Body = TransformStatement(stmt: f.Body),
+                    ElseBranch = f.ElseBranch != null
+                        ? TransformStatement(stmt: f.ElseBranch)
+                        : null
+                };
 
             case DangerStatement d:
-                return d with { Body = (BlockStatement)TransformStatement(d.Body) };
+                return d with { Body = (BlockStatement)TransformStatement(stmt: d.Body) };
 
             case UsingStatement u:
                 return u with
                 {
-                    Body = TransformStatement(u.Body),
+                    Body = TransformStatement(stmt: u.Body),
                     FallbackBody = u.FallbackBody != null
-                        ? TransformStatement(u.FallbackBody)
+                        ? TransformStatement(stmt: u.FallbackBody)
                         : null
                 };
 
@@ -181,8 +208,12 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
             {
                 // Should already be lowered to if-chains for the bodies codegen emits; handle
                 // defensively by descending into clause bodies (guards left as-is).
-                List<WhenClause> clauses = whenStmt.Clauses
-                    .Select(c => c with { Body = TransformStatement(c.Body) }).ToList();
+                var clauses = whenStmt.Clauses
+                                      .Select(selector: c => c with
+                                       {
+                                           Body = TransformStatement(stmt: c.Body)
+                                       })
+                                      .ToList();
                 return whenStmt with { Clauses = clauses };
             }
 
@@ -193,29 +224,39 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
 
             case DeclarationStatement { Declaration: VariableDeclaration v } ds
                 when v.Initializer != null:
-                return SpillAround(ds, v.Initializer,
+                return SpillAround(owner: ds,
+                    root: v.Initializer,
                     rebuildWithCondition: init =>
                         ds with { Declaration = v with { Initializer = init } });
 
             case AssignmentStatement { Target: IdentifierExpression t2 } a:
-                return LowerReassign(a, a.Value, t2,
+                return LowerReassign(owner: a,
+                    rhs: a.Value,
+                    target: t2,
                     rebuild: val => a with { Value = val });
 
             case AssignmentStatement a:
-                return SpillAround(a, a.Value,
+                return SpillAround(owner: a,
+                    root: a.Value,
                     rebuildWithCondition: val => a with { Value = val });
 
             case ReturnStatement { Value: { } rv } ret:
-                return SpillAround(ret, rv,
-                    rebuildWithCondition: val => ret with { Value = val }, isTerminator: true);
+                return SpillAround(owner: ret,
+                    root: rv,
+                    rebuildWithCondition: val => ret with { Value = val },
+                    isTerminator: true);
 
             case VariantReturnStatement { Value: { } vrv } vret:
-                return SpillAround(vret, vrv,
-                    rebuildWithCondition: val => vret with { Value = val }, isTerminator: true);
+                return SpillAround(owner: vret,
+                    root: vrv,
+                    rebuildWithCondition: val => vret with { Value = val },
+                    isTerminator: true);
 
             case ThrowStatement th:
-                return SpillAround(th, th.Error,
-                    rebuildWithCondition: err => th with { Error = err }, isTerminator: true);
+                return SpillAround(owner: th,
+                    root: th.Error,
+                    rebuildWithCondition: err => th with { Error = err },
+                    isTerminator: true);
 
             default:
                 return stmt;
@@ -226,14 +267,23 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
     {
         // Operator-form assignment (`x = …`): recurse the RHS for spillable receivers, but the
         // RHS value itself is owned by the target — never spill the top.
-        if (es.Expression is BinaryExpression { Operator: BinaryOperator.Assign,
-                Left: IdentifierExpression t1 } bin)
-            return LowerReassign(es, bin.Right, t1,
+        if (es.Expression is BinaryExpression
+            {
+                Operator: BinaryOperator.Assign,
+                Left: IdentifierExpression t1
+            } bin)
+        {
+            return LowerReassign(owner: es,
+                rhs: bin.Right,
+                target: t1,
                 rebuild: rhs => es with { Expression = bin with { Right = rhs } });
+        }
+
         // A bare expression statement: recurse for receivers only. We do NOT spill the
         // discarded top value — a fluent `me`-returning call (e.g. `b.append(x)`) yields an
         // alias of an existing owned binding, so freeing it would double-free.
-        return SpillAround(es, es.Expression,
+        return SpillAround(owner: es,
+            root: es.Expression,
             rebuildWithCondition: e => es with { Expression = e });
     }
 
@@ -259,38 +309,60 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         bool isTerminator = false)
     {
         var spills = new List<Spill>();
-        Expression rewritten = Visit(root, objectPos: !topOwning, spills);
+        Expression rewritten = Visit(e: root, objectPos: !topOwning, spills: spills);
         if (spills.Count == 0)
+        {
             return owner;
+        }
 
         var stmts = new List<Statement>(capacity: spills.Count * 2 + 2);
         foreach (Spill s in spills)
-            stmts.Add(new DeclarationStatement(
-                Declaration: new VariableDeclaration(Name: s.Name, Type: null, Initializer: s.Init,
-                    Visibility: VisibilityModifier.Secret, Location: owner.Location),
+        {
+            stmts.Add(item: new DeclarationStatement(
+                Declaration: new VariableDeclaration(Name: s.Name,
+                    Type: null,
+                    Initializer: s.Init,
+                    Visibility: VisibilityModifier.Secret,
+                    Location: owner.Location),
                 Location: owner.Location));
+        }
 
         if (isTerminator)
-            return EmitTerminatorSpillBlock(owner: owner, rewritten: rewritten,
-                rebuildWithCondition: rebuildWithCondition, spills: spills, stmts: stmts);
+        {
+            return EmitTerminatorSpillBlock(owner: owner,
+                rewritten: rewritten,
+                rebuildWithCondition: rebuildWithCondition,
+                spills: spills,
+                stmts: stmts);
+        }
 
-        stmts.Add(rebuildWithCondition(rewritten));
+        stmts.Add(item: rebuildWithCondition(arg: rewritten));
         for (int i = spills.Count - 1; i >= 0; i--)
-            stmts.Add(MakeDestroyStmt(spills[i], owner.Location));
+        {
+            stmts.Add(item: MakeDestroyStmt(spill: spills[index: i], loc: owner.Location));
+        }
+
         return new BlockStatement(Statements: stmts, Location: owner.Location);
     }
 
     // Compute the transferred value while the spills are still alive, tear them down, then
     // transfer control. Without this the destroys would sit after an unreachable point.
     private BlockStatement EmitTerminatorSpillBlock(Statement owner, Expression rewritten,
-        Func<Expression, Statement> rebuildWithCondition, List<Spill> spills, List<Statement> stmts)
+        Func<Expression, Statement> rebuildWithCondition, List<Spill> spills,
+        List<Statement> stmts)
     {
         string retName = $"__ret_{_counter++}";
-        stmts.Add(DeclStmt(retName, rewritten, owner.Location));
+        stmts.Add(item: DeclStmt(name: retName, init: rewritten, loc: owner.Location));
         for (int i = spills.Count - 1; i >= 0; i--)
-            stmts.Add(MakeDestroyStmt(spills[i], owner.Location));
-        stmts.Add(rebuildWithCondition(new IdentifierExpression(Name: retName,
-            Location: owner.Location) { ResolvedType = rewritten.ResolvedType }));
+        {
+            stmts.Add(item: MakeDestroyStmt(spill: spills[index: i], loc: owner.Location));
+        }
+
+        stmts.Add(item: rebuildWithCondition(
+            arg: new IdentifierExpression(Name: retName, Location: owner.Location)
+            {
+                ResolvedType = rewritten.ResolvedType
+            }));
         return new BlockStatement(Statements: stmts, Location: owner.Location);
     }
 
@@ -317,33 +389,55 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         // marker is set on the tail identifier, NOT recovered by parsing the `__rv_` name, so this is a
         // precise no-op only for the pass's own output.
         if (rhs is IdentifierExpression { IsSynthesizedTeardownTemp: true })
+        {
             return owner;
+        }
 
-        if (!IsManagedLeafReassignTarget(target.ResolvedType))
-            return SpillAround(owner, rhs, rebuildWithCondition: rebuild);
+        if (!IsManagedLeafReassignTarget(t: target.ResolvedType))
+        {
+            return SpillAround(owner: owner, root: rhs, rebuildWithCondition: rebuild);
+        }
 
         TypeInfo t = target.ResolvedType!;
-        RoutineInfo destroy = ctx.Registry.GetLifecycle(t).Destroy!;
+        RoutineInfo destroy = ctx.Registry.GetLifecycle(type: t)
+                                 .Destroy!;
         var spills = new List<Spill>();
-        Expression rhs2 = Visit(rhs, objectPos: false, spills);
+        Expression rhs2 = Visit(e: rhs, objectPos: false, spills: spills);
 
         var stmts = new List<Statement>(capacity: spills.Count * 2 + 3);
         foreach (Spill s in spills)
-            stmts.Add(DeclStmt(s.Name, s.Init, owner.Location));
+        {
+            stmts.Add(item: DeclStmt(name: s.Name, init: s.Init, loc: owner.Location));
+        }
+
         string newName = $"__rv_{_counter++}";
-        stmts.Add(DeclStmt(newName, rhs2, owner.Location));
-        stmts.Add(MakeDestroyCall(target.Name, t, destroy, owner.Location));
-        stmts.Add(rebuild(new IdentifierExpression(Name: newName, Location: owner.Location)
-            { ResolvedType = t, IsSynthesizedTeardownTemp = true }));
+        stmts.Add(item: DeclStmt(name: newName, init: rhs2, loc: owner.Location));
+        stmts.Add(item: MakeDestroyCall(name: target.Name,
+            type: t,
+            destroy: destroy,
+            loc: owner.Location));
+        stmts.Add(item: rebuild(
+            arg: new IdentifierExpression(Name: newName, Location: owner.Location)
+            {
+                ResolvedType = t, IsSynthesizedTeardownTemp = true
+            }));
         for (int i = spills.Count - 1; i >= 0; i--)
-            stmts.Add(MakeDestroyStmt(spills[i], owner.Location));
+        {
+            stmts.Add(item: MakeDestroyStmt(spill: spills[index: i], loc: owner.Location));
+        }
+
         return new BlockStatement(Statements: stmts, Location: owner.Location);
     }
 
-    private static DeclarationStatement DeclStmt(string name, Expression init, SourceLocation loc) =>
-        new(Declaration: new VariableDeclaration(Name: name, Type: null, Initializer: init,
-                Visibility: VisibilityModifier.Secret, Location: loc),
+    private static DeclarationStatement DeclStmt(string name, Expression init, SourceLocation loc)
+    {
+        return new DeclarationStatement(Declaration: new VariableDeclaration(Name: name,
+                Type: null,
+                Initializer: init,
+                Visibility: VisibilityModifier.Secret,
+                Location: loc),
             Location: loc);
+    }
 
     /// <summary>RC-wrapper base names whose reassignment release is handled by codegen's
     /// EmitVariableAssignment (EmitRetainedVarRelease) — excluded so we never double-release.</summary>
@@ -358,11 +452,17 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
     private bool IsManagedLeafReassignTarget(TypeInfo? t)
     {
         if (t is not RecordTypeInfo rec || rec.HasRCMemberVariables)
+        {
             return false;
+        }
+
         string baseName = rec.BareName;
         if (RcWrapperBaseNames.Contains(item: baseName))
+        {
             return false;
-        TypeRegistry.Lifecycle lc = ctx.Registry.GetLifecycle(t);
+        }
+
+        TypeRegistry.Lifecycle lc = ctx.Registry.GetLifecycle(type: t);
         return !lc.IsBorrow && lc.Destroy != null && lc.Store != null;
     }
 
@@ -376,57 +476,66 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         switch (e)
         {
             case CallExpression { Callee: MemberExpression m } call:
-                return VisitMemberCall(call: call, m: m, objectPos: objectPos, spills: spills);
+                return VisitMemberCall(call: call,
+                    m: m,
+                    objectPos: objectPos,
+                    spills: spills);
 
             case CallExpression call:
             {
-                Expression newCallee = Visit(call.Callee, objectPos: false, spills);
+                Expression newCallee = Visit(e: call.Callee, objectPos: false, spills: spills);
                 // See the member-call case: owning-position args (torn down at the caller) unless this is
                 // a store primitive.
-                bool argsOwned = call.ConstructedType is null
-                    && (call.Callee is not IdentifierExpression fid || !IsStorePrimitiveCall(fid.Name));
-                List<Expression> newArgs = call.Arguments
-                    .Select(a => Visit(a, objectPos: argsOwned, spills)).ToList();
+                bool argsOwned = call.ConstructedType is null &&
+                                 (call.Callee is not IdentifierExpression fid ||
+                                  !IsStorePrimitiveCall(calleeName: fid.Name));
+                var newArgs = call.Arguments
+                                  .Select(selector: a =>
+                                       Visit(e: a, objectPos: argsOwned, spills: spills))
+                                  .ToList();
                 Expression result = call with { Callee = newCallee, Arguments = newArgs };
-                return MaybeSpillTop(result, objectPos, spills);
+                return MaybeSpillTop(e: result, objectPos: objectPos, spills: spills);
             }
 
             case MemberExpression m:
             {
                 // Field read / memberRoutine-group object: descend (to catch nested call receivers) but do
                 // not spill the object itself (v1 limitation — see class doc).
-                Expression newObj = Visit(m.Object, objectPos: false, spills);
+                Expression newObj = Visit(e: m.Object, objectPos: false, spills: spills);
                 return m with { Object = newObj };
             }
 
             case IndexExpression ix:
             {
-                Expression newObj = Visit(ix.Object, objectPos: false, spills);
-                Expression newIdx = Visit(ix.Index, objectPos: false, spills);
+                Expression newObj = Visit(e: ix.Object, objectPos: false, spills: spills);
+                Expression newIdx = Visit(e: ix.Index, objectPos: false, spills: spills);
                 return ix with { Object = newObj, Index = newIdx };
             }
 
             case NamedArgumentExpression na:
-                return na with { Value = Visit(na.Value, objectPos: false, spills) };
+                return na with { Value = Visit(e: na.Value, objectPos: false, spills: spills) };
 
             case BinaryExpression b:
                 return b with
                 {
-                    Left = Visit(b.Left, objectPos: false, spills),
-                    Right = Visit(b.Right, objectPos: false, spills)
+                    Left = Visit(e: b.Left, objectPos: false, spills: spills),
+                    Right = Visit(e: b.Right, objectPos: false, spills: spills)
                 };
 
             case UnaryExpression u:
-                return u with { Operand = Visit(u.Operand, objectPos: false, spills) };
+                return u with { Operand = Visit(e: u.Operand, objectPos: false, spills: spills) };
 
             case StealExpression st:
                 // `steal` is an explicit move — never tear down its operand.
-                return st with { Operand = Visit(st.Operand, objectPos: false, spills) };
+                return st with
+                {
+                    Operand = Visit(e: st.Operand, objectPos: false, spills: spills)
+                };
 
             default:
                 // Identifiers, literals, and node forms not modeled here: leave untouched. A producer
                 // sitting at the very top in a discarded position is still handled below.
-                return MaybeSpillTop(e, objectPos, spills);
+                return MaybeSpillTop(e: e, objectPos: objectPos, spills: spills);
         }
     }
 
@@ -446,11 +555,11 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         // A COPY verb (`store`/`copy`) reads its receiver, and constructing an RC wrapper FROM a
         // bare entity (STRUCTURAL: entity receiver + RC-wrapper result) moves it into the
         // controller — in both cases the receiver is not a fresh producer to tear down here.
-        bool receiverConsumed = m.MemberName is "assign" or "duplicate"
-                                || (m.Object.ResolvedType is EntityTypeInfo
-                                    && call.ResolvedType is { } rcCtorRes
-                                    && TypeRegistry.GetRcWrapperBaseName(type: rcCtorRes) is not null);
-        Expression newRecv = Visit(m.Object, objectPos: false, spills);
+        bool receiverConsumed = m.MemberName is "assign" or "duplicate" ||
+                                m.Object.ResolvedType is EntityTypeInfo &&
+                                call.ResolvedType is { } rcCtorRes &&
+                                TypeRegistry.GetRcWrapperBaseName(type: rcCtorRes) is not null;
+        Expression newRecv = Visit(e: m.Object, objectPos: false, spills: spills);
 
         // Spill the receiver iff it is a fresh heap-owning RC-record producer, the verb does
         // not consume it (retain/track move it into the RC controller), and the call result
@@ -460,9 +569,11 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         // retaining +1 copy (RecordCopyLoweringPass injects store on lvalue/`me` returns) — so
         // the controller refcount stays balanced. The only hazard is a borrow/view result
         // (Viewing/Modifying/…) pointing into the receiver, which the guard excludes.
-        if (!receiverConsumed && IsSpillableProducer(newRecv)
-            && !ResultMayAliasReceiver(call.ResolvedType))
-            newRecv = MakeSpill(newRecv, spills);
+        if (!receiverConsumed && IsSpillableProducer(e: newRecv) &&
+            !ResultMayAliasReceiver(resultType: call.ResolvedType))
+        {
+            newRecv = MakeSpill(producer: newRecv, spills: spills);
+        }
 
         // Three-rules model: a fresh owned RVALUE arg passed to a borrow param is torn down at
         // the CALLER (the callee only borrows it and no longer frees it). So visit args in owning
@@ -473,14 +584,16 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         // value's fields (a destination that RETAINS via RecordCopyLoweringPass), and a store
         // primitive MOVES its value into storage — in both cases the arg lives on, so it must NOT
         // be torn down at the caller. Only a plain routine/memberRoutine borrows a fresh rvalue arg.
-        bool argsOwned = call.ConstructedType is null && !IsStorePrimitiveCall(m.MemberName);
-        List<Expression> newArgs = call.Arguments
-            .Select(a => Visit(a, objectPos: argsOwned, spills)).ToList();
+        bool argsOwned = call.ConstructedType is null &&
+                         !IsStorePrimitiveCall(calleeName: m.MemberName);
+        var newArgs = call.Arguments
+                          .Select(selector: a => Visit(e: a, objectPos: argsOwned, spills: spills))
+                          .ToList();
         Expression result = call with
         {
             Callee = m with { Object = newRecv }, Arguments = newArgs
         };
-        return MaybeSpillTop(result, objectPos, spills);
+        return MaybeSpillTop(e: result, objectPos: objectPos, spills: spills);
     }
 
     /// <summary>Spills <paramref name="e"/> when it sits in a discard/borrow position and is a
@@ -488,19 +601,28 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
     /// not stored anywhere).</summary>
     private Expression MaybeSpillTop(Expression e, bool objectPos, List<Spill> spills)
     {
-        if (objectPos && IsSpillableProducer(e))
-            return MakeSpill(e, spills);
+        if (objectPos && IsSpillableProducer(e: e))
+        {
+            return MakeSpill(producer: e, spills: spills);
+        }
+
         return e;
     }
 
     private IdentifierExpression MakeSpill(Expression producer, List<Spill> spills)
     {
         TypeInfo type = producer.ResolvedType!;
-        RoutineInfo destroy = ctx.Registry.GetLifecycle(type).Destroy!;
+        RoutineInfo destroy = ctx.Registry.GetLifecycle(type: type)
+                                 .Destroy!;
         string name = $"__tt_{_counter++}";
-        spills.Add(new Spill(Name: name, Type: type, Destroy: destroy, Init: producer));
+        spills.Add(item: new Spill(Name: name,
+            Type: type,
+            Destroy: destroy,
+            Init: producer));
         return new IdentifierExpression(Name: name, Location: producer.Location)
-            { ResolvedType = type };
+        {
+            ResolvedType = type
+        };
     }
 
     /// <summary>True for a fresh owned heap producer worth tearing down: a call/creator whose result
@@ -509,15 +631,28 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
     private bool IsSpillableProducer(Expression e)
     {
         if (e is not (CallExpression or CreatorExpression))
+        {
             return false;
-        if (e is CallExpression { Callee: MemberExpression vm } && ViewVerbs.Contains(vm.MemberName))
+        }
+
+        if (e is CallExpression { Callee: MemberExpression vm } &&
+            ViewVerbs.Contains(item: vm.MemberName))
+        {
             return false;
+        }
+
         TypeInfo? t = e.ResolvedType;
         if (t is null)
+        {
             return false;
-        TypeRegistry.Lifecycle lc = ctx.Registry.GetLifecycle(t);
+        }
+
+        TypeRegistry.Lifecycle lc = ctx.Registry.GetLifecycle(type: t);
         if (lc.IsBorrow || lc.Destroy is null)
+        {
             return false;
+        }
+
         // Only HEAP-owning RECORDS are spilled: a managed leaf with a retaining store (Text/Decimal)
         // or a record carrying RC-wrapper fields. Their destroy releases a refcounted controller, so
         // an extra balanced release is always safe. Entities are deliberately excluded for now (their
@@ -530,25 +665,34 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
     /// the receiver after the call could dangle it. Borrow/view wrappers and unknown/abstract results
     /// are treated as possibly-aliasing; scalars, value/RC records, RC wrappers, entities, and
     /// <c>None</c> are independent of an RC-record receiver and safe.</summary>
-    private static bool ResultMayAliasReceiver(TypeInfo? resultType) =>
-        resultType switch
+    private static bool ResultMayAliasReceiver(TypeInfo? resultType)
+    {
+        return resultType switch
         {
             null => true,
             GenericParameterTypeInfo => true,
             ProtocolTypeInfo => true,
-            WrapperTypeInfo w => BorrowWrapperNames.Contains(w.Name),
+            WrapperTypeInfo w => BorrowWrapperNames.Contains(item: w.Name),
             _ => false
         };
+    }
 
-    private ExpressionStatement MakeDestroyStmt(Spill spill, SourceLocation loc) =>
-        MakeDestroyCall(name: spill.Name, type: spill.Type, destroy: spill.Destroy, loc: loc);
+    private ExpressionStatement MakeDestroyStmt(Spill spill, SourceLocation loc)
+    {
+        return MakeDestroyCall(name: spill.Name,
+            type: spill.Type,
+            destroy: spill.Destroy,
+            loc: loc);
+    }
 
     private ExpressionStatement MakeDestroyCall(string name, TypeInfo type, RoutineInfo destroy,
         SourceLocation loc)
     {
         var ident = new IdentifierExpression(Name: name, Location: loc) { ResolvedType = type };
         var callee = new MemberExpression(Object: ident, MemberName: "destroy", Location: loc)
-            { ResolvedType = _blankType };
+        {
+            ResolvedType = _blankType
+        };
         var call = new CallExpression(Callee: callee, Arguments: [], Location: loc)
         {
             ResolvedRoutine = destroy,

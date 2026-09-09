@@ -73,7 +73,8 @@ public partial class Parser
         // re-strip a leading/trailing quote here: a literal whose CONTENT begins and ends with `"`
         // (e.g. `"\""` → the one-char value `"`) would be corrupted, and a single `"` would compute
         // a negative Substring length and throw.
-        result = new LiteralExpression(Value: token.Text, LiteralType: token.Type,
+        result = new LiteralExpression(Value: token.Text,
+            LiteralType: token.Type,
             Location: location);
         return true;
     }
@@ -252,5 +253,4 @@ public partial class Parser
             _ => charContent
         };
     }
-
 }

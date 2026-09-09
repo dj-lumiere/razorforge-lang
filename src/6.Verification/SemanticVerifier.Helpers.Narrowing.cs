@@ -25,7 +25,10 @@ public sealed partial class SemanticVerifier
     /// <summary>A general-variant `x is A` / `x isnot A` test on a variant variable — the seed for
     /// arm-exclusion narrowing (`if x is A {} elseif x is B {} else { /* x is C */ }`).</summary>
     private sealed record VariantIsNarrowing(
-        string VarName, VariantTypeInfo Variant, VariantMemberInfo Arm, bool Negated);
+        string VarName,
+        VariantTypeInfo Variant,
+        VariantMemberInfo Arm,
+        bool Negated);
 
     /// <summary>
     /// Recognizes a `variable is Arm` / `variable isnot Arm` condition where <c>variable</c> has a
@@ -46,8 +49,9 @@ public sealed partial class SemanticVerifier
         // enclosing check, else its declared type. This lets nested narrowing compose: after
         // `if o is None` narrows `o` (Outer) to its sole remaining arm `Inner`, a further
         // `if o is S32` matches against `Inner`'s arms. Skip carriers (own narrowing path).
-        TypeInfo? subjectType = _registry.GetNarrowedType(name: id.Name)
-            ?? _registry.LookupVariable(name: id.Name)?.Type;
+        TypeInfo? subjectType = _registry.GetNarrowedType(name: id.Name) ?? _registry
+           .LookupVariable(name: id.Name)
+          ?.Type;
         if (subjectType is not VariantTypeInfo variant || IsCarrierType(type: variant))
         {
             return null;
@@ -56,7 +60,9 @@ public sealed partial class SemanticVerifier
         VariantMemberInfo? arm = ResolveVariantArm(pattern: isPat.Pattern, variant: variant);
         return arm == null
             ? null
-            : new VariantIsNarrowing(VarName: id.Name, Variant: variant, Arm: arm,
+            : new VariantIsNarrowing(VarName: id.Name,
+                Variant: variant,
+                Arm: arm,
                 Negated: isPat.IsNegated);
     }
 
@@ -71,7 +77,9 @@ public sealed partial class SemanticVerifier
     {
         // `is None` matches the payload-less None arm.
         if (IsNonePattern(pattern: pattern))
+        {
             return variant.Members.FirstOrDefault(predicate: m => m.IsNone);
+        }
 
         TypeExpression? armExpr = pattern switch
         {
@@ -79,10 +87,15 @@ public sealed partial class SemanticVerifier
             TypeDestructuringPattern td => td.Type,
             _ => null // GuardPattern / ElsePattern / comparison / literal → not a full arm match
         };
-        if (armExpr == null) return null;
+        if (armExpr == null)
+        {
+            return null;
+        }
 
         TypeInfo? armType = armExpr.ResolvedType ?? _registry.LookupType(name: armExpr.Name);
-        return armType == null ? null : variant.FindMember(type: armType);
+        return armType == null
+            ? null
+            : variant.FindMember(type: armType);
     }
 
     /// <summary>
@@ -94,22 +107,30 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void ApplyVariantNarrowing(VariantIsNarrowing vn, bool conditionTrue)
     {
-        bool armPresent = conditionTrue ? !vn.Negated : vn.Negated;
+        bool armPresent = conditionTrue
+            ? !vn.Negated
+            : vn.Negated;
 
         if (armPresent)
         {
             if (vn.Arm.Type != null)
+            {
                 _registry.NarrowVariable(name: vn.VarName, narrowedType: vn.Arm.Type);
+            }
+
             return;
         }
 
         _registry.ExcludeVariantArm(name: vn.VarName, armFullName: vn.Arm.Name);
         IReadOnlyCollection<string> excluded = _registry.GetExcludedVariantArms(name: vn.VarName);
-        List<VariantMemberInfo> remaining = vn.Variant.Members
-            .Where(predicate: m => !excluded.Contains(m.Name))
-            .ToList();
+        var remaining = vn.Variant
+                          .Members
+                          .Where(predicate: m => !excluded.Contains(value: m.Name))
+                          .ToList();
         if (remaining is [{ Type: not null } sole])
+        {
             _registry.NarrowVariable(name: vn.VarName, narrowedType: sole.Type);
+        }
     }
 
     /// <summary>
@@ -146,8 +167,7 @@ public sealed partial class SemanticVerifier
                 ThenBranchType: thenBranchType,
                 ElseBranchType: elseBranchType)
             {
-                ThenNonNull = thenNonNull,
-                ElseNonNull = elseNonNull
+                ThenNonNull = thenNonNull, ElseNonNull = elseNonNull
             };
         }
 
@@ -179,11 +199,13 @@ public sealed partial class SemanticVerifier
         {
             return isPat.IsNegated
                 // `x isnot none` -> then-branch proves non-none
-                ? new NarrowingInfo(VariableName: id.Name, ThenBranchType: null, ElseBranchType: null)
-                    { ThenNonNull = true }
+                ? new NarrowingInfo(VariableName: id.Name,
+                    ThenBranchType: null,
+                    ElseBranchType: null) { ThenNonNull = true }
                 // `x is none` -> else-branch (and guard continuation) proves non-none
-                : new NarrowingInfo(VariableName: id.Name, ThenBranchType: null, ElseBranchType: null)
-                    { ElseNonNull = true };
+                : new NarrowingInfo(VariableName: id.Name,
+                    ThenBranchType: null,
+                    ElseBranchType: null) { ElseNonNull = true };
         }
 
         // Check for existing narrowing
@@ -192,7 +214,8 @@ public sealed partial class SemanticVerifier
         string? carrierBase = GetCarrierBaseName(type: varType);
         bool carrierUsesNoneForAbsent = carrierBase is "Maybe" or "Lookup";
         bool eliminateNone = carrierUsesNoneForAbsent && IsNonePattern(pattern: isPat.Pattern);
-        bool eliminateNoneValue = carrierBase == "Result" && IsNoneTypePattern(pattern: isPat.Pattern);
+        bool eliminateNoneValue =
+            carrierBase == "Result" && IsNoneTypePattern(pattern: isPat.Pattern);
         bool eliminateCrashable = IsCrashablePattern(pattern: isPat.Pattern);
 
         if (!eliminateNone && !eliminateNoneValue && !eliminateCrashable)
@@ -288,16 +311,15 @@ public sealed partial class SemanticVerifier
             AbsentStatement => true,
             BecomesStatement => true,
             BlockStatement block => block.Statements.Any(predicate: s =>
-                                        StatementAlwaysTerminates(statement: s)),
+                StatementAlwaysTerminates(statement: s)),
             IfStatement { ElseStatement: not null } ifStmt =>
                 StatementAlwaysTerminates(statement: ifStmt.ThenStatement) &&
                 StatementAlwaysTerminates(statement: ifStmt.ElseStatement),
             // A comptime arm-expansion `when` is provably exhaustive: `expand … branchof(T)` covers
             // every payload arm and any explicit clauses (e.g. `is None =>`) cover the rest. It
             // terminates iff every explicit clause body AND the arm template body terminate.
-            WhenStatement { ArmExpansion: { } armExp } armWhen =>
-                armWhen.Clauses.All(predicate: c =>
-                    StatementAlwaysTerminates(statement: c.Body)) &&
+            WhenStatement { ArmExpansion: { } armExp } armWhen => armWhen.Clauses.All(
+                    predicate: c => StatementAlwaysTerminates(statement: c.Body)) &&
                 StatementAlwaysTerminates(statement: armExp.Template.Body),
 
             WhenStatement whenStmt => whenStmt.Clauses.Count > 0 &&
@@ -332,12 +354,11 @@ public sealed partial class SemanticVerifier
         {
             BreakStatement => true,
             BlockStatement block => block.Statements.Any(predicate: LoopBodyCanBreakOut),
-            IfStatement ifStmt =>
-                LoopBodyCanBreakOut(statement: ifStmt.ThenStatement) ||
-                (ifStmt.ElseStatement is not null &&
-                 LoopBodyCanBreakOut(statement: ifStmt.ElseStatement)),
-            WhenStatement whenStmt =>
-                whenStmt.Clauses.Any(predicate: c => LoopBodyCanBreakOut(statement: c.Body)),
+            IfStatement ifStmt => LoopBodyCanBreakOut(statement: ifStmt.ThenStatement) ||
+                                  ifStmt.ElseStatement is not null &&
+                                  LoopBodyCanBreakOut(statement: ifStmt.ElseStatement),
+            WhenStatement whenStmt => whenStmt.Clauses.Any(predicate: c =>
+                LoopBodyCanBreakOut(statement: c.Body)),
             DangerStatement danger => LoopBodyCanBreakOut(statement: danger.Body),
             // Nested loops swallow their own breaks — do not descend.
             LoopStatement or WhileStatement or EachStatement => false,
@@ -359,7 +380,7 @@ public sealed partial class SemanticVerifier
             BreakStatement => true,
             ContinueStatement => true,
             BlockStatement block => block.Statements.Any(predicate: s =>
-                                        HasDefiniteExit(statement: s)),
+                HasDefiniteExit(statement: s)),
             IfStatement { ElseStatement: not null } ifStmt =>
                 HasDefiniteExit(statement: ifStmt.ThenStatement) &&
                 HasDefiniteExit(statement: ifStmt.ElseStatement),

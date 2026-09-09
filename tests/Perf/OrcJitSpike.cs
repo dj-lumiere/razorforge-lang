@@ -16,23 +16,32 @@ namespace RazorForge.Tests.Perf;
 public sealed unsafe class OrcJitSpike
 {
     private readonly ITestOutputHelper _out;
-    public OrcJitSpike(ITestOutputHelper output) => _out = output;
+    public OrcJitSpike(ITestOutputHelper output)
+    {
+        _out = output;
+    }
 
     // LLVMSharp.Interop installs its OWN DllImportResolver for "libLLVM", so we cannot add another. Pre-load
     // an LLVM-C shared library under the base name "libLLVM" by ABSOLUTE path: Windows caches it by base
     // name, so the later DllImport("libLLVM") resolves to it (LLVMSharp's resolver returns Zero → default
     // resolution finds the cached module).
-    private static IntPtr _llvmHandle;
+    private static nint _llvmHandle;
     static OrcJitSpike()
     {
-        string dir = Path.GetDirectoryName(typeof(OrcJitSpike).Assembly.Location) ?? ".";
-        string staged = Path.Combine(dir, "libLLVM.dll");
-        string src = File.Exists(staged) ? staged : @"C:\Program Files\LLVM\bin\LLVM-C.dll";
-        _llvmHandle = NativeLibrary.Load(src);
-        bool hasSym = NativeLibrary.TryGetExport(_llvmHandle,
-            "LLVMOrcCreateNewThreadSafeContextFromLLVMContext", out IntPtr fromCtxPtr);
-        _fromCtx = (delegate* unmanaged[Cdecl]<LLVMOpaqueContext*, LLVMOrcOpaqueThreadSafeContext*>)fromCtxPtr;
-        Console.Error.WriteLine($"[ORC-SPIKE] loaded {src} | FromLLVMContext export={hasSym}");
+        string dir = Path.GetDirectoryName(path: typeof(OrcJitSpike).Assembly.Location) ?? ".";
+        string staged = Path.Combine(path1: dir, path2: "libLLVM.dll");
+        string src = File.Exists(path: staged)
+            ? staged
+            : @"C:\Program Files\LLVM\bin\LLVM-C.dll";
+        _llvmHandle = NativeLibrary.Load(libraryPath: src);
+        bool hasSym = NativeLibrary.TryGetExport(handle: _llvmHandle,
+            name: "LLVMOrcCreateNewThreadSafeContextFromLLVMContext",
+            address: out nint fromCtxPtr);
+        _fromCtx =
+            (delegate* unmanaged[Cdecl]<LLVMOpaqueContext*, LLVMOrcOpaqueThreadSafeContext*>)
+            fromCtxPtr;
+        Console.Error.WriteLine(
+            value: $"[ORC-SPIKE] loaded {src} | FromLLVMContext export={hasSym}");
         Console.Error.Flush();
     }
 
@@ -40,11 +49,12 @@ public sealed unsafe class OrcJitSpike
     // replaced it with LLVMOrcCreateNewThreadSafeContextFromLLVMContext, which LLVMSharp 20 does NOT bind.
     // Resolve it from OUR explicitly-loaded handle (a plain DllImport("libLLVM") binds ambiguously when
     // more than one libLLVM is in the process).
-    private static delegate* unmanaged[Cdecl]<LLVMOpaqueContext*, LLVMOrcOpaqueThreadSafeContext*> _fromCtx;
+    private static delegate* unmanaged[Cdecl]<LLVMOpaqueContext*, LLVMOrcOpaqueThreadSafeContext*>
+        _fromCtx;
 
     private static void Stage(string s)
     {
-        Console.Error.WriteLine($"[ORC-SPIKE] {s}");
+        Console.Error.WriteLine(value: $"[ORC-SPIKE] {s}");
         Console.Error.Flush();
     }
 
@@ -52,25 +62,29 @@ public sealed unsafe class OrcJitSpike
     {
         if (err != null)
         {
-            sbyte* msg = LLVM.GetErrorMessage(err);
-            string m = msg != null ? new string(msg) : "<null>";
-            throw new Exception($"{what} failed: {m}");
+            sbyte* msg = LLVM.GetErrorMessage(Err: err);
+            string m = msg != null
+                ? new string(value: msg)
+                : "<null>";
+            throw new Exception(message: $"{what} failed: {m}");
         }
     }
 
-    [Fact(Skip = "Local ORC-JIT feasibility spike: needs a system/bundled libLLVM staged next to the test binary; not run in CI.")]
+    [Fact(Skip =
+        "Local ORC-JIT feasibility spike: needs a system/bundled libLLVM staged next to the test binary; not run in CI.")]
     public void OrcJit_TrivialModule_ReturnsAnswer()
     {
-        Stage("start");
+        Stage(s: "start");
 
         // Initialize the native target — ORC needs the host target/asm printer registered.
         LLVM.InitializeNativeTarget();
         LLVM.InitializeNativeAsmPrinter();
-        Stage("native target initialized");
+        Stage(s: "native target initialized");
 
-        byte[] ir = Encoding.ASCII.GetBytes("define i32 @answer() {\nentry:\n  ret i32 42\n}\n");
-        byte[] modName = Encoding.ASCII.GetBytes("spike\0");
-        byte[] symName = Encoding.ASCII.GetBytes("answer\0");
+        byte[] ir =
+            Encoding.ASCII.GetBytes(s: "define i32 @answer() {\nentry:\n  ret i32 42\n}\n");
+        byte[] modName = Encoding.ASCII.GetBytes(s: "spike\0");
+        byte[] symName = Encoding.ASCII.GetBytes(s: "answer\0");
 
         // Own a plain context, parse the IR into it, then hand the context to a ThreadSafeContext.
         LLVMOpaqueContext* ctx = LLVM.ContextCreate();
@@ -79,39 +93,51 @@ public sealed unsafe class OrcJitSpike
         fixed (byte* irp = ir)
         fixed (byte* np = modName)
         {
-            LLVMOpaqueMemoryBuffer* buf =
-                LLVM.CreateMemoryBufferWithMemoryRangeCopy((sbyte*)irp, (UIntPtr)ir.Length, (sbyte*)np);
-            int rc = LLVM.ParseIRInContext(ctx, buf, &mod, &parseErr);
-            Assert.True(rc == 0, $"ParseIRInContext failed: {(parseErr != null ? new string(parseErr) : "?")}");
+            LLVMOpaqueMemoryBuffer* buf = LLVM.CreateMemoryBufferWithMemoryRangeCopy(
+                InputData: (sbyte*)irp,
+                InputDataLength: (nuint)ir.Length,
+                BufferName: (sbyte*)np);
+            int rc = LLVM.ParseIRInContext(ContextRef: ctx,
+                MemBuf: buf,
+                OutM: &mod,
+                OutMessage: &parseErr);
+            Assert.True(condition: rc == 0,
+                userMessage:
+                $"ParseIRInContext failed: {(parseErr != null ? new string(value: parseErr) : "?")}");
         }
-        Stage("IR parsed");
+
+        Stage(s: "IR parsed");
 
         LLVMOrcOpaqueThreadSafeContext* tsCtx = _fromCtx(ctx);
-        Stage("threadsafe context created (from our context)");
-        LLVMOrcOpaqueThreadSafeModule* tsm = LLVM.OrcCreateNewThreadSafeModule(mod, tsCtx);
+        Stage(s: "threadsafe context created (from our context)");
+        LLVMOrcOpaqueThreadSafeModule* tsm =
+            LLVM.OrcCreateNewThreadSafeModule(M: mod, TSCtx: tsCtx);
         LLVMOrcOpaqueLLJITBuilder* builder = LLVM.OrcCreateLLJITBuilder();
         LLVMOrcOpaqueLLJIT* jit;
-        Check(LLVM.OrcCreateLLJIT(&jit, builder), "OrcCreateLLJIT");
-        Stage("LLJIT created");
+        Check(err: LLVM.OrcCreateLLJIT(Result: &jit, Builder: builder), what: "OrcCreateLLJIT");
+        Stage(s: "LLJIT created");
 
-        LLVMOrcOpaqueJITDylib* dylib = LLVM.OrcLLJITGetMainJITDylib(jit);
-        Check(LLVM.OrcLLJITAddLLVMIRModule(jit, dylib, tsm), "OrcLLJITAddLLVMIRModule");
-        Stage("module added");
+        LLVMOrcOpaqueJITDylib* dylib = LLVM.OrcLLJITGetMainJITDylib(J: jit);
+        Check(err: LLVM.OrcLLJITAddLLVMIRModule(J: jit, JD: dylib, TSM: tsm),
+            what: "OrcLLJITAddLLVMIRModule");
+        Stage(s: "module added");
 
         ulong addr;
         fixed (byte* sp = symName)
         {
-            Check(LLVM.OrcLLJITLookup(jit, &addr, (sbyte*)sp), "OrcLLJITLookup");
+            Check(err: LLVM.OrcLLJITLookup(J: jit, Result: &addr, Name: (sbyte*)sp),
+                what: "OrcLLJITLookup");
         }
-        Stage($"looked up answer @ 0x{addr:X}");
-        Assert.NotEqual(0UL, addr);
+
+        Stage(s: $"looked up answer @ 0x{addr:X}");
+        Assert.NotEqual(expected: 0UL, actual: addr);
 
         var fn = (delegate* unmanaged[Cdecl]<int>)addr;
         int result = fn();
-        Stage($"called answer() => {result}");
-        _out.WriteLine($"answer() returned {result}");
+        Stage(s: $"called answer() => {result}");
+        _out.WriteLine(message: $"answer() returned {result}");
 
-        Assert.Equal(42, result);
+        Assert.Equal(expected: 42, actual: result);
     }
 
     /// <summary>
@@ -120,26 +146,28 @@ public sealed unsafe class OrcJitSpike
     /// adds an ORC process-search generator, JITs a module that CALLS <c>rf_current_thread_id()</c>, and
     /// asserts the JIT'd result equals a direct call to the same runtime function on the same thread.
     /// </summary>
-    [Fact(Skip = "Local ORC-JIT feasibility spike: needs a system/bundled libLLVM staged next to the test binary; not run in CI.")]
+    [Fact(Skip =
+        "Local ORC-JIT feasibility spike: needs a system/bundled libLLVM staged next to the test binary; not run in CI.")]
     public void OrcJit_ResolvesRuntimeSymbol()
     {
-        Stage("rt: start");
+        Stage(s: "rt: start");
 
         // Load the native runtime so its rf_* exports are visible to a process-wide symbol search.
-        string dir = Path.GetDirectoryName(typeof(OrcJitSpike).Assembly.Location) ?? ".";
-        string rtPath = Path.Combine(dir, "razorforge_runtime.dll");
-        IntPtr rt = NativeLibrary.Load(File.Exists(rtPath) ? rtPath : "razorforge_runtime");
-        Stage($"rt: runtime loaded ({rtPath})");
+        string dir = Path.GetDirectoryName(path: typeof(OrcJitSpike).Assembly.Location) ?? ".";
+        string rtPath = Path.Combine(path1: dir, path2: "razorforge_runtime.dll");
+        nint rt = NativeLibrary.Load(libraryPath: File.Exists(path: rtPath)
+            ? rtPath
+            : "razorforge_runtime");
+        Stage(s: $"rt: runtime loaded ({rtPath})");
 
         LLVM.InitializeNativeTarget();
         LLVM.InitializeNativeAsmPrinter();
 
         // Module: declare the runtime function, define a wrapper that calls it.
-        byte[] ir = Encoding.ASCII.GetBytes(
-            "declare i64 @rf_current_thread_id()\n" +
-            "define i64 @callrt() {\nentry:\n  %t = call i64 @rf_current_thread_id()\n  ret i64 %t\n}\n");
-        byte[] modName = Encoding.ASCII.GetBytes("rtspike\0");
-        byte[] symName = Encoding.ASCII.GetBytes("callrt\0");
+        byte[] ir = Encoding.ASCII.GetBytes(s: "declare i64 @rf_current_thread_id()\n" +
+                                               "define i64 @callrt() {\nentry:\n  %t = call i64 @rf_current_thread_id()\n  ret i64 %t\n}\n");
+        byte[] modName = Encoding.ASCII.GetBytes(s: "rtspike\0");
+        byte[] symName = Encoding.ASCII.GetBytes(s: "callrt\0");
 
         LLVMOpaqueContext* ctx = LLVM.ContextCreate();
         LLVMOpaqueModule* mod;
@@ -147,43 +175,62 @@ public sealed unsafe class OrcJitSpike
         fixed (byte* irp = ir)
         fixed (byte* np = modName)
         {
-            LLVMOpaqueMemoryBuffer* buf =
-                LLVM.CreateMemoryBufferWithMemoryRangeCopy((sbyte*)irp, (UIntPtr)ir.Length, (sbyte*)np);
-            int rc = LLVM.ParseIRInContext(ctx, buf, &mod, &parseErr);
-            Assert.True(rc == 0, $"ParseIRInContext failed: {(parseErr != null ? new string(parseErr) : "?")}");
+            LLVMOpaqueMemoryBuffer* buf = LLVM.CreateMemoryBufferWithMemoryRangeCopy(
+                InputData: (sbyte*)irp,
+                InputDataLength: (nuint)ir.Length,
+                BufferName: (sbyte*)np);
+            int rc = LLVM.ParseIRInContext(ContextRef: ctx,
+                MemBuf: buf,
+                OutM: &mod,
+                OutMessage: &parseErr);
+            Assert.True(condition: rc == 0,
+                userMessage:
+                $"ParseIRInContext failed: {(parseErr != null ? new string(value: parseErr) : "?")}");
         }
+
         LLVMOrcOpaqueThreadSafeContext* tsCtx = _fromCtx(ctx);
-        LLVMOrcOpaqueThreadSafeModule* tsm = LLVM.OrcCreateNewThreadSafeModule(mod, tsCtx);
+        LLVMOrcOpaqueThreadSafeModule* tsm =
+            LLVM.OrcCreateNewThreadSafeModule(M: mod, TSCtx: tsCtx);
 
         LLVMOrcOpaqueLLJITBuilder* builder = LLVM.OrcCreateLLJITBuilder();
         LLVMOrcOpaqueLLJIT* jit;
-        Check(LLVM.OrcCreateLLJIT(&jit, builder), "OrcCreateLLJIT");
-        LLVMOrcOpaqueJITDylib* dylib = LLVM.OrcLLJITGetMainJITDylib(jit);
+        Check(err: LLVM.OrcCreateLLJIT(Result: &jit, Builder: builder), what: "OrcCreateLLJIT");
+        LLVMOrcOpaqueJITDylib* dylib = LLVM.OrcLLJITGetMainJITDylib(J: jit);
 
         // Process-search generator: resolves any symbol loaded in the process (incl. rf_* now that the
         // runtime DLL is loaded). This is what lets JIT'd RF code link against the native runtime.
-        sbyte prefix = LLVM.OrcLLJITGetGlobalPrefix(jit);
+        sbyte prefix = LLVM.OrcLLJITGetGlobalPrefix(J: jit);
         LLVMOrcOpaqueDefinitionGenerator* gen;
-        Check(LLVM.OrcCreateDynamicLibrarySearchGeneratorForProcess(&gen, prefix, null, null),
-            "GeneratorForProcess");
-        LLVM.OrcJITDylibAddGenerator(dylib, gen);
-        Stage("rt: process-search generator added");
+        Check(err: LLVM.OrcCreateDynamicLibrarySearchGeneratorForProcess(Result: &gen,
+                GlobalPrefx: prefix,
+                Filter: null,
+                FilterCtx: null),
+            what: "GeneratorForProcess");
+        LLVM.OrcJITDylibAddGenerator(JD: dylib, DG: gen);
+        Stage(s: "rt: process-search generator added");
 
-        Check(LLVM.OrcLLJITAddLLVMIRModule(jit, dylib, tsm), "OrcLLJITAddLLVMIRModule");
+        Check(err: LLVM.OrcLLJITAddLLVMIRModule(J: jit, JD: dylib, TSM: tsm),
+            what: "OrcLLJITAddLLVMIRModule");
 
         ulong addr;
         fixed (byte* sp = symName)
-            Check(LLVM.OrcLLJITLookup(jit, &addr, (sbyte*)sp), "OrcLLJITLookup(callrt)");
-        Stage($"rt: looked up callrt @ 0x{addr:X}");
+        {
+            Check(err: LLVM.OrcLLJITLookup(J: jit, Result: &addr, Name: (sbyte*)sp),
+                what: "OrcLLJITLookup(callrt)");
+        }
+
+        Stage(s: $"rt: looked up callrt @ 0x{addr:X}");
 
         ulong jitTid = ((delegate* unmanaged[Cdecl]<ulong>)addr)();
         // Direct call to the same runtime export, on the same thread.
-        NativeLibrary.TryGetExport(rt, "rf_current_thread_id", out IntPtr directPtr);
+        NativeLibrary.TryGetExport(handle: rt,
+            name: "rf_current_thread_id",
+            address: out nint directPtr);
         ulong directTid = ((delegate* unmanaged[Cdecl]<ulong>)directPtr)();
-        Stage($"rt: jitTid={jitTid} directTid={directTid}");
-        _out.WriteLine($"JIT'd rf_current_thread_id()={jitTid}  direct={directTid}");
+        Stage(s: $"rt: jitTid={jitTid} directTid={directTid}");
+        _out.WriteLine(message: $"JIT'd rf_current_thread_id()={jitTid}  direct={directTid}");
 
-        Assert.NotEqual(0UL, jitTid);
-        Assert.Equal(directTid, jitTid);
+        Assert.NotEqual(expected: 0UL, actual: jitTid);
+        Assert.Equal(expected: directTid, actual: jitTid);
     }
 }

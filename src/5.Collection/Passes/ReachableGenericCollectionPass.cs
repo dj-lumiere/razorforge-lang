@@ -1,6 +1,6 @@
 using TypeModel.Types;
-
 using Compiler.Instantiation;
+using TypeModel.Symbols;
 
 namespace Compiler.Collection.Passes;
 
@@ -23,9 +23,11 @@ internal sealed class ReachableGenericCollectionPass(InstantiationContext ctx)
                 _ => concreteType
             };
 
-            foreach (var memberRoutine in ctx.Registry.GetMemberRoutinesForType(genericDefinition))
+            foreach (RoutineInfo memberRoutine in ctx.Registry.GetMemberRoutinesForType(
+                         type: genericDefinition))
             {
-                ctx.ReachableGenericRoutines.Add(item: $"{concreteType.FullName}.{memberRoutine.Name}");
+                ctx.ReachableGenericRoutines.Add(
+                    item: $"{concreteType.FullName}.{memberRoutine.Name}");
             }
         }
     }

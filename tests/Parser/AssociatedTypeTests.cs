@@ -33,9 +33,9 @@ public class AssociatedTypeTests
         Assert.Single(collection: proto.AssociatedTypes!);
         AssociatedTypeDeclaration slot = proto.AssociatedTypes![index: 0];
         Assert.Equal(expected: "Cursor", actual: slot.Name);
-        Assert.NotNull(@object: slot.Constraint);            // `obeys Iterator[T]`
+        Assert.NotNull(@object: slot.Constraint); // `obeys Iterator[T]`
         Assert.Equal(expected: "Iterator", actual: slot.Constraint!.Name);
-        Assert.Null(@object: slot.Binding);                  // a slot decl has no concrete binding
+        Assert.Null(@object: slot.Binding); // a slot decl has no concrete binding
     }
 
     #endregion
@@ -61,9 +61,9 @@ public class AssociatedTypeTests
         Assert.Single(collection: entity.AssociatedTypes!);
         AssociatedTypeDeclaration binding = entity.AssociatedTypes![index: 0];
         Assert.Equal(expected: "Iter", actual: binding.Name);
-        Assert.NotNull(@object: binding.Binding);            // concrete `ListEmitter[T]`
+        Assert.NotNull(@object: binding.Binding); // concrete `ListEmitter[T]`
         Assert.Equal(expected: "ListEmitter", actual: binding.Binding!.Name);
-        Assert.Null(@object: binding.Constraint);            // a binding has no constraint
+        Assert.Null(@object: binding.Constraint); // a binding has no constraint
     }
 
     /// <summary>

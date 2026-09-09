@@ -71,7 +71,7 @@ public sealed partial class StdlibLoader
         {
             // Warm restore: Core is already lowered in the registry's restored set — exclude the fresh
             // (unanalyzed) Core re-parse so it is not reported as freshly-loaded and re-lowered.
-            var all = CoreResident
+            List<(Program, string, string)> all = CoreResident
                 ? new List<(Program, string, string)>()
                 : new List<(Program, string, string)>(collection: _corePrograms);
             foreach (string mod in _loadedModules)
@@ -328,11 +328,12 @@ public sealed partial class StdlibLoader
         // order-dependent across platforms. RazorForge sorts before Suflae so the RF-realm Core registers
         // first (the SF-realm Core keys distinctly by realm, so order does not cause collision either way).
         IEnumerable<string> allFiles = _scanRoots
-            .Where(predicate: r => Directory.Exists(path: r.Dir))
-            .SelectMany(selector: r => Directory.GetFiles(path: r.Dir,
-                searchPattern: r.Glob,
-                searchOption: SearchOption.AllDirectories))
-            .OrderBy(keySelector: p => p, comparer: StringComparer.Ordinal);
+                                      .Where(predicate: r => Directory.Exists(path: r.Dir))
+                                      .SelectMany(selector: r => Directory.GetFiles(path: r.Dir,
+                                           searchPattern: r.Glob,
+                                           searchOption: SearchOption.AllDirectories))
+                                      .OrderBy(keySelector: p => p,
+                                           comparer: StringComparer.Ordinal);
 
         foreach (string filePath in allFiles)
         {
@@ -398,7 +399,8 @@ public sealed partial class StdlibLoader
         Language language = isSuflaeFile
             ? Language.Suflae
             : Language.RazorForge;
-        var tokenizer = new Tokenizer.Tokenizer(source: code, fileName: filePath, language: language);
+        var tokenizer =
+            new Tokenizer.Tokenizer(source: code, fileName: filePath, language: language);
         List<Token> tokens = tokenizer.Tokenize();
         var parser = new Parser.Parser(tokens: tokens, language: language, fileName: filePath);
         return parser.Parse();
@@ -409,7 +411,10 @@ public sealed partial class StdlibLoader
     /// </summary>
     private static string? GetDeclaredModule(Program program)
     {
-        return (program.Declarations.OfType<ModuleDeclaration>().FirstOrDefault())?.Path;
+        return program.Declarations
+                      .OfType<ModuleDeclaration>()
+                      .FirstOrDefault()
+                     ?.Path;
     }
 
     /// <summary>
@@ -432,9 +437,11 @@ public sealed partial class StdlibLoader
             // The file may live under any scan root (RazorForge or, in an SF compile, Suflae). Find the
             // root that contains it and derive the module path relative to THAT root.
             string? normalizedStdlibPath = _scanRoots
-                .Select(selector: r => Path.GetFullPath(path: r.Dir))
-                .FirstOrDefault(predicate: root => normalizedFileDir.StartsWith(value: root,
-                    comparisonType: StringComparison.OrdinalIgnoreCase));
+                                          .Select(selector: r => Path.GetFullPath(path: r.Dir))
+                                          .FirstOrDefault(predicate: root =>
+                                               normalizedFileDir.StartsWith(value: root,
+                                                   comparisonType: StringComparison
+                                                      .OrdinalIgnoreCase));
 
             if (normalizedStdlibPath == null)
             {
@@ -544,7 +551,9 @@ public sealed partial class StdlibLoader
         catch (Exception ex)
         {
             throw new InvalidOperationException(
-                $"Failed to load stdlib module '{moduleId}' from '{filePath}': {ex.Message}", ex);
+                message:
+                $"Failed to load stdlib module '{moduleId}' from '{filePath}': {ex.Message}",
+                innerException: ex);
         }
     }
 
@@ -644,8 +653,8 @@ public sealed partial class StdlibLoader
         // (SplitList) gets no columns.
         if (typeExpr.SpliceHandle != null)
         {
-            return new GenericParameterTypeInfo(
-                name: TypeModel.Symbols.MemberExpandTemplateInfo.ColumnPlaceholderName);
+            return new GenericParameterTypeInfo(name: TypeModel.Symbols.MemberExpandTemplateInfo
+                                                               .ColumnPlaceholderName);
         }
 
         // Comptime VALUE-position splice used as a const-generic argument, e.g. the carrier payload
@@ -674,7 +683,8 @@ public sealed partial class StdlibLoader
         if (typeName.Contains(value: '/'))
         {
             TypeInfo? projection = ResolveAssociatedProjection(
-                typeName: typeName, genericParams: genericParams);
+                typeName: typeName,
+                genericParams: genericParams);
             if (projection != null)
             {
                 return projection;
@@ -697,15 +707,20 @@ public sealed partial class StdlibLoader
         // Routine type: Routine[(T, T), Bool] -> RoutineTypeInfo
         if (typeName == "Routine" && typeExpr.GenericArguments?.Count == 2)
         {
-            return ResolveRoutineType(registry: registry, typeExpr: typeExpr,
-                genericParams: genericParams, moduleName: moduleName);
+            return ResolveRoutineType(registry: registry,
+                typeExpr: typeExpr,
+                genericParams: genericParams,
+                moduleName: moduleName);
         }
 
         // Parameterized type like List[Character], Dict[Text, S32]
         if (typeExpr.GenericArguments is { Count: > 0 })
         {
-            TypeInfo? parameterized = ResolveParameterizedType(registry: registry, typeExpr: typeExpr,
-                typeName: typeName, genericParams: genericParams, moduleName: moduleName,
+            TypeInfo? parameterized = ResolveParameterizedType(registry: registry,
+                typeExpr: typeExpr,
+                typeName: typeName,
+                genericParams: genericParams,
+                moduleName: moduleName,
                 resolved: out bool handled);
             if (handled)
             {
@@ -726,7 +741,8 @@ public sealed partial class StdlibLoader
     /// in-scope generic parameter; returns null otherwise (the caller falls through to other resolution
     /// paths).
     /// </summary>
-    private static TypeInfo? ResolveAssociatedProjection(string typeName, List<string>? genericParams)
+    private static TypeInfo? ResolveAssociatedProjection(string typeName,
+        List<string>? genericParams)
     {
         string[] segments = typeName.Split(separator: '/');
         TypeInfo? projBase;
@@ -760,21 +776,26 @@ public sealed partial class StdlibLoader
     {
         if (long.TryParse(s: typeName, result: out long constValue))
         {
-            return new ConstGenericValueTypeInfo(
-                literalText: typeName, value: constValue, explicitTypeName: null);
+            return new ConstGenericValueTypeInfo(literalText: typeName,
+                value: constValue,
+                explicitTypeName: null);
         }
 
         // Check typed suffixes: "16u64", "8s32", etc.
         (string suffix, string suffixType)[] suffixes =
-            [("u64", "U64"), ("s64", "S64"), ("u32", "U32"), ("s32", "S32"),
-             ("u16", "U16"), ("s16", "S16"), ("u8", "U8"), ("s8", "S8")];
+        [
+            ("u64", "U64"), ("s64", "S64"), ("u32", "U32"), ("s32", "S32"),
+            ("u16", "U16"), ("s16", "S16"), ("u8", "U8"), ("s8", "S8")
+        ];
         foreach ((string suffix, string suffixType) in suffixes)
         {
-            if (typeName.EndsWith(value: suffix, comparisonType: StringComparison.OrdinalIgnoreCase) &&
+            if (typeName.EndsWith(value: suffix,
+                    comparisonType: StringComparison.OrdinalIgnoreCase) &&
                 long.TryParse(s: typeName[..^suffix.Length], result: out long suffixVal))
             {
-                return new ConstGenericValueTypeInfo(
-                    literalText: typeName, value: suffixVal, explicitTypeName: suffixType);
+                return new ConstGenericValueTypeInfo(literalText: typeName,
+                    value: suffixVal,
+                    explicitTypeName: suffixType);
             }
         }
 
@@ -786,8 +807,8 @@ public sealed partial class StdlibLoader
     /// live in the first arg's GenericArguments (parsed as Tuple). Returns null when a parameter type
     /// fails to resolve.
     /// </summary>
-    private static RoutineTypeInfo? ResolveRoutineType(TypeRegistry registry, TypeExpression typeExpr,
-        List<string>? genericParams, string? moduleName)
+    private static RoutineTypeInfo? ResolveRoutineType(TypeRegistry registry,
+        TypeExpression typeExpr, List<string>? genericParams, string? moduleName)
     {
         TypeExpression paramTupleExpr = typeExpr.GenericArguments![index: 0];
         TypeExpression returnTypeExpr = typeExpr.GenericArguments[index: 1];
@@ -840,13 +861,14 @@ public sealed partial class StdlibLoader
     /// when this method took responsibility for the expression; sets it to false to signal the caller
     /// should fall through to the bare/own-module lookup.
     /// </summary>
-    private static TypeInfo? ResolveParameterizedType(TypeRegistry registry, TypeExpression typeExpr,
-        string typeName, List<string>? genericParams, string? moduleName, out bool resolved)
+    private static TypeInfo? ResolveParameterizedType(TypeRegistry registry,
+        TypeExpression typeExpr, string typeName, List<string>? genericParams,
+        string? moduleName, out bool resolved)
     {
         // Wrapper types (Hijacked, Viewing, Modifying, etc.) are not in _types — create directly
-        if (typeExpr.GenericArguments!.Count == 1 &&
-            typeName is RuntimeContract.Hijacked or RuntimeContract.Viewing or RuntimeContract.Modifying
-                or RuntimeContract.Retained or RuntimeContract.Tracked or RuntimeContract.Guarded or RuntimeContract.Witnessed)
+        if (typeExpr.GenericArguments!.Count == 1 && typeName is RuntimeContract.Hijacked
+                or RuntimeContract.Viewing or RuntimeContract.Modifying or RuntimeContract.Retained
+                or RuntimeContract.Tracked or RuntimeContract.Guarded or RuntimeContract.Witnessed)
         {
             TypeInfo? wrapperInner = ResolveSimpleType(registry: registry,
                 typeExpr: typeExpr.GenericArguments[index: 0],
@@ -866,8 +888,10 @@ public sealed partial class StdlibLoader
         if (typeName is "Tuple")
         {
             resolved = true;
-            return ResolveTupleType(registry: registry, typeExpr: typeExpr,
-                genericParams: genericParams, moduleName: moduleName);
+            return ResolveTupleType(registry: registry,
+                typeExpr: typeExpr,
+                genericParams: genericParams,
+                moduleName: moduleName);
         }
 
         // Own-module FIRST: a bare `List` in `module Suflae` (e.g. the overlay constructor's
@@ -877,12 +901,15 @@ public sealed partial class StdlibLoader
         TypeInfo? genericDef = (moduleName != null
             ? registry.LookupType(name: $"{moduleName}.{typeName}")
             : null) ?? registry.LookupType(name: typeName);
-        if (genericDef is { IsGenericDefinition: true } &&
-            genericDef.GenericParameters!.Count == typeExpr.GenericArguments.Count)
+        if (genericDef is { IsGenericDefinition: true } && genericDef.GenericParameters!.Count ==
+            typeExpr.GenericArguments.Count)
         {
             resolved = true;
-            return ResolveGenericDefinitionType(registry: registry, typeExpr: typeExpr,
-                genericDef: genericDef, genericParams: genericParams, moduleName: moduleName);
+            return ResolveGenericDefinitionType(registry: registry,
+                typeExpr: typeExpr,
+                genericDef: genericDef,
+                genericParams: genericParams,
+                moduleName: moduleName);
         }
 
         resolved = false;
@@ -919,8 +946,9 @@ public sealed partial class StdlibLoader
     /// by resolving each type argument and calling <see cref="TypeRegistry.GetOrCreateResolution"/>.
     /// Returns null when any argument fails to resolve (forward reference).
     /// </summary>
-    private static TypeInfo? ResolveGenericDefinitionType(TypeRegistry registry, TypeExpression typeExpr,
-        TypeInfo genericDef, List<string>? genericParams, string? moduleName)
+    private static TypeInfo? ResolveGenericDefinitionType(TypeRegistry registry,
+        TypeExpression typeExpr, TypeInfo genericDef, List<string>? genericParams,
+        string? moduleName)
     {
         var typeArgs = new List<TypeInfo>();
         foreach (TypeExpression argExpr in typeExpr.GenericArguments!)
@@ -946,9 +974,11 @@ public sealed partial class StdlibLoader
     public static string GetDefaultStdlibPath()
     {
         // Allow override via environment variable
-        string? envOverride = Environment.GetEnvironmentVariable("FORGE_STDLIB");
+        string? envOverride = Environment.GetEnvironmentVariable(variable: "FORGE_STDLIB");
         if (!string.IsNullOrWhiteSpace(value: envOverride) && Directory.Exists(path: envOverride))
+        {
             return envOverride;
+        }
 
         // Try to find standard library relative to the executable
         string? exeDir = Path.GetDirectoryName(path: typeof(StdlibLoader).Assembly.Location);
@@ -995,6 +1025,9 @@ public sealed partial class StdlibLoader
 
         string? match = annotations.FirstOrDefault(predicate: ann =>
             ann.StartsWith(value: "llvm(") && ann.EndsWith(value: ')'));
-        return match != null ? match[5..^1].Trim(trimChar: '"') : null;
+        return match != null
+            ? match[5..^1]
+               .Trim(trimChar: '"')
+            : null;
     }
 }

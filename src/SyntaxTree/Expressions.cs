@@ -663,8 +663,10 @@ public record SpliceExpression(Expression Inner, SpliceKind RequiredKind, Source
 /// <param name="Object">The receiver whose field is selected.</param>
 /// <param name="Selector">The <c>${...}</c> splice that folds to the field name.</param>
 /// <param name="Location">Source location information.</param>
-public record SpliceMemberExpression(Expression Object, SpliceExpression Selector, SourceLocation Location)
-    : Expression(Location: Location)
+public record SpliceMemberExpression(
+    Expression Object,
+    SpliceExpression Selector,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(ISyntaxTreeVisitor<T> visitor)
@@ -1137,10 +1139,11 @@ public record BracketAccessExpression(
 public record TypeIdExpression(TypeExpression Type, SourceLocation Location)
     : Expression(Location: Location)
 {
-
     /// <inheritdoc/>
-    public override T Accept<T>(ISyntaxTreeVisitor<T> visitor) =>
-        visitor.VisitTypeIdExpression(node: this);
+    public override T Accept<T>(ISyntaxTreeVisitor<T> visitor)
+    {
+        return visitor.VisitTypeIdExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -1156,10 +1159,11 @@ public record CarrierPayloadExpression(
     TypeExpression ConcreteType,
     SourceLocation Location) : Expression(Location: Location)
 {
-
     /// <inheritdoc/>
-    public override T Accept<T>(ISyntaxTreeVisitor<T> visitor) =>
-        visitor.VisitCarrierPayloadExpression(node: this);
+    public override T Accept<T>(ISyntaxTreeVisitor<T> visitor)
+    {
+        return visitor.VisitCarrierPayloadExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -1182,10 +1186,11 @@ public record CrashableDispatchExpression(
     string MemberName,
     SourceLocation Location) : Expression(Location: Location)
 {
-
     /// <inheritdoc/>
-    public override T Accept<T>(ISyntaxTreeVisitor<T> visitor) =>
-        visitor.VisitCrashableDispatchExpression(node: this);
+    public override T Accept<T>(ISyntaxTreeVisitor<T> visitor)
+    {
+        return visitor.VisitCrashableDispatchExpression(node: this);
+    }
 }
 
 #endregion

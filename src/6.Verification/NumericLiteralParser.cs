@@ -25,12 +25,13 @@ public static partial class NumericLiteralParser
         /// Gets or sets the low 64 bits of the binary128 payload.
         /// </summary>
         public ulong Lo;
+
         /// <summary>
         /// Gets or sets the high 64 bits of the binary128 payload.
         /// </summary>
         public ulong Hi;
-        /// <inheritdoc/>
 
+        /// <inheritdoc/>
         public override string ToString()
         {
             return $"f128(0x{Hi:X16}{Lo:X16})";
@@ -45,10 +46,12 @@ public static partial class NumericLiteralParser
     public static F128 ParseF128(string str)
     {
         ArgumentNullException.ThrowIfNull(argument: str);
-        return ParseF128Native(str);
+        return ParseF128Native(str: str);
     }
 
-    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_f128_from_string", StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(libraryName: RuntimeLib,
+        EntryPoint = "rf_f128_from_string",
+        StringMarshalling = StringMarshalling.Utf8)]
     private static partial F128 ParseF128Native(string str);
 
     #endregion
@@ -65,8 +68,8 @@ public static partial class NumericLiteralParser
         /// Gets or sets the raw decimal32 bit pattern.
         /// </summary>
         public uint Value;
-        /// <inheritdoc/>
 
+        /// <inheritdoc/>
         public override string ToString()
         {
             return $"d32(0x{Value:X8})";
@@ -83,8 +86,8 @@ public static partial class NumericLiteralParser
         /// Gets or sets the raw decimal64 bit pattern.
         /// </summary>
         public ulong Value;
-        /// <inheritdoc/>
 
+        /// <inheritdoc/>
         public override string ToString()
         {
             return $"d64(0x{Value:X16})";
@@ -102,25 +105,32 @@ public static partial class NumericLiteralParser
         /// Gets or sets the low 64 bits of the decimal128 payload.
         /// </summary>
         public ulong Lo;
+
         /// <summary>
         /// Gets or sets the high 64 bits of the decimal128 payload.
         /// </summary>
         public ulong Hi;
-        /// <inheritdoc/>
 
+        /// <inheritdoc/>
         public override string ToString()
         {
             return $"d128(0x{Hi:X16}{Lo:X16})";
         }
     }
 
-    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_d32_from_string", StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(libraryName: RuntimeLib,
+        EntryPoint = "rf_d32_from_string",
+        StringMarshalling = StringMarshalling.Utf8)]
     private static partial D32 ParseD32(string str);
 
-    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_d64_from_string", StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(libraryName: RuntimeLib,
+        EntryPoint = "rf_d64_from_string",
+        StringMarshalling = StringMarshalling.Utf8)]
     private static partial D64 ParseD64(string str);
 
-    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_d128_from_string", StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(libraryName: RuntimeLib,
+        EntryPoint = "rf_d128_from_string",
+        StringMarshalling = StringMarshalling.Utf8)]
     private static partial D128 ParseD128(string str);
 
     #endregion
@@ -153,36 +163,52 @@ public static partial class NumericLiteralParser
 
         ReadOnlySpan<char> s = cleaned.AsSpan();
         bool sign = false;
-        if (s.Length > 0 && (s[0] == '+' || s[0] == '-'))
+        if (s.Length > 0 && (s[index: 0] == '+' || s[index: 0] == '-'))
         {
-            sign = s[0] == '-';
+            sign = s[index: 0] == '-';
             s = s[1..];
         }
 
         // Split off the exponent.
         int exp10 = 0;
-        int eIdx = s.IndexOfAny('e', 'E');
+        int eIdx = s.IndexOfAny(value0: 'e', value1: 'E');
         if (eIdx >= 0)
         {
-            exp10 = int.Parse(s[(eIdx + 1)..].ToString().Replace("_", ""));
+            exp10 = int.Parse(s: s[(eIdx + 1)..]
+                                .ToString()
+                                .Replace(oldValue: "_", newValue: ""));
             s = s[..eIdx];
         }
 
         // Mantissa: collect digits, tracking how many follow the decimal point.
-        var digits = new System.Text.StringBuilder(s.Length);
+        var digits = new System.Text.StringBuilder(capacity: s.Length);
         int fracDigits = 0;
         bool seenDot = false;
         foreach (char c in s)
         {
-            if (c == '_') continue;
-            if (c == '.') { seenDot = true; continue; }
-            digits.Append(c);
-            if (seenDot) fracDigits++;
+            if (c == '_')
+            {
+                continue;
+            }
+
+            if (c == '.')
+            {
+                seenDot = true;
+                continue;
+            }
+
+            digits.Append(value: c);
+            if (seenDot)
+            {
+                fracDigits++;
+            }
         }
 
         exp10 -= fracDigits;
-        string digitStr = digits.Length == 0 ? "0" : digits.ToString();
-        BigInteger coeff = BigInteger.Parse(digitStr);
+        string digitStr = digits.Length == 0
+            ? "0"
+            : digits.ToString();
+        var coeff = BigInteger.Parse(value: digitStr);
         return new DecimalLiteralParts(Sign: sign, Coeff: coeff, Exp10: exp10);
     }
 
@@ -195,13 +221,24 @@ public static partial class NumericLiteralParser
     /// </summary>
     private static string StripTypeSuffix(string cleaned)
     {
-        foreach (string suf in new[] { "decimal", "f128", "d128", "d64", "d32", "dec", "dn" })
+        foreach (string suf in new[]
+                 {
+                     "decimal",
+                     "f128",
+                     "d128",
+                     "d64",
+                     "d32",
+                     "dec",
+                     "dn"
+                 })
         {
-            if (cleaned.EndsWith("_" + suf, StringComparison.OrdinalIgnoreCase))
+            if (cleaned.EndsWith(value: "_" + suf,
+                    comparisonType: StringComparison.OrdinalIgnoreCase))
             {
                 return cleaned[..^(suf.Length + 1)];
             }
-            if (cleaned.EndsWith(suf, StringComparison.OrdinalIgnoreCase))
+
+            if (cleaned.EndsWith(value: suf, comparisonType: StringComparison.OrdinalIgnoreCase))
             {
                 return cleaned[..^suf.Length];
             }
@@ -213,9 +250,18 @@ public static partial class NumericLiteralParser
     /// <summary>Number of decimal digits in a non-negative BigInteger (0 has 1 digit).</summary>
     private static int DecimalDigitCount(BigInteger v)
     {
-        if (v.IsZero) return 1;
+        if (v.IsZero)
+        {
+            return 1;
+        }
+
         int n = 0;
-        while (v > 0) { v /= 10; n++; }
+        while (v > 0)
+        {
+            v /= 10;
+            n++;
+        }
+
         return n;
     }
 
@@ -225,12 +271,19 @@ public static partial class NumericLiteralParser
     /// </summary>
     private static BigInteger RneDivPow10(BigInteger coeff, int drop)
     {
-        if (drop <= 0) return coeff;
-        BigInteger pow = BigInteger.Pow(10, drop);
-        BigInteger q = BigInteger.DivRem(coeff, pow, out BigInteger r);
+        if (drop <= 0)
+        {
+            return coeff;
+        }
+
+        var pow = BigInteger.Pow(value: 10, exponent: drop);
+        var q = BigInteger.DivRem(dividend: coeff, divisor: pow, remainder: out BigInteger r);
         BigInteger twice = r * 2;
-        if (twice > pow || (twice == pow && !q.IsEven))
+        if (twice > pow || twice == pow && !q.IsEven)
+        {
             q += 1;
+        }
+
         return q;
     }
 
@@ -240,29 +293,42 @@ public static partial class NumericLiteralParser
     /// coefficient to compensate. Returns the packed (biasedExp, coeff) with coeff &lt; 10^pmax, or
     /// signals overflow (coeff = -1 sentinel → caller emits Inf) / a flushed zero.
     /// </summary>
-    private static (bool Overflow, BigInteger Coeff, int BiasedExp) RoundAndClamp(
-        BigInteger coeff, int exp10, int pmax, int bias, int qMin, int qMax)
+    private static (bool Overflow, BigInteger Coeff, int BiasedExp) RoundAndClamp(BigInteger coeff,
+        int exp10, int pmax, int bias,
+        int qMin, int qMax)
     {
         // Round the coefficient down to at most pmax digits.
         (coeff, exp10) = RoundToPmaxDigits(coeff: coeff, exp10: exp10, pmax: pmax);
 
         if (coeff.IsZero)
-            return (false, BigInteger.Zero, ClampZeroExp(exp10, bias, qMin, qMax));
+        {
+            return (false, BigInteger.Zero, ClampZeroExp(exp10: exp10,
+                bias: bias,
+                qMin: qMin,
+                qMax: qMax));
+        }
 
         // Exponent too large: try to absorb it by appending zeros to the coefficient.
         if (exp10 > qMax)
         {
             (bool overflow, coeff, exp10) =
-                AbsorbLargeExponent(coeff: coeff, exp10: exp10, pmax: pmax, qMax: qMax);
+                AbsorbLargeExponent(coeff: coeff,
+                    exp10: exp10,
+                    pmax: pmax,
+                    qMax: qMax);
             if (overflow)
+            {
                 return (true, BigInteger.Zero, 0); // overflow -> Inf
+            }
         }
 
         // Exponent too small: drop low digits (RNE), losing precision toward zero/subnormal.
         if (exp10 < qMin)
         {
             int drop = qMin - exp10;
-            coeff = drop >= pmax + 2 ? BigInteger.Zero : RneDivPow10(coeff, drop);
+            coeff = drop >= pmax + 2
+                ? BigInteger.Zero
+                : RneDivPow10(coeff: coeff, drop: drop);
             exp10 = qMin;
         }
 
@@ -273,16 +339,17 @@ public static partial class NumericLiteralParser
     /// Rounds <paramref name="coeff"/> down to at most <paramref name="pmax"/> significant digits
     /// (RNE), adjusting <paramref name="exp10"/> to compensate and renormalizing a rounding carry.
     /// </summary>
-    private static (BigInteger Coeff, int Exp10) RoundToPmaxDigits(BigInteger coeff, int exp10, int pmax)
+    private static (BigInteger Coeff, int Exp10) RoundToPmaxDigits(BigInteger coeff, int exp10,
+        int pmax)
     {
-        int nd = DecimalDigitCount(coeff);
+        int nd = DecimalDigitCount(v: coeff);
         if (nd > pmax)
         {
             int drop = nd - pmax;
-            coeff = RneDivPow10(coeff, drop);
+            coeff = RneDivPow10(coeff: coeff, drop: drop);
             exp10 += drop;
             // Rounding up can carry to pmax+1 digits (e.g. 999..9 -> 1000..0); renormalize.
-            if (DecimalDigitCount(coeff) > pmax)
+            if (DecimalDigitCount(v: coeff) > pmax)
             {
                 coeff /= 10;
                 exp10 += 1;
@@ -297,12 +364,13 @@ public static partial class NumericLiteralParser
     /// it still fits <paramref name="pmax"/> digits; otherwise signals overflow (→ Inf).
     /// </summary>
     private static (bool Overflow, BigInteger Coeff, int Exp10) AbsorbLargeExponent(
-        BigInteger coeff, int exp10, int pmax, int qMax)
+        BigInteger coeff, int exp10, int pmax,
+        int qMax)
     {
         int shift = exp10 - qMax;
-        if (DecimalDigitCount(coeff) + shift <= pmax)
+        if (DecimalDigitCount(v: coeff) + shift <= pmax)
         {
-            coeff *= BigInteger.Pow(10, shift);
+            coeff *= BigInteger.Pow(value: 10, exponent: shift);
             exp10 = qMax;
             return (false, coeff, exp10);
         }
@@ -310,12 +378,23 @@ public static partial class NumericLiteralParser
         return (true, BigInteger.Zero, 0); // overflow -> Inf
     }
 
-    private static int ClampZeroExp(int exp10, int bias, int qMin, int qMax)
+    private static int ClampZeroExp(int exp10, int bias, int qMin,
+        int qMax)
     {
         int q;
-        if (exp10 < qMin) q = qMin;
-        else if (exp10 > qMax) q = qMax;
-        else q = exp10;
+        if (exp10 < qMin)
+        {
+            q = qMin;
+        }
+        else if (exp10 > qMax)
+        {
+            q = qMax;
+        }
+        else
+        {
+            q = exp10;
+        }
+
         return q + bias;
     }
 
@@ -325,19 +404,29 @@ public static partial class NumericLiteralParser
     /// </summary>
     public static D128 EncodeD128Bid(string str)
     {
-        DecimalLiteralParts p = ParseDecimalLiteral(str);
-        (bool overflow, BigInteger coeff, int biased) =
-            RoundAndClamp(p.Coeff, p.Exp10, pmax: 34, bias: 6176, qMin: -6176, qMax: 6111);
+        DecimalLiteralParts p = ParseDecimalLiteral(str: str);
+        (bool overflow, BigInteger coeff, int biased) = RoundAndClamp(coeff: p.Coeff,
+            exp10: p.Exp10,
+            pmax: 34,
+            bias: 6176,
+            qMin: -6176,
+            qMax: 6111);
 
         // A numeric literal that overflows the type to infinity is a compile-time error (the
         // explicit `inf`/`nan` literals are handled before the encoder). The caller's catch turns
         // this into a semantic diagnostic.
         if (overflow)
-            throw new OverflowException($"decimal literal '{str}' is out of range for D128 (overflows to infinity)");
+        {
+            throw new OverflowException(
+                message:
+                $"decimal literal '{str}' is out of range for D128 (overflows to infinity)");
+        }
 
-        UInt128 bits = ((UInt128)(uint)biased << 113) | (UInt128)coeff;
+        UInt128 bits = (UInt128)(uint)biased << 113 | (UInt128)coeff;
         if (p.Sign)
+        {
             bits |= (UInt128)1 << 127;
+        }
 
         return new D128 { Lo = (ulong)(bits & ulong.MaxValue), Hi = (ulong)(bits >> 64) };
     }
@@ -351,21 +440,31 @@ public static partial class NumericLiteralParser
     /// </summary>
     public static D64 EncodeD64Bid(string str)
     {
-        DecimalLiteralParts p = ParseDecimalLiteral(str);
-        (bool overflow, BigInteger coeff, int biased) =
-            RoundAndClamp(p.Coeff, p.Exp10, pmax: 16, bias: 398, qMin: -398, qMax: 369);
+        DecimalLiteralParts p = ParseDecimalLiteral(str: str);
+        (bool overflow, BigInteger coeff, int biased) = RoundAndClamp(coeff: p.Coeff,
+            exp10: p.Exp10,
+            pmax: 16,
+            bias: 398,
+            qMin: -398,
+            qMax: 369);
 
         if (overflow)
-            throw new OverflowException($"decimal literal '{str}' is out of range for D64 (overflows to infinity)");
+        {
+            throw new OverflowException(
+                message:
+                $"decimal literal '{str}' is out of range for D64 (overflows to infinity)");
+        }
 
         ulong c = (ulong)coeff;
         ulong e = (ulong)(uint)biased;
-        ulong bits = c < (1UL << 53)
-            ? (e << 53) | c                                  // Form 1
-            : (0x3UL << 61) | (e << 51) | (c & ((1UL << 51) - 1)); // Form 2
+        ulong bits = c < 1UL << 53
+            ? e << 53 | c // Form 1
+            : 0x3UL << 61 | e << 51 | c & (1UL << 51) - 1; // Form 2
 
         if (p.Sign)
+        {
             bits |= 1UL << 63;
+        }
 
         return new D64 { Value = bits };
     }
@@ -379,21 +478,31 @@ public static partial class NumericLiteralParser
     /// </summary>
     public static D32 EncodeD32Bid(string str)
     {
-        DecimalLiteralParts p = ParseDecimalLiteral(str);
-        (bool overflow, BigInteger coeff, int biased) =
-            RoundAndClamp(p.Coeff, p.Exp10, pmax: 7, bias: 101, qMin: -101, qMax: 90);
+        DecimalLiteralParts p = ParseDecimalLiteral(str: str);
+        (bool overflow, BigInteger coeff, int biased) = RoundAndClamp(coeff: p.Coeff,
+            exp10: p.Exp10,
+            pmax: 7,
+            bias: 101,
+            qMin: -101,
+            qMax: 90);
 
         if (overflow)
-            throw new OverflowException($"decimal literal '{str}' is out of range for D32 (overflows to infinity)");
+        {
+            throw new OverflowException(
+                message:
+                $"decimal literal '{str}' is out of range for D32 (overflows to infinity)");
+        }
 
         uint c = (uint)coeff;
         uint e = (uint)biased;
-        uint bits = c < (1u << 23)
-            ? (e << 23) | c                                  // Form 1
-            : (0x3u << 29) | (e << 21) | (c & ((1u << 21) - 1)); // Form 2
+        uint bits = c < 1u << 23
+            ? e << 23 | c // Form 1
+            : 0x3u << 29 | e << 21 | c & (1u << 21) - 1; // Form 2
 
         if (p.Sign)
+        {
             bits |= 1u << 31;
+        }
 
         return new D32 { Value = bits };
     }
@@ -407,37 +516,68 @@ public static partial class NumericLiteralParser
     /// </summary>
     public static F128 EncodeF128(string str)
     {
-        DecimalLiteralParts p = ParseDecimalLiteral(str);
+        DecimalLiteralParts p = ParseDecimalLiteral(str: str);
         if (p.Coeff.IsZero)
+        {
             return PackF128(sign: p.Sign, biasedExp: 0, mant: 0);
+        }
 
         // value = coeff * 10^exp10, written as the positive ratio num/den.
         BigInteger num, den;
-        if (p.Exp10 >= 0) { num = p.Coeff * BigInteger.Pow(10, p.Exp10); den = BigInteger.One; }
-        else { num = p.Coeff; den = BigInteger.Pow(10, -p.Exp10); }
+        if (p.Exp10 >= 0)
+        {
+            num = p.Coeff * BigInteger.Pow(value: 10, exponent: p.Exp10);
+            den = BigInteger.One;
+        }
+        else
+        {
+            num = p.Coeff;
+            den = BigInteger.Pow(value: 10, exponent: -p.Exp10);
+        }
 
-        const int mantBits = 112;     // stored mantissa width
+        const int mantBits = 112; // stored mantissa width
         const int bias = 16383;
         const int maxBiased = 0x7FFE; // largest finite biased exponent (0x7FFF = inf/nan)
 
         // Unbiased exponent E = floor(log2(value)); estimate from bit lengths then correct so that
         // 2^E <= value < 2^(E+1). CmpPow2 compares value (num/den) to 2^k exactly (left-shifts only).
         int e = (int)num.GetBitLength() - (int)den.GetBitLength();
-        while (CmpPow2(num, den, e) < 0) e--;        // value >= 2^e
-        while (CmpPow2(num, den, e + 1) >= 0) e++;   // value < 2^(e+1)
+        while (CmpPow2(num: num, den: den, k: e) < 0)
+        {
+            e--; // value >= 2^e
+        }
+
+        while (CmpPow2(num: num, den: den, k: e + 1) >= 0)
+        {
+            e++; // value < 2^(e+1)
+        }
 
         // significand q = round(value * 2^(mantBits - e)) in [2^112, 2^113) (round half-to-even).
-        BigInteger q = RoundedScale(num, den, mantBits - e);
-        if (q >= (BigInteger.One << (mantBits + 1))) { q >>= 1; e++; } // carry 1.99..->2.0
+        BigInteger q = RoundedScale(num: num, den: den, shift: mantBits - e);
+        if (q >= BigInteger.One << mantBits + 1)
+        {
+            q >>= 1;
+            e++;
+        } // carry 1.99..->2.0
 
         int biased = e + bias;
         if (biased > maxBiased)
-            throw new OverflowException($"float literal '{str}' is out of range for F128 (overflows to infinity)");
+        {
+            throw new OverflowException(
+                message:
+                $"float literal '{str}' is out of range for F128 (overflows to infinity)");
+        }
 
         if (biased <= 0)
-            return EncodeF128Subnormal(sign: p.Sign, num: num, den: den, mantBits: mantBits, bias: bias);
+        {
+            return EncodeF128Subnormal(sign: p.Sign,
+                num: num,
+                den: den,
+                mantBits: mantBits,
+                bias: bias);
+        }
 
-        UInt128 mant = (UInt128)(q - (BigInteger.One << mantBits));
+        var mant = (UInt128)(q - (BigInteger.One << mantBits));
         return PackF128(sign: p.Sign, biasedExp: biased, mant: mant);
     }
 
@@ -445,15 +585,24 @@ public static partial class NumericLiteralParser
     /// Rounds the significand at the minimum exponent (biased 0) to produce a subnormal, the
     /// smallest normal, or a signed zero for a binary128 value that underflows the normal range.
     /// </summary>
-    private static F128 EncodeF128Subnormal(bool sign, BigInteger num, BigInteger den, int mantBits, int bias)
+    private static F128 EncodeF128Subnormal(bool sign, BigInteger num, BigInteger den,
+        int mantBits, int bias)
     {
         int eMin = 1 - bias; // -16382
-        BigInteger qs = RoundedScale(num, den, mantBits - eMin);
+        BigInteger qs = RoundedScale(num: num, den: den, shift: mantBits - eMin);
         if (qs.IsZero)
-            return PackF128(sign: sign, biasedExp: 0, mant: 0);                 // -> +/-0
-        if (qs >= (BigInteger.One << mantBits))
-            return PackF128(sign: sign, biasedExp: 1, mant: (UInt128)(qs - (BigInteger.One << mantBits))); // smallest normal
-        return PackF128(sign: sign, biasedExp: 0, mant: (UInt128)qs);           // subnormal
+        {
+            return PackF128(sign: sign, biasedExp: 0, mant: 0); // -> +/-0
+        }
+
+        if (qs >= BigInteger.One << mantBits)
+        {
+            return PackF128(sign: sign,
+                biasedExp: 1,
+                mant: (UInt128)(qs - (BigInteger.One << mantBits))); // smallest normal
+        }
+
+        return PackF128(sign: sign, biasedExp: 0, mant: (UInt128)qs); // subnormal
     }
 
     /// <summary>Exact sign of <c>(num/den) - 2^k</c>, i.e. compares the value to a power of two
@@ -461,25 +610,49 @@ public static partial class NumericLiteralParser
     private static int CmpPow2(BigInteger num, BigInteger den, int k)
     {
         BigInteger lhs = num, rhs = den;
-        if (k >= 0) rhs <<= k; else lhs <<= -k;
-        return lhs.CompareTo(rhs);
+        if (k >= 0)
+        {
+            rhs <<= k;
+        }
+        else
+        {
+            lhs <<= -k;
+        }
+
+        return lhs.CompareTo(other: rhs);
     }
 
     /// <summary>Round-half-to-even of <c>num/den * 2^shift</c> to an integer (exact remainder).</summary>
     private static BigInteger RoundedScale(BigInteger num, BigInteger den, int shift)
     {
         BigInteger sn = num, sd = den;
-        if (shift >= 0) sn <<= shift; else sd <<= -shift;
-        BigInteger q = BigInteger.DivRem(sn, sd, out BigInteger r);
+        if (shift >= 0)
+        {
+            sn <<= shift;
+        }
+        else
+        {
+            sd <<= -shift;
+        }
+
+        var q = BigInteger.DivRem(dividend: sn, divisor: sd, remainder: out BigInteger r);
         BigInteger twice = r << 1;
-        if (twice > sd || (twice == sd && !q.IsEven)) q += 1;
+        if (twice > sd || twice == sd && !q.IsEven)
+        {
+            q += 1;
+        }
+
         return q;
     }
 
     private static F128 PackF128(bool sign, int biasedExp, UInt128 mant)
     {
-        UInt128 bits = ((UInt128)(uint)biasedExp << 112) | (mant & (((UInt128)1 << 112) - 1));
-        if (sign) bits |= (UInt128)1 << 127;
+        UInt128 bits = (UInt128)(uint)biasedExp << 112 | mant & ((UInt128)1 << 112) - 1;
+        if (sign)
+        {
+            bits |= (UInt128)1 << 127;
+        }
+
         return new F128 { Lo = (ulong)(bits & ulong.MaxValue), Hi = (ulong)(bits >> 64) };
     }
 
@@ -489,10 +662,13 @@ public static partial class NumericLiteralParser
     {
         /// <summary>Bits 0..63.</summary>
         public ulong W0 { get; set; }
+
         /// <summary>Bits 64..127.</summary>
         public ulong W1 { get; set; }
+
         /// <summary>Bits 128..191.</summary>
         public ulong W2 { get; set; }
+
         /// <summary>Bits 192..255.</summary>
         public ulong W3 { get; set; }
     }
@@ -514,7 +690,12 @@ public static partial class NumericLiteralParser
         }
 
         int exp = biased - decBias;
-        while (exp < 0 && (coeff % 10).IsZero) { coeff /= 10; exp++; }
+        while (exp < 0 && (coeff % 10).IsZero)
+        {
+            coeff /= 10;
+            exp++;
+        }
+
         return (coeff, exp + decBias);
     }
 
@@ -530,26 +711,36 @@ public static partial class NumericLiteralParser
     /// <returns>The encoded 256-bit decimal value as four 64-bit words.</returns>
     public static Decimal256 EncodeDecimal(string str)
     {
-        DecimalLiteralParts p = ParseDecimalLiteral(str);
-        (bool overflow, BigInteger coeff, int biased) =
-            RoundAndClamp(p.Coeff, p.Exp10, pmax: 70, bias: 1572932, qMin: -1572932, qMax: 1572795);
+        DecimalLiteralParts p = ParseDecimalLiteral(str: str);
+        (bool overflow, BigInteger coeff, int biased) = RoundAndClamp(coeff: p.Coeff,
+            exp10: p.Exp10,
+            pmax: 70,
+            bias: 1572932,
+            qMin: -1572932,
+            qMax: 1572795);
 
         if (overflow)
-            throw new OverflowException($"decimal literal '{str}' is out of range for Decimal (overflows to infinity)");
+        {
+            throw new OverflowException(
+                message:
+                $"decimal literal '{str}' is out of range for Decimal (overflows to infinity)");
+        }
 
         // Canonicalize (strip fractional trailing zeros so equal values share bits).
         (coeff, biased) = CanonicalizeDecimal(coeff: coeff, biased: biased);
 
-        BigInteger bits = ((BigInteger)biased << 233) | coeff;
+        BigInteger bits = (BigInteger)biased << 233 | coeff;
         if (p.Sign)
+        {
             bits |= BigInteger.One << 255;
+        }
 
         return new Decimal256
         {
             W0 = (ulong)(bits & ulong.MaxValue),
-            W1 = (ulong)((bits >> 64) & ulong.MaxValue),
-            W2 = (ulong)((bits >> 128) & ulong.MaxValue),
-            W3 = (ulong)((bits >> 192) & ulong.MaxValue),
+            W1 = (ulong)(bits >> 64 & ulong.MaxValue),
+            W2 = (ulong)(bits >> 128 & ulong.MaxValue),
+            W3 = (ulong)(bits >> 192 & ulong.MaxValue)
         };
     }
 
@@ -557,7 +748,9 @@ public static partial class NumericLiteralParser
 
     #region Arbitrary precision Integer (LibBF)
 
-    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_from_string", StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(libraryName: RuntimeLib,
+        EntryPoint = "rf_cs_integer_from_string",
+        StringMarshalling = StringMarshalling.Utf8)]
     private static partial nint ParseInteger(string str);
 
     [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_free")]
@@ -567,7 +760,8 @@ public static partial class NumericLiteralParser
     private static partial nuint GetIntegerByteSize(nint handle);
 
     [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_to_bytes")]
-    private static partial nuint IntegerToBytes(nint handle, [In, Out] byte[] buffer, nuint bufferSize);
+    private static partial nuint IntegerToBytes(nint handle, [In] [Out] byte[] buffer,
+        nuint bufferSize);
 
     [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_sign")]
     private static partial int GetIntegerSign(nint handle);
@@ -625,9 +819,11 @@ public static partial class NumericLiteralParser
     public static (string value, int sign, int exponent, int significantDigits, bool isInteger)
         ParseDecimalInfo(string str)
     {
-        DecimalLiteralParts p = ParseDecimalLiteral(str);
-        int sign = p.Sign ? 1 : 0;
-        int sigDigits = DecimalDigitCount(p.Coeff);
+        DecimalLiteralParts p = ParseDecimalLiteral(str: str);
+        int sign = p.Sign
+            ? 1
+            : 0;
+        int sigDigits = DecimalDigitCount(v: p.Coeff);
         bool isInt = p.Exp10 >= 0;
 
         // Reconstruct a normalized "coeff * 10^exp" decimal string for the value field.
@@ -635,21 +831,25 @@ public static partial class NumericLiteralParser
         string value;
         if (p.Exp10 >= 0)
         {
-            value = mag + new string('0', p.Exp10);
+            value = mag + new string(c: '0', count: p.Exp10);
         }
         else
         {
             int frac = -p.Exp10;
             if (mag.Length <= frac)
             {
-                value = "0." + new string('0', frac - mag.Length) + mag;
+                value = "0." + new string(c: '0', count: frac - mag.Length) + mag;
             }
             else
             {
                 value = mag[..^frac] + "." + mag[^frac..];
             }
         }
-        if (p.Sign && p.Coeff != 0) value = "-" + value;
+
+        if (p.Sign && p.Coeff != 0)
+        {
+            value = "-" + value;
+        }
 
         return (value, sign, p.Exp10, sigDigits, isInt);
     }

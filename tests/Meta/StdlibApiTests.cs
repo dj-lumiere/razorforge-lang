@@ -14,18 +14,20 @@ public sealed partial class StdlibApiTests
 {
     private static readonly string RepoRoot = LocateRepoRoot();
 
-    private static readonly string FixturesDir = Path.Combine(RepoRoot,
-        "tests",
-        "Fixtures",
-        "Stdlib");
+    private static readonly string FixturesDir = Path.Combine(path1: RepoRoot,
+        path2: "tests",
+        path3: "Fixtures",
+        path4: "Stdlib");
 
     private static readonly string CompilerDll =
-        Path.Combine(AppContext.BaseDirectory, "RazorForge.dll");
+        Path.Combine(path1: AppContext.BaseDirectory, path2: "RazorForge.dll");
 
     // The per-fixture `Fixture_OutputMatchesExpected` [Theory] (one full-stdlib compile per fixture,
     // ~165× ≈ 15 min, load-flaky) was replaced by the single-compile harness below.
-    private static readonly string HarnessDir =
-        Path.Combine(RepoRoot, "tests", "Fixtures", "StdlibHarness");
+    private static readonly string HarnessDir = Path.Combine(path1: RepoRoot,
+        path2: "tests",
+        path3: "Fixtures",
+        path4: "StdlibHarness");
 
     private const string HarnessModule = "StdlibHarness";
 
@@ -34,20 +36,24 @@ public sealed partial class StdlibApiTests
     // files — a shared prefix would drag `.rf` fixtures into the SF project and trip BuildDriver's
     // cross-language import guard. SF reuses the RazorForge stdlib wholesale (SF's Core IS RF's Core),
     // so the ONLY difference here is the fixtures dir, entry extension, module name, and library path.
-    private static readonly string SuflaeFixturesDir = Path.Combine(RepoRoot,
-        "tests",
-        "Fixtures",
-        "StdlibSf");
+    private static readonly string SuflaeFixturesDir = Path.Combine(path1: RepoRoot,
+        path2: "tests",
+        path3: "Fixtures",
+        path4: "StdlibSf");
 
-    private static readonly string SuflaeHarnessDir =
-        Path.Combine(RepoRoot, "tests", "Fixtures", "SuflaeHarness");
+    private static readonly string SuflaeHarnessDir = Path.Combine(path1: RepoRoot,
+        path2: "tests",
+        path3: "Fixtures",
+        path4: "SuflaeHarness");
 
     private const string SuflaeHarnessModule = "SuflaeHarness";
 
-    [GeneratedRegex(@"^\s*module\s+(\S+)\s*$")]
+    [GeneratedRegex(pattern: @"^\s*module\s+(\S+)\s*$")]
     private static partial Regex ModuleRe();
 
-    [GeneratedRegex(@"error\[RF-|Warning:|Codegen bug|Synthesized body codegen failed|Unresolved generic|Error type found|undefined symbol|never defined|MARKER-LEAK|Unhandled exception|\bE0\d")]
+    [GeneratedRegex(
+        pattern:
+        @"error\[RF-|Warning:|Codegen bug|Synthesized body codegen failed|Unresolved generic|Error type found|undefined symbol|never defined|MARKER-LEAK|Unhandled exception|\bE0\d")]
     private static partial Regex StderrDiagnosticRe();
 
     /// <summary>
@@ -60,11 +66,17 @@ public sealed partial class StdlibApiTests
     [Fact]
     public void StdlibHarness_AllFixturesOutputMatchExpected()
     {
-        int fixtureCount = RunFixtureBundle(fixturesDir: FixturesDir, glob: "*.rf", harnessDir: HarnessDir,
-            harnessModule: HarnessModule, bundleFileName: "all_stdlib.rf",
-            packageName: "stdlib-harness", libraryRel: "../Stdlib");
+        int fixtureCount = RunFixtureBundle(fixturesDir: FixturesDir,
+            glob: "*.rf",
+            harnessDir: HarnessDir,
+            harnessModule: HarnessModule,
+            bundleFileName: "all_stdlib.rf",
+            packageName: "stdlib-harness",
+            libraryRel: "../Stdlib");
         // Guard against a silently-empty bundle passing vacuously (e.g. fixtures dir moved/renamed).
-        Assert.True(fixtureCount > 0, "No RazorForge stdlib fixtures were discovered — the harness ran nothing.");
+        Assert.True(condition: fixtureCount > 0,
+            userMessage:
+            "No RazorForge stdlib fixtures were discovered — the harness ran nothing.");
     }
 
     /// <summary>
@@ -78,17 +90,24 @@ public sealed partial class StdlibApiTests
     [Fact]
     public void SuflaeHarness_AllFixturesOutputMatchExpected()
     {
-        if (!Directory.Exists(SuflaeFixturesDir) ||
-            !Directory.EnumerateFiles(SuflaeFixturesDir, "*.sf").Any())
+        if (!Directory.Exists(path: SuflaeFixturesDir) || !Directory
+                                                          .EnumerateFiles(path: SuflaeFixturesDir,
+                                                               searchPattern: "*.sf")
+                                                          .Any())
         {
             return; // No SF fixtures authored yet — nothing to assert.
         }
 
-        int fixtureCount = RunFixtureBundle(fixturesDir: SuflaeFixturesDir, glob: "*.sf",
-            harnessDir: SuflaeHarnessDir, harnessModule: SuflaeHarnessModule,
-            bundleFileName: "all_suflae.sf", packageName: "suflae-harness", libraryRel: "../StdlibSf");
+        int fixtureCount = RunFixtureBundle(fixturesDir: SuflaeFixturesDir,
+            glob: "*.sf",
+            harnessDir: SuflaeHarnessDir,
+            harnessModule: SuflaeHarnessModule,
+            bundleFileName: "all_suflae.sf",
+            packageName: "suflae-harness",
+            libraryRel: "../StdlibSf");
         // The early return above guarantees at least one .sf fixture; confirm the bundle actually ran it.
-        Assert.True(fixtureCount > 0, "SF fixtures exist but the harness discovered none to run.");
+        Assert.True(condition: fixtureCount > 0,
+            userMessage: "SF fixtures exist but the harness discovered none to run.");
     }
 
     /// <summary>
@@ -102,14 +121,21 @@ public sealed partial class StdlibApiTests
     [Fact]
     public void SuflaeAndRazorForge_SharedFixtures_HaveIdenticalExpected()
     {
-        if (!Directory.Exists(SuflaeFixturesDir)) return;
+        if (!Directory.Exists(path: SuflaeFixturesDir))
+        {
+            return;
+        }
 
         var mismatches = new List<string>();
-        foreach (string sfExpected in Directory.EnumerateFiles(SuflaeFixturesDir, "*.expected.txt"))
+        foreach (string sfExpected in Directory.EnumerateFiles(path: SuflaeFixturesDir,
+                     searchPattern: "*.expected.txt"))
         {
-            string stem = Path.GetFileName(sfExpected);
-            string rfExpected = Path.Combine(FixturesDir, stem);
-            if (!File.Exists(rfExpected)) continue; // SF-only fixture — exempt.
+            string stem = Path.GetFileName(path: sfExpected);
+            string rfExpected = Path.Combine(path1: FixturesDir, path2: stem);
+            if (!File.Exists(path: rfExpected))
+            {
+                continue; // SF-only fixture — exempt.
+            }
 
             // Canonicalize the namespace before comparing. SF fixtures live under `Tests/StdlibSf/*`
             // (their own namespace so the SF bundle's prefix import pulls only `.sf` files), so any
@@ -117,16 +143,23 @@ public sealed partial class StdlibApiTests
             // `Tests/StdlibSf/...` where its `.rf` twin emits `Tests/Stdlib/...`. That's a naming
             // artifact of the split, NOT a behavioral difference — fold it out so equivalence tracks
             // real observable behavior only.
-            static string Canon(string s) => NormalizeForCompare(s).Replace("Tests/StdlibSf", "Tests/Stdlib");
-            if (Canon(File.ReadAllText(rfExpected)) != Canon(File.ReadAllText(sfExpected)))
+            static string Canon(string s)
             {
-                mismatches.Add(stem);
+                return NormalizeForCompare(s: s)
+                   .Replace(oldValue: "Tests/StdlibSf", newValue: "Tests/Stdlib");
+            }
+
+            if (Canon(s: File.ReadAllText(path: rfExpected)) !=
+                Canon(s: File.ReadAllText(path: sfExpected)))
+            {
+                mismatches.Add(item: stem);
             }
         }
 
-        Assert.True(mismatches.Count == 0,
+        Assert.True(condition: mismatches.Count == 0,
+            userMessage:
             "Guarded RF/SF fixtures have divergent expected output (equivalence broken): " +
-            string.Join(", ", mismatches) +
+            string.Join(separator: ", ", values: mismatches) +
             ". Reconcile the snapshots, or rename the SF fixture stem to exempt it.");
     }
 
@@ -140,60 +173,84 @@ public sealed partial class StdlibApiTests
     /// Returns the number of fixtures discovered and bundled (0 = nothing ran).
     /// </summary>
     private static int RunFixtureBundle(string fixturesDir, string glob, string harnessDir,
-        string harnessModule, string bundleFileName, string packageName, string libraryRel)
+        string harnessModule, string bundleFileName, string packageName,
+        string libraryRel)
     {
         // 1) Generate the harness program + manifest from the fixtures.
         var entries = new List<(string Stem, string Module, string Leaf)>();
         var leaves = new Dictionary<string, string>(comparer: StringComparer.Ordinal);
-        foreach (string src in Directory.EnumerateFiles(fixturesDir, glob)
-                                       .OrderBy(keySelector: p => p, comparer: StringComparer.Ordinal))
+        foreach (string src in Directory.EnumerateFiles(path: fixturesDir, searchPattern: glob)
+                                        .OrderBy(keySelector: p => p,
+                                             comparer: StringComparer.Ordinal))
         {
             string? module = ReadDeclaredModule(rfPath: src);
-            if (module == null) continue;
-            string leaf = module.Contains('/') ? module[(module.LastIndexOf('/') + 1)..] : module;
-            if (leaves.TryGetValue(leaf, out string? other))
+            if (module == null)
+            {
+                continue;
+            }
+
+            string leaf = module.Contains(value: '/')
+                ? module[(module.LastIndexOf(value: '/') + 1)..]
+                : module;
+            if (leaves.TryGetValue(key: leaf, value: out string? other))
             {
                 throw new Xunit.Sdk.XunitException(
+                    userMessage:
                     $"Harness leaf collision '{leaf}': {other} vs {module} — module-qualified leaf calls " +
                     "would be ambiguous (RF-S513). Rename one fixture's module leaf.");
             }
-            leaves[leaf] = module;
-            entries.Add((Path.GetFileNameWithoutExtension(src), module, leaf));
+
+            leaves[key: leaf] = module;
+            entries.Add(item: (Path.GetFileNameWithoutExtension(path: src), module, leaf));
         }
 
-        Directory.CreateDirectory(harnessDir);
+        Directory.CreateDirectory(path: harnessDir);
         var lines = new List<string> { $"module {harnessModule}", "", "import IO/Console" };
         // Prefix/package import: a single `import Tests/Stdlib` pulls in every Tests/Stdlib/* fixture
         // module (all fixtures share that namespace), replacing one `import` line per fixture. Falls
         // back to per-module imports if the fixtures ever stop sharing a common namespace prefix.
-        string commonPrefix = entries.Count > 0 && entries[0].Module.Contains('/')
-            ? entries[0].Module[..entries[0].Module.LastIndexOf('/')]
+        string commonPrefix = entries.Count > 0 && entries[index: 0]
+                                                  .Module
+                                                  .Contains(value: '/')
+            ? entries[index: 0]
+               .Module[..entries[index: 0]
+                        .Module
+                        .LastIndexOf(value: '/')]
             : "";
-        if (commonPrefix.Length > 0 &&
-            entries.All(e => e.Module.StartsWith(commonPrefix + "/", StringComparison.Ordinal)))
-            lines.Add($"import {commonPrefix}");
+        if (commonPrefix.Length > 0 && entries.All(predicate: e =>
+                e.Module.StartsWith(value: commonPrefix + "/",
+                    comparisonType: StringComparison.Ordinal)))
+        {
+            lines.Add(item: $"import {commonPrefix}");
+        }
         else
-            lines.AddRange(entries.Select(selector: e => $"import {e.Module}"));
-        lines.Add("");
-        lines.Add("routine start()");
+        {
+            lines.AddRange(collection: entries.Select(selector: e => $"import {e.Module}"));
+        }
+
+        lines.Add(item: "");
+        lines.Add(item: "routine start()");
         foreach ((string stem, _, string leaf) in entries)
         {
-            lines.Add($"  show(\"##### {stem} #####\")");
-            lines.Add($"  {leaf}.start()");
+            lines.Add(item: $"  show(\"##### {stem} #####\")");
+            lines.Add(item: $"  {leaf}.start()");
         }
-        lines.Add("  return");
-        lines.Add("");
-        string harnessSrc = Path.Combine(harnessDir, bundleFileName);
-        File.WriteAllText(harnessSrc, string.Join("\n", lines));
+
+        lines.Add(item: "  return");
+        lines.Add(item: "");
+        string harnessSrc = Path.Combine(path1: harnessDir, path2: bundleFileName);
+        File.WriteAllText(path: harnessSrc, contents: string.Join(separator: "\n", values: lines));
 
         string manifest =
             $"[package]\nname = \"{packageName}\"\nversion = \"0.0.1\"\nrazorforge-version = \"0.1.0\"\n\n" +
             $"[target]\nexecutable = \"{harnessModule}\"\nmode = \"debug\"\nlibrary = [\"{libraryRel}\"]\n";
-        File.WriteAllText(Path.Combine(harnessDir, "config.toml"), manifest);
+        File.WriteAllText(path: Path.Combine(path1: harnessDir, path2: "config.toml"),
+            contents: manifest);
 
         // 2) Compile + run the ONE program (cwd = repo root so relative resource paths resolve).
         FixtureRun run = RunHarness(harnessRf: harnessSrc);
-        Assert.True(run is { ExitCode: 0, TimedOut: false },
+        Assert.True(condition: run is { ExitCode: 0, TimedOut: false },
+            userMessage:
             $"Harness buildandrun failed (exit={run.ExitCode}, timedOut={run.TimedOut}).\n" +
             $"--- stdout ---\n{run.Stdout}\n--- stderr ---\n{run.Stderr}");
 
@@ -202,13 +259,15 @@ public sealed partial class StdlibApiTests
         // only check stdout+exit (that is exactly how a flood of "Synthesized body codegen failed" /
         // "Unresolved generic memberRoutine 'Core.Dict.create'" warnings hid for so long). Fail on any of them.
         string[] offending = run.Stderr
-            .Split('\n')
-            .Select(selector: l => l.TrimEnd('\r'))
-            .Where(predicate: l => StderrDiagnosticRe().IsMatch(l))
-            .ToArray();
-        Assert.True(offending.Length == 0,
+                                .Split(separator: '\n')
+                                .Select(selector: l => l.TrimEnd(trimChar: '\r'))
+                                .Where(predicate: l => StderrDiagnosticRe()
+                                    .IsMatch(input: l))
+                                .ToArray();
+        Assert.True(condition: offending.Length == 0,
+            userMessage:
             $"Harness stderr was not clean — {offending.Length} diagnostic line(s):\n" +
-            string.Join("\n", offending.Take(40)));
+            string.Join(separator: "\n", values: offending.Take(count: 40)));
 
         // 3) Split combined output on the delimiter lines.
         Dictionary<string, string> sections = SplitHarnessOutput(stdout: run.Stdout);
@@ -217,22 +276,33 @@ public sealed partial class StdlibApiTests
         var mismatches = new List<string>();
         foreach ((string stem, _, _) in entries)
         {
-            string expectedPath = Path.Combine(fixturesDir, $"{stem}.expected.txt");
-            if (!File.Exists(expectedPath)) continue;
-            string expected = NormalizeForCompare(s: File.ReadAllText(expectedPath));
-            string actual = NormalizeForCompare(s: sections.GetValueOrDefault(stem, "<no output section emitted>"));
-            if (expected != actual) mismatches.Add(item: stem);
+            string expectedPath = Path.Combine(path1: fixturesDir, path2: $"{stem}.expected.txt");
+            if (!File.Exists(path: expectedPath))
+            {
+                continue;
+            }
+
+            string expected = NormalizeForCompare(s: File.ReadAllText(path: expectedPath));
+            string actual = NormalizeForCompare(s: sections.GetValueOrDefault(key: stem,
+                defaultValue: "<no output section emitted>"));
+            if (expected != actual)
+            {
+                mismatches.Add(item: stem);
+            }
         }
 
         if (mismatches.Count > 0)
         {
             // Surface the first mismatch in full for a quick read.
-            string first = mismatches[0];
+            string first = mismatches[index: 0];
             AssertOutputEqual(fixtureName: first,
-                expected: NormalizeForCompare(s: File.ReadAllText(Path.Combine(fixturesDir, $"{first}.expected.txt"))),
-                actual: NormalizeForCompare(s: sections.GetValueOrDefault(first, "<no output section emitted>")));
+                expected: NormalizeForCompare(s: File.ReadAllText(
+                    path: Path.Combine(path1: fixturesDir, path2: $"{first}.expected.txt"))),
+                actual: NormalizeForCompare(s: sections.GetValueOrDefault(key: first,
+                    defaultValue: "<no output section emitted>")));
             throw new Xunit.Sdk.XunitException(
-                $"{mismatches.Count} harness fixture(s) mismatched: {string.Join(", ", mismatches)}");
+                userMessage:
+                $"{mismatches.Count} harness fixture(s) mismatched: {string.Join(separator: ", ", values: mismatches)}");
         }
 
         return entries.Count;
@@ -241,13 +311,22 @@ public sealed partial class StdlibApiTests
     /// <summary>Reads the declared <c>module</c> path of a fixture (utf-8-sig for BOM), or null.</summary>
     private static string? ReadDeclaredModule(string rfPath)
     {
-        foreach (string line in File.ReadLines(rfPath))
+        foreach (string line in File.ReadLines(path: rfPath))
         {
-            Match m = ModuleRe().Match(line);
-            if (m.Success) return m.Groups[1].Value;
+            Match m = ModuleRe()
+               .Match(input: line);
+            if (m.Success)
+            {
+                return m.Groups[groupnum: 1].Value;
+            }
+
             string stripped = line.Trim();
-            if (stripped.Length > 0 && !stripped.StartsWith('#')) return null;
+            if (stripped.Length > 0 && !stripped.StartsWith(value: '#'))
+            {
+                return null;
+            }
         }
+
         return null;
     }
 
@@ -257,19 +336,35 @@ public sealed partial class StdlibApiTests
         var sections = new Dictionary<string, string>(comparer: StringComparer.Ordinal);
         string? current = null;
         var buf = new StringBuilder();
-        foreach (string rawLine in NormalizeNewlines(s: stdout).Split('\n'))
+        foreach (string rawLine in NormalizeNewlines(s: stdout)
+                    .Split(separator: '\n'))
         {
             string line = rawLine.Trim();
-            if (line.StartsWith("##### ") && line.EndsWith(" #####"))
+            if (line.StartsWith(value: "##### ") && line.EndsWith(value: " #####"))
             {
-                if (current != null) sections[current] = buf.ToString();
-                current = line[6..^6].Trim();
+                if (current != null)
+                {
+                    sections[key: current] = buf.ToString();
+                }
+
+                current = line[6..^6]
+                   .Trim();
                 buf.Clear();
                 continue;
             }
-            if (current != null) buf.Append(rawLine).Append('\n');
+
+            if (current != null)
+            {
+                buf.Append(value: rawLine)
+                   .Append(value: '\n');
+            }
         }
-        if (current != null) sections[current] = buf.ToString();
+
+        if (current != null)
+        {
+            sections[key: current] = buf.ToString();
+        }
+
         return sections;
     }
 
@@ -293,20 +388,35 @@ public sealed partial class StdlibApiTests
             // found: buildandrun locates razorforge.toml by walking UP from the entry file's
             // directory (HarnessDir), not from the working directory.
             WorkingDirectory = RepoRoot,
-            Environment = { ["DOTNET_gcServer"] = "0", ["DOTNET_GCConserveMemory"] = "9" }
+            Environment =
+            {
+                [key: "DOTNET_gcServer"] = "0", [key: "DOTNET_GCConserveMemory"] = "9"
+            }
         };
-        using var p = Process.Start(psi)!;
+        using var p = Process.Start(startInfo: psi)!;
         Task<string> outTask = p.StandardOutput.ReadToEndAsync();
         Task<string> errTask = p.StandardError.ReadToEndAsync();
         const int timeoutMs = 300_000;
-        if (!p.WaitForExit(timeoutMs))
+        if (!p.WaitForExit(milliseconds: timeoutMs))
         {
-            try { p.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            return new FixtureRun(ExitCode: -1, Stdout: outTask.Result, Stderr: errTask.Result,
-                TimedOut: true, TimeoutMs: timeoutMs);
+            try { p.Kill(entireProcessTree: true); }
+            catch
+            {
+                /* best effort */
+            }
+
+            return new FixtureRun(ExitCode: -1,
+                Stdout: outTask.Result,
+                Stderr: errTask.Result,
+                TimedOut: true,
+                TimeoutMs: timeoutMs);
         }
-        return new FixtureRun(ExitCode: p.ExitCode, Stdout: outTask.Result, Stderr: errTask.Result,
-            TimedOut: false, TimeoutMs: timeoutMs);
+
+        return new FixtureRun(ExitCode: p.ExitCode,
+            Stdout: outTask.Result,
+            Stderr: errTask.Result,
+            TimedOut: false,
+            TimeoutMs: timeoutMs);
     }
 
     /// <summary>
@@ -321,12 +431,12 @@ public sealed partial class StdlibApiTests
             return;
         }
 
-        string[] expLines = expected.Split('\n');
-        string[] actLines = actual.Split('\n');
+        string[] expLines = expected.Split(separator: '\n');
+        string[] actLines = actual.Split(separator: '\n');
         var sb = new StringBuilder();
-        sb.AppendLine($"Fixture output mismatch: {fixtureName}");
+        sb.AppendLine(handler: $"Fixture output mismatch: {fixtureName}");
 
-        int max = Math.Max(expLines.Length, actLines.Length);
+        int max = Math.Max(val1: expLines.Length, val2: actLines.Length);
         for (int i = 0; i < max; i++)
         {
             string e = i < expLines.Length
@@ -340,19 +450,20 @@ public sealed partial class StdlibApiTests
                 continue;
             }
 
-            sb.AppendLine($"First difference at line {i + 1}:");
-            sb.AppendLine($"  expected: {e}");
-            sb.AppendLine($"  actual:   {a}");
+            sb.AppendLine(handler: $"First difference at line {i + 1}:");
+            sb.AppendLine(handler: $"  expected: {e}");
+            sb.AppendLine(handler: $"  actual:   {a}");
             break;
         }
 
-        sb.AppendLine($"({expLines.Length} expected lines, {actLines.Length} actual lines)");
-        sb.AppendLine("================= FULL EXPECTED =================");
-        sb.AppendLine(expected);
-        sb.AppendLine("================= FULL ACTUAL ===================");
-        sb.AppendLine(actual);
-        sb.AppendLine("================================================");
-        throw new Xunit.Sdk.XunitException(sb.ToString());
+        sb.AppendLine(
+            handler: $"({expLines.Length} expected lines, {actLines.Length} actual lines)");
+        sb.AppendLine(value: "================= FULL EXPECTED =================");
+        sb.AppendLine(value: expected);
+        sb.AppendLine(value: "================= FULL ACTUAL ===================");
+        sb.AppendLine(value: actual);
+        sb.AppendLine(value: "================================================");
+        throw new Xunit.Sdk.XunitException(userMessage: sb.ToString());
     }
 
     /// <summary>
@@ -368,17 +479,18 @@ public sealed partial class StdlibApiTests
 
     private static string RunFixture(string rfPath)
     {
-        string fixture = Path.GetFileName(rfPath);
+        string fixture = Path.GetFileName(path: rfPath);
         FixtureRun last = default;
 
         for (int attempt = 1; attempt <= MaxRunAttempts; attempt++)
         {
-            last = RunFixtureOnce(rfPath);
+            last = RunFixtureOnce(rfPath: rfPath);
 
             if (last.TimedOut)
             {
                 // A hang is a real defect, never an environmental blip — surface it immediately.
                 throw new Xunit.Sdk.XunitException(
+                    userMessage:
                     $"buildandrun timed out after {last.TimeoutMs / 1000}s for {fixture}.\n" +
                     $"--- stdout (partial) ---\n{last.Stdout}\n--- stderr (partial) ---\n{last.Stderr}");
             }
@@ -393,8 +505,8 @@ public sealed partial class StdlibApiTests
             {
                 // Real failure (compile diagnostic or runtime output present) — fail fast.
                 throw new Xunit.Sdk.XunitException(
-                    $"buildandrun failed for {fixture} (exit={last.ExitCode}).\n" +
-                    $"--- stdout ---\n{last.Stdout}\n--- stderr ---\n{last.Stderr}");
+                    userMessage: $"buildandrun failed for {fixture} (exit={last.ExitCode}).\n" +
+                                 $"--- stdout ---\n{last.Stdout}\n--- stderr ---\n{last.Stderr}");
             }
 
             // Silent external kill: log and retry — but only after a SUBSTANTIAL backoff. The kill
@@ -403,6 +515,7 @@ public sealed partial class StdlibApiTests
             // compile. (A short backoff re-spawns INTO the live pressure and can tip the test host
             // over too — so the wait is load-relieving, not cosmetic.)
             Console.Error.WriteLine(
+                value:
                 $"[StdlibApiTests] {fixture}: spurious kill (exit={last.ExitCode}, no output) " +
                 $"on attempt {attempt}/{MaxRunAttempts}; backing off then retrying.");
             if (attempt >= MaxRunAttempts)
@@ -412,10 +525,11 @@ public sealed partial class StdlibApiTests
 
             GC.Collect();
             GC.WaitForPendingFinalizers();
-            Thread.Sleep(4000);
+            Thread.Sleep(millisecondsTimeout: 4000);
         }
 
         throw new Xunit.Sdk.XunitException(
+            userMessage:
             $"buildandrun for {fixture} was killed with no output (exit={last.ExitCode}) on all " +
             $"{MaxRunAttempts} attempts — likely sustained environmental resource pressure, not a " +
             $"fixture failure (it produced no compiler diagnostic and no program output).");
@@ -449,13 +563,16 @@ public sealed partial class StdlibApiTests
             // across the tree (the "exit=143, no output" spurious kills, and occasionally the test host
             // itself). Force WORKSTATION GC + aggressive memory conservation on the child to slash its
             // footprint; it stays single-fixture sequential, so the small GC-throughput trade is invisible.
-            Environment = { ["DOTNET_gcServer"] = "0", ["DOTNET_GCConserveMemory"] = "9" }
+            Environment =
+            {
+                [key: "DOTNET_gcServer"] = "0", [key: "DOTNET_GCConserveMemory"] = "9"
+            }
         };
-        using var p = Process.Start(psi)!;
-        var stdoutTask = p.StandardOutput.ReadToEndAsync();
-        var stderrTask = p.StandardError.ReadToEndAsync();
+        using var p = Process.Start(startInfo: psi)!;
+        Task<string> stdoutTask = p.StandardOutput.ReadToEndAsync();
+        Task<string> stderrTask = p.StandardError.ReadToEndAsync();
         const int timeoutMs = 60_000;
-        if (!p.WaitForExit(timeoutMs))
+        if (!p.WaitForExit(milliseconds: timeoutMs))
         {
             try { p.Kill(entireProcessTree: true); }
             catch { }
@@ -474,9 +591,11 @@ public sealed partial class StdlibApiTests
             TimeoutMs: timeoutMs);
     }
 
-    private static string NormalizeNewlines(string s) =>
-        s.Replace("\r\n", "\n")
-         .Replace("\r", "\n");
+    private static string NormalizeNewlines(string s)
+    {
+        return s.Replace(oldValue: "\r\n", newValue: "\n")
+                .Replace(oldValue: "\r", newValue: "\n");
+    }
 
     /// <summary>
     /// Normalizes output for snapshot comparison: LF line endings (a snapshot checked out as CRLF on
@@ -486,26 +605,37 @@ public sealed partial class StdlibApiTests
     /// Trailing whitespace is never semantically meaningful for these stdlib fixtures, so trimming both
     /// sides avoids false mismatches while still catching every real content difference.
     /// </summary>
-    private static string NormalizeForCompare(string s) =>
-        string.Join("\n",
-            NormalizeNewlines(s)
-               .TrimEnd('\n')
-               .Split('\n')
-               .Select(line => line.TrimEnd()));
+    private static string NormalizeForCompare(string s)
+    {
+        return string.Join(separator: "\n",
+            values: NormalizeNewlines(s: s)
+                   .TrimEnd(trimChar: '\n')
+                   .Split(separator: '\n')
+                   .Select(selector: line => line.TrimEnd()));
+    }
 
     private static string LocateRepoRoot()
     {
         // Walk up from the test assembly until we find RazorForge.csproj.
         string dir = AppContext.BaseDirectory;
-        while (!string.IsNullOrEmpty(dir))
+        while (!string.IsNullOrEmpty(value: dir))
         {
-            if (File.Exists(Path.Combine(dir, "RazorForge.csproj"))) return dir;
-            string? parent = Path.GetDirectoryName(dir);
-            if (parent == null || parent == dir) break;
+            if (File.Exists(path: Path.Combine(path1: dir, path2: "RazorForge.csproj")))
+            {
+                return dir;
+            }
+
+            string? parent = Path.GetDirectoryName(path: dir);
+            if (parent == null || parent == dir)
+            {
+                break;
+            }
+
             dir = parent;
         }
 
         throw new InvalidOperationException(
+            message:
             "Could not locate RazorForge.csproj walking up from test assembly directory.");
     }
 }

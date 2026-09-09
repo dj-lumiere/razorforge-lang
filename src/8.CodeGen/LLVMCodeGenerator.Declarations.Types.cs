@@ -43,9 +43,10 @@ public partial class LlvmCodeGenerator
                 IsGenericResolution: true, MemberVariables.Count: 0,
                 GenericDefinition: { MemberVariables.Count: > 0 } genDef,
                 TypeArguments: not null
-            }
-            && genDef.CreateInstance(typeArguments: entity.TypeArguments)
-                is EntityTypeInfo { MemberVariables.Count: > 0 } refreshed)
+            } && genDef.CreateInstance(typeArguments: entity.TypeArguments) is EntityTypeInfo
+            {
+                MemberVariables.Count: > 0
+            } refreshed)
         {
             entity = refreshed;
         }
@@ -53,11 +54,15 @@ public partial class LlvmCodeGenerator
         // Structural re-lookup ONLY (a registered entity carries its members). No AST rebuild / no
         // name-based type re-resolution: codegen consumes resolved TypeInfo, it does not reconstruct it.
         if (entity.MemberVariables.Count == 0 &&
-            (_registry.LookupType(name: entity.FullName) ?? _registry.LookupType(name: entity.Name))
-                is EntityTypeInfo { MemberVariables.Count: > 0 } resolvedEntity)
+            (_registry.LookupType(name: entity.FullName) ??
+             _registry.LookupType(name: entity.Name)) is EntityTypeInfo
+            {
+                MemberVariables.Count: > 0
+            } resolvedEntity)
         {
             entity = resolvedEntity;
         }
+
         return entity;
     }
 
@@ -81,7 +86,9 @@ public partial class LlvmCodeGenerator
             values: memberVariables.Select(selector: fieldTypeSelector));
         // @layout("packed") → LLVM native packed struct `<{ ... }>`: no inter-field padding, so field
         // offsets/GEP match the packed C layout without any explicit padding members.
-        string body = packed ? $"<{{ {memberVars} }}>" : $"{{ {memberVars} }}";
+        string body = packed
+            ? $"<{{ {memberVars} }}>"
+            : $"{{ {memberVars} }}";
         decl.AppendLine(value: $"{typeName} = type {body}");
 
         decl.Append(handler: $"; {typeName} member variables: ");
@@ -91,8 +98,10 @@ public partial class LlvmCodeGenerator
             {
                 decl.Append(value: ", ");
             }
+
             decl.Append(handler: $"{i}={memberVariables[index: i].Name}");
         }
+
         decl.AppendLine();
         return decl.ToString();
     }
@@ -106,7 +115,9 @@ public partial class LlvmCodeGenerator
         string typeName = RawCrashableTypeName(crashable: crashable);
 
         if (_generatedTypes.Contains(item: typeName))
+        {
             return;
+        }
 
         _generatedTypes.Add(item: typeName);
 
@@ -171,7 +182,8 @@ public partial class LlvmCodeGenerator
         _typeDeclarationsRecord[key: typeName] = BuildStructTypeDeclaration(typeName: typeName,
             memberVariables: record.MemberVariables,
             fieldTypeSelector: mv => GetFieldStorageLlvmType(type: mv.Type),
-            emptyBody: "{ }", packed: record.IsPacked);
+            emptyBody: "{ }",
+            packed: record.IsPacked);
     }
 
     /// <summary>
@@ -180,11 +192,10 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static bool ShouldSkipRecordTypeGeneration(RecordTypeInfo record)
     {
-        return record.BackendType != null ||
-            record.IsGenericDefinition ||
-            record.TypeArguments?.Any(predicate: t =>
-                ContainsGenericParameter(t) || t is ErrorTypeInfo ||
-                ContainsAbstractProjection(t)) == true;
+        return record.BackendType != null || record.IsGenericDefinition ||
+               record.TypeArguments?.Any(predicate: t =>
+                   ContainsGenericParameter(type: t) || t is ErrorTypeInfo ||
+                   ContainsAbstractProjection(type: t)) == true;
     }
 
 
@@ -199,12 +210,14 @@ public partial class LlvmCodeGenerator
                 IsGenericResolution: true, MemberVariables.Count: 0,
                 GenericDefinition: { MemberVariables.Count: > 0 } genDef,
                 TypeArguments: not null
-            }
-            && genDef.CreateInstance(typeArguments: record.TypeArguments)
-                is RecordTypeInfo { MemberVariables.Count: > 0 } refreshed)
+            } && genDef.CreateInstance(typeArguments: record.TypeArguments) is RecordTypeInfo
+            {
+                MemberVariables.Count: > 0
+            } refreshed)
         {
             return refreshed;
         }
+
         return record;
     }
 
@@ -213,8 +226,7 @@ public partial class LlvmCodeGenerator
     /// Handles nested generic resolutions that may not be in the registry (e.g.,
     /// Maybe[BTreeSetNode[S64]] created during member variable substitution).
     /// </summary>
-    private void EnsureMemberVariableTypesGenerated(
-        List<MemberVariableInfo> memberVariables)
+    private void EnsureMemberVariableTypesGenerated(List<MemberVariableInfo> memberVariables)
     {
         var visited = new HashSet<string>();
         foreach (MemberVariableInfo mv in memberVariables)
@@ -228,8 +240,15 @@ public partial class LlvmCodeGenerator
     // Maybe[Owned[...]] field of SortedDict[S64, S64]) get their struct types emitted.
     private void EnsureTypeGenerated(TypeInfo? type, HashSet<string> visited)
     {
-        if (type == null) return;
-        if (!visited.Add(item: type.FullName)) return;
+        if (type == null)
+        {
+            return;
+        }
+
+        if (!visited.Add(item: type.FullName))
+        {
+            return;
+        }
 
         // Skip not-yet-concrete generic resolutions. A `ListNode[T]` resolution (where T is
         // still `GenericParameterTypeInfo`) has IsGenericDefinition=false but its type
@@ -237,9 +256,8 @@ public partial class LlvmCodeGenerator
         // through GetLlvmType and crash. The same filter applies in GenerateTypeDeclarations
         // for top-level emission — replicate it here so it also gates recursive descent
         // into nested field types of monomorphized parents.
-        bool hasUnboundTypeArg =
-            type.TypeArguments is { Count: > 0 } args
-            && args.Any(predicate: ContainsGenericParameter);
+        bool hasUnboundTypeArg = type.TypeArguments is { Count: > 0 } args &&
+                                 args.Any(predicate: ContainsGenericParameter);
 
         switch (type)
         {
@@ -314,7 +332,11 @@ public partial class LlvmCodeGenerator
         decl.Append(handler: $"; {typeName} members: ");
         for (int i = 0; i < variant.Members.Count; i++)
         {
-            if (i > 0) decl.Append(value: ", ");
+            if (i > 0)
+            {
+                decl.Append(value: ", ");
+            }
+
             VariantMemberInfo m = variant.Members[index: i];
             decl.Append(handler: $"{m.Name}={m.Ordinal}");
         }

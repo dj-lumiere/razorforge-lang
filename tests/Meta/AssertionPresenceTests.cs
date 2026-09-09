@@ -31,20 +31,19 @@ public sealed partial class AssertionPresenceTests
     public void TestMemberRoutines_ContainAssertionPath()
     {
         string testRoot = FindTestRoot();
-        List<string> memberRoutinesWithoutAssertions = Directory.EnumerateFiles(
-                                                              path: testRoot,
-                                                              searchPattern: "*.cs",
-                                                              searchOption: SearchOption
-                                                                 .AllDirectories)
-                                                         .Where(predicate: path => !path.EndsWith(
-                                                              value:
-                                                              $"{Path.DirectorySeparatorChar}GlobalUsings.cs",
-                                                              comparisonType: StringComparison
-                                                                 .Ordinal))
-                                                         .SelectMany(
-                                                              selector:
-                                                              FindTestMemberRoutinesWithoutAssertions)
-                                                         .ToList();
+        var memberRoutinesWithoutAssertions = Directory.EnumerateFiles(path: testRoot,
+                                                            searchPattern: "*.cs",
+                                                            searchOption: SearchOption
+                                                               .AllDirectories)
+                                                       .Where(predicate: path => !path.EndsWith(
+                                                            value:
+                                                            $"{Path.DirectorySeparatorChar}GlobalUsings.cs",
+                                                            comparisonType: StringComparison
+                                                               .Ordinal))
+                                                       .SelectMany(
+                                                            selector:
+                                                            FindTestMemberRoutinesWithoutAssertions)
+                                                       .ToList();
 
         Assert.Empty(collection: memberRoutinesWithoutAssertions);
     }
@@ -67,8 +66,9 @@ public sealed partial class AssertionPresenceTests
             }
 
             string memberRoutineName = memberRoutinePattern.Match(input: lines[memberRoutineLine])
-                                             .Groups["name"].Value;
-            string memberRoutineBody = ExtractMemberRoutineBody(lines: lines, memberRoutineLine: memberRoutineLine);
+                                                           .Groups[groupname: "name"].Value;
+            string memberRoutineBody =
+                ExtractMemberRoutineBody(lines: lines, memberRoutineLine: memberRoutineLine);
 
             if (!AssertionMarkers.Any(predicate: marker => memberRoutineBody.Contains(
                     value: marker,
@@ -151,10 +151,10 @@ public sealed partial class AssertionPresenceTests
         throw new DirectoryNotFoundException(message: "Could not find the tests directory.");
     }
 
-    [GeneratedRegex(@"^\s*\[(?:Fact|Theory)\b", RegexOptions.Compiled)]
+    [GeneratedRegex(pattern: @"^\s*\[(?:Fact|Theory)\b", options: RegexOptions.Compiled)]
     private static partial Regex MyRegex();
     [GeneratedRegex(
-        @"^\s*public\s+(?:async\s+)?(?:Task|void)\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(",
-        RegexOptions.Compiled)]
+        pattern: @"^\s*public\s+(?:async\s+)?(?:Task|void)\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(",
+        options: RegexOptions.Compiled)]
     private static partial Regex MyRegex1();
 }

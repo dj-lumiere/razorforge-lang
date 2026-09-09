@@ -17,7 +17,7 @@ public partial class Parser
 
         while (true)
         {
-            if (!TryParsePostfixStep(ref expr))
+            if (!TryParsePostfixStep(expr: ref expr))
             {
                 break;
             }
@@ -59,14 +59,17 @@ public partial class Parser
         // Optional chaining: obj?.member
         if (CheckAndAdvance(type: TokenType.QuestionDot))
         {
-            string member = ConsumeMemberRoutineName(errorMessage: "Expected member name after '?.'");
-            expr = new OptionalMemberExpression(Object: expr, MemberName: member,
+            string member =
+                ConsumeMemberRoutineName(errorMessage: "Expected member name after '?.'");
+            expr = new OptionalMemberExpression(Object: expr,
+                MemberName: member,
                 Location: expr.Location);
             return true;
         }
 
         // Comptime splice selectors: obj.${expr} or obj.$primary
-        if (TryParseSpliceMember(expr: expr, result: out Expression? spliceMember) && spliceMember != null)
+        if (TryParseSpliceMember(expr: expr, result: out Expression? spliceMember) &&
+            spliceMember != null)
         {
             expr = spliceMember;
             return true;
@@ -75,7 +78,8 @@ public partial class Parser
         // Plain member access: obj.member
         if (CheckAndAdvance(type: TokenType.Dot))
         {
-            expr = HandleMemberAccess(expr: expr).Expr;
+            expr = HandleMemberAccess(expr: expr)
+               .Expr;
             return true;
         }
 
@@ -83,7 +87,8 @@ public partial class Parser
         if (CheckAndAdvance(type: TokenType.BangBang))
         {
             expr = new UnaryExpression(Operator: UnaryOperator.ForceUnwrap,
-                Operand: expr, Location: expr.Location);
+                Operand: expr,
+                Location: expr.Location);
             return true;
         }
 
@@ -97,13 +102,19 @@ public partial class Parser
     }
 
     /// <summary>Returns true when the current token sequence starts a bracket access expression.</summary>
-    private bool IsBracketAccessStart() =>
-        Check(type: TokenType.LeftBracket) ||
-        (Check(type: TokenType.Bang) && PeekToken(offset: 1).Type == TokenType.LeftBracket);
+    private bool IsBracketAccessStart()
+    {
+        return Check(type: TokenType.LeftBracket) || Check(type: TokenType.Bang) &&
+            PeekToken(offset: 1)
+               .Type == TokenType.LeftBracket;
+    }
 
     /// <summary>Returns true when the current token sequence starts a failable call expression.</summary>
-    private bool IsFailableCallStart() =>
-        Check(type: TokenType.Bang) && PeekToken(offset: 1).Type == TokenType.LeftParen;
+    private bool IsFailableCallStart()
+    {
+        return Check(type: TokenType.Bang) && PeekToken(offset: 1)
+           .Type == TokenType.LeftParen;
+    }
 
     /// <summary>
     /// Attempts to parse a comptime splice member access if the current token is a dot followed by
@@ -111,26 +122,30 @@ public partial class Parser
     /// </summary>
     private bool TryParseSpliceMember(Expression expr, out Expression? result)
     {
-        if (Check(type: TokenType.Dot) && PeekToken(offset: 1).Type == TokenType.SpliceOpen)
+        if (Check(type: TokenType.Dot) && PeekToken(offset: 1)
+               .Type == TokenType.SpliceOpen)
         {
             // Comptime splice selector: obj.${expr}. A distinct SpliceMemberExpression so the
             // monomorphizer folds the splice to a concrete field name before SA member resolve.
             Advance(); // consume '.'
             Advance(); // consume '${'
             SpliceExpression selector = ParseSplice(kind: SpliceKind.Selector);
-            result = new SpliceMemberExpression(Object: expr, Selector: selector,
+            result = new SpliceMemberExpression(Object: expr,
+                Selector: selector,
                 Location: expr.Location);
             return true;
         }
 
-        if (Check(type: TokenType.Dot) && PeekToken(offset: 1).Type == TokenType.Dollar)
+        if (Check(type: TokenType.Dot) && PeekToken(offset: 1)
+               .Type == TokenType.Dollar)
         {
             // Brace-less comptime splice selector: obj.$nameof(m). Same SpliceMemberExpression as
             // the braced form; the monomorphizer folds nameof(m) to the concrete field name.
             Advance(); // consume '.'
             Advance(); // consume '$'
             SpliceExpression selector = ParseDollarSplice(kind: SpliceKind.Selector);
-            result = new SpliceMemberExpression(Object: expr, Selector: selector,
+            result = new SpliceMemberExpression(Object: expr,
+                Selector: selector,
                 Location: expr.Location);
             return true;
         }
@@ -159,15 +174,13 @@ public partial class Parser
             bracketArgs.Add(item: ParseBracketArg());
         } while (CheckAndAdvance(type: TokenType.Comma));
 
-        Consume(type: TokenType.RightBracket,
-            errorMessage: "Expected ']' after bracket contents");
+        Consume(type: TokenType.RightBracket, errorMessage: "Expected ']' after bracket contents");
 
         List<Expression>? callArgs = null;
         if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             callArgs = ParseArgumentList();
-            Consume(type: TokenType.RightParen,
-                errorMessage: ExpectedRightParenAfterArguments);
+            Consume(type: TokenType.RightParen, errorMessage: ExpectedRightParenAfterArguments);
         }
 
         // Slice syntax `xs[a til b]` IS supported: a single-arg no-call subscript whose index
@@ -190,13 +203,11 @@ public partial class Parser
         Advance(); // consume '('
 
         List<Expression> args = ParseArgumentList();
-        Consume(type: TokenType.RightParen,
-            errorMessage: ExpectedRightParenAfterArguments);
+        Consume(type: TokenType.RightParen, errorMessage: ExpectedRightParenAfterArguments);
 
         if (expr is IdentifierExpression identExpr)
         {
-            return new CallExpression(
-                Callee: new IdentifierExpression(Name: identExpr.Name,
+            return new CallExpression(Callee: new IdentifierExpression(Name: identExpr.Name,
                     Location: identExpr.Location,
                     // Preserve the `::` realm qualifier on a failable foreign call
                     // (`C::rf_foo!(...)`) so the strict realm gate can see it.
@@ -205,9 +216,10 @@ public partial class Parser
                 Location: expr.Location) { IsFailable = true };
         }
 
-        return new CallExpression(Callee: expr,
-            Arguments: args,
-            Location: expr.Location) { IsFailable = true };
+        return new CallExpression(Callee: expr, Arguments: args, Location: expr.Location)
+        {
+            IsFailable = true
+        };
     }
 
     /// <summary>
@@ -226,7 +238,7 @@ public partial class Parser
         // Bang token so the failable-call / generic-failable handling below records it as a
         // structured MemberExpression.IsFailable / GenericMemberRoutineCallExpression flag.
         if (!Check(type: TokenType.Identifier) &&
-            !IsKeywordValidAsMemberRoutineName(CurrentToken.Type))
+            !IsKeywordValidAsMemberRoutineName(type: CurrentToken.Type))
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedIdentifier,
                 message: "Expected member name after '.'");
@@ -241,9 +253,8 @@ public partial class Parser
         // Object is that MemberExpression. BracketReclassifyPass rewrites this into a
         // GenericMemberRoutineCallExpression / GenericMemberExpression. A `!` before the
         // brackets is the memory-op marker, recorded as BracketAccessExpression.IsFailable.
-        if ((Check(type: TokenType.Bang) && PeekToken(offset: 1)
-                .Type == TokenType.LeftBracket) ||
-            Check(type: TokenType.LeftBracket))
+        if (Check(type: TokenType.Bang) && PeekToken(offset: 1)
+               .Type == TokenType.LeftBracket || Check(type: TokenType.LeftBracket))
         {
             return (HandleGenericMemberAccess(expr: expr, member: member), true);
         }
@@ -267,15 +278,13 @@ public partial class Parser
             bracketArgs.Add(item: ParseBracketArg());
         } while (CheckAndAdvance(type: TokenType.Comma));
 
-        Consume(type: TokenType.RightBracket,
-            errorMessage: "Expected ']' after bracket contents");
+        Consume(type: TokenType.RightBracket, errorMessage: "Expected ']' after bracket contents");
 
         List<Expression>? callArgs = null;
         if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             callArgs = ParseArgumentList();
-            Consume(type: TokenType.RightParen,
-                errorMessage: ExpectedRightParenAfterArguments);
+            Consume(type: TokenType.RightParen, errorMessage: ExpectedRightParenAfterArguments);
         }
 
         Expression memberObj = new MemberExpression(Object: expr,
@@ -301,8 +310,7 @@ public partial class Parser
             // Failable memberRoutine call: obj.MemberRoutine!(args)
             // Represented as CallExpression with MemberExpression callee
             List<Expression> args = ParseArgumentList();
-            Consume(type: TokenType.RightParen,
-                errorMessage: ExpectedRightParenAfterArguments);
+            Consume(type: TokenType.RightParen, errorMessage: ExpectedRightParenAfterArguments);
 
             Expression memberExpr = new MemberExpression(Object: expr,
                 MemberName: member,
@@ -317,8 +325,7 @@ public partial class Parser
             // Regular memberRoutine call: obj.MemberRoutine(args)
             // Represented as CallExpression with MemberExpression callee
             List<Expression> args = ParseArgumentList();
-            Consume(type: TokenType.RightParen,
-                errorMessage: ExpectedRightParenAfterArguments);
+            Consume(type: TokenType.RightParen, errorMessage: ExpectedRightParenAfterArguments);
 
             Expression memberExpr = new MemberExpression(Object: expr,
                 MemberName: member,
@@ -328,15 +335,16 @@ public partial class Parser
                 Location: expr.Location);
         }
 
-        return new MemberExpression(Object: expr,
-            MemberName: member,
-            Location: expr.Location);
+        return new MemberExpression(Object: expr, MemberName: member, Location: expr.Location);
     }
 
     /// <summary>Advances past all consecutive <see cref="TokenType.Newline"/> tokens.</summary>
     private void ConsumeNewlines()
     {
-        while (CheckAndAdvance(type: TokenType.Newline)) { /* advance past each newline */ }
+        while (CheckAndAdvance(type: TokenType.Newline))
+        {
+            /* advance past each newline */
+        }
     }
 
     /// <summary>

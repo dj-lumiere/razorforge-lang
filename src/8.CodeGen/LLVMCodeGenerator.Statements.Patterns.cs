@@ -14,7 +14,11 @@ public partial class LlvmCodeGenerator
     private const string UnknownRoutineName = "<unknown>";
     private const string NullDisplayName = "<null>";
 
-    private readonly record struct WhenClauseTarget(string Subject, TypeInfo? SubjectType, int ClauseIndex);
+    private readonly record struct WhenClauseTarget(
+        string Subject,
+        TypeInfo? SubjectType,
+        int ClauseIndex);
+
     private readonly record struct WhenJumpTargets(string NextLabel, string EndLabel);
 
     // Returns true if ALL clauses of the when statement are guaranteed to terminate
@@ -33,9 +37,9 @@ public partial class LlvmCodeGenerator
         // Spill the loaded struct value into a temp alloca so the pattern-match code
         // (EmitPatternMatch / EmitCarrierElsePatternExtract / EmitLoadVariantOrCarrierTag)
         // can `getelementptr` field 0 / field 1 against a real ptr.
-        bool needsSpill = subjectType is VariantTypeInfo
-            || (subjectType is RecordTypeInfo carrierRec
-                && GetCarrierBaseName(type: carrierRec) is "Maybe" or "Result" or "Lookup");
+        bool needsSpill = subjectType is VariantTypeInfo ||
+                          subjectType is RecordTypeInfo carrierRec &&
+                          GetCarrierBaseName(type: carrierRec) is "Maybe" or "Result" or "Lookup";
         if (needsSpill)
         {
             string llvmType = GetLlvmType(type: subjectType!);
@@ -70,7 +74,9 @@ public partial class LlvmCodeGenerator
         // End block -> if all clauses terminated the when_end block is unreachable
         EmitLine(sb: sb, line: $"{endLabel}:");
         if (allTerminated)
+        {
             EmitLine(sb: sb, line: "  unreachable");
+        }
 
         return allTerminated;
     }
@@ -102,9 +108,11 @@ public partial class LlvmCodeGenerator
         for (int i = 0; i < whenStmt.Clauses.Count; i++)
         {
             Pattern p = whenStmt.Clauses[index: i].Pattern;
-            if (TryGetSwitchTagValue(pattern: p, subjectType: subjectType, out string tagLiteral))
+            if (TryGetSwitchTagValue(pattern: p,
+                    subjectType: subjectType,
+                    tagLiteral: out string tagLiteral))
             {
-                arms.Add((tagLiteral, i));
+                arms.Add(item: (tagLiteral, i));
             }
             else if (p is ElsePattern or WildcardPattern or IdentifierPattern)
             {
@@ -126,19 +134,24 @@ public partial class LlvmCodeGenerator
             EmitLoadVariantOrCarrierTag(sb: sb, subject: subject, subjectType: subjectType);
 
         // -----------------------------------------------------------------------------
-        var bodyLabels = new string[whenStmt.Clauses.Count];
+        string[] bodyLabels = new string[whenStmt.Clauses.Count];
         for (int i = 0; i < whenStmt.Clauses.Count; i++)
+        {
             bodyLabels[i] = NextLabel(prefix: $"when_body{i}");
+        }
 
         // -----------------------------------------------------------------------------
         string switchDefault = defaultClauseIdx >= 0
             ? bodyLabels[defaultClauseIdx]
             : endLabel;
 
-        var switchSb = new StringBuilder($"  switch i64 {tag}, label %{switchDefault} [");
+        var switchSb = new StringBuilder(value: $"  switch i64 {tag}, label %{switchDefault} [");
         foreach ((string tval, int idx) in arms)
-            switchSb.Append($"\n    i64 {tval}, label %{bodyLabels[idx]}");
-        switchSb.Append("\n  ]");
+        {
+            switchSb.Append(handler: $"\n    i64 {tval}, label %{bodyLabels[idx]}");
+        }
+
+        switchSb.Append(value: "\n  ]");
         EmitLine(sb: sb, line: switchSb.ToString());
 
         // -----------------------------------------------------------------------------
@@ -172,13 +185,19 @@ public partial class LlvmCodeGenerator
         // Generate labels for each clause
         var clauseLabels = new List<string>();
         for (int i = 0; i < whenStmt.Clauses.Count; i++)
+        {
             clauseLabels.Add(item: NextLabel(prefix: $"when_case{i}"));
+        }
 
         // Jump to first clause
         if (clauseLabels.Count > 0)
+        {
             EmitLine(sb: sb, line: $"  br label %{clauseLabels[index: 0]}");
+        }
         else
+        {
             EmitLine(sb: sb, line: $"  br label %{endLabel}");
+        }
 
         // Track handled carrier arms for ElsePattern narrowing (mirrors SA logic)
         bool handledAbsent = false;
@@ -194,10 +213,14 @@ public partial class LlvmCodeGenerator
                 : endLabel;
 
             EmitLine(sb: sb, line: $"{currentLabel}:");
-            EmitWhenChainClause(sb: sb, clause: clause,
-                target: new WhenClauseTarget(subject, subjectType, i),
-                labels: new WhenJumpTargets(nextLabel, endLabel),
-                handledAbsent: ref handledAbsent, handledCrashable: ref handledCrashable,
+            EmitWhenChainClause(sb: sb,
+                clause: clause,
+                target: new WhenClauseTarget(Subject: subject,
+                    SubjectType: subjectType,
+                    ClauseIndex: i),
+                labels: new WhenJumpTargets(NextLabel: nextLabel, EndLabel: endLabel),
+                handledAbsent: ref handledAbsent,
+                handledCrashable: ref handledCrashable,
                 allTerminated: ref allTerminated);
         }
 
@@ -208,25 +231,29 @@ public partial class LlvmCodeGenerator
     /// Emits a single when-chain clause: handles the narrowed carrier else-arm fast path,
     /// updates the absent/crashable tracking flags, emits the pattern match, and emits the body.
     /// </summary>
-    private void EmitWhenChainClause(StringBuilder sb, WhenClause clause,
-        WhenClauseTarget target, WhenJumpTargets labels,
-        ref bool handledAbsent, ref bool handledCrashable, ref bool allTerminated)
+    private void EmitWhenChainClause(StringBuilder sb, WhenClause clause, WhenClauseTarget target,
+        WhenJumpTargets labels, ref bool handledAbsent, ref bool handledCrashable,
+        ref bool allTerminated)
     {
-        var (subject, subjectType, clauseIndex) = target;
-        var (nextLabel, endLabel) = labels;
+        (string subject, TypeInfo? subjectType, int clauseIndex) = target;
+        (string nextLabel, string endLabel) = labels;
 
         // For carrier ElsePattern with a variable: extract the inner T value, mirroring SA narrowing.
         // Must do this BEFORE EmitPatternMatch to pass the right type.
         if (subjectType != null && IsCarrierType(type: subjectType) &&
             clause.Pattern is ElsePattern { VariableName: not null } elseCarrier &&
-            subjectType.TypeArguments?.Count > 0 &&
-            IsNarrowedCarrierElseArm(subjectType: subjectType, handledAbsent: handledAbsent,
+            subjectType.TypeArguments?.Count > 0 && IsNarrowedCarrierElseArm(
+                subjectType: subjectType,
+                handledAbsent: handledAbsent,
                 handledCrashable: handledCrashable))
         {
             string elseBodyLabel = NextLabel(prefix: $"when_body{clauseIndex}");
-            EmitNarrowedCarrierElseArm(sb: sb, clauseBody: clause.Body, subject: subject,
-                subjectType: subjectType, variableName: elseCarrier.VariableName,
-                jumpTargets: new WhenJumpTargets(elseBodyLabel, endLabel),
+            EmitNarrowedCarrierElseArm(sb: sb,
+                clauseBody: clause.Body,
+                subject: subject,
+                subjectType: subjectType,
+                variableName: elseCarrier.VariableName,
+                jumpTargets: new WhenJumpTargets(NextLabel: elseBodyLabel, EndLabel: endLabel),
                 allTerminated: ref allTerminated);
             return;
         }
@@ -235,9 +262,13 @@ public partial class LlvmCodeGenerator
         if (subjectType != null && IsCarrierType(type: subjectType))
         {
             if (IsAbsentPatternForCarrier(pattern: clause.Pattern, carrierType: subjectType))
+            {
                 handledAbsent = true;
+            }
             else if (IsCrashablePatternForGen(pattern: clause.Pattern))
+            {
                 handledCrashable = true;
+            }
         }
 
         // Emit pattern matching code
@@ -265,10 +296,13 @@ public partial class LlvmCodeGenerator
     /// Lookup whose absent AND crashable arms were both already handled.
     /// </summary>
     private static bool IsNarrowedCarrierElseArm(TypeInfo subjectType, bool handledAbsent,
-        bool handledCrashable) =>
-        (GetCarrierBaseName(type: subjectType) == "Maybe" && handledAbsent) ||
-        (GetCarrierBaseName(type: subjectType) == "Result" && handledCrashable) ||
-        (GetCarrierBaseName(type: subjectType) == "Lookup" && handledAbsent && handledCrashable);
+        bool handledCrashable)
+    {
+        return GetCarrierBaseName(type: subjectType) == "Maybe" && handledAbsent ||
+               GetCarrierBaseName(type: subjectType) == "Result" && handledCrashable ||
+               GetCarrierBaseName(type: subjectType) == "Lookup" && handledAbsent &&
+               handledCrashable;
+    }
 
     /// <summary>
     /// Emits a narrowed carrier else arm: extracts the inner T value into the bound variable, emits the
@@ -356,6 +390,7 @@ public partial class LlvmCodeGenerator
                 {
                     return false;
                 }
+
                 ulong hash = TypeIdHelper.ComputeTypeId(fullName: targetType.FullName);
                 // LLVM switch uses the same bit pattern; sign doesn't matter for equality
                 tagLiteral = unchecked((long)hash).ToString();
@@ -382,14 +417,20 @@ public partial class LlvmCodeGenerator
             {
                 TypeInfo? targetType =
                     tp.Type.ResolvedType ?? _registry.LookupType(name: tp.Type.Name);
-                if (targetType == null) break;
+                if (targetType == null)
+                {
+                    break;
+                }
 
                 string varAddr = $"%{tp.VariableName}.addr";
 
                 if (subjectType is VariantTypeInfo variant)
                 {
                     VariantMemberInfo? member = variant.FindMember(type: targetType);
-                    if (member?.Type == null) break; // None/None: no payload
+                    if (member?.Type == null)
+                    {
+                        break; // None/None: no payload
+                    }
 
                     string variantTypeName = GetVariantTypeName(variant: variant);
                     string payloadPtr = NextTemp();
@@ -411,6 +452,7 @@ public partial class LlvmCodeGenerator
                 else
                 {
                     throw new InvalidOperationException(
+                        message:
                         "Result/Lookup carrier switch-arm binding reached codegen; PatternLoweringPass " +
                         "should have lowered it to a CarrierPayloadExpression.");
                 }
@@ -515,6 +557,7 @@ public partial class LlvmCodeGenerator
 
             case VariantPattern:
                 throw new InvalidOperationException(
+                    message:
                     "VariantPattern reached codegen -> this pattern is no longer generated by the " +
                     "parser. Use TypePattern or NegatedTypePattern instead.");
 
@@ -528,9 +571,7 @@ public partial class LlvmCodeGenerator
                 break;
 
             case CrashablePattern:
-                EmitCrashablePatternMatch(sb: sb,
-                    failLabel: failLabel,
-                    subjectType: subjectType);
+                EmitCrashablePatternMatch(sb: sb, failLabel: failLabel, subjectType: subjectType);
                 break;
 
             case ExpressionPattern exprPattern:
@@ -542,6 +583,7 @@ public partial class LlvmCodeGenerator
 
             case NegatedTypePattern:
                 throw new InvalidOperationException(
+                    message:
                     $"NegatedTypePattern on variant reached codegen -> PatternLoweringPass must lower this. " +
                     $"Subject type: {subjectType?.Name ?? NullDisplayName}. Routine: {_currentEmittingRoutine?.Name ?? UnknownRoutineName}.");
 
@@ -565,11 +607,13 @@ public partial class LlvmCodeGenerator
 
             case DestructuringPattern:
                 throw new InvalidOperationException(
+                    message:
                     $"DestructuringPattern reached codegen -> PatternLoweringPass must lower this. " +
                     $"Subject type: {subjectType?.Name ?? NullDisplayName}. Routine: {_currentEmittingRoutine?.Name ?? UnknownRoutineName}.");
 
             case TypeDestructuringPattern:
                 throw new InvalidOperationException(
+                    message:
                     $"TypeDestructuringPattern reached codegen -> PatternLoweringPass must lower this. " +
                     $"Subject type: {subjectType?.Name ?? NullDisplayName}. Routine: {_currentEmittingRoutine?.Name ?? UnknownRoutineName}.");
 
@@ -593,7 +637,10 @@ public partial class LlvmCodeGenerator
         bool isFloat = llvmType is "half" or "float" or "double" or "fp128";
         if (lit.LiteralType == TokenType.TextLiteral)
         {
-            EmitTextEqCompare(sb: sb, result: result, subject: subject, litValue: litValue);
+            EmitTextEqCompare(sb: sb,
+                result: result,
+                subject: subject,
+                litValue: litValue);
         }
         else if (isFloat)
         {
@@ -609,8 +656,11 @@ public partial class LlvmCodeGenerator
         {
             if (lit.Value is bool b)
             {
-                litValue = b ? "true" : "false";
+                litValue = b
+                    ? "true"
+                    : "false";
             }
+
             EmitLine(sb: sb, line: $"  {result} = icmp eq {llvmType} {subject}, {litValue}");
         }
 
@@ -635,19 +685,25 @@ public partial class LlvmCodeGenerator
             // patterns with icmp. IEEE edge divergence: a NaN pattern matches a bit-identical NaN.
             TokenType.F128Literal => "i128",
             TokenType.True or TokenType.False => "i1",
-            _ => subjectType != null ? GetLlvmType(type: subjectType) : "i64"
+            _ => subjectType != null
+                ? GetLlvmType(type: subjectType)
+                : "i64"
         };
     }
 
     /// <summary>Emits a Text equality comparison via <c>Text.eq(me, other) -> Bool (i1)</c>.</summary>
-    private void EmitTextEqCompare(StringBuilder sb, string result, string subject, string litValue)
+    private void EmitTextEqCompare(StringBuilder sb, string result, string subject,
+        string litValue)
     {
         TypeInfo? textType = _registry.LookupType(name: "Text");
         RoutineInfo? textEq = textType != null
-            ? _registry.LookupMemberRoutineOverload(type: textType, memberRoutineName: "eq",
+            ? _registry.LookupMemberRoutineOverload(type: textType,
+                memberRoutineName: "eq",
                 argTypes: [textType])
             : null;
-        string eqFuncName = textEq != null ? MangleRoutineName(routine: textEq) : "Text_eq";
+        string eqFuncName = textEq != null
+            ? MangleRoutineName(routine: textEq)
+            : "Text_eq";
         EmitLine(sb: sb,
             line: $"  {result} = call i1 @{eqFuncName}(ptr {subject}, ptr {litValue})");
     }
@@ -689,8 +745,7 @@ public partial class LlvmCodeGenerator
         if (subjectType != null && IsCarrierType(type: subjectType) &&
             !IsMaybeType(type: subjectType) && typePattern.Type.Name == "Crashable")
         {
-            EmitCrashablePatternMatch(sb: sb,
-                failLabel: failLabel, subjectType: subjectType);
+            EmitCrashablePatternMatch(sb: sb, failLabel: failLabel, subjectType: subjectType);
             return;
         }
 
@@ -699,14 +754,20 @@ public partial class LlvmCodeGenerator
         // record/entity handling below (which would otherwise optimistically match).
         if (subjectType is ChoiceTypeInfo choiceSubject)
         {
-            EmitChoiceTypePatternMatch(sb: sb, subject: subject, typePattern: typePattern,
-                choiceSubject: choiceSubject, matchLabel: matchLabel, failLabel: failLabel);
+            EmitChoiceTypePatternMatch(sb: sb,
+                subject: subject,
+                typePattern: typePattern,
+                choiceSubject: choiceSubject,
+                matchLabel: matchLabel,
+                failLabel: failLabel);
             return;
         }
 
         // Determine the actual target label -> if we need to bind, use an extraction block
         bool needsBind = typePattern.VariableName != null && targetType != null;
-        string branchTarget = needsBind ? NextLabel(prefix: "type_bind") : matchLabel;
+        string branchTarget = needsBind
+            ? NextLabel(prefix: "type_bind")
+            : matchLabel;
 
         // A variant TypePattern must never reach codegen: PatternLoweringPass rewrites every variant
         // `is Arm` into a `subject.type_id == FNV-1a(Arm.FullName)` comparison first. If one arrives
@@ -715,12 +776,16 @@ public partial class LlvmCodeGenerator
         if (subjectType is VariantTypeInfo && targetType != null)
         {
             throw new InvalidOperationException(
+                message:
                 "Variant TypePattern reached codegen; PatternLoweringPass should have lowered it to a " +
                 "type_id comparison.");
         }
 
-        EmitEntityTypePatternMatch(sb: sb, subjectType: subjectType, targetType: targetType,
-            branchTarget: branchTarget, failLabel: failLabel);
+        EmitEntityTypePatternMatch(sb: sb,
+            subjectType: subjectType,
+            targetType: targetType,
+            branchTarget: branchTarget,
+            failLabel: failLabel);
 
         // Bind to variable if specified -> emit alloca+store in a dedicated block
         if (needsBind)
@@ -736,8 +801,9 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>Emits a choice-case type pattern (`is Color.RED`) as an integer value comparison.</summary>
-    private void EmitChoiceTypePatternMatch(StringBuilder sb, string subject, TypePattern typePattern,
-        ChoiceTypeInfo choiceSubject, string matchLabel, string failLabel)
+    private void EmitChoiceTypePatternMatch(StringBuilder sb, string subject,
+        TypePattern typePattern, ChoiceTypeInfo choiceSubject, string matchLabel,
+        string failLabel)
     {
         string caseName = typePattern.Type.Name;
         int dotIndex = caseName.LastIndexOf(value: '.');
@@ -776,13 +842,15 @@ public partial class LlvmCodeGenerator
             targetType is EntityTypeInfo or RecordTypeInfo)
         {
             // Different concrete type -> never matches; same concrete type -> always matches.
-            EmitLine(sb: sb, line: subjectType.Name != targetType.Name
-                ? $"  br label %{failLabel}"
-                : $"  br label %{branchTarget}");
+            EmitLine(sb: sb,
+                line: subjectType.Name != targetType.Name
+                    ? $"  br label %{failLabel}"
+                    : $"  br label %{branchTarget}");
             return;
         }
 
         throw new InvalidOperationException(
+            message:
             $"Undecidable type pattern (subject '{subjectType?.FullName ?? NullDisplayName}' is " +
             $"'{targetType?.FullName ?? NullDisplayName}') reached codegen — a runtime type test must be lowered to a " +
             "type_id comparison upstream. codegen is a never-fail translator, it does not optimistically match.");
@@ -795,7 +863,8 @@ public partial class LlvmCodeGenerator
         TypeInfo? subjectType)
     {
         // Maybe has no error case -> a CrashablePattern on a Maybe subject never matches.
-        if (subjectType != null && IsCarrierType(type: subjectType) && IsMaybeType(type: subjectType))
+        if (subjectType != null && IsCarrierType(type: subjectType) &&
+            IsMaybeType(type: subjectType))
         {
             EmitLine(sb: sb, line: $"  br label %{failLabel}");
             return;
@@ -807,6 +876,7 @@ public partial class LlvmCodeGenerator
         if (subjectType != null && IsCarrierType(type: subjectType))
         {
             throw new InvalidOperationException(
+                message:
                 "Result/Lookup `is Crashable` reached codegen; CrashableExpansionPass should have " +
                 "expanded it into type_id comparisons.");
         }
@@ -896,6 +966,7 @@ public partial class LlvmCodeGenerator
                 mask |= ResolveFlagBit(flagName: flagName, flagsType: flagsType);
             }
         }
+
         return mask;
     }
 
@@ -957,29 +1028,35 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>Returns the generic base name of a carrier type (Maybe, Result, or Lookup), or null.</summary>
-    private static string? GetCarrierBaseName(TypeInfo? type) =>
-        type == null
+    private static string? GetCarrierBaseName(TypeInfo? type)
+    {
+        return type == null
             ? null
             : GetGenericBaseName(type: type);
+    }
 
     /// <summary>
     /// Returns true if this pattern represents the "absent" arm for the given carrier type.
     /// Maybe -> NonePattern or TypePattern(None); Result/Lookup -> TypePattern(None).
     /// </summary>
-    private static bool IsAbsentPatternForCarrier(Pattern pattern, TypeInfo? carrierType) =>
-        GetCarrierBaseName(type: carrierType) switch
+    private static bool IsAbsentPatternForCarrier(Pattern pattern, TypeInfo? carrierType)
+    {
+        return GetCarrierBaseName(type: carrierType) switch
         {
             "Maybe" => pattern is NonePattern or TypePattern { Type.Name: "None" },
             "Result" or "Lookup" => pattern is TypePattern { Type.Name: "None" },
             _ => false
         };
+    }
 
     /// <summary>
     /// Returns true if the pattern matches the error/crashable arm of a carrier.
     /// The parser creates TypePattern(type: "Crashable") rather than CrashablePattern.
     /// </summary>
-    private static bool IsCrashablePatternForGen(Pattern pattern) =>
-        pattern is CrashablePattern or TypePattern { Type.Name: "Crashable" };
+    private static bool IsCrashablePatternForGen(Pattern pattern)
+    {
+        return pattern is CrashablePattern or TypePattern { Type.Name: "Crashable" };
+    }
 
     /// <summary>
     /// Extracts the inner T value from a carrier (already spilled to ptr <paramref name="subject"/>)
@@ -1017,12 +1094,15 @@ public partial class LlvmCodeGenerator
         else
         {
             throw new InvalidOperationException(
+                message:
                 "Result/Lookup narrowed-else extraction reached codegen; PatternLoweringPass should " +
                 "have lowered it to a CarrierPayloadExpression.");
         }
 
         if (matchLabel != null)
+        {
             EmitLine(sb: sb, line: $"  br label %{matchLabel}");
+        }
     }
 
     /// <summary>

@@ -26,8 +26,8 @@ public sealed class AssociatedProjectionTypeInfo : TypeInfo
     /// <summary>Initializes a new projection <c>Base/SlotName</c>.</summary>
     /// <param name="baseType">The type being projected from.</param>
     /// <param name="slotName">The associated-type slot name.</param>
-    public AssociatedProjectionTypeInfo(TypeInfo baseType, string slotName)
-        : base(name: $"{baseType.Name}/{slotName}")
+    public AssociatedProjectionTypeInfo(TypeInfo baseType, string slotName) : base(
+        name: $"{baseType.Name}/{slotName}")
     {
         Base = baseType;
         SlotName = slotName;

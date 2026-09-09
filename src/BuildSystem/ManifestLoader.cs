@@ -2,10 +2,10 @@ using Tomlyn;
 using Tomlyn.Model;
 
 namespace Builder;
+
 /// <summary>
 /// Loads and validates RazorForge project manifest files.
 /// </summary>
-
 public static class ManifestLoader
 {
     /// <summary>
@@ -80,7 +80,8 @@ public static class ManifestLoader
         if (root.TryGetValue(key: "target", value: out object? targetObj) &&
             targetObj is TomlTable targetTable)
         {
-            manifest.Target = ParseBuildTarget(table: targetTable, moduleIndex: moduleIndex,
+            manifest.Target = ParseBuildTarget(table: targetTable,
+                moduleIndex: moduleIndex,
                 manifestDir: manifestDir);
         }
         else
@@ -108,7 +109,8 @@ public static class ManifestLoader
 
         // [debug] — internal compiler diagnostics (formerly the RF_* / RAZORFORGE_JIT_TRACE env vars).
         // All optional; niche developer tooling.
-        if (root.TryGetValue(key: "debug", value: out object? debugObj) && debugObj is TomlTable debugTable)
+        if (root.TryGetValue(key: "debug", value: out object? debugObj) &&
+            debugObj is TomlTable debugTable)
         {
             ParseDebugOptions(debugTable: debugTable, d: manifest.Debug);
         }
@@ -122,23 +124,53 @@ public static class ManifestLoader
     /// <summary>Reads the optional <c>[debug]</c> flags into <paramref name="d"/>.</summary>
     private static void ParseDebugOptions(TomlTable debugTable, DebugOptions d)
     {
-        if (debugTable.TryGetValue(key: "dump-ast", value: out object? da)) d.DumpAst = da is true;
-        if (debugTable.TryGetValue(key: "timing", value: out object? tm)) d.Timing = tm is true;
-        if (debugTable.TryGetValue(key: "show-build-stages", value: out object? sbs)) d.ShowBuildStages = sbs is true;
-        if (debugTable.TryGetValue(key: "prune-stats", value: out object? ps)) d.PruneStats = ps is true;
-        if (debugTable.TryGetValue(key: "jit-trace", value: out object? jt)) d.JitTrace = jt is true;
-        if (debugTable.TryGetValue(key: "dump-ir", value: out object? di)) d.DumpIr = di is true;
+        if (debugTable.TryGetValue(key: "dump-ast", value: out object? da))
+        {
+            d.DumpAst = da is true;
+        }
+
+        if (debugTable.TryGetValue(key: "timing", value: out object? tm))
+        {
+            d.Timing = tm is true;
+        }
+
+        if (debugTable.TryGetValue(key: "show-build-stages", value: out object? sbs))
+        {
+            d.ShowBuildStages = sbs is true;
+        }
+
+        if (debugTable.TryGetValue(key: "prune-stats", value: out object? ps))
+        {
+            d.PruneStats = ps is true;
+        }
+
+        if (debugTable.TryGetValue(key: "jit-trace", value: out object? jt))
+        {
+            d.JitTrace = jt is true;
+        }
+
+        if (debugTable.TryGetValue(key: "dump-ir", value: out object? di))
+        {
+            d.DumpIr = di is true;
+        }
+
         if (debugTable.TryGetValue(key: "reachability-dump", value: out object? rd) &&
             !string.IsNullOrWhiteSpace(value: rd?.ToString()))
+        {
             d.ReachabilityDump = rd!.ToString();
+        }
+
         if (debugTable.TryGetValue(key: "maysuspend-dump", value: out object? md) &&
             !string.IsNullOrWhiteSpace(value: md?.ToString()))
+        {
             d.MaySuspendDump = md!.ToString();
+        }
     }
 
     /// <summary>Resolves each external library dependency directory relative to the manifest,
     /// mutating the target's <c>Libraries</c> list in place and validating existence.</summary>
-    private static void ResolveLibraryDependencyDirectories(ProjectManifest manifest, string manifestDir)
+    private static void ResolveLibraryDependencyDirectories(ProjectManifest manifest,
+        string manifestDir)
     {
         for (int i = 0; i < manifest.Target.Libraries.Count; i++)
         {
@@ -174,20 +206,24 @@ public static class ManifestLoader
 
         if (table.TryGetValue(key: "kind", value: out object? kindObj))
         {
-            string kind = kindObj?.ToString()?.Trim().ToLowerInvariant() ?? "";
+            string kind = kindObj?.ToString()
+                                 ?.Trim()
+                                  .ToLowerInvariant() ?? "";
             lib.Kind = kind switch
             {
                 "static" => CLinkKind.Static,
                 "dynamic" or "" => CLinkKind.Dynamic,
                 _ => throw new InvalidOperationException(
-                    message: $"{ManifestFileName}: [libraries.{name}] kind must be \"static\" or \"dynamic\", got \"{kind}\".")
+                    message:
+                    $"{ManifestFileName}: [libraries.{name}] kind must be \"static\" or \"dynamic\", got \"{kind}\".")
             };
         }
 
         if (table.TryGetValue(key: "calling-convention", value: out object? ccObj) &&
             !string.IsNullOrWhiteSpace(value: ccObj?.ToString()))
         {
-            lib.CallingConvention = ccObj!.ToString()!.Trim().ToLowerInvariant();
+            lib.CallingConvention = ccObj!.ToString()!.Trim()
+                                          .ToLowerInvariant();
         }
 
         return lib;
@@ -265,11 +301,15 @@ public static class ManifestLoader
         // Dev-loop daemon routing (formerly the RAZORFORGE_DAEMON env var). The JIT dev loop is now the
         // `mode = "debug-jit"` build mode; all other diagnostics live in [debug].
         if (table.TryGetValue(key: "use-daemon", value: out object? useDaemon))
+        {
             target.UseDaemon = useDaemon is true;
+        }
 
         // Reserved: incremental compilation (parsed now, consumed once the incremental pipeline lands).
         if (table.TryGetValue(key: "incremental", value: out object? incremental))
+        {
             target.Incremental = incremental is true;
+        }
 
         // Resolve the executable's module name to a file path
         if (moduleIndex == null)
@@ -283,28 +323,35 @@ public static class ManifestLoader
 
     /// <summary>Parses the <c>library</c>, <c>c_libraries</c>, and <c>library_paths</c> entries into
     /// <paramref name="target"/>. Each accepts a single string or an array of strings.</summary>
-    private static void ParseTargetLibraries(TomlTable table, BuildTarget target, string manifestDir)
+    private static void ParseTargetLibraries(TomlTable table, BuildTarget target,
+        string manifestDir)
     {
         // `library` = EXTERNAL dependency directories (requirements.txt-style), relative
         // to the manifest. Accept a single string or an array of strings.
         if (table.TryGetValue(key: "library", value: out object? libraryObj))
+        {
             ParseLibraryEntries(value: libraryObj, target: target);
+        }
 
         // `c_libraries` = external C libraries to link (the `-l` names, e.g. "SDL2"). Names only.
         if (table.TryGetValue(key: "c_libraries", value: out object? cLibsObj))
+        {
             ParseCLibraryEntries(value: cLibsObj, target: target);
+        }
 
         // `library_paths` = additional `-L` search directories for `c_libraries`, resolved relative
         // to the manifest directory (absolute entries pass through).
         if (table.TryGetValue(key: "library_paths", value: out object? libPathsObj))
+        {
             ParseLibraryPathEntries(value: libPathsObj, target: target, manifestDir: manifestDir);
+        }
     }
 
     /// <summary>Adds non-empty raw library entries to <paramref name="target"/>'s Libraries list.</summary>
     private static void ParseLibraryEntries(object? value, BuildTarget target)
     {
         foreach (string? rawEntry in AsStringEntries(value: value)
-                     .Where(predicate: e => !string.IsNullOrWhiteSpace(value: e)))
+                    .Where(predicate: e => !string.IsNullOrWhiteSpace(value: e)))
         {
             target.Libraries.Add(item: rawEntry!);
         }
@@ -314,17 +361,18 @@ public static class ManifestLoader
     private static void ParseCLibraryEntries(object? value, BuildTarget target)
     {
         foreach (string? rawEntry in AsStringEntries(value: value)
-                     .Where(predicate: e => !string.IsNullOrWhiteSpace(value: e)))
+                    .Where(predicate: e => !string.IsNullOrWhiteSpace(value: e)))
         {
             target.CLibraries.Add(item: rawEntry!.Trim());
         }
     }
 
     /// <summary>Resolves and adds library search-path entries to <paramref name="target"/>'s LibraryPaths list.</summary>
-    private static void ParseLibraryPathEntries(object? value, BuildTarget target, string manifestDir)
+    private static void ParseLibraryPathEntries(object? value, BuildTarget target,
+        string manifestDir)
     {
         foreach (string? rawEntry in AsStringEntries(value: value)
-                     .Where(predicate: e => !string.IsNullOrWhiteSpace(value: e)))
+                    .Where(predicate: e => !string.IsNullOrWhiteSpace(value: e)))
         {
             target.LibraryPaths.Add(item: Path.GetFullPath(
                 path: Path.Combine(path1: manifestDir, path2: rawEntry!.Trim())));
@@ -333,11 +381,14 @@ public static class ManifestLoader
 
     /// <summary>Normalizes a TOML value that may be a single string or an array of strings into a
     /// sequence of raw string entries.</summary>
-    private static IEnumerable<string?> AsStringEntries(object? value) => value switch
+    private static IEnumerable<string?> AsStringEntries(object? value)
     {
-        TomlArray array => array.Select(selector: item => item?.ToString()),
-        _ => [value?.ToString()]
-    };
+        return value switch
+        {
+            TomlArray array => array.Select(selector: item => item?.ToString()),
+            _ => [value?.ToString()]
+        };
+    }
 
     /// <summary>Resolves <c>target.Executable</c> (a source-file path or a module name) to a concrete
     /// file path, throwing when the file/module cannot be found.</summary>
@@ -350,11 +401,13 @@ public static class ManifestLoader
         {
             string filePath = Path.IsPathRooted(path: target.Executable)
                 ? target.Executable
-                : Path.GetFullPath(path: Path.Combine(path1: manifestDir, path2: target.Executable));
+                : Path.GetFullPath(
+                    path: Path.Combine(path1: manifestDir, path2: target.Executable));
             if (!File.Exists(path: filePath))
             {
                 throw new InvalidOperationException(
-                    message: $"{ManifestFileName}: executable file '{target.Executable}' not found at {filePath}.");
+                    message:
+                    $"{ManifestFileName}: executable file '{target.Executable}' not found at {filePath}.");
             }
 
             target.Executable = filePath;
@@ -377,9 +430,11 @@ public static class ManifestLoader
 
     /// <summary>True when the manifest <c>executable</c> value names a source FILE (.rf/.sf) rather
     /// than a module — file-based single-file execution is the standard entry form.</summary>
-    private static bool LooksLikeSourceFile(string name) =>
-        name.EndsWith(value: ".rf", comparisonType: StringComparison.OrdinalIgnoreCase) ||
-        name.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase);
+    private static bool LooksLikeSourceFile(string name)
+    {
+        return name.EndsWith(value: ".rf", comparisonType: StringComparison.OrdinalIgnoreCase) ||
+               name.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string ReadRequiredString(TomlTable table, string key, string context)
     {
@@ -447,12 +502,16 @@ public static class ManifestLoader
         // Skip debug AST dump files — they share the module name with the real source
         if (filePath.EndsWith(value: ".rf.desugared",
                 comparisonType: StringComparison.OrdinalIgnoreCase))
+        {
             return;
+        }
 
         // File-granularity conditional compilation: skip a `.rf` file whose leading
         // `#@target(...)` directive doesn't match the build target (RazorForge-only).
         if (!Compiler.Targeting.TargetGate.ShouldCompile(filePath: filePath))
+        {
             return;
+        }
 
         string? moduleName = ExtractModuleName(filePath: filePath);
         if (moduleName == null)
@@ -503,8 +562,9 @@ public static class ManifestLoader
         try
         {
             return File.ReadLines(path: filePath)
-                .Any(predicate: line => line.Trim()
-                    .StartsWith(value: "routine start(", comparisonType: StringComparison.Ordinal));
+                       .Any(predicate: line => line.Trim()
+                                                   .StartsWith(value: "routine start(",
+                                                        comparisonType: StringComparison.Ordinal));
         }
         catch (IOException)
         {
@@ -539,7 +599,7 @@ public static class ManifestLoader
 
                 // Skip comments, empty lines, and imports — stop at first real declaration
                 if (!string.IsNullOrWhiteSpace(value: trimmed) &&
-                    !trimmed.StartsWith('#') && !trimmed.StartsWith(value: "import "))
+                    !trimmed.StartsWith(value: '#') && !trimmed.StartsWith(value: "import "))
                 {
                     break;
                 }
@@ -548,7 +608,8 @@ public static class ManifestLoader
         catch (Exception ex)
         {
             Console.Error.WriteLine(
-                value: $"Warning: Could not read or parse '{filePath}' for module name extraction: {ex.Message}");
+                value:
+                $"Warning: Could not read or parse '{filePath}' for module name extraction: {ex.Message}");
         }
 
         return null;

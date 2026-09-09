@@ -81,10 +81,7 @@ public partial class Parser
             IsVariadic: isVariadic,
             Annotations: annotations,
             IsDangerous: isDangerous,
-            Location: location)
-        {
-            IsFailable = isFailable
-        };
+            Location: location) { IsFailable = isFailable };
     }
 
     /// <summary>
@@ -93,13 +90,13 @@ public partial class Parser
     private string ParseExternalRoutineName()
     {
         var nameSb = new System.Text.StringBuilder(
-            ConsumeIdentifier(errorMessage: "Expected routine name"));
+            value: ConsumeIdentifier(errorMessage: "Expected routine name"));
 
         // Support slash-based module paths with a dot-qualified routine name like IO/Console.print
         while (CheckAndAdvance(type: TokenType.Dot))
         {
-            nameSb.Append('.');
-            nameSb.Append(ConsumeIdentifier(errorMessage: "Expected identifier after '.'"));
+            nameSb.Append(value: '.');
+            nameSb.Append(value: ConsumeIdentifier(errorMessage: "Expected identifier after '.'"));
         }
 
         return nameSb.ToString();
@@ -147,17 +144,22 @@ public partial class Parser
         // C header uses — because it never has to be a bindable identifier. The `:` after the
         // first token is the disambiguator: `<anything>: type` is a named param, otherwise the
         // param is type-only.
-        if (PeekToken(offset: 1).Type == TokenType.Colon)
+        if (PeekToken(offset: 1)
+               .Type == TokenType.Colon)
         {
-            string paramName = Advance().Text; // cosmetic name; keywords allowed
+            string paramName = Advance()
+               .Text; // cosmetic name; keywords allowed
             Consume(type: TokenType.Colon, errorMessage: "Expected ':' after parameter name");
-            return new Parameter(Name: paramName, Type: ParseType(), DefaultValue: null,
+            return new Parameter(Name: paramName,
+                Type: ParseType(),
+                DefaultValue: null,
                 Location: GetLocation());
         }
 
         // Type-only parameter — synthesize a positional placeholder name.
-        return new Parameter(Name: $"arg{parameters.Count}", Type: ParseType(),
-            DefaultValue: null, Location: GetLocation());
+        return new Parameter(Name: $"arg{parameters.Count}",
+            Type: ParseType(),
+            DefaultValue: null,
+            Location: GetLocation());
     }
-
 }

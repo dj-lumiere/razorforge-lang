@@ -49,11 +49,9 @@ public sealed class CancellationInstrumentationPass
     /// <paramref name="instantiatedBodies"/> (e.g. <c>List[Box].pop</c>). No-op when
     /// <paramref name="maySuspendKeys"/> is empty (i.e. no coroutine reaches a suspend point).
     /// </summary>
-    public static void Run(
-        IEnumerable<(Program Program, string FilePath, string Module)> programs,
+    public static void Run(IEnumerable<(Program Program, string FilePath, string Module)> programs,
         IReadOnlyDictionary<string, Instantiation.MonomorphizedBody> instantiatedBodies,
-        IReadOnlyCollection<string> maySuspendKeys,
-        TypeRegistry registry)
+        IReadOnlyCollection<string> maySuspendKeys, TypeRegistry registry)
     {
         if (maySuspendKeys.Count == 0)
         {
@@ -61,7 +59,8 @@ public sealed class CancellationInstrumentationPass
         }
 
         var pass = new CancellationInstrumentationPass(
-            maySuspend: new HashSet<string>(collection: maySuspendKeys, comparer: StringComparer.Ordinal),
+            maySuspend: new HashSet<string>(collection: maySuspendKeys,
+                comparer: StringComparer.Ordinal),
             registry: registry);
 
         foreach ((Program program, _, _) in programs)
@@ -78,7 +77,8 @@ public sealed class CancellationInstrumentationPass
         // the teardown set the same way.
         foreach ((string key, Instantiation.MonomorphizedBody mb) in instantiatedBodies)
         {
-            if (pass._maySuspend.Contains(item: key) || pass._maySuspend.Contains(item: mb.Info.RegistryKey))
+            if (pass._maySuspend.Contains(item: key) ||
+                pass._maySuspend.Contains(item: mb.Info.RegistryKey))
             {
                 pass.InstrumentBody(body: mb.Ast.Body);
             }
@@ -103,7 +103,11 @@ public sealed class CancellationInstrumentationPass
         // (its instrumentation belongs on the monomorphized bodies), which the bare OwnerName would not
         // reproduce.
         TypeInfo? owner = _registry.LookupType(name: decl.RenderedReceiver!);
-        return owner == null ? null : _registry.LookupMemberRoutine(type: owner, memberRoutineName: memberRoutineName, isFailable: decl.IsFailable);
+        return owner == null
+            ? null
+            : _registry.LookupMemberRoutine(type: owner,
+                memberRoutineName: memberRoutineName,
+                isFailable: decl.IsFailable);
     }
 
     private void MaybeInstrument(RoutineDeclaration decl)
@@ -128,16 +132,20 @@ public sealed class CancellationInstrumentationPass
         }
 
         var locals = new HashSet<string>(comparer: StringComparer.Ordinal);
-        AstWalker.Walk(root: block, visit: n =>
-        {
-            if (n is CallExpression
-                {
-                    Callee: MemberExpression { MemberName: "destroy", Object: IdentifierExpression destroyed }
-                })
+        AstWalker.Walk(root: block,
+            visit: n =>
             {
-                locals.Add(item: destroyed.Name);
-            }
-        });
+                if (n is CallExpression
+                    {
+                        Callee: MemberExpression
+                        {
+                            MemberName: "destroy", Object: IdentifierExpression destroyed
+                        }
+                    })
+                {
+                    locals.Add(item: destroyed.Name);
+                }
+            });
         if (locals.Count == 0)
         {
             return;
@@ -159,13 +167,14 @@ public sealed class CancellationInstrumentationPass
         {
             RecurseInto(stmt: stmt, locals: locals);
 
-            if (IsDestroyCall(stmt: stmt, local: out string? destroyed) && locals.Contains(item: destroyed!))
+            if (IsDestroyCall(stmt: stmt, local: out string? destroyed) &&
+                locals.Contains(item: destroyed!))
             {
                 rewritten.Add(item: Marker(fn: PopMarker, local: destroyed!, loc: stmt.Location));
                 rewritten.Add(item: stmt);
             }
-            else if (stmt is DeclarationStatement { Declaration: VariableDeclaration v }
-                     && locals.Contains(item: v.Name))
+            else if (stmt is DeclarationStatement { Declaration: VariableDeclaration v } &&
+                     locals.Contains(item: v.Name))
             {
                 rewritten.Add(item: stmt);
                 rewritten.Add(item: Marker(fn: PushMarker, local: v.Name, loc: stmt.Location));
@@ -190,31 +199,48 @@ public sealed class CancellationInstrumentationPass
                 break;
             case IfStatement i:
                 RecurseStmt(stmt: i.ThenStatement, locals: locals);
-                if (i.ElseStatement != null) RecurseStmt(stmt: i.ElseStatement, locals: locals);
+                if (i.ElseStatement != null)
+                {
+                    RecurseStmt(stmt: i.ElseStatement, locals: locals);
+                }
+
                 break;
             case WhileStatement w:
                 RecurseStmt(stmt: w.Body, locals: locals);
-                if (w.ElseBranch != null) RecurseStmt(stmt: w.ElseBranch, locals: locals);
+                if (w.ElseBranch != null)
+                {
+                    RecurseStmt(stmt: w.ElseBranch, locals: locals);
+                }
+
                 break;
             case LoopStatement l:
                 RecurseStmt(stmt: l.Body, locals: locals);
                 break;
             case EachStatement f:
                 RecurseStmt(stmt: f.Body, locals: locals);
-                if (f.ElseBranch != null) RecurseStmt(stmt: f.ElseBranch, locals: locals);
+                if (f.ElseBranch != null)
+                {
+                    RecurseStmt(stmt: f.ElseBranch, locals: locals);
+                }
+
                 break;
             case DangerStatement d:
                 InstrumentBlock(block: d.Body, locals: locals);
                 break;
             case UsingStatement u:
                 RecurseStmt(stmt: u.Body, locals: locals);
-                if (u.FallbackBody != null) RecurseStmt(stmt: u.FallbackBody, locals: locals);
+                if (u.FallbackBody != null)
+                {
+                    RecurseStmt(stmt: u.FallbackBody, locals: locals);
+                }
+
                 break;
             case WhenStatement whenStmt:
                 foreach (WhenClause clause in whenStmt.Clauses)
                 {
                     RecurseStmt(stmt: clause.Body, locals: locals);
                 }
+
                 break;
         }
     }
@@ -237,21 +263,27 @@ public sealed class CancellationInstrumentationPass
             {
                 Expression: CallExpression
                 {
-                    Callee: MemberExpression { MemberName: "destroy", Object: IdentifierExpression id }
+                    Callee: MemberExpression
+                    {
+                        MemberName: "destroy", Object: IdentifierExpression id
+                    }
                 }
             })
         {
             local = id.Name;
             return true;
         }
+
         local = null;
         return false;
     }
 
-    private static ExpressionStatement Marker(string fn, string local, SourceLocation loc) =>
-        new(Expression: new CallExpression(
+    private static ExpressionStatement Marker(string fn, string local, SourceLocation loc)
+    {
+        return new ExpressionStatement(Expression: new CallExpression(
                 Callee: new IdentifierExpression(Name: fn, Location: loc),
                 Arguments: [new IdentifierExpression(Name: local, Location: loc)],
                 Location: loc),
             Location: loc);
+    }
 }

@@ -16,7 +16,6 @@ public static class DiagnosticFlags
     public static bool PhaseTiming { get; set; }
 
     /// <summary>Survey unresolved marker-protocol conformances. Was <c>RF_MARKER_SURVEY</c>.</summary>
-
     /// <summary>Print codegen DCE prune statistics. Was <c>RF_PRUNE_STATS</c>.</summary>
     public static bool PruneStats { get; set; }
 

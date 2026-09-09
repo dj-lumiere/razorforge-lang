@@ -36,7 +36,6 @@ public class MarkerConformanceTests
     /// <summary>
     /// Verifies semantic analysis behavior for record has transitive protocols.
     /// </summary>
-
     [Fact]
     public void Analyze_Record_HasTransitiveProtocols()
     {
@@ -90,7 +89,6 @@ public class MarkerConformanceTests
     /// <summary>
     /// Verifies semantic analysis behavior for entity has entity type conformance.
     /// </summary>
-
     [Fact]
     public void Analyze_Entity_HasEntityTypeConformance()
     {
@@ -113,7 +111,6 @@ public class MarkerConformanceTests
     /// <summary>
     /// Verifies semantic analysis behavior for choice has choice type conformance.
     /// </summary>
-
     [Fact]
     public void Analyze_Choice_HasChoiceTypeConformance()
     {
@@ -140,7 +137,6 @@ public class MarkerConformanceTests
     /// <summary>
     /// Verifies semantic analysis behavior for flags has flags type conformance.
     /// </summary>
-
     [Fact]
     public void Analyze_Flags_HasFlagsTypeConformance()
     {
@@ -161,13 +157,11 @@ public class MarkerConformanceTests
         var flags = (FlagsTypeInfo)permType;
         Assert.Contains(collection: flags.ImplementedProtocols,
             filter: p => p.Name == "FlagsType");
-        Assert.Contains(collection: flags.ImplementedProtocols,
-            filter: p => p.Name == "Hashable");
+        Assert.Contains(collection: flags.ImplementedProtocols, filter: p => p.Name == "Hashable");
     }
     /// <summary>
     /// Verifies semantic analysis behavior for record implicit conformance does not break explicit obeys.
     /// </summary>
-
     [Fact]
     public void Analyze_Record_ImplicitConformanceDoesNotBreakExplicitObeys()
     {
@@ -193,7 +187,6 @@ public class MarkerConformanceTests
     /// <summary>
     /// Verifies semantic analysis behavior for innate override and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_InnateOverride_ReportsError()
     {
@@ -225,7 +218,6 @@ public class MarkerConformanceTests
     /// via the wrong-spelling workaround `M is RecordType`. Category protocols are now
     /// satisfied by category membership itself.
     /// </summary>
-
     [Fact]
     public void Analyze_GenericRecordInstance_SatisfiesRecordTypeConstraint()
     {
@@ -249,7 +241,6 @@ public class MarkerConformanceTests
     /// Verifies that an entity satisfies an `obeys EntityType` generic constraint by
     /// category membership.
     /// </summary>
-
     [Fact]
     public void Analyze_Entity_SatisfiesEntityTypeConstraint()
     {
@@ -273,7 +264,6 @@ public class MarkerConformanceTests
     /// Verifies that an entity argument still violates an `obeys RecordType` constraint —
     /// category-protocol conformance must not become a blanket pass.
     /// </summary>
-
     [Fact]
     public void Analyze_EntityArgument_FailsRecordTypeConstraint()
     {

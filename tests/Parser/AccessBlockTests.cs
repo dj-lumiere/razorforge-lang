@@ -8,10 +8,10 @@ using static TestHelpers;
 public class AccessBlockTests
 {
     #region Viewing Block Tests (Single-threaded Read)
+
     /// <summary>
     /// Verifies that the parser accepts simple viewing.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleViewing()
     {
@@ -28,7 +28,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts viewing with multiple statements.
     /// </summary>
-
     [Fact]
     public void Parse_ViewingWithMultipleStatements()
     {
@@ -47,7 +46,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts nested viewing.
     /// </summary>
-
     [Fact]
     public void Parse_NestedViewing()
     {
@@ -66,7 +64,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts viewing with memberRoutine call.
     /// </summary>
-
     [Fact]
     public void Parse_ViewingWithMemberRoutineCall()
     {
@@ -86,10 +83,10 @@ public class AccessBlockTests
     #endregion
 
     #region Hijacking Block Tests (Single-threaded Exclusive)
+
     /// <summary>
     /// Verifies that the parser accepts simple hijacking.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleHijacking()
     {
@@ -106,7 +103,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts hijacking with multiple mutations.
     /// </summary>
-
     [Fact]
     public void Parse_HijackingWithMultipleMutations()
     {
@@ -125,7 +121,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts hijacking with control flow.
     /// </summary>
-
     [Fact]
     public void Parse_HijackingWithControlFlow()
     {
@@ -149,10 +144,10 @@ public class AccessBlockTests
     #endregion
 
     #region Consulting Block Tests (Multi-threaded Read)
+
     /// <summary>
     /// Verifies that the parser accepts simple consulting.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleConsulting()
     {
@@ -169,7 +164,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts consulting multiple readers.
     /// </summary>
-
     [Fact]
     public void Parse_ConsultingMultipleReaders()
     {
@@ -188,10 +182,10 @@ public class AccessBlockTests
     #endregion
 
     #region Seizing Block Tests (Multi-threaded Exclusive)
+
     /// <summary>
     /// Verifies that the parser accepts simple seizing.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleSeizing()
     {
@@ -208,7 +202,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts seizing with multiple mutations.
     /// </summary>
-
     [Fact]
     public void Parse_SeizingWithMultipleMutations()
     {
@@ -227,7 +220,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts seizing downgrade to viewing.
     /// </summary>
-
     [Fact]
     public void Parse_SeizingDowngradeToViewing()
     {
@@ -247,10 +239,10 @@ public class AccessBlockTests
     #endregion
 
     #region Using Block Tests (Resource Management)
+
     /// <summary>
     /// Verifies that the parser accepts simple using.
     /// </summary>
-
     [Fact]
     public void Parse_SimpleUsing()
     {
@@ -267,7 +259,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts using multiple resources.
     /// </summary>
-
     [Fact]
     public void Parse_UsingMultipleResources()
     {
@@ -284,7 +275,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts nested using.
     /// </summary>
-
     [Fact]
     public void Parse_NestedUsing()
     {
@@ -301,7 +291,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts using with control flow.
     /// </summary>
-
     [Fact]
     public void Parse_UsingWithControlFlow()
     {
@@ -320,7 +309,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts using with error handling.
     /// </summary>
-
     [Fact]
     public void Parse_UsingWithErrorHandling()
     {
@@ -340,10 +328,10 @@ public class AccessBlockTests
     #endregion
 
     #region Combined Access Patterns
+
     /// <summary>
     /// Verifies that the parser accepts viewing then hijacking.
     /// </summary>
-
     [Fact]
     public void Parse_ViewingThenHijacking()
     {
@@ -363,7 +351,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts using with viewing.
     /// </summary>
-
     [Fact]
     public void Parse_UsingWithViewing()
     {
@@ -382,7 +369,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts complex access pattern.
     /// </summary>
-
     [Fact]
     public void Parse_ComplexAccessPattern()
     {
@@ -407,10 +393,10 @@ public class AccessBlockTests
     #endregion
 
     #region Inline Access Tests
+
     /// <summary>
     /// Verifies that the parser accepts inline view.
     /// </summary>
-
     [Fact]
     public void Parse_InlineView()
     {
@@ -426,7 +412,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts inline hijack.
     /// </summary>
-
     [Fact]
     public void Parse_InlineHijack()
     {
@@ -442,7 +427,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts inline view as argument.
     /// </summary>
-
     [Fact]
     public void Parse_InlineViewAsArgument()
     {
@@ -458,7 +442,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts inline multiple views.
     /// </summary>
-
     [Fact]
     public void Parse_InlineMultipleViews()
     {
@@ -475,10 +458,10 @@ public class AccessBlockTests
     #endregion
 
     #region Consume Operation Tests
+
     /// <summary>
     /// Verifies that the parser accepts consume transfer.
     /// </summary>
-
     [Fact]
     public void Parse_ConsumeTransfer()
     {
@@ -494,7 +477,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts consume as argument.
     /// </summary>
-
     [Fact]
     public void Parse_ConsumeAsArgument()
     {
@@ -511,10 +493,10 @@ public class AccessBlockTests
     #endregion
 
     #region Share Operation Tests
+
     /// <summary>
     /// Verifies that the parser accepts share with policy.
     /// </summary>
-
     [Fact]
     public void Parse_ShareWithPolicy()
     {
@@ -530,7 +512,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts share mutex.
     /// </summary>
-
     [Fact]
     public void Parse_ShareMutex()
     {
@@ -546,7 +527,6 @@ public class AccessBlockTests
     /// <summary>
     /// Verifies that the parser accepts track shared.
     /// </summary>
-
     [Fact]
     public void Parse_TrackShared()
     {

@@ -12,10 +12,10 @@ using static TestHelpers;
 public class AnnotationValidationTests
 {
     #region #145: Nested conditional expression warning
+
     /// <summary>
     /// Verifies semantic analysis behavior for simple conditional without unexpected warnings.
     /// </summary>
-
     [Fact]
     public void Analyze_SimpleConditional_NoWarning()
     {
@@ -31,7 +31,6 @@ public class AnnotationValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for conditional in routine without unexpected warnings.
     /// </summary>
-
     [Fact]
     public void Analyze_ConditionalInRoutine_NoWarning()
     {

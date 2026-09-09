@@ -9,7 +9,8 @@ namespace Compiler.Parser;
 /// </summary>
 public partial class Parser
 {
-    private const string ExpectedRightBracketAfterGenericParameters = "Expected ']' after generic parameters";
+    private const string ExpectedRightBracketAfterGenericParameters =
+        "Expected ']' after generic parameters";
 
     private EntityDeclaration ParseEntityDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Open)
@@ -64,10 +65,7 @@ public partial class Parser
             Members: members,
             Visibility: visibility,
             Location: location,
-            HasPassBody: hasPass)
-        {
-            AssociatedTypes = associatedTypes
-        };
+            HasPassBody: hasPass) { AssociatedTypes = associatedTypes };
     }
 
     /// <summary>
@@ -135,10 +133,7 @@ public partial class Parser
             Visibility: visibility,
             Location: location,
             HasPassBody: hasPass,
-            Annotations: annotations)
-        {
-            AssociatedTypes = associatedTypes
-        };
+            Annotations: annotations) { AssociatedTypes = associatedTypes };
     }
 
     /// <summary>
@@ -184,7 +179,8 @@ public partial class Parser
             if (Check(type: TokenType.Routine))
             {
                 throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                    message: "Routines cannot be declared inside choice bodies. Use 'routine ChoiceName.MemberRoutine()' syntax instead.");
+                    message:
+                    "Routines cannot be declared inside choice bodies. Use 'routine ChoiceName.MemberRoutine()' syntax instead.");
             }
             else
             {
@@ -327,7 +323,9 @@ public partial class Parser
         while (!Check(type: TokenType.Dedent) && !IsAtEnd)
         {
             if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
+            {
                 continue;
+            }
 
             if (CheckAndAdvance(type: TokenType.Pass))
             {
@@ -337,17 +335,26 @@ public partial class Parser
 
             ISyntaxTreeNode node = ParseDeclaration();
             if (node is SyntaxTree.Declaration member)
+            {
                 members.Add(item: member);
+            }
             else
+            {
                 throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                    message: $"Expected declaration inside crashable body, got {node.GetType().Name}");
+                    message:
+                    $"Expected declaration inside crashable body, got {node.GetType().Name}");
+            }
         }
 
         if (Check(type: TokenType.Dedent))
+        {
             ProcessDedentTokens();
+        }
         else if (!IsAtEnd)
+        {
             throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedDedentAfterBody,
                 message: "Expected dedent after crashable body");
+        }
     }
 
     /// <summary>
@@ -361,7 +368,8 @@ public partial class Parser
     private List<TypeExpression> ParseObeysProtocolList(bool allowOnlyIf = true)
     {
         // Allow a line break before 'obeys' in the type header.
-        while (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Obeys)
+        while (Check(type: TokenType.Newline) && PeekToken(offset: 1)
+                  .Type == TokenType.Obeys)
         {
             Advance();
         }
@@ -380,7 +388,9 @@ public partial class Parser
                 // Consume newline; continue to the next protocol name.
             }
 
-            interfaces.Add(item: allowOnlyIf ? ParseObeysProtocol() : ParseType());
+            interfaces.Add(item: allowOnlyIf
+                ? ParseObeysProtocol()
+                : ParseType());
         } while (CheckAndAdvance(type: TokenType.Comma));
 
         return interfaces;
@@ -395,13 +405,11 @@ public partial class Parser
     /// <c>"record"</c>); <paramref name="typeNamePascal"/> is the PascalCase form used in usage hints
     /// (e.g. <c>"Entity"</c> or <c>"Record"</c>).</para>
     /// </summary>
-    private bool ParseIndentedTypeMembers(
-        List<SyntaxTree.Declaration> members,
-        string typeName,
-        bool strictRecord,
-        string? typeNamePascal = null)
+    private bool ParseIndentedTypeMembers(List<SyntaxTree.Declaration> members, string typeName,
+        bool strictRecord, string? typeNamePascal = null)
     {
-        string pascal = typeNamePascal ?? (char.ToUpperInvariant(typeName[0]) + typeName[1..]);
+        string pascal = typeNamePascal ??
+                        char.ToUpperInvariant(c: typeName[index: 0]) + typeName[1..];
         bool wasParsingTypeBody = _parsingTypeBody;
         bool wasParsingStrictRecordBody = _parsingStrictRecordBody;
         _parsingTypeBody = true;
@@ -416,7 +424,9 @@ public partial class Parser
             while (!Check(type: TokenType.Dedent) && !IsAtEnd)
             {
                 hasPass = ParseTypeMemberLoopIteration(members: members,
-                    typeName: typeName, pascal: pascal, hasPass: hasPass);
+                    typeName: typeName,
+                    pascal: pascal,
+                    hasPass: hasPass);
             }
 
             if (Check(type: TokenType.Dedent))
@@ -440,11 +450,8 @@ public partial class Parser
     /// handles the <c>pass</c> keyword, and parses a single member declaration. Returns the updated
     /// <paramref name="hasPass"/> flag.
     /// </summary>
-    private bool ParseTypeMemberLoopIteration(
-        List<SyntaxTree.Declaration> members,
-        string typeName,
-        string pascal,
-        bool hasPass)
+    private bool ParseTypeMemberLoopIteration(List<SyntaxTree.Declaration> members,
+        string typeName, string pascal, bool hasPass)
     {
         if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
         {
@@ -461,7 +468,8 @@ public partial class Parser
         if (node is RoutineDeclaration)
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                message: $"Routines cannot be declared inside {typeName} bodies. Use 'routine {pascal}Name.MemberRoutine()' syntax instead.");
+                message:
+                $"Routines cannot be declared inside {typeName} bodies. Use 'routine {pascal}Name.MemberRoutine()' syntax instead.");
         }
 
         if (node is SyntaxTree.Declaration member)
@@ -471,7 +479,8 @@ public partial class Parser
         else
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                message: $"Expected declaration inside {typeName} body, got {node.GetType().Name}");
+                message:
+                $"Expected declaration inside {typeName} body, got {node.GetType().Name}");
         }
 
         return hasPass;
@@ -623,18 +632,14 @@ public partial class Parser
                 MemberRoutines: memberRoutines,
                 Visibility: visibility,
                 Location: location,
-                GenericConstraints: constraints)
-            {
-                AssociatedTypes = associatedTypes
-            };
+                GenericConstraints: constraints) { AssociatedTypes = associatedTypes };
         }
 
         ProcessIndentToken();
 
         while (!Check(type: TokenType.Dedent) && !IsAtEnd)
         {
-            ParseProtocolBodyItem(
-                memberRoutines: memberRoutines,
+            ParseProtocolBodyItem(memberRoutines: memberRoutines,
                 associatedTypes: ref associatedTypes);
         }
 
@@ -654,10 +659,7 @@ public partial class Parser
             MemberRoutines: memberRoutines,
             Visibility: visibility,
             Location: location,
-            GenericConstraints: constraints)
-        {
-            AssociatedTypes = associatedTypes
-        };
+            GenericConstraints: constraints) { AssociatedTypes = associatedTypes };
     }
 
     /// <summary>
@@ -666,8 +668,7 @@ public partial class Parser
     /// <c>routine</c> signatures. Mutates <paramref name="memberRoutines"/> and
     /// <paramref name="associatedTypes"/> in place.
     /// </summary>
-    private void ParseProtocolBodyItem(
-        List<RoutineSignature> memberRoutines,
+    private void ParseProtocolBodyItem(List<RoutineSignature> memberRoutines,
         ref List<AssociatedTypeDeclaration>? associatedTypes)
     {
         if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
@@ -728,7 +729,8 @@ public partial class Parser
         else
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                message: $"Unexpected '{CurrentToken.Text}' in protocol body. Only 'routine' signatures are allowed.");
+                message:
+                $"Unexpected '{CurrentToken.Text}' in protocol body. Only 'routine' signatures are allowed.");
         }
     }
 
@@ -746,8 +748,7 @@ public partial class Parser
             constraint = ParseType();
         }
 
-        return new AssociatedTypeDeclaration(
-            Name: slotNameType.Name,
+        return new AssociatedTypeDeclaration(Name: slotNameType.Name,
             Constraint: constraint,
             Binding: null,
             Location: relatesLocation);
@@ -767,15 +768,18 @@ public partial class Parser
         {
             _routineNameWired = true;
         }
+
         var memberRoutineNameSb = new System.Text.StringBuilder(
-            ConsumeIdentifier(errorMessage: "Expected member routine name"));
+            value: ConsumeIdentifier(errorMessage: "Expected member routine name"));
 
         // Handle Me.MemberRoutineName syntax for instance member routines
         // Protocol member routines can be: "routine Me.MemberRoutineName()" or "routine memberRoutineName()"
         while (CheckAndAdvance(type: TokenType.Dot))
         {
-            memberRoutineNameSb.Append('.');
-            memberRoutineNameSb.Append(ConsumeMemberRoutineName(errorMessage: "Expected member routine name after '.'"));
+            memberRoutineNameSb.Append(value: '.');
+            memberRoutineNameSb.Append(
+                value: ConsumeMemberRoutineName(
+                    errorMessage: "Expected member routine name after '.'"));
         }
 
         string memberRoutineName = memberRoutineNameSb.ToString();
@@ -799,6 +803,7 @@ public partial class Parser
         {
             memberRoutineAnnotations.Add(item: "common");
         }
+
         if (memberRoutineIsDangerous)
         {
             memberRoutineAnnotations.Add(item: "dangerous");
@@ -810,10 +815,7 @@ public partial class Parser
             Annotations: memberRoutineAnnotations.Count > 0
                 ? memberRoutineAnnotations
                 : null,
-            Location: GetLocation())
-        {
-            IsFailable = memberRoutineIsFailable
-        };
+            Location: GetLocation()) { IsFailable = memberRoutineIsFailable };
     }
 
     /// <summary>
@@ -849,8 +851,7 @@ public partial class Parser
                     // Regular parameter — supports variadic `name...: T` (a protocol may require a
                     // variadic member, e.g. `common Me.from_literal(elements...: T)` for the literal
                     // protocols). Mirrors the routine-declaration param parse.
-                    string paramName =
-                        ConsumeIdentifier(errorMessage: "Expected parameter name");
+                    string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name");
                     bool isVariadic = CheckAndAdvance(type: TokenType.DotDotDot);
 
                     TypeExpression? paramType = null;
@@ -888,10 +889,10 @@ public partial class Parser
         // e.g., module standard/errors
         do
         {
-            modulePathSb.Append(ConsumeIdentifier(errorMessage: "Expected module name"));
+            modulePathSb.Append(value: ConsumeIdentifier(errorMessage: "Expected module name"));
             if (CheckAndAdvance(type: TokenType.Slash))
             {
-                modulePathSb.Append('/');
+                modulePathSb.Append(value: '/');
             }
             else
             {
@@ -923,10 +924,10 @@ public partial class Parser
         // Dot marks a specific type within the module: import razorforge/Core.Bool
         do
         {
-            modulePathSb.Append(ConsumeIdentifier(errorMessage: "Expected module name"));
+            modulePathSb.Append(value: ConsumeIdentifier(errorMessage: "Expected module name"));
             if (CheckAndAdvance(type: TokenType.Slash))
             {
-                modulePathSb.Append('/');
+                modulePathSb.Append(value: '/');
             }
             else if (CheckAndAdvance(type: TokenType.Dot))
             {
@@ -974,8 +975,7 @@ public partial class Parser
             do
             {
                 string name =
-                    ConsumeIdentifier(
-                        errorMessage: "Expected type name in selective import");
+                    ConsumeIdentifier(errorMessage: "Expected type name in selective import");
                 specificImports.Add(item: name);
             } while (CheckAndAdvance(type: TokenType.Comma));
 
@@ -999,8 +999,8 @@ public partial class Parser
             else
             {
                 // Single type: Core.Bool -> module "Core", type "Bool"
-                modulePathSb.Append('.');
-                modulePathSb.Append(member);
+                modulePathSb.Append(value: '.');
+                modulePathSb.Append(value: member);
             }
         }
     }
@@ -1022,8 +1022,12 @@ public partial class Parser
 
         ConsumeStatementTerminator();
 
-        return new DefineDeclaration(OldName: oldName, NewName: newName, Location: location,
-            Annotations: annotations is { Count: > 0 } ? annotations : null);
+        return new DefineDeclaration(OldName: oldName,
+            NewName: newName,
+            Location: location,
+            Annotations: annotations is { Count: > 0 }
+                ? annotations
+                : null);
     }
 
     /// <summary>
@@ -1048,5 +1052,4 @@ public partial class Parser
             Value: value,
             Location: location) { IsSecret = isSecret };
     }
-
 }

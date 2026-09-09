@@ -11,10 +11,10 @@ using static TestHelpers;
 public class PatternValidationTests
 {
     #region Variable Shadowing
+
     /// <summary>
     /// Verifies semantic analysis behavior for type pattern shadows outer variable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_TypePattern_ShadowsOuterVariable_ReportsError()
     {
@@ -34,7 +34,6 @@ public class PatternValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for else pattern shadows outer variable and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ElsePattern_ShadowsOuterVariable_ReportsError()
     {
@@ -54,7 +53,6 @@ public class PatternValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for type pattern unique variable name no shadowing error.
     /// </summary>
-
     [Fact]
     public void Analyze_TypePattern_UniqueVariableName_NoShadowingError()
     {
@@ -74,7 +72,6 @@ public class PatternValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for type pattern same name different clauses no shadowing error.
     /// </summary>
-
     [Fact]
     public void Analyze_TypePattern_SameNameDifferentClauses_NoShadowingError()
     {
@@ -95,10 +92,10 @@ public class PatternValidationTests
     #endregion
 
     #region Scope Isolation
+
     /// <summary>
     /// Verifies semantic analysis behavior for when expression clause scopes isolated.
     /// </summary>
-
     [Fact]
     public void Analyze_WhenExpression_ClauseScopesIsolated()
     {
@@ -165,10 +162,10 @@ public class PatternValidationTests
     #endregion
 
     #region Type Compatibility
+
     /// <summary>
     /// Verifies semantic analysis behavior for type pattern compatible type without unexpected diagnostics.
     /// </summary>
-
     [Fact]
     public void Analyze_TypePattern_CompatibleType_NoError()
     {
@@ -188,7 +185,6 @@ public class PatternValidationTests
     /// <summary>
     /// Verifies semantic analysis behavior for type pattern incompatible type and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_TypePattern_IncompatibleType_ReportsError()
     {

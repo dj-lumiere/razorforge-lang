@@ -11,10 +11,10 @@ using static TestHelpers;
 public class UsingStatementTests
 {
     #region Token Using
+
     /// <summary>
     /// Verifies semantic analysis behavior for token using and binds the expected token type.
     /// </summary>
-
     [Fact]
     public void Analyze_TokenUsing_BindsTokenType()
     {
@@ -37,10 +37,10 @@ public class UsingStatementTests
     #endregion
 
     #region Resource With Void $enter
+
     /// <summary>
     /// Verifies semantic analysis behavior for resource with void enter exit and binds the expected resource type.
     /// </summary>
-
     [Fact]
     public void Analyze_ResourceWithVoidEnterExit_BindsResourceType()
     {
@@ -69,10 +69,10 @@ public class UsingStatementTests
     #endregion
 
     #region Resource With Non-Void $enter
+
     /// <summary>
     /// Verifies semantic analysis behavior for resource with non void enter and binds the enter return type.
     /// </summary>
-
     [Fact]
     public void Analyze_EntityEnterablePassThrough_BindsEntityType()
     {
@@ -102,10 +102,10 @@ public class UsingStatementTests
     #endregion
 
     #region Missing $enter/$exit
+
     /// <summary>
     /// Verifies semantic analysis behavior for resource missing enter exit and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ResourceMissingEnterExit_ReportsError()
     {
@@ -128,7 +128,6 @@ public class UsingStatementTests
     /// <summary>
     /// Verifies semantic analysis behavior for resource with only enter and reports the expected error.
     /// </summary>
-
     [Fact]
     public void Analyze_ResourceWithOnlyEnter_ReportsError()
     {

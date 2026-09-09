@@ -42,9 +42,9 @@ public sealed class F128EncoderTests
     [InlineData("12345678901234567890123456789012345678")]
     public void EncodeF128_MatchesNativeParser_OnFiniteNormals(string s)
     {
-        NumericLiteralParser.F128 managed = NumericLiteralParser.EncodeF128(s);
-        NumericLiteralParser.F128 native = NumericLiteralParser.ParseF128(s);
-        Assert.Equal((native.Hi, native.Lo), (managed.Hi, managed.Lo));
+        NumericLiteralParser.F128 managed = NumericLiteralParser.EncodeF128(str: s);
+        NumericLiteralParser.F128 native = NumericLiteralParser.ParseF128(str: s);
+        Assert.Equal(expected: (native.Hi, native.Lo), actual: (managed.Hi, managed.Lo));
     }
 
     /// <summary>
@@ -61,37 +61,56 @@ public sealed class F128EncoderTests
     [InlineData("6.475175119438025110924438958227646552e-4966")] // smallest subnormal
     public void EncodeF128_SubnormalsAreCorrect_NativeFlushesToZero(string s)
     {
-        NumericLiteralParser.F128 managed = NumericLiteralParser.EncodeF128(s);
-        NumericLiteralParser.F128 native = NumericLiteralParser.ParseF128(s);
+        NumericLiteralParser.F128 managed = NumericLiteralParser.EncodeF128(str: s);
+        NumericLiteralParser.F128 native = NumericLiteralParser.ParseF128(str: s);
 
         // Native TLFloat flushes the subnormal to zero — the bug we're moving off of.
-        Assert.Equal((0UL, 0UL), (native.Hi, native.Lo));
+        Assert.Equal(expected: (0UL, 0UL), actual: (native.Hi, native.Lo));
 
         System.Numerics.BigInteger bits =
-            ((System.Numerics.BigInteger)managed.Hi << 64) | managed.Lo;
-        int biasedExp = (int)((bits >> 112) & 0x7FFF);
-        System.Numerics.BigInteger mant = bits & ((System.Numerics.BigInteger.One << 112) - 1);
-        Assert.Equal(0, biasedExp);                                       // subnormal
-        Assert.NotEqual(System.Numerics.BigInteger.Zero, mant);           // not flushed
+            (System.Numerics.BigInteger)managed.Hi << 64 | managed.Lo;
+        int biasedExp = (int)(bits >> 112 & 0x7FFF);
+        System.Numerics.BigInteger mant = bits & (System.Numerics.BigInteger.One << 112) - 1;
+        Assert.Equal(expected: 0, actual: biasedExp); // subnormal
+        Assert.NotEqual(expected: System.Numerics.BigInteger.Zero, actual: mant); // not flushed
 
         // value = mant * 2^-16494; compare to the literal num/den within 0.5 ULP (one ULP of the
         // mantissa equals `den` after scaling both sides by `den`).
-        ParseLiteralRational(s, out System.Numerics.BigInteger num, out System.Numerics.BigInteger den);
-        System.Numerics.BigInteger diff =
-            System.Numerics.BigInteger.Abs(mant * den - (num << 16494));
-        Assert.True(diff * 2 <= den, $"managed subnormal off by > 0.5 ULP for {s}");
+        ParseLiteralRational(s: s,
+            num: out System.Numerics.BigInteger num,
+            den: out System.Numerics.BigInteger den);
+        var diff = System.Numerics.BigInteger.Abs(value: mant * den - (num << 16494));
+        Assert.True(condition: diff * 2 <= den,
+            userMessage: $"managed subnormal off by > 0.5 ULP for {s}");
     }
 
     private static void ParseLiteralRational(string s, out System.Numerics.BigInteger num,
         out System.Numerics.BigInteger den)
     {
-        int e = s.IndexOf('e');
-        int exp10 = e >= 0 ? int.Parse(s[(e + 1)..]) : 0;
-        string mant = e >= 0 ? s[..e] : s;
-        int dot = mant.IndexOf('.');
-        if (dot >= 0) { exp10 -= mant.Length - dot - 1; mant = mant.Remove(dot, 1); }
-        System.Numerics.BigInteger coeff = System.Numerics.BigInteger.Parse(mant);
-        if (exp10 >= 0) { num = coeff * System.Numerics.BigInteger.Pow(10, exp10); den = System.Numerics.BigInteger.One; }
-        else { num = coeff; den = System.Numerics.BigInteger.Pow(10, -exp10); }
+        int e = s.IndexOf(value: 'e');
+        int exp10 = e >= 0
+            ? int.Parse(s: s[(e + 1)..])
+            : 0;
+        string mant = e >= 0
+            ? s[..e]
+            : s;
+        int dot = mant.IndexOf(value: '.');
+        if (dot >= 0)
+        {
+            exp10 -= mant.Length - dot - 1;
+            mant = mant.Remove(startIndex: dot, count: 1);
+        }
+
+        var coeff = System.Numerics.BigInteger.Parse(value: mant);
+        if (exp10 >= 0)
+        {
+            num = coeff * System.Numerics.BigInteger.Pow(value: 10, exponent: exp10);
+            den = System.Numerics.BigInteger.One;
+        }
+        else
+        {
+            num = coeff;
+            den = System.Numerics.BigInteger.Pow(value: 10, exponent: -exp10);
+        }
     }
 }

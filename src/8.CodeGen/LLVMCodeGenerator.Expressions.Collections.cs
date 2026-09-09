@@ -33,8 +33,12 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static bool IsArrayOrBitArrayLiteral(TypeInfo? type)
     {
-        if (type == null) return false;
-        TypeInfo concrete = UnwrapCollectionStorageType(type);
+        if (type == null)
+        {
+            return false;
+        }
+
+        TypeInfo concrete = UnwrapCollectionStorageType(type: type);
         string baseName = GetGenericBaseName(type: concrete) ?? concrete.Name;
         return baseName is "Array" or "BitArray";
     }
@@ -45,15 +49,25 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private string EmitListLiteral(StringBuilder sb, ListLiteralExpression list)
     {
-        TypeInfo concreteListType = UnwrapCollectionStorageType(list.ResolvedType!);
-        return EmitCollectionLiteralConstructor(sb: sb, resolvedType: concreteListType,
+        TypeInfo concreteListType = UnwrapCollectionStorageType(type: list.ResolvedType!);
+        return EmitCollectionLiteralConstructor(sb: sb,
+            resolvedType: concreteListType,
             arguments: list.Elements);
     }
 
     private static readonly string[] OwnedCollectionBaseNames =
     {
-        "List", "Dict", "Set", "CircularList", "SortedDict", "SortedSet", "SortedList",
-        "SecureDict", "SecureSet", "BitList", "PriorityQueue"
+        "List",
+        "Dict",
+        "Set",
+        "CircularList",
+        "SortedDict",
+        "SortedSet",
+        "SortedList",
+        "SecureDict",
+        "SecureSet",
+        "BitList",
+        "PriorityQueue"
     };
 
     /// <summary>
@@ -67,19 +81,30 @@ public partial class LlvmCodeGenerator
     private static bool TryGetOwnedCollectionType(TypeInfo? paramType, out TypeInfo collType)
     {
         collType = null!;
-        if (paramType == null) return false;
+        if (paramType == null)
+        {
+            return false;
+        }
+
         TypeInfo t = paramType;
         while (t is WrapperTypeInfo wrapper)
         {
-            if (wrapper.Name == Declaration.RuntimeContract.Owned) { t = wrapper.InnerType; continue; }
+            if (wrapper.Name == Declaration.RuntimeContract.Owned)
+            {
+                t = wrapper.InnerType;
+                continue;
+            }
+
             return false;
         }
+
         string baseName = GetGenericBaseName(type: t) ?? t.Name;
         if (Array.IndexOf(array: OwnedCollectionBaseNames, value: baseName) >= 0)
         {
             collType = t;
             return true;
         }
+
         return false;
     }
 
@@ -98,10 +123,20 @@ public partial class LlvmCodeGenerator
     {
         value = "";
         bool isEmptyLiteral = defaultValue is ListLiteralExpression { Elements.Count: 0 }
-            or SetLiteralExpression { Elements.Count: 0 }
-            or DictLiteralExpression { Pairs.Count: 0 };
-        if (!isEmptyLiteral) return false;
-        if (!TryGetOwnedCollectionType(paramType: paramType, out TypeInfo collType)) return false;
+            or SetLiteralExpression { Elements.Count: 0 } or DictLiteralExpression
+            {
+                Pairs.Count: 0
+            };
+        if (!isEmptyLiteral)
+        {
+            return false;
+        }
+
+        if (!TryGetOwnedCollectionType(paramType: paramType, collType: out TypeInfo collType))
+        {
+            return false;
+        }
+
         value = EmitCollectionCreate(sb: sb, resolvedType: collType);
         return true;
     }
@@ -128,21 +163,22 @@ public partial class LlvmCodeGenerator
 
             // Array[T, N]: inline array construction via insertvalue
             case "Array":
-                return EmitArrayLiteralInline(sb: sb, resolvedType: resolvedType,
+                return EmitArrayLiteralInline(sb: sb,
+                    resolvedType: resolvedType,
                     arguments: arguments);
             // BitArray[N]: inline bit-packed array construction. All-literal elements pack at
             // compile time via the shared PackBitArrayLiteralBytes; a non-literal element falls
             // back to the runtime bit-pack.
             case "BitArray":
-                return EmitBitArrayLiteralInline(sb: sb, resolvedType: resolvedType,
+                return EmitBitArrayLiteralInline(sb: sb,
+                    resolvedType: resolvedType,
                     arguments: arguments);
         }
 
         // Entity collections (List, Set, Dict, etc.): create() + add/add_last calls.
         // Reached only via CollectionConstruction lowering kind, not from ListLiteralExpression
         // (which is lowered by ExpressionLoweringPass for entity collection types).
-        string collectionPtr =
-            EmitCollectionCreate(sb: sb, resolvedType: resolvedType);
+        string collectionPtr = EmitCollectionCreate(sb: sb, resolvedType: resolvedType);
 
         string addMemberRoutineName;
         bool isMapType = baseName is "Dict" or "SortedDict" or "SecureDict";
@@ -151,20 +187,30 @@ public partial class LlvmCodeGenerator
             ? Declaration.RuntimeContract.Collection.AddLast
             : Declaration.RuntimeContract.Collection.Add;
 
-        ResolvedMemberRoutine? resolvedAdd = ResolveMemberRoutine(receiverType: resolvedType, memberRoutineName: addMemberRoutineName);
-        if (resolvedAdd == null) return collectionPtr;
+        ResolvedMemberRoutine? resolvedAdd = ResolveMemberRoutine(receiverType: resolvedType,
+            memberRoutineName: addMemberRoutineName);
+        if (resolvedAdd == null)
+        {
+            return collectionPtr;
+        }
 
         string mangledAdd = resolvedAdd.MangledName;
 
         if (isMapType)
         {
-            EmitMapCollectionAdds(sb: sb, arguments: arguments, collectionPtr: collectionPtr,
+            EmitMapCollectionAdds(sb: sb,
+                arguments: arguments,
+                collectionPtr: collectionPtr,
                 mangledAdd: mangledAdd);
         }
         else
         {
-            EmitSequenceCollectionAdds(sb: sb, arguments: arguments, baseName: baseName,
-                collectionPtr: collectionPtr, mangledAdd: mangledAdd, resolvedAdd: resolvedAdd);
+            EmitSequenceCollectionAdds(sb: sb,
+                arguments: arguments,
+                baseName: baseName,
+                collectionPtr: collectionPtr,
+                mangledAdd: mangledAdd,
+                resolvedAdd: resolvedAdd);
         }
 
         return collectionPtr;
@@ -182,11 +228,12 @@ public partial class LlvmCodeGenerator
         {
             string elemVal = EmitExpression(sb: sb, expr: arguments[index: i]);
             TypeInfo? elemType = GetExpressionType(expr: arguments[index: i]);
-            string elemLlvm = elemType != null ? GetLlvmType(type: elemType) : "i64";
+            string elemLlvm = elemType != null
+                ? GetLlvmType(type: elemType)
+                : "i64";
             string next = NextTemp();
             EmitLine(sb: sb,
-                line:
-                $"  {next} = insertvalue {llvmType} {current}, {elemLlvm} {elemVal}, {i}");
+                line: $"  {next} = insertvalue {llvmType} {current}, {elemLlvm} {elemVal}, {i}");
             current = next;
         }
 
@@ -200,10 +247,12 @@ public partial class LlvmCodeGenerator
     private string EmitBitArrayLiteralInline(StringBuilder sb, TypeInfo resolvedType,
         List<Expression> arguments)
     {
-        int[] bytes = PackBitArrayLiteralBytes(elements: arguments, out bool allLiteral);
+        int[] bytes =
+            PackBitArrayLiteralBytes(elements: arguments, allLiteral: out bool allLiteral);
         if (!allLiteral)
-            return EmitBitArrayRuntime(sb: sb, resolvedType: resolvedType,
-                arguments: arguments);
+        {
+            return EmitBitArrayRuntime(sb: sb, resolvedType: resolvedType, arguments: arguments);
+        }
 
         string llvmType = GetLlvmType(type: resolvedType);
         string current = "zeroinitializer";
@@ -211,7 +260,8 @@ public partial class LlvmCodeGenerator
         {
             string next = NextTemp();
             EmitLine(sb: sb,
-                line: $"  {next} = insertvalue {llvmType} {current}, i8 {bytes[byteIdx]}, {byteIdx}");
+                line:
+                $"  {next} = insertvalue {llvmType} {current}, i8 {bytes[byteIdx]}, {byteIdx}");
             current = next;
         }
 
@@ -235,8 +285,12 @@ public partial class LlvmCodeGenerator
             string valVal = EmitExpression(sb: sb, expr: entry.Value);
             TypeInfo? keyType = GetExpressionType(expr: entry.Key);
             TypeInfo? valueType = GetExpressionType(expr: entry.Value);
-            string keyLlvm = keyType != null ? GetLlvmType(type: keyType) : "i64";
-            string valLlvm = valueType != null ? GetLlvmType(type: valueType) : "i64";
+            string keyLlvm = keyType != null
+                ? GetLlvmType(type: keyType)
+                : "i64";
+            string valLlvm = valueType != null
+                ? GetLlvmType(type: valueType)
+                : "i64";
 
             if (!_generatedRoutines.Contains(item: mangledAdd))
             {
@@ -255,17 +309,22 @@ public partial class LlvmCodeGenerator
     /// Emits the element add calls for a sequence/set collection literal (List/CircularList/BitList/Set/...).
     /// </summary>
     private void EmitSequenceCollectionAdds(StringBuilder sb, List<Expression> arguments,
-        string baseName, string collectionPtr, string mangledAdd, ResolvedMemberRoutine resolvedAdd)
+        string baseName, string collectionPtr, string mangledAdd,
+        ResolvedMemberRoutine resolvedAdd)
     {
         foreach (Expression arg in arguments)
         {
             string elemVal = EmitExpression(sb: sb, expr: arg);
             TypeInfo? elemType = GetExpressionType(expr: arg);
-            string elemLlvm = elemType != null ? GetLlvmType(type: elemType) : "i64";
+            string elemLlvm = elemType != null
+                ? GetLlvmType(type: elemType)
+                : "i64";
 
             if (!_generatedRoutines.Contains(item: mangledAdd))
             {
-                string retType = baseName is "Set" or "SortedSet" or "SecureSet" ? "i1" : "void";
+                string retType = baseName is "Set" or "SortedSet" or "SecureSet"
+                    ? "i1"
+                    : "void";
                 _rfRoutineDeclarations[key: mangledAdd] =
                     $"declare {retType} @{mangledAdd}(ptr, {elemLlvm})";
                 _generatedRoutines.Add(item: mangledAdd);
@@ -334,14 +393,20 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private string EmitCollectionCreate(StringBuilder sb, TypeInfo? resolvedType)
     {
-        if (resolvedType == null) return "null";
+        if (resolvedType == null)
+        {
+            return "null";
+        }
 
         ResolvedMemberRoutine? resolved = resolvedType.IsGenericResolution
             ? null
-            : ResolveMemberRoutine(receiverType: resolvedType, memberRoutineName: RoutineInfo.CreatorName);
+            : ResolveMemberRoutine(receiverType: resolvedType,
+                memberRoutineName: RoutineInfo.CreatorName);
 
         if (resolved is { Routine.Parameters.Count: > 0 })
+        {
             resolved = null;
+        }
 
         if (resolved == null)
         {
@@ -354,12 +419,15 @@ public partial class LlvmCodeGenerator
                 // `creator` is keyed on the generic-def owner (List[T]); substitute the concrete owner
                 // (List[S64]) first so the symbol is the concrete one the GMP define emits.
                 RoutineInfo mangleCreator = resolvedType.IsGenericResolution
-                    ? _registry.SubstituteMemberRoutineForOwner(memberRoutine: creator, resolvedOwner: resolvedType) ?? creator
+                    ? _registry.SubstituteMemberRoutineForOwner(memberRoutine: creator,
+                        resolvedOwner: resolvedType) ?? creator
                     : creator;
                 string funcName = MangleRoutineName(routine: mangleCreator);
 
                 if (!_generatedRoutines.Contains(item: funcName))
+                {
                     GenerateRoutineDeclaration(routine: creator, nameOverride: funcName);
+                }
 
                 string result = NextTemp();
                 EmitLine(sb: sb, line: $"  {result} = call ptr @{funcName}()");
@@ -370,7 +438,9 @@ public partial class LlvmCodeGenerator
         {
             string funcName = resolved.MangledName;
             if (!_generatedRoutines.Contains(item: funcName))
+            {
                 GenerateRoutineDeclaration(routine: resolved.Routine, nameOverride: funcName);
+            }
 
             string result = NextTemp();
             EmitLine(sb: sb, line: $"  {result} = call ptr @{funcName}()");
@@ -378,8 +448,8 @@ public partial class LlvmCodeGenerator
         }
 
         throw new InvalidOperationException(
-            $"No 'create' routine found for collection type '{resolvedType.Name}'. " +
-            "All collection types must have a registered 'create' body in the stdlib.");
+            message: $"No 'create' routine found for collection type '{resolvedType.Name}'. " +
+                     "All collection types must have a registered 'create' body in the stdlib.");
     }
 
     /// <summary>
@@ -393,7 +463,9 @@ public partial class LlvmCodeGenerator
         RoutineInfo? creator =
             _registry.LookupRoutineOverload(baseName: createName, argTypes: new List<TypeInfo>());
         if (creator is { Parameters.Count: > 0 })
+        {
             creator = null;
+        }
 
         if (creator == null)
         {
@@ -410,7 +482,9 @@ public partial class LlvmCodeGenerator
                 creator = _registry.LookupRoutineOverload(baseName: genCreateName,
                     argTypes: new List<TypeInfo>());
                 if (creator is { Parameters.Count: > 0 })
+                {
                     creator = null;
+                }
             }
         }
 

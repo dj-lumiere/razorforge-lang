@@ -36,16 +36,18 @@ public sealed partial class SemanticVerifier
             // A nullable local, unless flow analysis has already proven it non-none here.
             case IdentifierExpression id:
                 return _registry.LookupVariable(name: id.Name) is { IsNullable: true } &&
-                    !_registry.IsVariableProvenNonNull(name: id.Name);
+                       !_registry.IsVariableProvenNonNull(name: id.Name);
 
             // A read of an optional entity field (`obj.optField`). The field's IsNullable is set in
             // TypeBodyResolver. At SA time the object type is the bare EntityTypeInfo (Roamed lowering
             // is a later phase), so look the field up directly on the entity.
             case MemberExpression m:
             {
-                TypeSymbol objType = m.Object.ResolvedType ?? AnalyzeExpression(expression: m.Object);
+                TypeSymbol objType =
+                    m.Object.ResolvedType ?? AnalyzeExpression(expression: m.Object);
                 return objType is EntityTypeInfo entity &&
-                    entity.LookupMemberVariable(memberVariableName: m.MemberName) is { IsNullable: true };
+                       entity.LookupMemberVariable(memberVariableName: m.MemberName) is
+                           { IsNullable: true };
             }
 
             default:
@@ -59,10 +61,12 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private bool IsEntityRefType(TypeSymbol type)
     {
-        return _registry.Language == Language.Suflae &&
-            (type is EntityTypeInfo ||
-             type is RecordTypeInfo
-                 { GenericDefinition.Name: Declaration.RuntimeContract.Roamed });
+        return _registry.Language == Language.Suflae && (type is EntityTypeInfo ||
+                                                         type is RecordTypeInfo
+                                                         {
+                                                             GenericDefinition.Name:
+                                                             Declaration.RuntimeContract.Roamed
+                                                         });
     }
 
     /// <summary>
@@ -81,7 +85,8 @@ public sealed partial class SemanticVerifier
             : $"Cannot assign a possibly-none value to non-nullable entity {target}. " +
               $"Null-check it first (e.g. 'if v isnot None') or declare it optional ('{optionalHint}').";
         ReportError(code: Diagnostics.SemanticDiagnosticCode.AssignmentTypeMismatch,
-            message: message, location: value.Location);
+            message: message,
+            location: value.Location);
     }
 
     /// <summary>
@@ -117,12 +122,17 @@ public sealed partial class SemanticVerifier
         {
             // bare `E` -> non-null Roamed[E]
             case EntityTypeInfo entity:
-                return (_registry.GetOrCreateResolution(genericDef: roamedDef, typeArguments: [entity]),
-                    false, true);
+                return (
+                    _registry.GetOrCreateResolution(genericDef: roamedDef,
+                        typeArguments: [entity]), false, true);
 
             // `E?` (= Maybe[E]) -> nullable Roamed[E]
-            case RecordTypeInfo { GenericDefinition.Name: "Maybe", TypeArguments: [EntityTypeInfo inner] }:
-                return (_registry.GetOrCreateResolution(genericDef: roamedDef, typeArguments: [inner]),
+            case RecordTypeInfo
+            {
+                GenericDefinition.Name: "Maybe", TypeArguments: [EntityTypeInfo inner]
+            }:
+                return (
+                    _registry.GetOrCreateResolution(genericDef: roamedDef, typeArguments: [inner]),
                     true, true);
 
             // Already a Roamed[E] (e.g. an annotation that spelled the wrapper directly) — non-null slot.

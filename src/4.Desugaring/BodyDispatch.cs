@@ -29,26 +29,29 @@ internal static class BodyDispatch
     {
         for (int i = 0; i < program.Declarations.Count; i++)
         {
-            switch (program.Declarations[i])
+            switch (program.Declarations[index: i])
             {
                 case RoutineDeclaration r:
                 {
-                    Statement newBody = lower(r);
-                    if (!ReferenceEquals(newBody, r.Body))
-                        program.Declarations[i] = r with { Body = newBody };
+                    Statement newBody = lower(arg: r);
+                    if (!ReferenceEquals(objA: newBody, objB: r.Body))
+                    {
+                        program.Declarations[index: i] = r with { Body = newBody };
+                    }
+
                     break;
                 }
 
                 case EntityDeclaration e:
-                    RunOnMembers(e.Members, lower);
+                    RunOnMembers(members: e.Members, lower: lower);
                     break;
 
                 case RecordDeclaration rec:
-                    RunOnMembers(rec.Members, lower);
+                    RunOnMembers(members: rec.Members, lower: lower);
                     break;
 
                 case CrashableDeclaration cr:
-                    RunOnMembers(cr.Members, lower);
+                    RunOnMembers(members: cr.Members, lower: lower);
                     break;
             }
         }
@@ -58,15 +61,21 @@ internal static class BodyDispatch
     /// Lowers each <see cref="RoutineDeclaration"/> in a type's member list. Same callback contract as
     /// <see cref="RunOnProgram"/> (member routines and top-level routines are lowered identically).
     /// </summary>
-    public static void RunOnMembers(
-        List<SyntaxTree.Declaration> members, Func<RoutineDeclaration, Statement> lower)
+    public static void RunOnMembers(List<SyntaxTree.Declaration> members,
+        Func<RoutineDeclaration, Statement> lower)
     {
         for (int j = 0; j < members.Count; j++)
         {
-            if (members[j] is not RoutineDeclaration m) continue;
-            Statement newBody = lower(m);
-            if (!ReferenceEquals(newBody, m.Body))
-                members[j] = m with { Body = newBody };
+            if (members[index: j] is not RoutineDeclaration m)
+            {
+                continue;
+            }
+
+            Statement newBody = lower(arg: m);
+            if (!ReferenceEquals(objA: newBody, objB: m.Body))
+            {
+                members[index: j] = m with { Body = newBody };
+            }
         }
     }
 
@@ -75,15 +84,17 @@ internal static class BodyDispatch
     /// registry key and current body (some passes key their per-body preamble off the name) and returns
     /// the new body.
     /// </summary>
-    public static void RunOnVariantBodies(
-        Dictionary<string, Statement> bodies, Func<string, Statement, Statement> lower)
+    public static void RunOnVariantBodies(Dictionary<string, Statement> bodies,
+        Func<string, Statement, Statement> lower)
     {
         foreach (string key in bodies.Keys.ToList())
         {
-            Statement body = bodies[key];
-            Statement lowered = lower(key, body);
-            if (!ReferenceEquals(lowered, body))
-                bodies[key] = lowered;
+            Statement body = bodies[key: key];
+            Statement lowered = lower(arg1: key, arg2: body);
+            if (!ReferenceEquals(objA: lowered, objB: body))
+            {
+                bodies[key: key] = lowered;
+            }
         }
     }
 
@@ -94,16 +105,22 @@ internal static class BodyDispatch
     /// it) and returns the new body; the entry is rebuilt via
     /// <c>entry with { Ast = entry.Ast with { Body = ... } }</c>.
     /// </summary>
-    public static void RunOnInstantiatedGenericBodies(
-        Dictionary<string, MonomorphizedBody> bodies, Func<string, MonomorphizedBody, Statement> lower)
+    public static void RunOnInstantiatedGenericBodies(Dictionary<string, MonomorphizedBody> bodies,
+        Func<string, MonomorphizedBody, Statement> lower)
     {
         foreach (string key in bodies.Keys.ToList())
         {
-            MonomorphizedBody entry = bodies[key];
-            if (entry.IsSynthesized) continue;
-            Statement lowered = lower(key, entry);
-            if (!ReferenceEquals(lowered, entry.Ast.Body))
-                bodies[key] = entry with { Ast = entry.Ast with { Body = lowered } };
+            MonomorphizedBody entry = bodies[key: key];
+            if (entry.IsSynthesized)
+            {
+                continue;
+            }
+
+            Statement lowered = lower(arg1: key, arg2: entry);
+            if (!ReferenceEquals(objA: lowered, objB: entry.Ast.Body))
+            {
+                bodies[key: key] = entry with { Ast = entry.Ast with { Body = lowered } };
+            }
         }
     }
 }

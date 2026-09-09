@@ -57,7 +57,11 @@ public partial class Tokenizer
 
             // Potential prefixed literals or identifiers
             case 'r' or 'f':
-                if (!TryParseTextPrefix()) ScanIdentifier();
+                if (!TryParseTextPrefix())
+                {
+                    ScanIdentifier();
+                }
+
                 break;
             case 'b':
                 // Could be bytes prefix (b"..."), byte character (b'x'), or identifier
@@ -91,7 +95,9 @@ public partial class Tokenizer
                 break;
             case ':':
                 // `::` is the realm-qualifier separator (e.g. `RF::Core.List`); bare `:` is a colon.
-                AddToken(type: Match(expected: ':') ? TokenType.DoubleColon : TokenType.Colon);
+                AddToken(type: Match(expected: ':')
+                    ? TokenType.DoubleColon
+                    : TokenType.Colon);
                 break;
 
             // Arithmetic operators with overflow variants
@@ -226,19 +232,25 @@ public partial class Tokenizer
     /// <summary>Scans '&amp;' or '&amp;=' (bitwise AND or AND-assign).</summary>
     private void ScanAmpersand()
     {
-        AddToken(type: Match(expected: '=') ? TokenType.AmpersandAssign : TokenType.Ampersand);
+        AddToken(type: Match(expected: '=')
+            ? TokenType.AmpersandAssign
+            : TokenType.Ampersand);
     }
 
     /// <summary>Scans '|' or '|=' (bitwise OR or OR-assign).</summary>
     private void ScanPipe()
     {
-        AddToken(type: Match(expected: '=') ? TokenType.PipeAssign : TokenType.Pipe);
+        AddToken(type: Match(expected: '=')
+            ? TokenType.PipeAssign
+            : TokenType.Pipe);
     }
 
     /// <summary>Scans '^' or '^=' (bitwise XOR or XOR-assign).</summary>
     private void ScanCaret()
     {
-        AddToken(type: Match(expected: '=') ? TokenType.CaretAssign : TokenType.Caret);
+        AddToken(type: Match(expected: '=')
+            ? TokenType.CaretAssign
+            : TokenType.Caret);
     }
 
     /// <summary>
@@ -277,7 +289,9 @@ public partial class Tokenizer
         if (Match(expected: '='))
         {
             // `==` value equality, or `===` reference identity (longest match).
-            AddToken(type: Match(expected: '=') ? TokenType.IdentityEqual : TokenType.Equal);
+            AddToken(type: Match(expected: '=')
+                ? TokenType.IdentityEqual
+                : TokenType.Equal);
         }
         else if (Match(expected: '>'))
         {
@@ -297,7 +311,9 @@ public partial class Tokenizer
         if (Match(expected: '='))
         {
             // `!=` value inequality, or `!==` reference non-identity (longest match).
-            AddToken(type: Match(expected: '=') ? TokenType.IdentityNotEqual : TokenType.NotEqual);
+            AddToken(type: Match(expected: '=')
+                ? TokenType.IdentityNotEqual
+                : TokenType.NotEqual);
         }
         else if (Match(expected: '!'))
         {
@@ -351,8 +367,7 @@ public partial class Tokenizer
             ScanPrefixedNumber(isHex: false);
         }
         else if ((Peek() == 'o' || Peek() == 'O') &&
-                 (Peek(offset: 1) >= '0' && Peek(offset: 1) <= '7' ||
-                  Peek(offset: 1) == '_'))
+                 (Peek(offset: 1) >= '0' && Peek(offset: 1) <= '7' || Peek(offset: 1) == '_'))
         {
             Advance(); // consume 'o' or 'O'
             ScanOctalNumber();

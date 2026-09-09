@@ -160,8 +160,10 @@ public sealed class ModuleDependencyGraph
             path.Add(item: current);
 
             if (_modules.TryGetValue(key: current, value: out ModuleNode? node) &&
-                node.Dependencies.Any(dep => DFS(current: dep)))
+                node.Dependencies.Any(predicate: dep => DFS(current: dep)))
+            {
                 return true;
+            }
 
             path.RemoveAt(index: path.Count - 1);
             return false;
@@ -245,7 +247,8 @@ public sealed class ModuleDependencyGraph
 
             if (_modules.TryGetValue(key: current, value: out ModuleNode? node))
             {
-                foreach (string dep in node.Dependencies.Where(dep => result.Add(dep)))
+                foreach (string dep in node.Dependencies.Where(predicate: dep =>
+                             result.Add(item: dep)))
                 {
                     stack.Push(item: dep);
                 }

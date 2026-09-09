@@ -24,14 +24,14 @@ public class AssociatedTypeModelTests
         {
             GenericParameters = ["T"],
             // relates SomeEmitter[T] as Iter  →  bind Iter to a type that mentions T.
-            AssociatedTypeBindings = new() { ["Iter"] = paramT }
+            AssociatedTypeBindings = new Dictionary<string, TypeInfo> { [key: "Iter"] = paramT }
         };
 
         var instance = (EntityTypeInfo)def.CreateInstance(typeArguments: [concrete]);
 
         Assert.True(condition: instance.AssociatedTypeBindings.ContainsKey(key: "Iter"));
         // T was substituted with the concrete argument.
-        Assert.Same(expected: concrete, actual: instance.AssociatedTypeBindings["Iter"]);
+        Assert.Same(expected: concrete, actual: instance.AssociatedTypeBindings[key: "Iter"]);
     }
 
     /// <summary>
@@ -81,12 +81,14 @@ public class AssociatedTypeModelTests
         var emitter = new RecordTypeInfo(name: "ListEmitter");
         var concreteList = new EntityTypeInfo(name: "List")
         {
-            AssociatedTypeBindings = new() { ["Iter"] = emitter }
+            AssociatedTypeBindings =
+                new Dictionary<string, TypeInfo> { [key: "Iter"] = emitter }
         };
         var projection = new AssociatedProjectionTypeInfo(
-            baseType: new GenericParameterTypeInfo(name: "S"), slotName: "Iter");
+            baseType: new GenericParameterTypeInfo(name: "S"),
+            slotName: "Iter");
 
-        var subs = new Dictionary<string, TypeInfo> { ["S"] = concreteList };
+        var subs = new Dictionary<string, TypeInfo> { [key: "S"] = concreteList };
         TypeInfo result = RecordTypeInfo.SubstituteType(type: projection, substitution: subs);
 
         Assert.Same(expected: emitter, actual: result);
@@ -100,7 +102,8 @@ public class AssociatedTypeModelTests
     public void SubstituteType_KeepsProjection_WhenBaseStillGeneric()
     {
         var projection = new AssociatedProjectionTypeInfo(
-            baseType: new GenericParameterTypeInfo(name: "S"), slotName: "Iter");
+            baseType: new GenericParameterTypeInfo(name: "S"),
+            slotName: "Iter");
 
         var subs = new Dictionary<string, TypeInfo>(); // no binding for S
         TypeInfo result = RecordTypeInfo.SubstituteType(type: projection, substitution: subs);
