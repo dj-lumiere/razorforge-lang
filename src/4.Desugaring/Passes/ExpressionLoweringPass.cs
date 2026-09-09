@@ -3038,11 +3038,11 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         Expression omRef = MakeRef(name: omName, resolvedType: resultType, loc: loc);
 
         // Inner type for member access
-        TypeInfo? innerType = carrierType?.TypeArguments?[index: 0];
+        TypeInfo? innerType = carrierType?.TypeArguments?[0];
         Expression valRef = MakeRef(name: valName, resolvedType: innerType, loc: loc);
 
         // val.prop
-        TypeInfo? propType = resultType?.TypeArguments?[index: 0];
+        TypeInfo? propType = resultType?.TypeArguments?[0];
         var memberAccess =
             new MemberExpression(Object: valRef, MemberName: optMember.MemberName, Location: loc)
             {

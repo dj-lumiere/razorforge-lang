@@ -610,8 +610,8 @@ public sealed partial class SemanticVerifier
         var elementTypes = new List<TypeSymbol>();
         for (int i = 0; i < tuple.Elements.Count; i++)
         {
-            TypeSymbol? elemExpected = expectedElementTypes?[index: i];
-            TypeSymbol elementType = AnalyzeExpression(expression: tuple.Elements[index: i],
+            TypeSymbol? elemExpected = expectedElementTypes?[i];
+            TypeSymbol elementType = AnalyzeExpression(expression: tuple.Elements[i],
                 expectedType: elemExpected);
             elementTypes.Add(item: elementType);
         }
