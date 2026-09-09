@@ -104,3 +104,8 @@ old
 .claude-memory/
 .intellijPlatform
 /test_playground2/
+
+# Generated test artifacts (in-process compile bundles + coverage output)
+tests/Fixtures/StdlibHarnessInProc/
+tests/Fixtures/SuflaeHarnessInProc/
+tests/TestResults/
