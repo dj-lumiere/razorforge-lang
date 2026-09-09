@@ -119,98 +119,107 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         {
             case EachStatement f:
                 return LowerEach(eachStmt: f);
-
             case DestructuringStatement ds:
                 return LowerDestructuring(destruct: ds);
-
             case BlockStatement b:
-            {
-                bool changed = false;
-                var stmts = new List<Statement>(capacity: b.Statements.Count);
-                foreach (Statement s in b.Statements)
-                {
-                    Statement n = LowerStatement(stmt: s);
-                    // Splice DestructuringStatement's lowered block into the parent scope
-                    // so its `var a = ...; var b = ...;` bindings are visible to later siblings.
-                    if (s is DestructuringStatement && n is BlockStatement ds)
-                        stmts.AddRange(collection: ds.Statements);
-                    else
-                        stmts.Add(item: n);
-                    if (!ReferenceEquals(n, s)) changed = true;
-                }
-                return changed ? b with { Statements = stmts } : b;
-            }
-
+                return LowerBlock(b: b);
             case WhileStatement w:
                 return LowerWhile(whileStmt: w);
-
             case LoopStatement loop:
-            {
-                Statement body = LowerStatement(stmt: loop.Body);
-                if (ReferenceEquals(body, loop.Body)) return loop;
-                return loop with { Body = body };
-            }
-
+                return LowerLoop(loop: loop);
             case IfStatement ifs:
-            {
-                // `if x is T p [and guard...] { then } [else]` binds `p` for the then-branch only.
-                // Desugar to a `when` so the whole binding/scope/codegen path is reused from
-                // when-clauses (the binding is then-branch-scoped for free). Non-binding `if`s
-                // (plain bool, `isnot`, `is T` without a name) fall through unchanged.
-                if (TryLowerIfPatternBinding(ifs: ifs, out Statement? whenStmt))
-                    return whenStmt!;
-
-                Statement then = LowerStatement(stmt: ifs.ThenStatement);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? LowerStatement(stmt: ifs.ElseStatement)
-                    : null;
-                bool tc = !ReferenceEquals(then, ifs.ThenStatement);
-                bool ec = !ReferenceEquals(elseS, ifs.ElseStatement);
-                return tc || ec ? ifs with { ThenStatement = then, ElseStatement = elseS } : ifs;
-            }
-
+                return LowerIf(ifs: ifs);
             case WhenStatement w:
-            {
-                bool changed = false;
-                var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
-                foreach (WhenClause c in w.Clauses)
-                {
-                    Statement body = LowerStatement(stmt: c.Body);
-                    if (!ReferenceEquals(body, c.Body))
-                    {
-                        clauses.Add(item: c with { Body = body });
-                        changed = true;
-                    }
-                    else
-                    {
-                        clauses.Add(item: c);
-                    }
-                }
-                return changed ? w with { Clauses = clauses } : w;
-            }
-
+                return LowerWhen(w: w);
             case UsingStatement u:
-            {
-                Statement body = LowerStatement(stmt: u.Body);
-                Statement? fb = u.FallbackBody != null ? LowerStatement(stmt: u.FallbackBody) : null;
-                return !ReferenceEquals(body, u.Body) || !ReferenceEquals(fb, u.FallbackBody)
-                    ? u with { Body = body, FallbackBody = fb }
-                    : u;
-            }
-
+                return LowerUsing(u: u);
             case DangerStatement d:
-            {
-                // DangerStatement.Body is BlockStatement; LowerStatement on BlockStatement
-                // always returns a BlockStatement so the cast is safe.
-                Statement lowered = LowerStatement(stmt: d.Body);
-                return !ReferenceEquals(lowered, d.Body)
-                    ? d with { Body = (BlockStatement)lowered }
-                    : d;
-            }
-
+                return LowerDanger(d: d);
             default:
                 return stmt;
         }
+    }
+
+    private Statement LowerBlock(BlockStatement b)
+    {
+        bool changed = false;
+        var stmts = new List<Statement>(capacity: b.Statements.Count);
+        foreach (Statement s in b.Statements)
+        {
+            Statement n = LowerStatement(stmt: s);
+            // Splice DestructuringStatement's lowered block into the parent scope
+            // so its `var a = ...; var b = ...;` bindings are visible to later siblings.
+            if (s is DestructuringStatement && n is BlockStatement ds)
+                stmts.AddRange(collection: ds.Statements);
+            else
+                stmts.Add(item: n);
+            if (!ReferenceEquals(n, s)) changed = true;
+        }
+        return changed ? b with { Statements = stmts } : b;
+    }
+
+    private Statement LowerLoop(LoopStatement loop)
+    {
+        Statement body = LowerStatement(stmt: loop.Body);
+        if (ReferenceEquals(body, loop.Body)) return loop;
+        return loop with { Body = body };
+    }
+
+    private Statement LowerIf(IfStatement ifs)
+    {
+        // `if x is T p [and guard...] { then } [else]` binds `p` for the then-branch only.
+        // Desugar to a `when` so the whole binding/scope/codegen path is reused from
+        // when-clauses (the binding is then-branch-scoped for free). Non-binding `if`s
+        // (plain bool, `isnot`, `is T` without a name) fall through unchanged.
+        if (TryLowerIfPatternBinding(ifs: ifs, out Statement? whenStmt))
+            return whenStmt!;
+
+        Statement then = LowerStatement(stmt: ifs.ThenStatement);
+        Statement? elseS = ifs.ElseStatement != null
+            ? LowerStatement(stmt: ifs.ElseStatement)
+            : null;
+        bool tc = !ReferenceEquals(then, ifs.ThenStatement);
+        bool ec = !ReferenceEquals(elseS, ifs.ElseStatement);
+        return tc || ec ? ifs with { ThenStatement = then, ElseStatement = elseS } : ifs;
+    }
+
+    private Statement LowerWhen(WhenStatement w)
+    {
+        bool changed = false;
+        var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
+        foreach (WhenClause c in w.Clauses)
+        {
+            Statement body = LowerStatement(stmt: c.Body);
+            if (!ReferenceEquals(body, c.Body))
+            {
+                clauses.Add(item: c with { Body = body });
+                changed = true;
+            }
+            else
+            {
+                clauses.Add(item: c);
+            }
+        }
+        return changed ? w with { Clauses = clauses } : w;
+    }
+
+    private Statement LowerUsing(UsingStatement u)
+    {
+        Statement body = LowerStatement(stmt: u.Body);
+        Statement? fb = u.FallbackBody != null ? LowerStatement(stmt: u.FallbackBody) : null;
+        return !ReferenceEquals(body, u.Body) || !ReferenceEquals(fb, u.FallbackBody)
+            ? u with { Body = body, FallbackBody = fb }
+            : u;
+    }
+
+    private Statement LowerDanger(DangerStatement d)
+    {
+        // DangerStatement.Body is BlockStatement; LowerStatement on BlockStatement
+        // always returns a BlockStatement so the cast is safe.
+        Statement lowered = LowerStatement(stmt: d.Body);
+        return !ReferenceEquals(lowered, d.Body)
+            ? d with { Body = (BlockStatement)lowered }
+            : d;
     }
 
     /// <summary>
@@ -438,7 +447,8 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
 
         return elseBranchLowered != null
             ? BuildForElse(elseBranchLowered: elseBranchLowered, tryNextCall: tryNextCall,
-                elseBody: elseBody, elseVarName: elseVarName, iterVarStmt: iterVarStmt, n: n,
+                elseBody: elseBody, elseVarName: elseVarName, iterVarStmt: iterVarStmt,
+                exhaustedName: $"_lf_exhausted_{n}",
                 iterationSourceName: iterationSourceName, loc: loc)
             : BuildPlainFor(tryNextCall: tryNextCall, elseBody: elseBody, elseVarName: elseVarName,
                 iterVarStmt: iterVarStmt, iterationSourceName: iterationSourceName, loc: loc);
@@ -539,11 +549,10 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     /// <c>if _lf_exhausted_N { alt }</c> check after the loop.
     /// </summary>
     private static BlockStatement BuildForElse(Statement elseBranchLowered, Expression tryNextCall,
-        Statement elseBody, string? elseVarName, Statement iterVarStmt, int n,
-        string? iterationSourceName, SourceLocation loc)
+        Statement elseBody, string? elseVarName, Statement iterVarStmt,
+        string exhaustedName, string? iterationSourceName, SourceLocation loc)
     {
         // For-else: set exhausted flag, then break
-        string exhaustedName = $"_lf_exhausted_{n}";
         Statement noneBody = new BlockStatement(
             Statements:
             [

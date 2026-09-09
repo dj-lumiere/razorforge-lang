@@ -152,7 +152,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         }
     }
 
-    private Statement ExpandBlock(BlockStatement b, List<CrashableTypeInfo> crashableTypes)
+    private BlockStatement ExpandBlock(BlockStatement b, List<CrashableTypeInfo> crashableTypes)
     {
         bool changed = false;
         var stmts = new List<Statement>(capacity: b.Statements.Count);
@@ -166,7 +166,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         return changed ? b with { Statements = stmts } : b;
     }
 
-    private Statement ExpandIf(IfStatement ifs, List<CrashableTypeInfo> crashableTypes)
+    private IfStatement ExpandIf(IfStatement ifs, List<CrashableTypeInfo> crashableTypes)
     {
         Statement then = ExpandStatement(stmt: ifs.ThenStatement,
             crashableTypes: crashableTypes);
@@ -180,7 +180,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             : ifs;
     }
 
-    private Statement ExpandWhile(WhileStatement w, List<CrashableTypeInfo> crashableTypes)
+    private WhileStatement ExpandWhile(WhileStatement w, List<CrashableTypeInfo> crashableTypes)
     {
         Statement body = ExpandStatement(stmt: w.Body, crashableTypes: crashableTypes);
         Statement? elseB = w.ElseBranch != null
@@ -191,7 +191,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         return changed ? w with { Body = body, ElseBranch = elseB } : w;
     }
 
-    private Statement ExpandEach(EachStatement f, List<CrashableTypeInfo> crashableTypes)
+    private EachStatement ExpandEach(EachStatement f, List<CrashableTypeInfo> crashableTypes)
     {
         Statement body = ExpandStatement(stmt: f.Body, crashableTypes: crashableTypes);
         Statement? elseB = f.ElseBranch != null
@@ -202,7 +202,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         return changed ? f with { Body = body, ElseBranch = elseB } : f;
     }
 
-    private Statement ExpandUsing(UsingStatement u, List<CrashableTypeInfo> crashableTypes)
+    private UsingStatement ExpandUsing(UsingStatement u, List<CrashableTypeInfo> crashableTypes)
     {
         Statement body = ExpandStatement(stmt: u.Body, crashableTypes: crashableTypes);
         Statement? fb = u.FallbackBody != null
@@ -215,7 +215,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
 
     // === WhenStatement expansion ==================================================
 
-    private Statement ExpandWhen(WhenStatement when,
+    private WhenStatement ExpandWhen(WhenStatement when,
         List<CrashableTypeInfo> crashableTypes)
     {
         // Only expand carrier-type subjects (Result/Lookup).
@@ -316,7 +316,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     /// per-type fan-out) when the binding is used any OTHER way — a leftover reference after the rewrite
     /// means the binding escaped as a value (variant propagation, un-lowered f-string, etc.).
     /// </summary>
-    private WhenClause? TryMakeCrashableDispatchClause(WhenClause clause, string? bindName,
+    private static WhenClause? TryMakeCrashableDispatchClause(WhenClause clause, string? bindName,
         SourceLocation loc, Expression carrier)
     {
         Statement body = clause.Body;

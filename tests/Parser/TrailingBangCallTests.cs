@@ -88,6 +88,7 @@ public class TrailingBangCallTests
                         routine g!() -> S64
                           return 0_s64
                         """;
-        Parse(source: source);
+        var result = Parse(source: source);
+        Assert.NotNull(result);
     }
 }

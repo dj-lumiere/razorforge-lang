@@ -202,27 +202,7 @@ public sealed partial class SemanticVerifier
         IReadOnlyList<string> submodules = _registry.EnumerateSubmodules(prefix: import.ModulePath);
         if (submodules.Count > 0)
         {
-            bool anyLoaded = false;
-            // Load the prefix module itself too if it happens to be a real module (a namespace-only
-            // prefix just fails silently here — the submodules are what matter).
-            foreach (string modulePath in submodules.Prepend(element: import.ModulePath).Distinct())
-            {
-                if (_registry.LoadModule(importPath: modulePath,
-                        currentFile: _currentFilePath,
-                        location: import.Location,
-                        effectiveModule: out string? subEffective))
-                {
-                    anyLoaded = true;
-                    if (subEffective != null) _importedModules.Add(item: subEffective);
-                }
-            }
-
-            if (!anyLoaded)
-            {
-                ReportError(code: SemanticDiagnosticCode.ModuleNotFound,
-                    message: $"Cannot resolve import '{import.ModulePath}'. Module not found.",
-                    location: import.Location);
-            }
+            ProcessPrefixImport(import: import, submodules: submodules);
             return;
         }
 
@@ -244,14 +224,11 @@ public sealed partial class SemanticVerifier
         // #105: Check for import name collisions with specific imports
         if (import.SpecificImports != null)
         {
-            foreach (string symbolName in import.SpecificImports)
+            foreach (string symbolName in import.SpecificImports.Where(s => !_importedSymbolNames.Add(s)))
             {
-                if (!_importedSymbolNames.Add(item: symbolName))
-                {
-                    ReportError(code: SemanticDiagnosticCode.ImportNameCollision,
-                        message: $"Symbol '{symbolName}' is already imported from another module.",
-                        location: import.Location);
-                }
+                ReportError(code: SemanticDiagnosticCode.ImportNameCollision,
+                    message: $"Symbol '{symbolName}' is already imported from another module.",
+                    location: import.Location);
             }
         }
 
@@ -270,6 +247,35 @@ public sealed partial class SemanticVerifier
             {
                 _importedForeignAliases.Add(item: $"{realm}::{routineName}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Handles a prefix/package import where the module path matches multiple submodules. Loads each
+    /// submodule (plus the prefix itself if it is also a real module). Reports an error if none loaded.
+    /// </summary>
+    private void ProcessPrefixImport(ImportDeclaration import, IReadOnlyList<string> submodules)
+    {
+        bool anyLoaded = false;
+        // Load the prefix module itself too if it happens to be a real module (a namespace-only
+        // prefix just fails silently here — the submodules are what matter).
+        foreach (string modulePath in submodules.Prepend(element: import.ModulePath).Distinct())
+        {
+            if (_registry.LoadModule(importPath: modulePath,
+                    currentFile: _currentFilePath,
+                    location: import.Location,
+                    effectiveModule: out string? subEffective))
+            {
+                anyLoaded = true;
+                if (subEffective != null) _importedModules.Add(item: subEffective);
+            }
+        }
+
+        if (!anyLoaded)
+        {
+            ReportError(code: SemanticDiagnosticCode.ModuleNotFound,
+                message: $"Cannot resolve import '{import.ModulePath}'. Module not found.",
+                location: import.Location);
         }
     }
 
@@ -317,7 +323,7 @@ public sealed partial class SemanticVerifier
                 location: memberVariable.Location);
         }
 
-        // TODO: Register member variable in the current type's member variable list when type body resolution is implemented
+        // Member variable registration into the type's member variable list happens during type body resolution (Phase 4).
     }
 
     /// <summary>
@@ -563,16 +569,13 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        foreach (string ann in annotations)
+        foreach (string ann in annotations.Where(a => a.StartsWith("layout(") && a.EndsWith(')')))
         {
-            if (ann.StartsWith(value: "layout(") && ann.EndsWith(value: ')'))
-            {
-                ReportError(code: SemanticDiagnosticCode.LayoutAnnotationNotOnRecord,
-                    message:
-                    $"@layout(...) is not allowed on {where}. Memory layout is a property of a record " +
-                    "type, set only on the record declaration.",
-                    location: location);
-            }
+            ReportError(code: SemanticDiagnosticCode.LayoutAnnotationNotOnRecord,
+                message:
+                $"@layout(...) is not allowed on {where}. Memory layout is a property of a record " +
+                "type, set only on the record declaration.",
+                location: location);
         }
     }
 
@@ -783,7 +786,8 @@ public sealed partial class SemanticVerifier
             // token is read here.
             if (routine.Name == "create")
                 return (RoutineKind.Creator, ownerType, RoutineInfo.CreatorName);
-            return (isCommon ? RoutineKind.CommonRoutine : RoutineKind.MemberRoutine, ownerType, routineName);
+            RoutineKind inBodyKind = isCommon ? RoutineKind.CommonRoutine : RoutineKind.MemberRoutine;
+            return (inBodyKind, ownerType, routineName);
         }
 
         if (routine.MemberRoutineName is { } declaredMember)
@@ -803,7 +807,8 @@ public sealed partial class SemanticVerifier
             if (declaredMember == "create")
                 return (RoutineKind.Creator, ownerType, RoutineInfo.CreatorName);
 
-            return (isCommon ? RoutineKind.CommonRoutine : RoutineKind.MemberRoutine, ownerType, routineName);
+            RoutineKind memberKind = isCommon ? RoutineKind.CommonRoutine : RoutineKind.MemberRoutine;
+            return (memberKind, ownerType, routineName);
         }
 
         // Top-level routine. A routine whose bare name matches a known type is a
@@ -811,7 +816,9 @@ public sealed partial class SemanticVerifier
         // Route it to the reserved creator kind with the type as owner and NO member name
         // (RoutineInfo.CreatorName) — identity is RoutineKind.Creator, never a name string.
         // The trailing `!` (failable) is carried structurally on routine.IsFailable, not in the name.
-        // TODO: Why is this handled here? Constructor-sugar detection should have been parser's role.
+        // Constructor-sugar detection lives here (rather than in the parser) because the parser has no
+        // symbol table to resolve whether a bare name is a known type — that information is only available
+        // after declaration collection.
         // A free routine's Name is the canonical bare identifier (the parser folds `[params]` into the
         // structured GenericParameters, never into Name for a non-member routine), so it is looked up
         // directly with no generic-suffix strip.
@@ -1188,7 +1195,7 @@ public sealed partial class SemanticVerifier
                 "Innate routines are compiler-provided and cannot be overridden.",
                 location: typeMemberRoutine.Location ?? new SourceLocation("", 0, 0, 0));
         }
-        else if (typeMemberRoutine != null)
+        else if (typeMemberRoutine.MutationCategory > requiredMemberRoutine.Mutation)
         {
             // #61: Protocol mutation contract validation. The implementation must not be MORE
             // mutating than the protocol declares (Readonly < Writable < Reshaping): callers
@@ -1196,15 +1203,12 @@ public sealed partial class SemanticVerifier
             // a Modifying token for the writable default — so an impl that mutates or relocates
             // beyond that contract would be unsound (a Reshaping impl behind a Writable protocol
             // could relocate mid-iteration through a Modifying token, invalidating iterators).
-            if (typeMemberRoutine.MutationCategory > requiredMemberRoutine.Mutation)
-            {
-                ReportError(code: SemanticDiagnosticCode.ProtocolMutationContractViolation,
-                    message:
-                    $"Protocol '{protocol.Name}' requires '{requiredMemberRoutine.Name}' to be " +
-                    $"@{requiredMemberRoutine.Mutation.ToString().ToLowerInvariant()} (or less mutating), " +
-                    $"but implementation on '{type.Name}' is @{typeMemberRoutine.MutationCategory.ToString().ToLowerInvariant()}.",
-                    location: typeMemberRoutine.Location ?? new SourceLocation("", 0, 0, 0));
-            }
+            ReportError(code: SemanticDiagnosticCode.ProtocolMutationContractViolation,
+                message:
+                $"Protocol '{protocol.Name}' requires '{requiredMemberRoutine.Name}' to be " +
+                $"@{requiredMemberRoutine.Mutation.ToString().ToLowerInvariant()} (or less mutating), " +
+                $"but implementation on '{type.Name}' is @{typeMemberRoutine.MutationCategory.ToString().ToLowerInvariant()}.",
+                location: typeMemberRoutine.Location ?? new SourceLocation("", 0, 0, 0));
         }
     }
 
@@ -1231,16 +1235,13 @@ public sealed partial class SemanticVerifier
             ? [..typeParameters]
             : [];
 
-        foreach (GenericConstraintDeclaration constraint in constraints)
+        foreach (GenericConstraintDeclaration constraint in constraints.Where(c => !validParams.Contains(c.ParameterName)))
         {
-            if (!validParams.Contains(item: constraint.ParameterName))
-            {
-                ReportError(code: SemanticDiagnosticCode.UnknownTypeParameterInConstraint,
-                    message:
-                    $"Type parameter '{constraint.ParameterName}' in constraint is not declared. " +
-                    $"Declared type parameters: {(typeParameters?.Count > 0 ? string.Join(separator: ", ", values: typeParameters) : "none")}.",
-                    location: constraint.Location ?? location ?? new SourceLocation("", 0, 0, 0));
-            }
+            ReportError(code: SemanticDiagnosticCode.UnknownTypeParameterInConstraint,
+                message:
+                $"Type parameter '{constraint.ParameterName}' in constraint is not declared. " +
+                $"Declared type parameters: {(typeParameters?.Count > 0 ? string.Join(separator: ", ", values: typeParameters) : "none")}.",
+                location: constraint.Location ?? location ?? new SourceLocation("", 0, 0, 0));
         }
     }
 

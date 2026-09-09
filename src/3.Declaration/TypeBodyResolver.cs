@@ -767,45 +767,10 @@ internal sealed class TypeBodyResolver
     private ChoiceCaseInfo ResolveChoiceCase(ChoiceDeclaration choice, ChoiceCase caseDecl,
         ref int autoValue)
     {
-        int? explicitValue = null;
-
-        // Evaluate explicit value if provided
-        if (caseDecl.Value != null)
-        {
-            long? longValue = TryEvaluateChoiceCaseValue(expression: caseDecl.Value,
-                choice: choice,
-                caseName: caseDecl.Name,
-                location: caseDecl.Location);
-            if (longValue.HasValue)
-            {
-                if (longValue.Value is < int.MinValue or > int.MaxValue)
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.ChoiceCaseValueOverflow,
-                        message:
-                        $"Choice '{choice.Name}' case '{caseDecl.Name}': explicit value {longValue.Value} exceeds S32 range.",
-                        location: caseDecl.Location);
-                }
-                else
-                {
-                    explicitValue = (int)longValue.Value;
-                }
-            }
-
-            if (explicitValue.HasValue)
-            {
-                autoValue = explicitValue.Value;
-                // Check auto-increment overflow
-                if (autoValue == int.MaxValue)
-                {
-                    // Next auto-increment would overflow; only report if there are more cases after this
-                    // The overflow will be caught when the next case tries to use autoValue + 1
-                }
-                else
-                {
-                    autoValue += 1;
-                }
-            }
-        }
+        int? explicitValue = caseDecl.Value != null
+            ? TryResolveExplicitChoiceCaseValue(choice: choice, caseDecl: caseDecl,
+                autoValue: ref autoValue)
+            : null;
 
         int computedValue;
         if (explicitValue.HasValue)
@@ -815,17 +780,8 @@ internal sealed class TypeBodyResolver
         else
         {
             computedValue = autoValue;
-            if (autoValue == int.MaxValue)
-            {
-                _sa.ReportError(code: SemanticDiagnosticCode.ChoiceCaseValueOverflow,
-                    message:
-                    $"Choice '{choice.Name}' case '{caseDecl.Name}': auto-assigned value would overflow S32 range.",
-                    location: caseDecl.Location);
-            }
-            else
-            {
-                autoValue += 1;
-            }
+            AdvanceAutoValue(choice: choice, caseDecl: caseDecl, autoValue: ref autoValue,
+                reportOverflow: true);
         }
 
         return new ChoiceCaseInfo(name: caseDecl.Name)
@@ -834,6 +790,64 @@ internal sealed class TypeBodyResolver
             ComputedValue = computedValue,
             Location = caseDecl.Location
         };
+    }
+
+    /// <summary>
+    /// Evaluates the explicit case value expression, validates it fits in S32 range, and advances
+    /// <paramref name="autoValue"/> to one past the explicit value (unless it would overflow S32).
+    /// Returns the validated S32 value, or <c>null</c> if evaluation or range-check failed.
+    /// </summary>
+    private int? TryResolveExplicitChoiceCaseValue(ChoiceDeclaration choice, ChoiceCase caseDecl,
+        ref int autoValue)
+    {
+        long? longValue = TryEvaluateChoiceCaseValue(expression: caseDecl.Value!,
+            choice: choice,
+            caseName: caseDecl.Name,
+            location: caseDecl.Location);
+
+        if (!longValue.HasValue)
+            return null;
+
+        if (longValue.Value is < int.MinValue or > int.MaxValue)
+        {
+            _sa.ReportError(code: SemanticDiagnosticCode.ChoiceCaseValueOverflow,
+                message:
+                $"Choice '{choice.Name}' case '{caseDecl.Name}': explicit value {longValue.Value} exceeds S32 range.",
+                location: caseDecl.Location);
+            return null;
+        }
+
+        int explicitValue = (int)longValue.Value;
+        autoValue = explicitValue;
+        // Advance by 1 for subsequent auto-increment; if already at max, next case will catch overflow.
+        AdvanceAutoValue(choice: choice, caseDecl: caseDecl, autoValue: ref autoValue,
+            reportOverflow: false);
+        return explicitValue;
+    }
+
+    /// <summary>
+    /// Advances <paramref name="autoValue"/> by 1, reporting an overflow error when
+    /// <paramref name="reportOverflow"/> is true and <paramref name="autoValue"/> is already
+    /// at <see cref="int.MaxValue"/> (which would overflow on increment).
+    /// </summary>
+    private void AdvanceAutoValue(ChoiceDeclaration choice, ChoiceCase caseDecl,
+        ref int autoValue, bool reportOverflow)
+    {
+        if (autoValue == int.MaxValue)
+        {
+            if (reportOverflow)
+            {
+                _sa.ReportError(code: SemanticDiagnosticCode.ChoiceCaseValueOverflow,
+                    message:
+                    $"Choice '{choice.Name}' case '{caseDecl.Name}': auto-assigned value would overflow S32 range.",
+                    location: caseDecl.Location);
+            }
+            // Do not increment: leave autoValue at MaxValue so subsequent cases report their own overflow.
+        }
+        else
+        {
+            autoValue += 1;
+        }
     }
 
     private void ResolveFlagsBody(FlagsDeclaration flags)

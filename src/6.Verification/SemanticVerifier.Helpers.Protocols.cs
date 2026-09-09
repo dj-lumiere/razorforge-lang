@@ -96,12 +96,14 @@ public sealed partial class SemanticVerifier
             TypeSymbol arg = typeArgs[index: idx];
             if (arg is GenericParameterTypeInfo)
                 continue;
-            foreach (TypeExpression protoExpr in c.ConstraintTypes)
-                if (!ImplementsProtocol(type: arg, protocolName: protoExpr.Name))
-                    ReportError(code: SemanticDiagnosticCode.ProtocolConstraintViolation,
-                        message: $"Type '{arg.Name}' does not implement protocol '{protoExpr.Name}' " +
-                                 $"required by constraint on '{c.ParameterName}'.",
-                        location: location);
+            foreach (TypeExpression protoExpr in c.ConstraintTypes
+                         .Where(pe => !ImplementsProtocol(type: arg, protocolName: pe.Name)))
+            {
+                ReportError(code: SemanticDiagnosticCode.ProtocolConstraintViolation,
+                    message: $"Type '{arg.Name}' does not implement protocol '{protoExpr.Name}' " +
+                             $"required by constraint on '{c.ParameterName}'.",
+                    location: location);
+            }
         }
     }
 
@@ -122,8 +124,35 @@ public sealed partial class SemanticVerifier
         // for compile speed (variant-body analysis touches thousands of member calls).
         if (ownerType.TypeArguments is not { Count: > 0 })
             return;
-        // The owner's generic DEFINITION (List[T] for a List[Widget] receiver) carries the def params +
-        // the method's `needs`; the resolved instance drops the constraints, so read them from the def.
+
+        List<GenericConstraintDeclaration>? constraints =
+            ResolveMemberOwnerConstraints(memberRoutine: memberRoutine, ownerType: ownerType);
+        if (constraints is not { Count: > 0 })
+            return;
+
+        TypeSymbol? ownerDef =
+            (ownerType as EntityTypeInfo)?.GenericDefinition
+            ?? (ownerType as RecordTypeInfo)?.GenericDefinition as TypeSymbol;
+        List<string>? paramNames = (ownerDef ?? ownerType).GenericParameters ?? ownerType.GenericParameters;
+        List<TypeSymbol>? args = ownerType.TypeArguments;
+        if (paramNames is null || args is null)
+            return;
+
+        var subs = new Dictionary<string, TypeSymbol>(comparer: System.StringComparer.Ordinal);
+        for (int i = 0; i < paramNames.Count && i < args.Count; i++)
+            subs[key: paramNames[i]] = args[i];
+
+        CheckOwnerConstraintViolations(constraints: constraints, subs: subs,
+            ownerType: ownerType, memberRoutine: memberRoutine, location: location);
+    }
+
+    /// <summary>
+    /// Resolves the effective generic constraints for a member routine call: returns the routine's own
+    /// constraints when present, or looks them up on the generic definition of the owner type.
+    /// </summary>
+    private List<GenericConstraintDeclaration>? ResolveMemberOwnerConstraints(
+        RoutineInfo memberRoutine, TypeSymbol ownerType)
+    {
         TypeSymbol? ownerDef =
             (ownerType as EntityTypeInfo)?.GenericDefinition
             ?? (ownerType as RecordTypeInfo)?.GenericDefinition as TypeSymbol;
@@ -131,15 +160,17 @@ public sealed partial class SemanticVerifier
         if (constraints is not { Count: > 0 } && ownerDef != null)
             constraints = _registry.LookupMemberRoutine(type: ownerDef,
                 memberRoutineName: memberRoutine.Name)?.GenericConstraints;
-        if (constraints is not { Count: > 0 })
-            return;
-        List<string>? paramNames = (ownerDef ?? ownerType).GenericParameters ?? ownerType.GenericParameters;
-        List<TypeSymbol>? args = ownerType.TypeArguments;
-        if (paramNames is null || args is null)
-            return;
-        var subs = new Dictionary<string, TypeSymbol>(comparer: System.StringComparer.Ordinal);
-        for (int i = 0; i < paramNames.Count && i < args.Count; i++)
-            subs[key: paramNames[i]] = args[i];
+        return constraints;
+    }
+
+    /// <summary>
+    /// Checks each applicable obeys-constraint against the concrete type argument substitution map
+    /// and reports a protocol-constraint violation for each failing protocol.
+    /// </summary>
+    private void CheckOwnerConstraintViolations(List<GenericConstraintDeclaration> constraints,
+        Dictionary<string, TypeSymbol> subs, TypeSymbol ownerType, RoutineInfo memberRoutine,
+        SourceLocation location)
+    {
         foreach (GenericConstraintDeclaration c in constraints)
         {
             if (c.ConstraintType != ConstraintKind.Obeys || c.ConstraintTypes == null)
@@ -147,12 +178,14 @@ public sealed partial class SemanticVerifier
             if (!subs.TryGetValue(key: c.ParameterName, value: out TypeSymbol? actual)
                 || actual is GenericParameterTypeInfo)
                 continue;
-            foreach (TypeExpression protoExpr in c.ConstraintTypes)
-                if (!ImplementsProtocol(type: actual, protocolName: protoExpr.Name))
-                    ReportError(code: SemanticDiagnosticCode.ProtocolConstraintViolation,
-                        message: $"'{ownerType.Name}.{memberRoutine.Name}' requires '{c.ParameterName} " +
-                                 $"obeys {protoExpr.Name}', but '{actual.Name}' does not.",
-                        location: location);
+            foreach (TypeExpression protoExpr in c.ConstraintTypes
+                         .Where(pe => !ImplementsProtocol(type: actual, protocolName: pe.Name)))
+            {
+                ReportError(code: SemanticDiagnosticCode.ProtocolConstraintViolation,
+                    message: $"'{ownerType.Name}.{memberRoutine.Name}' requires '{c.ParameterName} " +
+                             $"obeys {protoExpr.Name}', but '{actual.Name}' does not.",
+                    location: location);
+            }
         }
     }
 
@@ -447,7 +480,7 @@ public sealed partial class SemanticVerifier
     /// matches the corresponding protocol parameter type. Extracted from
     /// <see cref="memberRoutineSignatureMatches"/>.
     /// </summary>
-    private bool MemberRoutineParameterTypesMatch(RoutineInfo typeMemberRoutine,
+    private static bool MemberRoutineParameterTypesMatch(RoutineInfo typeMemberRoutine,
         ProtocolMemberRoutineInfo protoMemberRoutine, int expectedParamCount, bool hasMeParam)
     {
         // Check parameter types - skip 'me' if present

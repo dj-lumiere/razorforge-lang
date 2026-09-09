@@ -126,10 +126,7 @@ public sealed class ErrorHandlingGenerator
         // (e.g. `routine S64_from_text!(t: Text) -> S64 return S64!(from_text: t)`).
         if (routine.HasThrow) analysis.HasThrow = true;
         if (routine.HasAbsent) analysis.HasAbsent = true;
-        foreach (TypeInfo t in routine.ThrowableTypes)
-        {
-            if (!analysis.ThrownTypes.Contains(t)) analysis.ThrownTypes.Add(t);
-        }
+        analysis.ThrownTypes.UnionWith(routine.ThrowableTypes);
 
         // If no direct or propagated throw/absent info but the routine calls failable
         // routines, conservatively assume throw (legacy behavior for arithmetic-overflow
@@ -197,7 +194,7 @@ public sealed class ErrorHandlingGenerator
     /// Quick check: returns true if the body contains at least one throw or absent statement.
     /// Used to filter bodies before storing them for variant generation.
     /// </summary>
-    public bool BodyHasThrowOrAbsent(Statement body)
+    public static bool BodyHasThrowOrAbsent(Statement body)
     {
         ErrorHandlingAnalysis analysis = AnalyzeBody(body);
         return analysis.HasThrow || analysis.HasAbsent;
@@ -487,5 +484,5 @@ public sealed class ErrorHandlingGenerator
     /// carrier-element transforms (e.g., needs-RecordType relaxation) want a single
     /// chokepoint.
     /// </summary>
-    private TypeInfo WrapBareEntityForCarrier(TypeInfo type) => type;
+    private static TypeInfo WrapBareEntityForCarrier(TypeInfo type) => type;
 }

@@ -106,51 +106,10 @@ public sealed partial class SemanticVerifier
         {
             // Owner-level generic params (e.g. T from Hijacked[T]) are bound by the receiver.
             // Compare typeArgs only against memberRoutine-level params (e.g. U from recast_as[U]).
-            var ownerGenericParamNames = GetOwnerGenericParameterNames(ownerType: objectType);
-            List<string> memberRoutineOnlyParams =
-                memberRoutine.GenericParameters?
-                      .Where(predicate: gp => !ownerGenericParamNames.Contains(item: gp))
-                      .ToList() ?? new List<string>();
-
-            if (memberRoutineOnlyParams.Count != typeArgs.Count)
-            {
-                ReportError(code: SemanticDiagnosticCode.WrongTypeArgumentCount,
-                    message:
-                    $"member routine '{memberRoutine.Name}' expects {memberRoutineOnlyParams.Count} type arguments, got {typeArgs.Count}.",
-                    location: generic.Location);
-                return ErrorTypeInfo.Instance;
-            }
-
-            // Build full type-argument list aligned to memberRoutine.GenericParameters order.
-            // For owner-level params, take the binding from the receiver's TypeArguments;
-            // for memberRoutine-level params, take from the user-supplied typeArgs in order.
-            List<TypeSymbol> fullTypeArgs;
-            if (memberRoutine.GenericParameters != null &&
-                memberRoutine.GenericParameters.Count != typeArgs.Count)
-            {
-                fullTypeArgs = new List<TypeSymbol>(capacity: memberRoutine.GenericParameters.Count);
-                int memberRoutineArgIdx = 0;
-                var ownerBindings = BuildOwnerBindingMap(ownerType: objectType);
-                foreach (string paramName in memberRoutine.GenericParameters)
-                {
-                    if (ownerGenericParamNames.Contains(item: paramName) &&
-                        ownerBindings.TryGetValue(key: paramName, value: out TypeInfo? ownerArg))
-                    {
-                        fullTypeArgs.Add(item: ownerArg);
-                    }
-                    else if (memberRoutineArgIdx < typeArgs.Count)
-                    {
-                        fullTypeArgs.Add(item: typeArgs[index: memberRoutineArgIdx++]);
-                    }
-                }
-            }
-            else
-            {
-                fullTypeArgs = typeArgs.ToList();
-            }
-
-            memberRoutine = _registry.GetOrCreateRoutineResolution(genericDef: memberRoutine,
-                typeArguments: fullTypeArgs);
+            RoutineInfo? mono = MonomorphizeMemberRoutineWithTypeArgs(generic: generic,
+                objectType: objectType, memberRoutine: memberRoutine, typeArgs: typeArgs);
+            if (mono == null) return ErrorTypeInfo.Instance;
+            memberRoutine = mono;
         }
 
         // Variadic member routine (e.g. `List[T].create(elements...: T)` called as
@@ -194,55 +153,133 @@ public sealed partial class SemanticVerifier
             returnType = _registry.GetOrCreateResolution(genericDef: retDef, typeArguments: boundArgs);
         }
 
-        // Substitute memberRoutine's own generic params (U from obtain_as[U])
-        // GenericParameters now contains only memberRoutine-level params (owner-level params
-        // are stripped by SubstituteMemberRoutineForOwner), so indices map directly to typeArgs.
-        if (memberRoutine.GenericParameters != null)
+        // Substitute memberRoutine's own generic params (U from obtain_as[U]).
+        return SubstituteGenericParamsInReturnType(returnType: returnType,
+            memberRoutine: memberRoutine, typeArgs: typeArgs);
+    }
+
+    /// <summary>
+    /// Monomorphizes a standalone generic free routine against the caller's explicit type arguments.
+    /// Validates arity, builds the substitution map in <paramref name="typeSubs"/>, replaces
+    /// <paramref name="routine"/> with the concrete resolution, and returns true on success.
+    /// Reports a <c>WrongTypeArgumentCount</c> error and returns false when the arity does not match.
+    /// </summary>
+    private bool TryMonomorphizeFreeRoutine(GenericMemberRoutineCallExpression generic,
+        ref RoutineInfo routine, List<TypeSymbol> typeArgs,
+        out Dictionary<string, TypeSymbol>? typeSubs)
+    {
+        if (routine.GenericParameters == null || routine.GenericParameters.Count != typeArgs.Count)
         {
-            // Direct param (return type is just U)
-            if (returnType is GenericParameterTypeInfo)
+            ReportError(code: SemanticDiagnosticCode.WrongTypeArgumentCount,
+                message: $"Routine '{routine.Name}' expects {routine.GenericParameters?.Count ?? 0} type arguments, got {typeArgs.Count}.",
+                location: generic.Location);
+            typeSubs = null;
+            return false;
+        }
+
+        typeSubs = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal);
+        for (int i = 0; i < routine.GenericParameters.Count; i++)
+        {
+            if (typeArgs[index: i] is TypeInfo concreteArg)
+                typeSubs[key: routine.GenericParameters[index: i]] = concreteArg;
+        }
+        routine = _registry.GetOrCreateRoutineResolution(genericDef: routine, typeArguments: typeArgs.ToList());
+        return true;
+    }
+
+    /// <summary>
+    /// Monomorphizes a generic member routine against the caller's explicit type arguments, aligning
+    /// owner-level and member-level parameters. Returns the concrete routine resolution, or null and
+    /// reports a <c>WrongTypeArgumentCount</c> error when the arity does not match.
+    /// </summary>
+    private RoutineInfo? MonomorphizeMemberRoutineWithTypeArgs(
+        GenericMemberRoutineCallExpression generic,
+        TypeSymbol objectType,
+        RoutineInfo memberRoutine,
+        List<TypeSymbol> typeArgs)
+    {
+        var ownerGenericParamNames = GetOwnerGenericParameterNames(ownerType: objectType);
+        List<string> memberRoutineOnlyParams =
+            memberRoutine.GenericParameters?
+                  .Where(predicate: gp => !ownerGenericParamNames.Contains(item: gp))
+                  .ToList() ?? new List<string>();
+
+        if (memberRoutineOnlyParams.Count != typeArgs.Count)
+        {
+            ReportError(code: SemanticDiagnosticCode.WrongTypeArgumentCount,
+                message: $"member routine '{memberRoutine.Name}' expects {memberRoutineOnlyParams.Count} type arguments, got {typeArgs.Count}.",
+                location: generic.Location);
+            return null;
+        }
+
+        List<TypeSymbol> fullTypeArgs;
+        if (memberRoutine.GenericParameters != null &&
+            memberRoutine.GenericParameters.Count != typeArgs.Count)
+        {
+            fullTypeArgs = new List<TypeSymbol>(capacity: memberRoutine.GenericParameters.Count);
+            int memberRoutineArgIdx = 0;
+            var ownerBindings = BuildOwnerBindingMap(ownerType: objectType);
+            foreach (string paramName in memberRoutine.GenericParameters)
             {
-                int paramIndex = memberRoutine.GenericParameters
-                                       .ToList()
-                                       .IndexOf(item: returnType.Name);
-                if (paramIndex >= 0 && paramIndex < typeArgs.Count &&
-                    typeArgs[index: paramIndex] is TypeInfo resolved)
+                if (ownerGenericParamNames.Contains(item: paramName) &&
+                    ownerBindings.TryGetValue(key: paramName, value: out TypeInfo? ownerArg))
+                    fullTypeArgs.Add(item: ownerArg);
+                else if (memberRoutineArgIdx < typeArgs.Count)
+                    fullTypeArgs.Add(item: typeArgs[index: memberRoutineArgIdx++]);
+            }
+        }
+        else
+        {
+            fullTypeArgs = typeArgs.ToList();
+        }
+
+        return _registry.GetOrCreateRoutineResolution(genericDef: memberRoutine, typeArguments: fullTypeArgs);
+    }
+
+    /// <summary>
+    /// Substitutes member-routine-level generic parameters in <paramref name="returnType"/> using
+    /// the caller's <paramref name="typeArgs"/>. Handles both a bare generic parameter return and a
+    /// generic resolution (e.g. <c>Hijacked[U]</c>) whose arguments contain parameters to substitute.
+    /// Returns the substituted type, or <paramref name="returnType"/> unchanged when nothing matches.
+    /// </summary>
+    private TypeSymbol SubstituteGenericParamsInReturnType(
+        TypeSymbol returnType,
+        RoutineInfo memberRoutine,
+        List<TypeSymbol> typeArgs)
+    {
+        if (memberRoutine.GenericParameters == null) return returnType;
+
+        if (returnType is GenericParameterTypeInfo)
+        {
+            int paramIndex = memberRoutine.GenericParameters.ToList().IndexOf(item: returnType.Name);
+            if (paramIndex >= 0 && paramIndex < typeArgs.Count &&
+                typeArgs[index: paramIndex] is TypeInfo resolved)
+                return resolved;
+        }
+
+        if (returnType is { IsGenericResolution: true, TypeArguments: not null })
+        {
+            var substitutedArgs = new List<TypeInfo>();
+            bool anySubstituted = false;
+            foreach (TypeInfo typeArg in returnType.TypeArguments)
+            {
+                int idx = memberRoutine.GenericParameters.ToList().IndexOf(item: typeArg.Name);
+                if (idx >= 0 && idx < typeArgs.Count && typeArgs[index: idx] is TypeInfo sub)
                 {
-                    return resolved;
+                    substitutedArgs.Add(item: sub);
+                    anySubstituted = true;
+                }
+                else
+                {
+                    substitutedArgs.Add(item: typeArg);
                 }
             }
 
-            // Resolution containing memberRoutine's params (e.g., Hijacked[U])
-            if (returnType is { IsGenericResolution: true, TypeArguments: not null })
+            if (anySubstituted)
             {
-                var substitutedArgs = new List<TypeInfo>();
-                bool anySubstituted = false;
-                foreach (TypeInfo typeArg in returnType.TypeArguments)
-                {
-                    int idx = memberRoutine.GenericParameters
-                                    .ToList()
-                                    .IndexOf(item: typeArg.Name);
-                    if (idx >= 0 && idx < typeArgs.Count &&
-                        typeArgs[index: idx] is TypeInfo sub)
-                    {
-                        substitutedArgs.Add(item: sub);
-                        anySubstituted = true;
-                    }
-                    else
-                    {
-                        substitutedArgs.Add(item: typeArg);
-                    }
-                }
-
-                if (anySubstituted)
-                {
-                    TypeInfo? genericDef = GetGenericDefinition(resolution: returnType);
-                    if (genericDef != null)
-                    {
-                        return _registry.GetOrCreateResolution(genericDef: genericDef,
-                            typeArguments: substitutedArgs);
-                    }
-                }
+                TypeInfo? genericDef = GetGenericDefinition(resolution: returnType);
+                if (genericDef != null)
+                    return _registry.GetOrCreateResolution(genericDef: genericDef, typeArguments: substitutedArgs);
             }
         }
 
@@ -273,37 +310,18 @@ public sealed partial class SemanticVerifier
         // that needs the value's type, e.g. the Maybe-carrier construction inside
         // generated try_/check_ variant bodies.
         Dictionary<string, TypeSymbol>? typeSubs = null;
-        IReadOnlyList<ParameterInfo> declParams = routine.Parameters;
-        // Set when the routine is fully monomorphized below. Its ReturnType is then
-        // already the substituted form, so the typeSubs re-substitution further down MUST be
-        // skipped — re-applying `{T → arg}` to the already-substituted return DOUBLE-WRAPS when a
-        // type arg is itself generic in a param of the SAME NAME (`blank[Box[T]]()`: blank's `T`
-        // collides with the caller's `T`, so the inner `T` of the resolved `Box[T]` gets
-        // re-substituted → `Box[Box[T]]`, RF-S301).
+        List<ParameterInfo> declParams = routine.Parameters;
+        // Tracks whether the routine is fully monomorphized below. When true, its ReturnType is
+        // already the substituted form, so the typeSubs re-substitution further down must be
+        // skipped — re-applying the map to an already-substituted return double-wraps nested
+        // type args (RF-S301).
         bool routineMonomorphized = false;
         if (routine.IsGenericDefinition)
         {
-            if (routine.GenericParameters == null ||
-                routine.GenericParameters.Count != typeArgs.Count)
-            {
-                ReportError(code: SemanticDiagnosticCode.WrongTypeArgumentCount,
-                    message:
-                    $"Routine '{routine.Name}' expects {routine.GenericParameters?.Count ?? 0} type arguments, got {typeArgs.Count}.",
-                    location: generic.Location);
+            if (!TryMonomorphizeFreeRoutine(generic: generic, routine: ref routine,
+                    typeArgs: typeArgs, typeSubs: out typeSubs))
                 return ErrorTypeInfo.Instance;
-            }
-
-            typeSubs = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal);
-            for (int i = 0; i < routine.GenericParameters.Count; i++)
-            {
-                if (typeArgs[index: i] is TypeInfo concreteArg)
-                {
-                    typeSubs[key: routine.GenericParameters[index: i]] = concreteArg;
-                }
-            }
-
-            routine = _registry.GetOrCreateRoutineResolution(genericDef: routine,
-                typeArguments: typeArgs.ToList());
+            declParams = routine.Parameters;
             routineMonomorphized = true;
         }
 
@@ -314,16 +332,16 @@ public sealed partial class SemanticVerifier
         for (int argIdx = 0; argIdx < generic.Arguments.Count; argIdx++)
         {
             Expression arg = generic.Arguments[index: argIdx];
-            ParameterInfo? param = arg is NamedArgumentExpression namedArg
-                ? declParams.FirstOrDefault(predicate: p => p.Name == namedArg.Name)
-                : argIdx < declParams.Count
-                    ? declParams[index: argIdx]
-                    : null;
-            TypeSymbol? expected = param?.Type is { } paramType
-                ? typeSubs != null
+            ParameterInfo? param;
+            if (arg is NamedArgumentExpression namedArg)
+                param = declParams.FirstOrDefault(predicate: p => p.Name == namedArg.Name);
+            else
+                param = argIdx < declParams.Count ? declParams[index: argIdx] : null;
+            TypeSymbol? expected = null;
+            if (param?.Type is { } paramType)
+                expected = typeSubs != null
                     ? SubstituteTypeParams(type: paramType, substitution: typeSubs)
-                    : paramType
-                : null;
+                    : paramType;
             AnalyzeExpression(expression: arg, expectedType: expected);
         }
 
@@ -347,55 +365,10 @@ public sealed partial class SemanticVerifier
             return SubstituteTypeParams(type: returnType, substitution: typeSubs);
         }
 
-        // Legacy fallbacks for routines looked up as pre-built resolutions.
-        // Substitute generic type parameters in return type
-        if (returnType is GenericParameterTypeInfo && routine.GenericParameters != null)
-        {
-            int paramIndex = routine.GenericParameters
-                                    .ToList()
-                                    .IndexOf(item: returnType.Name);
-            if (paramIndex >= 0 && paramIndex < typeArgs.Count &&
-                typeArgs[index: paramIndex] is TypeInfo resolved)
-            {
-                return resolved;
-            }
-        }
-
-        // Return type is a generic resolution (e.g., Hijacked[T] -> Hijacked[U8])
-        if (returnType.IsGenericResolution && returnType.TypeArguments != null &&
-            routine.GenericParameters != null)
-        {
-            var substitutedArgs = new List<TypeInfo>();
-            bool anySubstituted = false;
-            foreach (TypeInfo typeArg in returnType.TypeArguments)
-            {
-                int idx = routine.GenericParameters
-                                 .ToList()
-                                 .IndexOf(item: typeArg.Name);
-                if (idx >= 0 && idx < typeArgs.Count &&
-                    typeArgs[index: idx] is TypeInfo sub)
-                {
-                    substitutedArgs.Add(item: sub);
-                    anySubstituted = true;
-                }
-                else
-                {
-                    substitutedArgs.Add(item: typeArg);
-                }
-            }
-
-            if (anySubstituted)
-            {
-                TypeInfo? genericDef = GetGenericDefinition(resolution: returnType);
-                if (genericDef != null)
-                {
-                    return _registry.GetOrCreateResolution(genericDef: genericDef,
-                        typeArguments: substitutedArgs);
-                }
-            }
-        }
-
-        return returnType;
+        // Legacy fallback for routines looked up as pre-built resolutions: substitute generic
+        // parameters through the return type using the same helper as the member-routine path.
+        return SubstituteGenericParamsInReturnType(returnType: returnType,
+            memberRoutine: routine, typeArgs: typeArgs);
     }
 
     /// <summary>
@@ -426,65 +399,84 @@ public sealed partial class SemanticVerifier
         generic.LoweringKind = ClassifyConstruction(type: resolvedType,
             isCollectionLiteral: generic.IsCollectionLiteral);
 
-        // For field-init style (named args matching field names), pre-compute a
-        // field-name → field-type map so `none` and other literals see the field's
-        // declared type as their contextual expected type.
-        List<MemberVariableInfo>? resolvedMemberVariables = resolvedType switch
+        // For field-init style (named args matching field names), pre-compute a field-name →
+        // field-type map so literals see the field's declared type as their contextual expected type.
+        Dictionary<string, TypeSymbol>? fieldTypeByName = BuildFieldTypeMap(resolvedType: resolvedType);
+        List<TypeSymbol> argTypes = AnalyzeGenericConstructorArgs(generic: generic, fieldTypeByName: fieldTypeByName);
+        return ResolveGenericConstructorResult(generic: generic, resolvedType: resolvedType, argTypes: argTypes);
+    }
+
+    /// <summary>
+    /// Builds a field-name to field-type map for <paramref name="resolvedType"/> so that named
+    /// constructor arguments see the correct contextual expected type. Generic type parameters in
+    /// field types are substituted using the type's own type arguments. Returns null when the type
+    /// has no member variables (e.g. a wrapper type or scalar).
+    /// </summary>
+    private Dictionary<string, TypeSymbol>? BuildFieldTypeMap(TypeInfo resolvedType)
+    {
+        List<MemberVariableInfo>? memberVars = resolvedType switch
         {
             RecordTypeInfo r => r.MemberVariables,
             EntityTypeInfo e => e.MemberVariables,
             _ => null
         };
-        Dictionary<string, TypeSymbol>? fieldTypeByName = null;
-        if (resolvedMemberVariables != null)
+        if (memberVars == null) return null;
+        var map = new Dictionary<string, TypeSymbol>();
+        foreach (MemberVariableInfo mv in memberVars)
         {
-            fieldTypeByName = new Dictionary<string, TypeSymbol>();
-            foreach (MemberVariableInfo mv in resolvedMemberVariables)
-            {
-                TypeSymbol ft = mv.Type;
-                if (resolvedType is { IsGenericResolution: true, TypeArguments: not null })
-                {
-                    ft = SubstituteTypeParameters(type: ft, genericType: resolvedType);
-                }
-                fieldTypeByName[key: mv.Name] = ft;
-            }
+            TypeSymbol ft = resolvedType is { IsGenericResolution: true, TypeArguments: not null }
+                ? SubstituteTypeParameters(type: mv.Type, genericType: resolvedType)
+                : mv.Type;
+            map[key: mv.Name] = ft;
         }
+        return map;
+    }
 
-        var argTypes = new List<TypeSymbol>();
+    /// <summary>
+    /// Analyzes each argument of a generic constructor call, using
+    /// <paramref name="fieldTypeByName"/> to supply the expected type for named arguments.
+    /// Returns the list of resolved argument types.
+    /// </summary>
+    private List<TypeSymbol> AnalyzeGenericConstructorArgs(
+        GenericMemberRoutineCallExpression generic,
+        Dictionary<string, TypeSymbol>? fieldTypeByName)
+    {
+        var argTypes = new List<TypeSymbol>(capacity: generic.Arguments.Count);
         foreach (Expression arg in generic.Arguments)
         {
             TypeSymbol? expectedArgType = null;
             if (fieldTypeByName != null && arg is NamedArgumentExpression named
-                && fieldTypeByName.TryGetValue(key: named.Name, value: out TypeSymbol? ft2))
+                && fieldTypeByName.TryGetValue(key: named.Name, value: out TypeSymbol? ft))
             {
-                expectedArgType = ft2;
+                expectedArgType = ft;
             }
             argTypes.Add(item: AnalyzeExpression(expression: arg, expectedType: expectedArgType));
         }
+        return argTypes;
+    }
 
+    /// <summary>
+    /// Validates that all constructor arguments are named when the type has 2+ fields,
+    /// and returns the constructed type (or the creator's return type when a matching overload exists).
+    /// </summary>
+    private TypeSymbol ResolveGenericConstructorResult(
+        GenericMemberRoutineCallExpression generic,
+        TypeInfo resolvedType,
+        List<TypeSymbol> argTypes)
+    {
+        RoutineInfo? creator = _registry.LookupCreatorOverload(type: resolvedType, argTypes: argTypes);
+        if (creator != null && creator.Parameters.Count == argTypes.Count &&
+            !creator.Parameters.Any(predicate: p => p.IsVariadicParam))
         {
-            RoutineInfo? creator = _registry.LookupCreatorOverload(type: resolvedType,
-                argTypes: argTypes);
-
-            if (creator != null && creator.Parameters.Count == argTypes.Count &&
-                !creator.Parameters.Any(predicate: p => p.IsVariadicParam))
-            {
-                generic.ResolvedRoutine = creator;
-                ValidateExclusiveTokenUniqueness(arguments: generic.Arguments,
-                    location: generic.Location);
-                // Prefer the concrete resolvedType (e.g. Hijacked[Byte]) over the creator's
-                // return type when that return type is still generic (e.g. Hijacked[T]).
-                // creator.ReturnType for Hijacked[T].create is "Hijacked[T]" — a resolution
-                // whose TypeArguments contain GenericParameterTypeInfo placeholders.  Returning
-                // that causes downstream callers (.extract(), etc.) to see an unresolved type and
-                // mangle memberRoutine names as "Core.Hijacked[T].extract" instead of the correct
-                // "Core.Hijacked[Core.Byte].extract".
-                bool returnTypeIsGenericOrUnresolved =
-                    creator.ReturnType is null or { IsGenericDefinition: true } ||
-                    creator.ReturnType.TypeArguments?.Any(
-                        predicate: t => t is GenericParameterTypeInfo) == true;
-                return returnTypeIsGenericOrUnresolved ? resolvedType : creator.ReturnType!;
-            }
+            generic.ResolvedRoutine = creator;
+            ValidateExclusiveTokenUniqueness(arguments: generic.Arguments, location: generic.Location);
+            // Prefer the concrete resolvedType over the creator's return type when that type is still
+            // generic (contains GenericParameterTypeInfo placeholders), to avoid unresolved type leaking
+            // to downstream callers.
+            bool returnTypeIsGenericOrUnresolved =
+                creator.ReturnType is null or { IsGenericDefinition: true } ||
+                creator.ReturnType.TypeArguments?.Any(predicate: t => t is GenericParameterTypeInfo) == true;
+            return returnTypeIsGenericOrUnresolved ? resolvedType : creator.ReturnType!;
         }
 
         int memberCount = resolvedType switch
@@ -495,20 +487,14 @@ public sealed partial class SemanticVerifier
         };
         if (memberCount >= 2)
         {
-            foreach (Expression arg in generic.Arguments)
+            foreach (Expression arg in generic.Arguments.Where(predicate: a => a is not NamedArgumentExpression))
             {
-                if (arg is not NamedArgumentExpression)
-                {
-                    ReportError(code: SemanticDiagnosticCode.NamedArgumentRequired,
-                        message:
-                        $"Type '{resolvedType.Name}' has {memberCount} fields - all constructor arguments must be named.",
-                        location: arg.Location);
-                }
+                ReportError(code: SemanticDiagnosticCode.NamedArgumentRequired,
+                    message: $"Type '{resolvedType.Name}' has {memberCount} fields - all constructor arguments must be named.",
+                    location: arg.Location);
             }
         }
-
-        ValidateExclusiveTokenUniqueness(arguments: generic.Arguments,
-            location: generic.Location);
+        ValidateExclusiveTokenUniqueness(arguments: generic.Arguments, location: generic.Location);
         return resolvedType;
     }
 
@@ -646,15 +632,12 @@ public sealed partial class SemanticVerifier
     private void ValidateFlagNamesExist(FlagsTypeInfo flagsType, IEnumerable<string> flagNames,
         SourceLocation location)
     {
-        foreach (string flagName in flagNames)
+        foreach (string flagName in flagNames.Where(predicate: n => flagsType.Members.All(predicate: m => m.Name != n)))
         {
-            if (flagsType.Members.All(predicate: m => m.Name != flagName))
-            {
-                ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
-                    message:
-                    $"Flags type '{flagsType.Name}' does not have a member named '{flagName}'.",
-                    location: location);
-            }
+            ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
+                message:
+                $"Flags type '{flagsType.Name}' does not have a member named '{flagName}'.",
+                location: location);
         }
     }
 

@@ -301,85 +301,107 @@ public sealed partial class SemanticVerifier
     private void DeclareEachDestructuringBindings(EachStatement eachStmt, TypeSymbol elementType)
     {
         if (elementType is TupleTypeInfo tupleType)
-        {
-            // Check arity match
-            int bindingCount = eachStmt.VariablePattern!.Bindings.Count;
-            if (bindingCount != tupleType.Arity)
-            {
-                ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
-                    message:
-                    $"Destructuring pattern has {bindingCount} bindings but tuple has {tupleType.Arity} elements.",
-                    location: eachStmt.VariablePattern.Location);
-            }
-
-            // Declare each binding with its corresponding tuple element type
-            for (int i = 0; i < eachStmt.VariablePattern.Bindings.Count; i++)
-            {
-                DestructuringBinding binding = eachStmt.VariablePattern.Bindings[index: i];
-                if (binding.BindingName != null)
-                {
-                    TypeSymbol bindingType = i < tupleType.Arity
-                        ? tupleType.ElementTypes[index: i]
-                        : ErrorTypeInfo.Instance;
-                    _registry.DeclareVariable(name: binding.BindingName, type: bindingType);
-                }
-            }
-        }
+            DeclareTupleDestructuringBindings(eachStmt: eachStmt, tupleType: tupleType);
         else
+            DeclareErrorDestructuringBindings(eachStmt: eachStmt, elementType: elementType);
+    }
+
+    /// <summary>
+    /// Declares each-loop bindings for a tuple element type, matching positionally and reporting an
+    /// arity mismatch when the binding count differs from the tuple's element count.
+    /// </summary>
+    private void DeclareTupleDestructuringBindings(EachStatement eachStmt, TupleTypeInfo tupleType)
+    {
+        int bindingCount = eachStmt.VariablePattern!.Bindings.Count;
+        if (bindingCount != tupleType.Arity)
         {
-            // Non-tuple type with destructuring pattern
             ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
                 message:
-                $"Cannot destructure non-tuple type '{elementType.Name}' in for loop.",
-                location: eachStmt.VariablePattern!.Location);
-            // Still declare variables with error type so analysis can continue
-            foreach (DestructuringBinding binding in eachStmt.VariablePattern.Bindings)
-            {
-                if (binding.BindingName != null)
-                {
-                    _registry.DeclareVariable(name: binding.BindingName,
-                        type: ErrorTypeInfo.Instance);
-                }
-            }
+                $"Destructuring pattern has {bindingCount} bindings but tuple has {tupleType.Arity} elements.",
+                location: eachStmt.VariablePattern.Location);
         }
+
+        for (int i = 0; i < eachStmt.VariablePattern.Bindings.Count; i++)
+        {
+            DestructuringBinding binding = eachStmt.VariablePattern.Bindings[index: i];
+            if (binding.BindingName == null)
+                continue;
+            TypeSymbol bindingType = i < tupleType.Arity
+                ? tupleType.ElementTypes[index: i]
+                : ErrorTypeInfo.Instance;
+            _registry.DeclareVariable(name: binding.BindingName, type: bindingType);
+        }
+    }
+
+    /// <summary>
+    /// Reports a non-tuple destructuring mismatch and declares all bindings as the error type so
+    /// downstream analysis can continue.
+    /// </summary>
+    private void DeclareErrorDestructuringBindings(EachStatement eachStmt, TypeSymbol elementType)
+    {
+        ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
+            message: $"Cannot destructure non-tuple type '{elementType.Name}' in for loop.",
+            location: eachStmt.VariablePattern!.Location);
+        foreach (string? name in eachStmt.VariablePattern.Bindings.Select(b => b.BindingName)
+                     .Where(n => n != null))
+            _registry.DeclareVariable(name: name!, type: ErrorTypeInfo.Instance);
     }
 
     private void AnalyzeWhenStatement(WhenStatement whenStmt)
     {
         TypeSymbol matchedType = AnalyzeExpression(expression: whenStmt.Expression);
 
-        // Comptime arm-expansion (`when me` / `expand m in branchof(T)` / `is ${m.type} x => …`): the
-        // concrete arms are unknown until monomorphization. Validate the template leniently — the
-        // handle `m` and the payload binding type-check via deferral (ErrorTypeInfo) — plus any
-        // EXPLICIT clauses written alongside it (e.g. `is None => …`). Skip the exhaustiveness/order
-        // checks below, which don't apply until the arms are unrolled.
+        // Comptime arm-expansion: concrete arms are unknown until monomorphization.
+        // Validate leniently and skip exhaustiveness/order checks.
         if (whenStmt.ArmExpansion is { } armExp)
         {
             AnalyzeWhenArmExpansion(whenStmt: whenStmt, armExp: armExp);
             return;
         }
 
-        // #161: Mark Lookup variable as dismantled when targeted by 'when'
+        // #161: Mark Lookup variable as dismantled when targeted by 'when'.
         if (whenStmt.Expression is IdentifierExpression whenTarget)
-        {
             _pendingLookupVars.RemoveAll(match: v => v.Name == whenTarget.Name);
-        }
 
-        // #88: Pattern order enforcement — else/wildcard must be last, detect unreachable patterns
         CheckWhenPatternOrder(whenStmt: whenStmt);
-
-        // #130/#148: Duplicate pattern detection
         CheckWhenDuplicatePatterns(whenStmt: whenStmt);
+        CheckWhenSuflaeEntityRef(whenStmt: whenStmt, matchedType: matchedType);
 
-        // Track handled patterns for narrowing the else clause
+        string? whenVarName = (whenStmt.Expression as IdentifierExpression)?.Name;
+        VariantTypeInfo? whenVariant =
+            whenVarName != null && matchedType is VariantTypeInfo wv && !IsCarrierType(type: matchedType)
+                ? wv
+                : null;
+        var handledArms = new List<string>();
         bool handledNone = false;
         bool handledNoneValue = false;
         bool handledCrashable = false;
 
-        // Suflae: `when` is for variants / carriers / values — not entity references. An entity
-        // reference has only two flow states (none / present), for which `if x is None` /
-        // `if x isnot None` is the idiom (and the only shape with a null-check codegen lowering).
-        // Reject `when <entity-ref>` up front so it can't silently miscompile.
+        foreach (WhenClause clause in whenStmt.Clauses)
+        {
+            _registry.EnterScope(kind: ScopeKind.Block, name: "when_clause");
+            bool handled = AnalyzeWhenClause(clause: clause, matchedType: matchedType,
+                whenVarName: whenVarName, whenVariant: whenVariant, handledArms: handledArms,
+                handledNone: ref handledNone, handledNoneValue: ref handledNoneValue,
+                handledCrashable: ref handledCrashable);
+            if (handled)
+                continue;
+            _registry.ExitScope();
+        }
+
+        if (matchedType is ChoiceTypeInfo or VariantTypeInfo || IsCarrierType(type: matchedType) ||
+            IsBoolType(type: matchedType))
+        {
+            CheckWhenExhaustiveness(whenStmt: whenStmt, matchedType: matchedType);
+        }
+    }
+
+    /// <summary>
+    /// In Suflae, rejects a <c>when</c> whose subject is an entity reference — entity refs have
+    /// only two flow states (none / present) and should use <c>if x is None</c> instead.
+    /// </summary>
+    private void CheckWhenSuflaeEntityRef(WhenStatement whenStmt, TypeSymbol matchedType)
+    {
         if (_registry.Language == Language.Suflae && IsEntityRefType(type: matchedType))
         {
             ReportError(code: SemanticDiagnosticCode.NullableEntityDeref,
@@ -388,119 +410,95 @@ public sealed partial class SemanticVerifier
                 "'if x is None' / 'if x isnot None' instead.",
                 location: whenStmt.Expression.Location);
         }
+    }
 
-        // Variant subject narrowing: when the subject is a plain-variant VARIABLE, remember which
-        // arms the `is Arm` clauses cover so the else clause can exclude them and — if exactly one
-        // arm remains — narrow the subject to it (usable without rebinding). Excluding through the
-        // scope registry also composes with a nested `if x is …` in the else body.
-        string? whenVarName = (whenStmt.Expression as IdentifierExpression)?.Name;
-        VariantTypeInfo? whenVariant =
-            whenVarName != null && matchedType is VariantTypeInfo wv && !IsCarrierType(type: matchedType)
-                ? wv
-                : null;
-        var handledArms = new List<string>();
+    /// <summary>
+    /// Analyzes a single <c>when</c> clause: applies variant narrowing for else clauses, tracks
+    /// handled carrier patterns, dispatches carrier else-binding, then analyzes the pattern and
+    /// body. Returns <c>true</c> when the clause already called <c>ExitScope</c> (caller must
+    /// <c>continue</c>), or <c>false</c> when the caller should call <c>ExitScope</c>.
+    /// </summary>
+    private bool AnalyzeWhenClause(WhenClause clause, TypeSymbol matchedType,
+        string? whenVarName, VariantTypeInfo? whenVariant, List<string> handledArms,
+        ref bool handledNone, ref bool handledNoneValue, ref bool handledCrashable)
+    {
+        ApplyElseVariantNarrowing(clause: clause, whenVarName: whenVarName,
+            whenVariant: whenVariant, handledArms: handledArms);
+        UpdateCarrierHandledFlags(clause: clause, matchedType: matchedType,
+            handledNone: ref handledNone, handledNoneValue: ref handledNoneValue,
+            handledCrashable: ref handledCrashable);
 
-        foreach (WhenClause clause in whenStmt.Clauses)
+        if (clause.Pattern is ElsePattern elsePat && IsCarrierType(type: matchedType))
         {
-            _registry.EnterScope(kind: ScopeKind.Block, name: "when_clause");
-
-            // Variant subject narrowing for the else clause: exclude every arm the preceding clauses
-            // matched (else is always last, so the list is complete), then narrow the subject if a
-            // single arm is left. Excluding through the scope registry composes with a nested
-            // `if x is …` inside the else body. Runs before the body is analyzed.
-            if (whenVariant != null && whenVarName != null && clause.Pattern is ElsePattern)
+            TypeSymbol? narrowedType = ComputeNarrowedType(type: matchedType,
+                eliminateNone: handledNone, eliminateCrashable: handledCrashable);
+            if (narrowedType != null && elsePat.VariableName != null)
             {
-                foreach (string armName in handledArms)
-                    _registry.ExcludeVariantArm(name: whenVarName, armFullName: armName);
-                IReadOnlyCollection<string> excluded =
-                    _registry.GetExcludedVariantArms(name: whenVarName);
-                if (whenVariant.Members.Where(predicate: m => !excluded.Contains(m.Name))
-                        .ToList() is [{ Type: not null } sole])
-                {
-                    _registry.NarrowVariable(name: whenVarName, narrowedType: sole.Type);
-                }
+                DeclarePatternVariable(name: elsePat.VariableName, type: narrowedType,
+                    location: elsePat.Location);
+                AnalyzeStatement(statement: clause.Body);
+                _registry.ExitScope();
+                return true;
             }
-
-            // Track which patterns are handled (before the else clause).
-            // Maybe[T] and Lookup[T] absent state is matched by `is None`.
-            // Result[T] has no absent state; only Crashable | T.
-            string? carrierBase = GetCarrierBaseName(type: matchedType);
-            bool carrierUsesNoneForAbsent = carrierBase is "Maybe" or "Lookup";
-            if (carrierUsesNoneForAbsent && IsNonePattern(pattern: clause.Pattern))
-            {
-                handledNone = true;
-            }
-            else if (carrierBase == "Result" && IsNoneTypePattern(pattern: clause.Pattern))
-            {
-                handledNoneValue = true;
-            }
-            else if (IsCrashablePattern(pattern: clause.Pattern))
-            {
-                handledCrashable = true;
-            }
-
-            switch (clause.Pattern)
-            {
-                case ElsePattern elsePat when IsCarrierType(type: matchedType):
-                {
-                    // Compute narrowed type for else clause binding
-                    TypeSymbol? narrowedType = ComputeNarrowedType(type: matchedType,
-                        eliminateNone: handledNone,
-                        eliminateNoneValue: handledNoneValue,
-                        eliminateCrashable: handledCrashable);
-
-                    if (narrowedType != null && elsePat.VariableName != null)
-                    {
-                        // Declare with narrowed type instead of original matchedType
-                        DeclarePatternVariable(name: elsePat.VariableName,
-                            type: narrowedType,
-                            location: elsePat.Location);
-                        AnalyzeStatement(statement: clause.Body);
-                        _registry.ExitScope();
-                        continue;
-                    }
-
-                    break;
-                }
-            }
-
-            // Analyze pattern and bind variables
-            AnalyzePattern(pattern: clause.Pattern, matchedType: matchedType);
-
-            if (whenVariant != null && whenVarName != null)
-            {
-                // Record which variant arm this clause FULLY matched (unguarded, `is None` included)
-                // so the trailing else clause can exclude it.
-                if (ResolveVariantArm(pattern: clause.Pattern, variant: whenVariant) is
-                    { } matchedArm)
-                {
-                    handledArms.Add(item: matchedArm.Name);
-                }
-
-                // Narrow the subject to the matched arm inside THIS arm's body, so it's usable
-                // without rebinding (`is Point => me me.x`). Safe even for a guarded arm — the body
-                // only runs once the arm matched — so unwrap the guard to reach the arm.
-                Pattern armPattern =
-                    clause.Pattern is GuardPattern gp ? gp.InnerPattern : clause.Pattern;
-                if (ResolveVariantArm(pattern: armPattern, variant: whenVariant) is
-                    { Type: not null } bodyArm)
-                {
-                    _registry.NarrowVariable(name: whenVarName, narrowedType: bodyArm.Type);
-                }
-            }
-
-            // Analyze clause body
-            AnalyzeStatement(statement: clause.Body);
-
-            _registry.ExitScope();
         }
 
-        // Check exhaustiveness for enumerable types (choice, variant, error-handling, Bool)
-        if (matchedType is ChoiceTypeInfo or VariantTypeInfo || IsCarrierType(type: matchedType) ||
-            IsBoolType(type: matchedType))
+        AnalyzePattern(pattern: clause.Pattern, matchedType: matchedType);
+        ApplyVariantArmNarrowing(clause: clause, whenVarName: whenVarName,
+            whenVariant: whenVariant, handledArms: handledArms);
+        AnalyzeStatement(statement: clause.Body);
+        return false;
+    }
+
+    /// <summary>
+    /// For a variant subject's else clause, excludes all previously matched arms from the registry
+    /// and narrows to the sole remaining arm when exactly one is left.
+    /// </summary>
+    private void ApplyElseVariantNarrowing(WhenClause clause, string? whenVarName,
+        VariantTypeInfo? whenVariant, List<string> handledArms)
+    {
+        if (whenVariant == null || whenVarName == null || clause.Pattern is not ElsePattern)
+            return;
+        foreach (string armName in handledArms)
+            _registry.ExcludeVariantArm(name: whenVarName, armFullName: armName);
+        IReadOnlyCollection<string> excluded = _registry.GetExcludedVariantArms(name: whenVarName);
+        if (whenVariant.Members.Where(predicate: m => !excluded.Contains(m.Name))
+                .ToList() is [{ Type: not null } sole])
         {
-            CheckWhenExhaustiveness(whenStmt: whenStmt, matchedType: matchedType);
+            _registry.NarrowVariable(name: whenVarName, narrowedType: sole.Type);
         }
+    }
+
+    /// <summary>
+    /// Updates the <c>handledNone</c>, <c>handledNoneValue</c>, and <c>handledCrashable</c> flags
+    /// based on the current clause's pattern and the carrier base name of the matched type.
+    /// </summary>
+    private void UpdateCarrierHandledFlags(WhenClause clause, TypeSymbol matchedType,
+        ref bool handledNone, ref bool handledNoneValue, ref bool handledCrashable)
+    {
+        string? carrierBase = GetCarrierBaseName(type: matchedType);
+        bool carrierUsesNoneForAbsent = carrierBase is "Maybe" or "Lookup";
+        if (carrierUsesNoneForAbsent && IsNonePattern(pattern: clause.Pattern))
+            handledNone = true;
+        else if (carrierBase == "Result" && IsNoneTypePattern(pattern: clause.Pattern))
+            handledNoneValue = true;
+        else if (IsCrashablePattern(pattern: clause.Pattern))
+            handledCrashable = true;
+    }
+
+    /// <summary>
+    /// Records which variant arm the clause matched (for the trailing else exclusion) and narrows
+    /// the subject variable to the matched arm's type inside this arm's body.
+    /// </summary>
+    private void ApplyVariantArmNarrowing(WhenClause clause, string? whenVarName,
+        VariantTypeInfo? whenVariant, List<string> handledArms)
+    {
+        if (whenVariant == null || whenVarName == null)
+            return;
+        if (ResolveVariantArm(pattern: clause.Pattern, variant: whenVariant) is { } matchedArm)
+            handledArms.Add(item: matchedArm.Name);
+        Pattern armPattern = clause.Pattern is GuardPattern gp ? gp.InnerPattern : clause.Pattern;
+        if (ResolveVariantArm(pattern: armPattern, variant: whenVariant) is { Type: not null } bodyArm)
+            _registry.NarrowVariable(name: whenVarName, narrowedType: bodyArm.Type);
     }
 
     /// <summary>
@@ -543,19 +541,17 @@ public sealed partial class SemanticVerifier
     private void CheckWhenPatternOrder(WhenStatement whenStmt)
     {
         bool seenElse = false;
-        foreach (WhenClause clause in whenStmt.Clauses)
+        foreach (Pattern pattern in whenStmt.Clauses.Select(c => c.Pattern))
         {
             if (seenElse)
             {
                 ReportError(code: SemanticDiagnosticCode.PatternOrderViolation,
                     message: "Unreachable pattern after 'else' or wildcard.",
-                    location: clause.Pattern.Location);
+                    location: pattern.Location);
             }
 
-            if (clause.Pattern is ElsePattern or WildcardPattern)
-            {
+            if (pattern is ElsePattern or WildcardPattern)
                 seenElse = true;
-            }
         }
     }
 
@@ -565,14 +561,14 @@ public sealed partial class SemanticVerifier
     private void CheckWhenDuplicatePatterns(WhenStatement whenStmt)
     {
         var seenPatterns = new HashSet<string>();
-        foreach (WhenClause clause in whenStmt.Clauses)
+        foreach (Pattern pattern in whenStmt.Clauses.Select(c => c.Pattern))
         {
-            string? patternKey = GetPatternKey(pattern: clause.Pattern);
+            string? patternKey = GetPatternKey(pattern: pattern);
             if (patternKey != null && !seenPatterns.Add(item: patternKey))
             {
                 ReportError(code: SemanticDiagnosticCode.DuplicatePattern,
                     message: $"Duplicate pattern: {patternKey}.",
-                    location: clause.Pattern.Location);
+                    location: pattern.Location);
             }
         }
     }
@@ -930,11 +926,13 @@ public sealed partial class SemanticVerifier
                 continue;
             string newKind = isWriter ? "amend()" : "consult()";
             string heldKind = hold.IsWriter ? "amend()" : "consult()";
-            string overlapNote = hold.Handle == accessHandle
-                ? "the same shared handle"
-                : hold.Identity == accessIdentity
-                    ? $"the aliased handle '{hold.Handle}' (same shared data)"
-                    : $"the overlapping handle '{hold.Handle}'";
+            string overlapNote;
+            if (hold.Handle == accessHandle)
+                overlapNote = "the same shared handle";
+            else if (hold.Identity == accessIdentity)
+                overlapNote = $"the aliased handle '{hold.Handle}' (same shared data)";
+            else
+                overlapNote = $"the overlapping handle '{hold.Handle}'";
             ReportError(code: SemanticDiagnosticCode.ReadersXorWriter,
                 message:
                 $"'{newKind}' on '{accessHandle}' conflicts with an active '{heldKind}' on " +

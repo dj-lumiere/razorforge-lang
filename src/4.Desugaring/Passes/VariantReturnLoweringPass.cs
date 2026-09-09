@@ -56,7 +56,7 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
 
     /// <summary>Builds `return Carrier(type_id: …, payload: …)` for a Result/Lookup carrier.
     /// A null payload is omitted so the record's memberwise builder zero-fills it (the absent state).</summary>
-    private Statement MakeCarrierReturn(RecordTypeInfo carrier, ulong typeId, Expression? payload,
+    private ReturnStatement MakeCarrierReturn(RecordTypeInfo carrier, ulong typeId, Expression? payload,
         SourceLocation loc)
     {
         var members = new List<(string Name, Expression Value)> { ("type_id", U64Literal(typeId, loc)) };
@@ -114,7 +114,7 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
         });
     }
 
-    private Statement LowerTryBoolVariant(VariantReturnStatement vr)
+    private static ReturnStatement LowerTryBoolVariant(VariantReturnStatement vr)
     {
         bool present = vr.SiteKind == VariantSiteKind.FromReturn;
         return new ReturnStatement(
@@ -127,7 +127,7 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
 
     // Try → Maybe[T] (a plain `{present: Bool, value: T}` record) built with a real
     // CreatorExpression: present carries the value; throw / absent / return-a-crashable = absent.
-    private Statement LowerTryVariant(VariantReturnStatement vr, RecordTypeInfo maybe)
+    private ReturnStatement LowerTryVariant(VariantReturnStatement vr, RecordTypeInfo maybe)
     {
         if (vr.SiteKind == VariantSiteKind.FromVariantPassthrough && vr.Value != null)
             return new ReturnStatement(Value: vr.Value, Location: vr.Location);
@@ -183,17 +183,17 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
     /// <c>VariantReturnStatement</c> carries no rewritable children of interest here — its
     /// <c>Value</c> is placed verbatim into the constructed carrier — so this override does not recurse.
     /// </summary>
-    protected override Statement VisitVariantReturn(VariantReturnStatement vr)
+    protected override Statement VisitVariantReturn(VariantReturnStatement s)
     {
-        switch (vr)
+        switch (s)
         {
             case { VariantKind: ErrorHandlingVariantKind.TryBool }:
-                return LowerTryBoolVariant(vr: vr);
+                return LowerTryBoolVariant(vr: s);
 
             // Try → Maybe[T] (a plain `{present: Bool, value: T}` record) built with a real
             // CreatorExpression: present carries the value; throw / absent / return-a-crashable = absent.
             case { VariantKind: ErrorHandlingVariantKind.Try } when _carrierReturn is RecordTypeInfo maybe:
-                return LowerTryVariant(vr: vr, maybe: maybe);
+                return LowerTryVariant(vr: s, maybe: maybe);
 
             // Check → Result[T] / Lookup → Lookup[T] (record { type_id: U64, payload: CPtr }): build the
             // record directly. type_id = FNV of the payload type (matches the reader); the payload is the
@@ -201,10 +201,10 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
             // Scalar payloads still need a reinterpret-to-CPtr, so those fall through to codegen for now.
             case { VariantKind: ErrorHandlingVariantKind.Check or ErrorHandlingVariantKind.Lookup }
                 when _carrierReturn is RecordTypeInfo carrier:
-                return LowerCheckLookupVariant(statement: vr, vr: vr, carrier: carrier);
+                return LowerCheckLookupVariant(statement: s, vr: s, carrier: carrier);
 
             default:
-                return vr;
+                return s;
         }
     }
 }

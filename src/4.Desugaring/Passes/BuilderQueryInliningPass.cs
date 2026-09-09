@@ -15,7 +15,7 @@ namespace Compiler.Desugaring.Passes;
 /// <list type="number">
 ///   <item>Per-program pass (<see cref="Run"/>) -> handles non-generic user and stdlib bodies.</item>
 ///   <item>VariantBodies sweep (<see cref="RunOnVariantBodies"/>) -> after <c>WiredRoutinePass</c>.</item>
-///   <item>Instantiated generic bodies sweep (<see cref="RunOnInstantiatedGenericBodies"/>) -> after
+///   <item>Instantiated generic bodies sweep (<see cref="RunOnInstantiatedGenericBodies()"/>) -> after
 ///         <c>GenericMonomorphizationPass</c>.</item>
 /// </list>
 ///
@@ -214,26 +214,26 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     /// neither fold applies the base rewrites the callee/arguments; the mutable resolution metadata that
     /// <c>with</c> drops is then re-copied onto the rebuilt node.
     /// </summary>
-    protected override Expression VisitCall(CallExpression call)
+    protected override Expression VisitCall(CallExpression e)
     {
         // Source location constant-call folding (standalone calls, not memberRoutine calls).
-        if (TryFoldSourceLocationCall(call) is { } slFolded) return slFolded;
+        if (TryFoldSourceLocationCall(e) is { } slFolded) return slFolded;
 
         // BuilderQuery constant-call folding.
-        if (TryFoldBuilderQueryCall(call) is { } bqFolded) return bqFolded;
+        if (TryFoldBuilderQueryCall(e) is { } bqFolded) return bqFolded;
 
-        Expression rewrittenExpr = base.VisitCall(call);
+        Expression rewrittenExpr = base.VisitCall(e);
         // Unchanged: no metadata to preserve.
-        if (ReferenceEquals(rewrittenExpr, call)) return rewrittenExpr;
+        if (ReferenceEquals(rewrittenExpr, e)) return rewrittenExpr;
 
         // ResolvedRoutine/ResolvedType/etc. are mutable {get;set;} properties — `with` drops them.
         var rewritten = (CallExpression)rewrittenExpr;
-        rewritten.ResolvedRoutine = call.ResolvedRoutine;
-        rewritten.LoweringKind = call.LoweringKind;
-        rewritten.ConstructedType = call.ConstructedType;
-        rewritten.IsCollectionLiteral = call.IsCollectionLiteral;
-        rewritten.TypeArguments = call.TypeArguments;
-        rewritten.ResolvedType = call.ResolvedType;
+        rewritten.ResolvedRoutine = e.ResolvedRoutine;
+        rewritten.LoweringKind = e.LoweringKind;
+        rewritten.ConstructedType = e.ConstructedType;
+        rewritten.IsCollectionLiteral = e.IsCollectionLiteral;
+        rewritten.TypeArguments = e.TypeArguments;
+        rewritten.ResolvedType = e.ResolvedType;
         return rewritten;
     }
 
@@ -269,7 +269,7 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     //  Fold matchers
 
     // Folds a standalone source-location constant call (source_file/source_line/...), or null.
-    private Expression? TryFoldSourceLocationCall(Expression expr)
+    private LiteralExpression? TryFoldSourceLocationCall(Expression expr)
     {
         if (expr is CallExpression
             {
@@ -431,7 +431,7 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     }
 
     // Folds `member_variable_count` to an S64 literal of the type's declared member count.
-    private Expression FoldMemberVariableCount(TypeInfo type, SourceLocation loc)
+    private LiteralExpression FoldMemberVariableCount(TypeInfo type, SourceLocation loc)
     {
         long count = type switch
         {
@@ -447,7 +447,7 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     }
 
     // Folds `is_generic` to a Bool literal.
-    private Expression FoldIsGeneric(TypeInfo type, SourceLocation loc)
+    private LiteralExpression FoldIsGeneric(TypeInfo type, SourceLocation loc)
     {
         bool isGen = type.IsGenericDefinition;
         return new LiteralExpression(
@@ -457,7 +457,7 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     }
 
     // Folds `is_in_flight` to a Bool literal (true only for an in-flight entity receiver).
-    private Expression FoldIsInFlight(TypeInfo type, bool receiverIsInFlight, SourceLocation loc)
+    private LiteralExpression FoldIsInFlight(TypeInfo type, bool receiverIsInFlight, SourceLocation loc)
     {
         bool inFlight = receiverIsInFlight && type is EntityTypeInfo;
         return new LiteralExpression(
@@ -467,7 +467,7 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     }
 
     // Folds `type_kind` to the matching TypeKind choice case, or null if unresolvable.
-    private Expression? FoldTypeKind(TypeInfo type, SourceLocation loc)
+    private LiteralExpression? FoldTypeKind(TypeInfo type, SourceLocation loc)
     {
         // TypeKind lives in `module BuilderQuery` — qualify (bare lookup relied on the short-name scan).
         TypeInfo? tkType = _registry.LookupType(name: "BuilderQuery.TypeKind");

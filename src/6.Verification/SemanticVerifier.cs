@@ -37,9 +37,6 @@ public sealed partial class SemanticVerifier
     /// <summary>The type registry for storing and looking up types.</summary>
     internal readonly TypeRegistry _registry;
 
-    /// <summary>Call graph for modification inference.</summary>
-    private readonly CallGraph _callGraph = new();
-
     /// <summary>Errors collected during analysis (insertion order preserved; deduplicated).</summary>
     private readonly List<SemanticError> _errors = [];
 
@@ -149,11 +146,6 @@ public sealed partial class SemanticVerifier
     /// <summary>Nesting depth for conditional expressions (for #145 deep nesting warning).</summary>
     private int _conditionalNestingDepth;
 
-    /// <summary>Tracks the last variant variable declared, for immediate dismantling check (#58).</summary>
-#pragma warning disable CS0414
-    private (string Name, SourceLocation Location)? _lastDeclaredVariantVar;
-#pragma warning restore CS0414
-
     /// <summary>
     /// When statements determined to be exhaustive (either via catch-all or full type coverage).
     /// Consulted by control-flow termination analysis so that an exhaustive `when` whose every
@@ -236,7 +228,7 @@ public sealed partial class SemanticVerifier
     /// Captured from <see cref="DesugaringContext.InstantiatedGenericBodies"/> in
     /// <see cref="RunPhase6GlobalDesugaring"/> and forwarded to <see cref="AnalysisResult"/>.
     /// </summary>
-    private IReadOnlyDictionary<string, MonomorphizedBody> _instantiatedGenericBodies =
+    private Dictionary<string, MonomorphizedBody> _instantiatedGenericBodies =
         new Dictionary<string, MonomorphizedBody>();
 
     /// <summary>
@@ -450,16 +442,7 @@ public sealed partial class SemanticVerifier
             // its per-file Phase-9 loop; the single-program path (unit tests, `check`/`codegen` verbs) needs
             // the same call or InstantiatedGenericBodies stays empty of user generics (eager GMP is retired
             // for non-base builds, so the collector is the SOLE monomorphizer).
-            if (_shadowCtx != null)
-            {
-                var synthSources = _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
-                    elementSelector: kvp => kvp.Value.Body, comparer: StringComparer.Ordinal);
-                foreach ((string key, Statement variantBody) in _variantBodies)
-                    synthSources[key] = variantBody;
-                new RoutineCollectionPass(ctx: _shadowCtx).RunCollect(synthesizedBodies: synthSources);
-                _liveRoutineKeys = _shadowCtx.LiveRoutineKeys.ToArray();
-                _liveOwnerTypeNames = _shadowCtx.LiveOwnerTypeNames.ToArray();
-            }
+            RunShadowCollectorIfNeeded();
             RunPhase9PostDesugarChecks();
             Mark(label: "Phase 9 Post-desugar checks");
             FinalizeReturnTypes();
@@ -632,7 +615,7 @@ public sealed partial class SemanticVerifier
             synthesizedBodies: synthesizedBodyStatements,
             target: _target,
             buildMode: _buildMode,
-            monomorphizedBodies: _instantiatedGenericBodies as Dictionary<string, MonomorphizedBody>)
+            monomorphizedBodies: _instantiatedGenericBodies)
             { SynthesizeAllDerives = SeedAllStdlibRoutines };
         // WARM-GATE (②): variant bodies restored from a warm snapshot were fully lowered at capture
         // time, so re-running the ~15 RunGlobal lowering passes over them is an idempotent no-op — the
@@ -660,6 +643,32 @@ public sealed partial class SemanticVerifier
             foreach (var kv in stashedRestoredVariants)
                 _variantBodies[key: kv.Key] = kv.Value;
         SubMark(label: $"{nameof(PostprocessingPipeline)}.RunGlobal");
+    }
+
+    /// <summary>
+    /// Lowers Suflae <c>entity E</c> local bindings to <c>Roamed[E]</c> biased-RC wrappers
+    /// over all user programs. No-op for RazorForge programs.
+    /// </summary>
+    private void LowerSuflaeEntityBindings()
+    {
+        var suflaeEntityPass = new SuflaeEntityLoweringPass(registry: _registry);
+        foreach ((Program program, _, _) in _registry.UserPrograms)
+            suflaeEntityPass.Run(program: program);
+    }
+
+    /// <summary>
+    /// Expands <c>is Crashable err</c> pattern clauses in user and stdlib programs so that the
+    /// per-crashable <c>err.crash_message()</c> calls participate in liveness analysis before
+    /// reachability runs.
+    /// </summary>
+    private void ExpandCrashableClauses(PostprocessingContext markerCtx,
+        IReadOnlyList<(Program Program, string FilePath, string Module)> freshStdlib)
+    {
+        var crashablePass = new CrashableExpansionPass(markerCtx);
+        foreach ((Program program, _, _) in _registry.UserPrograms)
+            crashablePass.Run(program);
+        foreach ((Program program, _, _) in freshStdlib)
+            crashablePass.Run(program);
     }
 
     /// <summary>
@@ -723,14 +732,15 @@ public sealed partial class SemanticVerifier
         var ctx = new InstantiationContext(registry: _registry,
             userPrograms: _registry.UserPrograms,
             routineBodies: _routineBodies,
-            variantBodies: mergedVariantBodies,
-            instantiatedGenericBodies: _instantiatedGenericBodies is Dictionary<string, MonomorphizedBody> dict
-                ? dict
-                : _instantiatedGenericBodies.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
-            target: _target,
-            buildMode: _buildMode,
-            bodyScanCache: _bodyScanCache,
-            stdlibTemplateBodies: _warmStdlibRoutineBodies) { SaTiming = SaTiming, SeedAllStdlibRoutines = SeedAllStdlibRoutines };
+            options: new InstantiationOptions
+            {
+                VariantBodies = mergedVariantBodies,
+                InstantiatedGenericBodies = _instantiatedGenericBodies,
+                Target = _target,
+                BuildMode = _buildMode,
+                BodyScanCache = _bodyScanCache,
+                StdlibTemplateBodies = _warmStdlibRoutineBodies,
+            }) { SaTiming = SaTiming, SeedAllStdlibRoutines = SeedAllStdlibRoutines };
 
         // Rewrite Accessing[T]/Controlling[T] params to inner T before reachability so
         // the resulting RegistryKeys / mangled names captured downstream match codegen.
@@ -750,12 +760,7 @@ public sealed partial class SemanticVerifier
         // chain) for entity locals instead of a bare-entity `destroy` (which double-frees an alias
         // and never reaches the RC/cc machinery). Also before reachability, so the roam/promote/lock/
         // cc hooks seed off the live `Roamed` wrapper type. No-op for RazorForge.
-        {
-            var suflaeEntityPass =
-                new SuflaeEntityLoweringPass(registry: _registry);
-            foreach ((Program program, _, _) in _registry.UserPrograms)
-                suflaeEntityPass.Run(program: program);
-        }
+        LowerSuflaeEntityBindings();
 
         // Insert scope-exit `destroy()` calls BEFORE reachability (so the calls drive liveness —
         // no manual seeding needed) and BEFORE the marker pass (so Accessing[T]/Controlling[T]
@@ -791,8 +796,10 @@ public sealed partial class SemanticVerifier
         // can't be poisoned. The pass is kept because its expression cleanup + late-resolution/instantiated-
         // body re-keying is still load-bearing for non-marker lowering (e.g. Sender[T] GMCE construction);
         // fully removing it requires separately solving that GMCE-lowering gap (warm-restore-gmce-bug).
-        // ERASE PASS DELETED (marker protocols now desugar to generic bounds; see SignatureResolver).
-        // Kept minimal RewriteAllSignatures re-keying disabled to expose the true GMCE-lowering gap.
+        // The marker-protocol erase pass is no longer needed: marker protocols now desugar to generic
+        // bounds in SignatureResolver, so no bare Accessing[X] param reaches this pass for erasure.
+        // Re-keying via RewriteAllSignatures is also disabled; the GMCE-lowering gap it addressed
+        // (Sender[T] construction) is tracked separately.
 
         // Restore the stashed restored variant bodies BEFORE reachability/GMP — the fixpoint below must walk
         // the FULL (restored + fresh) set for liveness (its GMP re-monomorphization short-circuits on the
@@ -809,13 +816,7 @@ public sealed partial class SemanticVerifier
         // per-crashable `err.crash_message()` calls participate in liveness analysis.
         // Without this, the fanout happens in Phase 8 and the crash_message memberRoutine on
         // each concrete crashable is never marked reachable -> linker errors.
-        {
-            var crashablePass = new CrashableExpansionPass(markerCtx);
-            foreach ((Program program, _, _) in _registry.UserPrograms)
-                crashablePass.Run(program);
-            foreach ((Program program, _, _) in freshStdlib)
-                crashablePass.Run(program);
-        }
+        ExpandCrashableClauses(markerCtx: markerCtx, freshStdlib: freshStdlib);
 
         // Fold constant list-returning BuilderQuery reflection calls (routine_names/protocols/annotations/…)
         // into inline analyzed List[Text] literals BEFORE reachability, so RRP walks the literal (seeding its
@@ -892,8 +893,7 @@ public sealed partial class SemanticVerifier
                 Step(label: nameof(ReachableGenericCollectionPass));
                 new RoutineReachabilityPass(ctx: ctx).Run();
                 Step(label: nameof(RoutineReachabilityPass));
-                // BIG-BANG (pull): eager mono retired for normal builds (collector is sole monomorphizer);
-                // base mode still needs the eager full closure. See the non-timed branch below.
+                // Eager monomorphization is retired for normal builds; only the base build still needs it.
                 if (ctx.SeedAllStdlibRoutines)
                 {
                     new GenericClosurePass(ctx: ctx).Run();
@@ -904,12 +904,10 @@ public sealed partial class SemanticVerifier
             {
                 new ReachableGenericCollectionPass(ctx: ctx).Run();
                 new RoutineReachabilityPass(ctx: ctx).Run();
-                // BIG-BANG (pull): eager monomorphization (GenericClosurePass) over reachability's
-                // over-approximated live set is retired for normal builds — the demand collector
-                // (RoutineCollectionPass at Phase 9) is the SOLE monomorphizer, building EXACTLY the
-                // referenced closure (no wasted List[Character]/Hijacked[U64] for an Address-only program).
-                // Base mode (SeedAllStdlibRoutines) still runs the eager full closure — it must DEFINE every
-                // stdlib instance, not just what one entry program reaches.
+                // Eager monomorphization over the reachability live set is retired for normal builds —
+                // the demand collector (Phase 9) is the sole monomorphizer, building exactly the referenced
+                // closure. Base mode (SeedAllStdlibRoutines) still runs the full closure because it must
+                // define every stdlib instance, not just what one entry program reaches.
                 if (ctx.SeedAllStdlibRoutines)
                     new GenericClosurePass(ctx: ctx).Run();
             }
@@ -966,7 +964,7 @@ public sealed partial class SemanticVerifier
             variantBodies: _variantBodies,
             target: _target,
             buildMode: _buildMode,
-            monomorphizedBodies: _instantiatedGenericBodies as Dictionary<string, MonomorphizedBody>);
+            monomorphizedBodies: _instantiatedGenericBodies);
         // Now that Phase 7 has produced the concrete instances, lower any carrier-return sites inside
         // them (a monomorphized try_/check_/lookup_ variant) to real record construction.
         new VariantReturnLoweringPass(ctx).RunOnMonomorphizedBodies();
@@ -1183,7 +1181,7 @@ public sealed partial class SemanticVerifier
             _importedForeignAliases.Add(item: alias);
         }
 
-        } // try
+        }
         finally
         {
             _registry.EndStdlibAnalysis();
@@ -1235,7 +1233,7 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Stage-2 (pull/(B)) DEMAND analysis: the map from a routine <see cref="RegistryKey"/> to the stdlib
+    /// Stage-2 (pull/(B)) DEMAND analysis: the map from a routine <c>RegistryKey</c> to the stdlib
     /// program (file) that declares it, plus the set of files already analyzed. Built lazily on first use.
     /// Program-granularity is the first cut — reaching any routine in a file analyzes the whole file (the
     /// proven per-file scope setup is what makes resolution correct); per-routine granularity is a later
@@ -1324,7 +1322,7 @@ public sealed partial class SemanticVerifier
                 synthesizedBodies: _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
                     elementSelector: kvp => kvp.Value.Body),
                 target: _target, buildMode: _buildMode,
-                monomorphizedBodies: _instantiatedGenericBodies as Dictionary<string, MonomorphizedBody>);
+                monomorphizedBodies: _instantiatedGenericBodies);
             new Compiler.Desugaring.PostprocessingPipeline(ctx: pctx).Run(program: entry.Program);
         }
         finally
@@ -1621,53 +1619,11 @@ public sealed partial class SemanticVerifier
 
         if (!SaOnly)
         {
-            // Phase 6 global: error handling variants + future global passes (runs once)
-            CollectStdlibBodiesForVariantGeneration();
-            Mark(label: $"Phase 6 global -> {nameof(CollectStdlibBodiesForVariantGeneration)}");
-            RunPhase6GlobalDesugaring();
-            Mark(label: $"Phase 6 global -> {nameof(RunPhase6GlobalDesugaring)}");
-            RunPhase7Instantiation();
-            Mark(label: "Phase 7 -> Instantiation (monomorphization)");
-
-            // Phase 8 per-file: type-aware lowering on verified, type-annotated AST
-            foreach ((Program program, string filePath) in files)
-            {
-                RestoreImportState(filePath: filePath,
-                    importSnapshots: importSnapshots,
-                    symbolNameSnapshots: symbolNameSnapshots,
-                    moduleNameSnapshots: moduleNameSnapshots);
-
-                RunPhase8Postprocessing(program: program);
-            }
-            Mark(label: "Phase 8 per-file -> type-aware postprocessing");
-
-            // Stage ② of the pull architecture, in SHADOW: all programs are now fully lowered
-            // (subscript/operator → getitem/member CallExpressions), so the demand collector can walk from
-            // the entry points and follow start()'s real call chain. Flag-gated (collect-shadow) — a no-op in
-            // normal builds; builds into an isolated copy, never mutating this run.
-            if (_shadowCtx != null)
-            {
-                // The demand collector materializes per-owner concrete synthesized bodies (represent/
-                // diagnose/hash/eq/try_emit/derived-operators) that codegen used to rewrite at emission
-                // time (Phase C). Hand it the synthesized-body sources (derived operators + wired/variant
-                // bodies) so those concrete bodies pre-exist in InstantiatedGenericBodies — a step toward
-                // the dumb-codegen goal (codegen stops synthesizing per-owner bodies).
-                var synthSources = _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
-                    elementSelector: kvp => kvp.Value.Body, comparer: StringComparer.Ordinal);
-                foreach ((string key, Statement variantBody) in _variantBodies)
-                    synthSources[key] = variantBody;
-                new RoutineCollectionPass(ctx: _shadowCtx).RunCollect(synthesizedBodies: synthSources);
-                // The collector added its demand-built keys to the (aliased) live set; the snapshots codegen
-                // consumes were taken pre-collect, so re-snapshot them so codegen's liveness gate admits the
-                // freshly-built bodies.
-                _liveRoutineKeys = _shadowCtx.LiveRoutineKeys.ToArray();
-                _liveOwnerTypeNames = _shadowCtx.LiveOwnerTypeNames.ToArray();
-            }
-
-            RunPhase9PostDesugarChecks();
-            Mark(label: "Phase 9 -> PostDesugarChecks");
-            FinalizeReturnTypes();
-            Mark(label: $"Phase 9 -> {nameof(FinalizeReturnTypes)}");
+            RunMultipleFullPipeline(files: files,
+                importSnapshots: importSnapshots,
+                symbolNameSnapshots: symbolNameSnapshots,
+                moduleNameSnapshots: moduleNameSnapshots,
+                mark: Mark);
         }
 
         // Merge synthesized operator bodies and pre-transformed variant bodies
@@ -1687,6 +1643,67 @@ public sealed partial class SemanticVerifier
             LiveRoutineKeys: _liveRoutineKeys,
             LiveOwnerTypeNames: _liveOwnerTypeNames,
             MaySuspendRoutineKeys: _maySuspendRoutineKeys);
+    }
+
+    /// <summary>
+    /// Runs phases 6–9 of the multi-file pipeline (global desugaring, instantiation, per-file
+    /// postprocessing, shadow demand-collection, and post-desugar checks). Called from
+    /// <see cref="AnalyzeMultiple"/> only when <see cref="SaOnly"/> is false.
+    /// </summary>
+    private void RunMultipleFullPipeline(List<(Program Program, string FilePath)> files,
+        Dictionary<string, HashSet<string>> importSnapshots,
+        Dictionary<string, HashSet<string>> symbolNameSnapshots,
+        Dictionary<string, string?> moduleNameSnapshots,
+        Action<string> mark)
+    {
+        // Phase 6 global: error handling variants + global desugaring (runs once)
+        CollectStdlibBodiesForVariantGeneration();
+        mark($"Phase 6 global -> {nameof(CollectStdlibBodiesForVariantGeneration)}");
+        RunPhase6GlobalDesugaring();
+        mark($"Phase 6 global -> {nameof(RunPhase6GlobalDesugaring)}");
+        RunPhase7Instantiation();
+        mark("Phase 7 -> Instantiation (monomorphization)");
+
+        // Phase 8 per-file: type-aware lowering on verified, type-annotated AST
+        foreach ((Program program, string filePath) in files)
+        {
+            RestoreImportState(filePath: filePath,
+                importSnapshots: importSnapshots,
+                symbolNameSnapshots: symbolNameSnapshots,
+                moduleNameSnapshots: moduleNameSnapshots);
+
+            RunPhase8Postprocessing(program: program);
+        }
+        mark("Phase 8 per-file -> type-aware postprocessing");
+
+        // Stage ② of the pull architecture, in SHADOW: all programs are now fully lowered
+        // (subscript/operator → real call expressions), so the demand collector can walk from
+        // the entry points. Flag-gated — a no-op in normal builds; builds into an isolated copy.
+        RunShadowCollectorIfNeeded();
+
+        RunPhase9PostDesugarChecks();
+        mark($"Phase 9 -> PostDesugarChecks");
+        FinalizeReturnTypes();
+        mark($"Phase 9 -> {nameof(FinalizeReturnTypes)}");
+    }
+
+    /// <summary>
+    /// Runs the pull-architecture shadow demand-collector when the instantiation context
+    /// (<see cref="_shadowCtx"/>) is available. Materializes per-owner synthesized bodies in
+    /// <c>InstantiatedGenericBodies</c> from the full synthesized-body source set, then
+    /// re-snapshots the live-routine keys so codegen's liveness gate admits the freshly-built bodies.
+    /// No-op in normal builds.
+    /// </summary>
+    private void RunShadowCollectorIfNeeded()
+    {
+        if (_shadowCtx == null) return;
+        var synthSources = _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
+            elementSelector: kvp => kvp.Value.Body, comparer: StringComparer.Ordinal);
+        foreach ((string key, Statement variantBody) in _variantBodies)
+            synthSources[key] = variantBody;
+        new RoutineCollectionPass(ctx: _shadowCtx).RunCollect(synthesizedBodies: synthSources);
+        _liveRoutineKeys = _shadowCtx.LiveRoutineKeys.ToArray();
+        _liveOwnerTypeNames = _shadowCtx.LiveOwnerTypeNames.ToArray();
     }
 
     /// <summary>

@@ -1,3 +1,5 @@
+namespace SyntaxTree;
+
 /// <summary>
 /// Enumeration of unary operators that operate on a single operand.
 /// Supports arithmetic, logical, bitwise, and ownership operations.

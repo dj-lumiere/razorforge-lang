@@ -23,7 +23,7 @@ internal static class RoamedTransparency
     public readonly record struct Projection(RoutineInfo MemberRoutine, bool ProjectToInner, TypeInfo InnerType);
 
     /// <summary>
-    /// Decide the transparency projection for calling <paramref name="member routine"/> (named
+    /// Decide the transparency projection for calling <paramref name="memberRoutine"/> (named
     /// <paramref name="memberName"/>) on a value of <paramref name="receiverType"/>. Returns
     /// <c>null</c> when the receiver is not <c>Roamed[T]</c>, or when the call targets a genuine
     /// Roamed-own memberRoutine (no transparency applies — call it as-is).

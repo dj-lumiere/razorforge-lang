@@ -171,10 +171,13 @@ public class CompilerPipelineInputEdgeCaseTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            buildMode: RfBuildMode.ReleaseSpace,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                BuildMode = RfBuildMode.ReleaseSpace,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         return generator.Generate();
     }

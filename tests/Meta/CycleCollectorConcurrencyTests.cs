@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace RazorForge.Tests.Meta;
 
@@ -18,7 +19,7 @@ namespace RazorForge.Tests.Meta;
 ///   asserts <c>reclaimed=200000</c>.</item>
 /// </list>
 /// </summary>
-public sealed class CycleCollectorConcurrencyTests
+public sealed partial class CycleCollectorConcurrencyTests
 {
     private static readonly string RepoRoot = LocateRepoRoot();
 
@@ -59,13 +60,15 @@ public sealed class CycleCollectorConcurrencyTests
 
     /// <summary>Fails on any compiler diagnostic or runtime fault on stderr (mirrors StdlibApiTests' gate),
     /// so a fault that somehow left a zero exit is still caught.</summary>
+    [GeneratedRegex(@"error\[RF-|Codegen bug|Synthesized body codegen failed|Unresolved generic|undefined symbol|never defined|Unhandled exception|Segmentation|AccessViolation")]
+    private static partial Regex StderrFaultPattern();
+
     private static void AssertCleanStderr(string stderr)
     {
         string[] offending = stderr
             .Split('\n')
             .Select(selector: l => l.TrimEnd('\r'))
-            .Where(predicate: l => System.Text.RegularExpressions.Regex.IsMatch(l,
-                @"error\[RF-|Codegen bug|Synthesized body codegen failed|Unresolved generic|undefined symbol|never defined|Unhandled exception|Segmentation|AccessViolation"))
+            .Where(predicate: l => StderrFaultPattern().IsMatch(l))
             .ToArray();
         Assert.True(offending.Length == 0,
             "Fixture stderr was not clean:\n" + string.Join("\n", offending.Take(40)));

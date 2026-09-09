@@ -61,59 +61,23 @@ public partial class Tokenizer
 
             // Potential prefixed literals or identifiers
             case 'r' or 'f':
-                if (!TryParseTextPrefix())
-                {
-                    ScanIdentifier();
-                }
-
+                if (!TryParseTextPrefix()) ScanIdentifier();
                 break;
             case 'b':
                 // Could be bytes prefix (b"..."), byte character (b'x'), or identifier
-                if (!TryParseTextPrefix() && !TryParseByteLiteralPrefix())
-                {
-                    ScanIdentifier();
-                }
-
+                if (!TryParseTextPrefix() && !TryParseByteLiteralPrefix()) ScanIdentifier();
                 break;
 
-            // Delimiters
-            case '(':
-                AddToken(type: TokenType.LeftParen);
-                _bracketDepth++;
+            // Opening bracket delimiters — increment depth
+            case '(' or '[' or '{':
+                ScanOpenBracket(c: c);
                 break;
-            case ')':
-                AddToken(type: TokenType.RightParen);
-                if (_bracketDepth > 0)
-                {
-                    _bracketDepth--;
-                }
 
+            // Closing bracket delimiters — decrement depth
+            case ')' or ']' or '}':
+                ScanCloseBracket(c: c);
                 break;
-            case '[':
-                AddToken(type: TokenType.LeftBracket);
-                _bracketDepth++;
-                break;
-            case ']':
-                AddToken(type: TokenType.RightBracket);
-                if (_bracketDepth > 0)
-                {
-                    _bracketDepth--;
-                }
 
-                break;
-            // Braces kept for set/dict literals and f-text inserting (not block delimiters)
-            case '{':
-                AddToken(type: TokenType.LeftBrace);
-                _bracketDepth++;
-                break;
-            case '}':
-                AddToken(type: TokenType.RightBrace);
-                if (_bracketDepth > 0)
-                {
-                    _bracketDepth--;
-                }
-
-                break;
             case ',':
                 AddToken(type: TokenType.Comma);
                 break;
@@ -130,16 +94,8 @@ public partial class Tokenizer
                 ScanDotOperator();
                 break;
             case ':':
-                if (Match(expected: ':'))
-                {
-                    // Realm-qualifier separator, e.g. `RF::Core.List` (reach the RazorForge/bare realm from
-                    // a Suflae file). The old static-access `::` was removed in favour of `.`; this is a new,
-                    // distinct role — only valid right after a realm tag (RF/SF), rejected elsewhere in parse.
-                    AddToken(type: TokenType.DoubleColon);
-                    break;
-                }
-
-                AddToken(type: TokenType.Colon);
+                // `::` is the realm-qualifier separator (e.g. `RF::Core.List`); bare `:` is a colon.
+                AddToken(type: Match(expected: ':') ? TokenType.DoubleColon : TokenType.Colon);
                 break;
 
             // Arithmetic operators with overflow variants
@@ -147,15 +103,7 @@ public partial class Tokenizer
                 ScanPlusOperator();
                 break;
             case '-':
-                if (Match(expected: '>'))
-                {
-                    AddToken(type: TokenType.Arrow);
-                }
-                else
-                {
-                    ScanMinusOperator();
-                }
-
+                ScanMinusOrArrow();
                 break;
             case '*':
                 ScanStarOperator();
@@ -181,21 +129,15 @@ public partial class Tokenizer
                 ScanGreaterThanOperator();
                 break;
 
-            // Single-character operators (with compound assignment variants)
+            // Bitwise operators with compound-assignment variants
             case '&':
-                AddToken(type: Match(expected: '=')
-                    ? TokenType.AmpersandAssign
-                    : TokenType.Ampersand);
+                ScanAmpersand();
                 break;
             case '|':
-                AddToken(type: Match(expected: '=')
-                    ? TokenType.PipeAssign
-                    : TokenType.Pipe);
+                ScanPipe();
                 break;
             case '^':
-                AddToken(type: Match(expected: '=')
-                    ? TokenType.CaretAssign
-                    : TokenType.Caret);
+                ScanCaret();
                 break;
             case '~':
                 AddToken(type: TokenType.Tilde);
@@ -219,6 +161,66 @@ public partial class Tokenizer
                 ScanDefaultCharacter(c: c);
                 break;
         }
+    }
+
+    /// <summary>Scans an opening bracket delimiter and increments the bracket depth.</summary>
+    private void ScanOpenBracket(char c)
+    {
+        TokenType type = c switch
+        {
+            '(' => TokenType.LeftParen,
+            '[' => TokenType.LeftBracket,
+            _ => TokenType.LeftBrace
+        };
+        AddToken(type: type);
+        _bracketDepth++;
+    }
+
+    /// <summary>Scans a closing bracket delimiter and decrements the bracket depth.</summary>
+    private void ScanCloseBracket(char c)
+    {
+        TokenType type = c switch
+        {
+            ')' => TokenType.RightParen,
+            ']' => TokenType.RightBracket,
+            _ => TokenType.RightBrace
+        };
+        AddToken(type: type);
+        if (_bracketDepth > 0)
+        {
+            _bracketDepth--;
+        }
+    }
+
+    /// <summary>Scans a '-' token: '->' arrow or a minus/minus-assign operator.</summary>
+    private void ScanMinusOrArrow()
+    {
+        if (Match(expected: '>'))
+        {
+            AddToken(type: TokenType.Arrow);
+        }
+        else
+        {
+            ScanMinusOperator();
+        }
+    }
+
+    /// <summary>Scans '&amp;' or '&amp;=' (bitwise AND or AND-assign).</summary>
+    private void ScanAmpersand()
+    {
+        AddToken(type: Match(expected: '=') ? TokenType.AmpersandAssign : TokenType.Ampersand);
+    }
+
+    /// <summary>Scans '|' or '|=' (bitwise OR or OR-assign).</summary>
+    private void ScanPipe()
+    {
+        AddToken(type: Match(expected: '=') ? TokenType.PipeAssign : TokenType.Pipe);
+    }
+
+    /// <summary>Scans '^' or '^=' (bitwise XOR or XOR-assign).</summary>
+    private void ScanCaret()
+    {
+        AddToken(type: Match(expected: '=') ? TokenType.CaretAssign : TokenType.Caret);
     }
 
     /// <summary>

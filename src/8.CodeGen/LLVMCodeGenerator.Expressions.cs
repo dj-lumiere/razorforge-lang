@@ -111,9 +111,8 @@ public partial class LlvmCodeGenerator
 
     /// <summary>
     /// Materializes a plain (non-lambda) routine reference as a captureless heap closure
-    /// <c>{ fn_ptr }</c> whose function slot holds a closure-ABI adapter thunk (see
-    /// <see cref="EnsureRoutineValueThunk"/>). This lets a bare routine name flow through the
-    /// same indirect-call path as a lambda value.
+    /// <c>{ fn_ptr }</c> whose function slot holds a closure-ABI adapter thunk. This lets a bare
+    /// routine name flow through the same indirect-call path as a lambda value.
     /// </summary>
     private string EmitRoutineValueClosure(StringBuilder sb, RoutineInfo routine)
     {
@@ -129,85 +128,6 @@ public partial class LlvmCodeGenerator
         string fat = NextTemp();
         EmitLine(sb: sb, line: $"  {fat} = insertvalue {{ ptr, ptr }} {t0}, ptr null, 1");
         return fat;
-    }
-
-    /// <summary>
-    /// Ensures a closure-ABI adapter thunk exists for a routine used as a value, and returns its
-    /// symbol. The thunk has the routine's signature with a hidden leading <c>ptr %__cl</c>
-    /// (ignored); it forwards the remaining arguments to the real routine. One thunk per routine
-    /// (deduped).
-    ///
-    /// <para>Free routines forward their declared parameters. An <b>unbound entity-memberRoutine</b>
-    /// reference additionally forwards the receiver as a leading <c>ptr %me</c> — the real memberRoutine
-    /// symbol takes <c>me</c> first, and the caller (e.g. the cycle collector invoking a per-type
-    /// <c>roam_trace_impl</c> hook) supplies the entity pointer as that first logical argument.
-    /// Only entity receivers (always <c>ptr</c>) are handled; record-value receivers would need
-    /// their by-value receiver ABI and are not used as values.</para>
-    /// </summary>
-    private string EnsureRoutineValueThunk(RoutineInfo routine)
-    {
-        // MangleRoutineName already quotes the symbol when it contains special chars (parens), so
-        // strip any surrounding quotes to recover the raw name, append the thunk suffix, re-quote.
-        string mangled = MangleRoutineName(routine: routine);
-        string realRef = $"@{mangled}";
-        string rawName = mangled.StartsWith(value: '"') ? mangled[1..^1] : mangled;
-        string thunkRaw = $"{rawName}.rfvthunk";
-        string thunkSym = $"@{Q(name: thunkRaw)}";
-        if (!_emittedRoutineValueThunks.Add(item: thunkRaw))
-            return thunkSym;
-
-        string returnType = routine.ReturnType != null
-            ? GetLlvmType(type: routine.ReturnType)
-            : "void";
-        returnType = routine.FailableVariant switch
-        {
-            FailableVariant.Lookup => GetLookupCarrierLlvmType(valueType: routine.ReturnType!),
-            FailableVariant.Check => GetResultCarrierLlvmType(valueType: routine.ReturnType!),
-            FailableVariant.TryBool => "i1",
-            _ => returnType
-        };
-
-        var paramDecls = new List<string> { "ptr %__cl" };
-        var fwdTypes = new List<string>();
-        var fwdValues = new List<string>();
-
-        // Unbound entity-member routine reference: the real member routine symbol takes `me` (a `ptr`) first, so the
-        // thunk forwards it as its first logical argument (after the ignored closure slot). The caller
-        // supplies the receiver at call time — e.g. the collector passes the entity address to a
-        // `roam_trace_impl` / `roam_free_impl` hook.
-        if (routine.OwnerType is { Category: TypeCategory.Entity })
-        {
-            paramDecls.Add(item: "ptr %me");
-            fwdTypes.Add(item: "ptr");
-            fwdValues.Add(item: "%me");
-        }
-
-        for (int i = 0; i < routine.Parameters.Count; i++)
-        {
-            string pType = GetParameterLlvmType(type: routine.Parameters[index: i].Type);
-            string pName = $"%a{i}";
-            paramDecls.Add(item: $"{pType} {pName}");
-            fwdTypes.Add(item: pType);
-            fwdValues.Add(item: pName);
-        }
-
-        var b = _auxRoutineDefinitions;
-        b.Append(value:
-            $"define {returnType} {thunkSym}({string.Join(separator: ", ", values: paramDecls)}) {{\n");
-        b.Append(value: "entry:\n");
-        string fwdArgs = string.Join(separator: ", ",
-            values: fwdTypes.Select(selector: (t, i) => $"{t} {fwdValues[index: i]}"));
-        if (returnType == "void")
-        {
-            b.Append(value: $"  call void {realRef}({fwdArgs})\n");
-            b.Append(value: "  ret void\n}\n");
-        }
-        else
-        {
-            b.Append(value: $"  %r = call {returnType} {realRef}({fwdArgs})\n");
-            b.Append(value: $"  ret {returnType} %r\n}}\n");
-        }
-        return thunkSym;
     }
 
     // ── v0.1 concurrency: threaded routines + Task[T].waitfor ──────────────────────
@@ -333,59 +253,71 @@ public partial class LlvmCodeGenerator
         int paramCount = routine.Parameters.Count;
         if (arguments.Count != paramCount)
             return arguments;
-
-        bool anyNamed = false;
-        for (int i = 0; i < arguments.Count; i++)
-        {
-            if (arguments[index: i] is NamedArgumentExpression)
-            {
-                anyNamed = true;
-                break;
-            }
-        }
-
-        if (!anyNamed)
+        if (!arguments.Any(a => a is NamedArgumentExpression))
             return arguments;
 
         var ordered = new Expression?[paramCount];
         var leftovers = new List<Expression>();
         foreach (Expression a in arguments)
-        {
-            int p = -1;
-            if (a is NamedArgumentExpression na)
-            {
-                for (int k = 0; k < paramCount; k++)
-                {
-                    if (routine.Parameters[index: k].Name == na.Name)
-                    {
-                        p = k;
-                        break;
-                    }
-                }
-            }
+            PlaceArgument(a: a, routine: routine, ordered: ordered, leftovers: leftovers);
 
-            if (p >= 0 && ordered[p] == null)
-                ordered[p] = a;
-            else
-                leftovers.Add(item: a);
+        return BuildOrderedResult(ordered: ordered, leftovers: leftovers, fallback: arguments,
+            paramCount: paramCount);
+    }
+
+    /// <summary>
+    /// Places a single call argument into its named slot in <paramref name="ordered"/>, or into
+    /// <paramref name="leftovers"/> when no matching parameter name is found or the slot is already
+    /// taken.
+    /// </summary>
+    private static void PlaceArgument(Expression a, RoutineInfo routine, Expression?[] ordered,
+        List<Expression> leftovers)
+    {
+        if (a is not NamedArgumentExpression na)
+        {
+            leftovers.Add(item: a);
+            return;
         }
 
-        // Fill any slots not claimed by name with the remaining (positional) args, in order.
+        int p = FindParamIndex(routine: routine, name: na.Name);
+        if (p >= 0 && ordered[p] == null)
+            ordered[p] = a;
+        else
+            leftovers.Add(item: a);
+    }
+
+    /// <summary>
+    /// Returns the zero-based index of the parameter named <paramref name="name"/> in
+    /// <paramref name="routine"/>, or <c>-1</c> if not found.
+    /// </summary>
+    private static int FindParamIndex(RoutineInfo routine, string name)
+    {
+        for (int k = 0; k < routine.Parameters.Count; k++)
+        {
+            if (routine.Parameters[index: k].Name == name)
+                return k;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Fills any unoccupied slots in <paramref name="ordered"/> from <paramref name="leftovers"/>
+    /// in order, then returns the assembled list if it is complete, or <paramref name="fallback"/>
+    /// if any slot remained unfilled.
+    /// </summary>
+    private static List<Expression> BuildOrderedResult(Expression?[] ordered,
+        List<Expression> leftovers, List<Expression> fallback, int paramCount)
+    {
         int next = 0;
         var result = new List<Expression>(capacity: paramCount);
         foreach (Expression? slot in ordered)
         {
             if (slot != null)
-            {
                 result.Add(item: slot);
-            }
             else if (next < leftovers.Count)
-            {
                 result.Add(item: leftovers[index: next++]);
-            }
         }
-
-        return result.Count == paramCount ? result : arguments;
+        return result.Count == paramCount ? result : fallback;
     }
 
     /// <summary>
@@ -556,12 +488,11 @@ public partial class LlvmCodeGenerator
         string coro = NextTemp();
         EmitLine(sb: sb, line: $"  {coro} = call ptr @rf_coro_create(ptr {thunk}, ptr {ud}, i64 0)");
 
-        // LAZY: create the coroutine but do NOT spawn it here. rf_coro_create only allocates the
-        // context; nothing runs until a verb launches it (`retrieve`/`gather`/`race` → launch();
-        // `execute` → detached spawn). `suspended`/`threaded` MARK a deferred, schedulable unit — so a
-        // call captures the recipe and the verb expresses "start it". Deferring the spawn also lets
-        // `execute` mark the coroutine detached BEFORE it can run (no complete-before-detach race).
-        // rf_sched_spawn_default is now called from Agent.rf (Agent[T].launch / execute).
+        // LAZY SPAWN: rf_coro_create only allocates the context; the coroutine does not run until a
+        // verb launches it. retrieve/gather/race call Agent.launch; execute performs a detached spawn.
+        // The suspended/threaded call expressions capture the recipe and the verb expresses "start it".
+        // Deferring the spawn lets execute mark the coroutine detached before it can run, avoiding a
+        // complete-before-detach race. rf_sched_spawn_default is called from Agent[T].launch/execute.
 
         // Build Agent[T] (kind CORO): { kind=0, coro: CPtr@1 (ptr), agent: Address@2 (i64) }. kind
         // stays 0 (CORO) from the zeroinitializer; coro and the result block fill fields 1 and 2.
@@ -730,7 +661,7 @@ public partial class LlvmCodeGenerator
         // A pre-resolved routine-VALUE reference (set by a lowering pass, e.g. an unbound member-
         // routine hook). The routine is already known, so skip name-based lookup — the bare name may
         // be a memberRoutine that lookup cannot resolve without the owner type. Falls through the same
-        // closure-materialization path (memberRoutines reach EnsureRoutineValueThunk, now memberRoutine-aware). The
+        // closure-materialization path (memberRoutines are handled via the member-aware closure path). The
         // node keeps the surrounding-context type (e.g. CPtr for a hook field), so we gate on the
         // resolved routine alone rather than its ResolvedType label.
         if (identifier.ResolvedRoutine is { } preResolved)
@@ -1044,51 +975,66 @@ public partial class LlvmCodeGenerator
 
         string result = NextTemp();
         if (sourceIsFloat && targetIsFloat)
-        {
-            string op = GetTypeBitWidth(llvmType: sourceLlvm) >
-                        GetTypeBitWidth(llvmType: targetLlvm)
-                ? "fptrunc"
-                : "fpext";
-            EmitLine(sb: sb, line: $"  {result} = {op} {sourceLlvm} {value} to {targetLlvm}");
-        }
+            EmitFloatToFloatCast(sb: sb, result: result, value: value, sourceLlvm: sourceLlvm,
+                targetLlvm: targetLlvm);
         else if (sourceIsFloat)
-        {
-            string op = targetUnsigned
-                ? "fptoui"
-                : "fptosi";
-            EmitLine(sb: sb, line: $"  {result} = {op} {sourceLlvm} {value} to {targetLlvm}");
-        }
+            EmitFloatToIntCast(sb: sb, result: result, value: value, sourceLlvm: sourceLlvm,
+                targetLlvm: targetLlvm, targetUnsigned: targetUnsigned);
         else if (targetIsFloat)
+            EmitIntToFloatCast(sb: sb, result: result, value: value, sourceLlvm: sourceLlvm,
+                targetLlvm: targetLlvm, sourceType: sourceType);
+        else
+            EmitIntWidthCast(sb: sb, result: result, value: value, sourceLlvm: sourceLlvm,
+                targetLlvm: targetLlvm, targetUnsigned: targetUnsigned);
+
+        return result;
+    }
+
+    /// <summary>Emits a float-to-float cast (fptrunc or fpext) based on relative bit widths.</summary>
+    private void EmitFloatToFloatCast(StringBuilder sb, string result, string value,
+        string sourceLlvm, string targetLlvm)
+    {
+        string op = GetTypeBitWidth(llvmType: sourceLlvm) > GetTypeBitWidth(llvmType: targetLlvm)
+            ? "fptrunc"
+            : "fpext";
+        EmitLine(sb: sb, line: $"  {result} = {op} {sourceLlvm} {value} to {targetLlvm}");
+    }
+
+    /// <summary>Emits a float-to-integer cast (fptoui or fptosi) based on target signedness.</summary>
+    private void EmitFloatToIntCast(StringBuilder sb, string result, string value,
+        string sourceLlvm, string targetLlvm, bool targetUnsigned)
+    {
+        string op = targetUnsigned ? "fptoui" : "fptosi";
+        EmitLine(sb: sb, line: $"  {result} = {op} {sourceLlvm} {value} to {targetLlvm}");
+    }
+
+    /// <summary>Emits an integer-to-float cast (uitofp or sitofp) based on source signedness.</summary>
+    private void EmitIntToFloatCast(StringBuilder sb, string result, string value,
+        string sourceLlvm, string targetLlvm, TypeInfo? sourceType)
+    {
+        bool sourceUnsigned = IsUnsignedIntegerType(type: sourceType);
+        string op = sourceUnsigned ? "uitofp" : "sitofp";
+        EmitLine(sb: sb, line: $"  {result} = {op} {sourceLlvm} {value} to {targetLlvm}");
+    }
+
+    /// <summary>
+    /// Emits an integer width-change cast: trunc (narrowing), zext/sext (widening), or bitcast
+    /// (same width). Widening sign depends on the RazorForge <paramref name="targetUnsigned"/> flag.
+    /// </summary>
+    private void EmitIntWidthCast(StringBuilder sb, string result, string value,
+        string sourceLlvm, string targetLlvm, bool targetUnsigned)
+    {
+        int srcBits = GetTypeBitWidth(llvmType: sourceLlvm);
+        int dstBits = GetTypeBitWidth(llvmType: targetLlvm);
+        if (srcBits > dstBits)
+            EmitLine(sb: sb, line: $"  {result} = trunc {sourceLlvm} {value} to {targetLlvm}");
+        else if (srcBits < dstBits)
         {
-            bool sourceUnsigned = IsUnsignedIntegerType(type: sourceType);
-            string op = sourceUnsigned
-                ? "uitofp"
-                : "sitofp";
+            string op = targetUnsigned ? "zext" : "sext";
             EmitLine(sb: sb, line: $"  {result} = {op} {sourceLlvm} {value} to {targetLlvm}");
         }
         else
-        {
-            int srcBits = GetTypeBitWidth(llvmType: sourceLlvm);
-            int dstBits = GetTypeBitWidth(llvmType: targetLlvm);
-            if (srcBits > dstBits)
-            {
-                EmitLine(sb: sb, line: $"  {result} = trunc {sourceLlvm} {value} to {targetLlvm}");
-            }
-            else if (srcBits < dstBits)
-            {
-                string op = targetUnsigned
-                    ? "zext"
-                    : "sext";
-                EmitLine(sb: sb, line: $"  {result} = {op} {sourceLlvm} {value} to {targetLlvm}");
-            }
-            else
-            {
-                EmitLine(sb: sb,
-                    line: $"  {result} = bitcast {sourceLlvm} {value} to {targetLlvm}");
-            }
-        }
-
-        return result;
+            EmitLine(sb: sb, line: $"  {result} = bitcast {sourceLlvm} {value} to {targetLlvm}");
     }
 
     /// <summary>
@@ -1208,7 +1154,7 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private string EmitBinaryAssign(StringBuilder sb, BinaryExpression binary)
     {
-        // TODO: This should be done with member routine, not here
+        // Index-assignment is handled inline here rather than via a member routine call.
         if (binary.Left is IndexExpression idxLhs)
         {
             EmitIndexAssignment(sb: sb, index: idxLhs, rhs: binary.Right);
@@ -1370,9 +1316,13 @@ public partial class LlvmCodeGenerator
         EmitLine(sb: sb,
             line: $"  {payloadPtr} = getelementptr {carrierLlvmType}, ptr {spillAddr}, i32 0, i32 1");
 
-        string loadType = concreteType is EntityTypeInfo or CrashableTypeInfo
-            ? "ptr"
-            : (concreteType != null ? GetLlvmType(type: concreteType) : "i64");
+        string loadType;
+        if (concreteType is EntityTypeInfo or CrashableTypeInfo)
+            loadType = "ptr";
+        else if (concreteType != null)
+            loadType = GetLlvmType(type: concreteType);
+        else
+            loadType = "i64";
 
         string loaded = NextTemp();
         EmitLine(sb: sb, line: $"  {loaded} = load {loadType}, ptr {payloadPtr}");

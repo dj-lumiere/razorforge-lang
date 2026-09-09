@@ -412,7 +412,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     /// <paramref name="rebuild"/> reconstructs the assignment statement (whichever AST form it
     /// has) around the spilled RHS.
     /// </summary>
-    private Statement LowerEntityReassign(Statement original, Expression rhs,
+    private BlockStatement LowerEntityReassign(Statement original, Expression rhs,
         Func<Expression, Statement> rebuild, Owned owned)
     {
         var stmts = new List<Statement>();
@@ -471,7 +471,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         return new BlockStatement(Statements: stmts, Location: original.Location);
     }
 
-    private bool WillDestroyAny(List<Owned> live, int from, string? skip)
+    private static bool WillDestroyAny(List<Owned> live, int from, string? skip)
     {
         for (int i = from; i < live.Count; i++)
             if (skip == null || live[index: i].Name != skip)

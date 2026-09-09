@@ -27,6 +27,12 @@ public sealed partial class TypeRegistry
     /// <summary>Thread-local ambient registry; set by the constructor so test isolation works without injection.</summary>
     public static TypeRegistry? Ambient => _ambient;
 
+    /// <summary>Sets the thread-local ambient registry to <paramref name="registry"/>. Called from the
+    /// constructor so each new <see cref="TypeRegistry"/> registers itself as the current thread's ambient,
+    /// enabling static helpers (e.g. <see cref="RoutineInfo"/> Substitute methods) to resolve generics
+    /// without requiring a registry parameter at every call site.</summary>
+    private static void RegisterAsAmbient(TypeRegistry registry) => _ambient = registry;
+
     /// <summary>The language being built. Settable so the stdlib (always RazorForge source) can be
     /// analyzed in RazorForge mode during a Suflae compile — see SemanticVerifier.AnalyzeStdlibBodies.</summary>
     public Language Language { get; set; }
@@ -85,7 +91,7 @@ public sealed partial class TypeRegistry
     private bool _stdlibAnalysisActive;
 
     /// <summary>
-    /// Set of type FullNames determined to be live by <see cref="TypeLivenessPass"/>.
+    /// Set of type FullNames determined to be live by <c>TypeLivenessPass</c>.
     /// Null until the pass runs, in which case all types are treated as live (pass-through).
     /// </summary>
     private HashSet<string>? _liveConcreteTypes;
@@ -302,7 +308,7 @@ public sealed partial class TypeRegistry
 
     /// <summary>
     /// Lazy cache for bare-name type lookups (e.g., "List" -> Collections.List).
-    /// Populated on first miss in <see cref="LookupType"/> to amortize the O(N) scan.
+    /// Populated on first miss in <see cref="LookupType(string)"/> to amortize the O(N) scan.
     /// </summary>
     private readonly Dictionary<string, TypeInfo> _typesByShortName = new();
 
@@ -343,7 +349,7 @@ public sealed partial class TypeRegistry
     public TypeRegistry(Language language, string? stdlibPath = null)
     {
         Language = language;
-        _ambient = this;
+        RegisterAsAmbient(this);
         GlobalScope = new Scope(kind: ScopeKind.Global);
         _currentScope = GlobalScope;
         _stdlibPath = stdlibPath ?? StdlibLoader.GetDefaultStdlibPath();
@@ -692,7 +698,7 @@ public sealed partial class TypeRegistry
     /// never collides with / shadows the ambient <c>Core.List.add_last</c> (the RF-S406 creator clash).
     /// Owner-less (free) routines are never realm-bridged, so they use the bare key.
     /// </summary>
-    public string RealmRoutineKey(RoutineInfo routine) => routine.RegistryKey;
+    public static string RealmRoutineKey(RoutineInfo routine) => routine.RegistryKey;
 
     /// <summary>
     /// Registers a type in the registry.
@@ -1155,16 +1161,18 @@ public sealed partial class TypeRegistry
             // The target realm's DEFINITION is keyed BARE when it is the ambient realm (RF types under an
             // RF-ambient compile), or `{realm}::`-marked when bridged. Using the ambient (bare) lookup for
             // the ambient case is what lets `RF::Core.List` reach the RF-realm list (keyed bare `Core.List`).
-            TypeInfo? tDef = realm == AmbientRealm
-                ? LookupTypeInAmbient(name: genericDef.FullName)
-                : _types.TryGetValue(key: $"{realm}::{genericDef.FullName}", value: out TypeInfo? d) ? d : null;
+            TypeInfo? tDef;
+            if (realm == AmbientRealm)
+                tDef = LookupTypeInAmbient(name: genericDef.FullName);
+            else
+                tDef = _types.TryGetValue(key: $"{realm}::{genericDef.FullName}", value: out TypeInfo? d) ? d : null;
             return tDef != null ? GetOrCreateResolution(genericDef: tDef, typeArguments: [.. args]) : null;
         }
 
         // A non-generic type or a bare generic definition: bare key for the ambient realm, else realm-marked.
-        return realm == AmbientRealm
-            ? LookupTypeInAmbient(name: type.FullName)
-            : _types.TryGetValue(key: $"{realm}::{type.FullName}", value: out TypeInfo? t) ? t : null;
+        if (realm == AmbientRealm)
+            return LookupTypeInAmbient(name: type.FullName);
+        return _types.TryGetValue(key: $"{realm}::{type.FullName}", value: out TypeInfo? t) ? t : null;
     }
 
     /// <summary>
@@ -1885,12 +1893,6 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>
-    /// Gets all concrete (non-definition) generic type instances created during semantic analysis.
-    /// These are types like <c>List[S64]</c>, <c>Maybe[Text]</c>, etc. that have been resolved
-    /// from their generic definitions during type checking. Used by
-    /// <c>GenericMonomorphizationPass</c> to enumerate which memberRoutine bodies need rewriting.
-    /// </summary>
-    /// <summary>
     /// Clears the "created during stdlib analysis, defer until user code needs it" (<see
     /// cref="TypeInfo.IsStdlibLazy"/>) flag on EVERY concrete instance, so all of them flow through
     /// monomorphization + derive synthesis. Used when building a precompiled stdlib base (empty entry
@@ -1933,6 +1935,13 @@ public sealed partial class TypeRegistry
         return n;
     }
 
+    /// <summary>
+    /// All concrete (non-generic-definition) entity and record instances created during semantic analysis,
+    /// filtered to live (reachable) types and excluding stdlib-lazy deferred instances. Examples: <c>List[S64]</c>,
+    /// <c>Maybe[Text]</c>. Used by <c>GenericMonomorphizationPass</c> to enumerate which member-routine bodies
+    /// need rewriting. Deduplicated by reference because the dual-index scheme stores the same <see cref="TypeInfo"/>
+    /// under both the full and short keys.
+    /// </summary>
     public IEnumerable<TypeInfo> AllConcreteGenericInstances =>
         _resolutions.Values
                     .Where(predicate: t =>
@@ -2057,67 +2066,62 @@ public sealed partial class TypeRegistry
 
         foreach (TypeInfo type in candidates)
         {
-            if (type.IsGenericDefinition && protocol.TypeArguments == null)
-            {
-                continue;
-            }
+            if (type.IsGenericDefinition && protocol.TypeArguments == null) continue;
+            if (!seen.Add(item: type.Name)) continue;
 
-            if (!seen.Add(item: type.Name))
-            {
-                continue;
-            }
+            List<TypeInfo>? implemented = GetImplementedProtocols(type);
+            if (implemented == null) continue;
 
-            List<TypeInfo>? implemented = type switch
-            {
-                EntityTypeInfo e => e.ImplementedProtocols,
-                RecordTypeInfo r => r.ImplementedProtocols,
-                _ => null
-            };
-            if (implemented == null)
-            {
-                continue;
-            }
-
-            foreach (TypeInfo impl in implemented)
-            {
-                string implBaseName = (impl as ProtocolTypeInfo)?.GenericDefinition?.Name ?? impl.Name;
-                if (implBaseName != protocolBaseName)
-                {
-                    continue;
-                }
-
-                if (!type.IsGenericDefinition && protocol.TypeArguments is { Count: > 0 } &&
-                    impl.TypeArguments is { Count: > 0 })
-                {
-                    if (!ProtocolTypeArgsMatch(protocol: protocol, impl: impl))
-                    {
-                        continue;
-                    }
-
-                    result.Add(item: type);
-                }
-                else if (type.IsGenericDefinition && protocol.TypeArguments is { Count: > 0 })
-                {
-                    if (TryBindGenericImplementor(protocol: protocol, type: type, impl: impl)
-                        is { } resolved)
-                    {
-                        result.Add(item: resolved);
-                    }
-                    else
-                    {
-                        continue;
-                    }
-                }
-                else
-                {
-                    result.Add(item: type);
-                }
-
-                break;
-            }
+            TryAddImplementor(protocol: protocol, protocolBaseName: protocolBaseName,
+                type: type, implemented: implemented, result: result);
         }
 
         return result;
+    }
+
+    // Returns the implemented-protocols list for an entity or record; null for other type kinds.
+    private static List<TypeInfo>? GetImplementedProtocols(TypeInfo type) => type switch
+    {
+        EntityTypeInfo e => e.ImplementedProtocols,
+        RecordTypeInfo r => r.ImplementedProtocols,
+        _ => null
+    };
+
+    // Scans the implemented-protocol list of a candidate type and adds a matching implementor
+    // (concrete, generic-bound, or bare) to result when the protocol base name matches.
+    private void TryAddImplementor(ProtocolTypeInfo protocol, string protocolBaseName,
+        TypeInfo type, List<TypeInfo> implemented, List<TypeInfo> result)
+    {
+        foreach (TypeInfo impl in implemented)
+        {
+            string implBaseName = (impl as ProtocolTypeInfo)?.GenericDefinition?.Name ?? impl.Name;
+            if (implBaseName != protocolBaseName) continue;
+
+            TypeInfo? toAdd = ResolveImplementorMatch(protocol: protocol, type: type, impl: impl);
+            if (toAdd != null)
+            {
+                result.Add(item: toAdd);
+                break;
+            }
+        }
+    }
+
+    // Resolves which concrete type to add for a protocol-base-name match: null when the match
+    // fails type-argument or binding checks (caller should skip this impl and continue).
+    private TypeInfo? ResolveImplementorMatch(ProtocolTypeInfo protocol, TypeInfo type, TypeInfo impl)
+    {
+        if (!type.IsGenericDefinition && protocol.TypeArguments is { Count: > 0 }
+            && impl.TypeArguments is { Count: > 0 })
+        {
+            return ProtocolTypeArgsMatch(protocol: protocol, impl: impl) ? type : null;
+        }
+
+        if (type.IsGenericDefinition && protocol.TypeArguments is { Count: > 0 })
+        {
+            return TryBindGenericImplementor(protocol: protocol, type: type, impl: impl);
+        }
+
+        return type;
     }
 
     /// <summary>
@@ -2230,6 +2234,11 @@ public sealed partial class TypeRegistry
     /// <param name="isPreset">Whether this is a preset (build-time constant).</param>
     /// <param name="presetValue">The preset value.</param>
     /// <param name="isNullable">Whether the variable is nullable.</param>
+    /// <param name="isGlobal">Whether this is a Suflae module-level <c>global</c> variable (mutable,
+    /// session-lifetime). When true the declared variable carries <see cref="VariableInfo.IsGlobal"/>
+    /// so identifier resolution can stamp references with <c>IsModuleGlobal</c>.</param>
+    /// <param name="location">Source location for error reporting; stored on the variable for
+    /// diagnostics that need to point back to the declaration site.</param>
     /// <returns>True if successful, false if already declared in this scope.</returns>
     public bool DeclareVariable(string name, TypeInfo type, bool isPreset = false,
         Expression? presetValue = null, bool isNullable = false, bool isGlobal = false,

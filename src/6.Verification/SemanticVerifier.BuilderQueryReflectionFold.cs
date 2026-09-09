@@ -68,8 +68,6 @@ public partial class SemanticVerifier
         }
     }
 
-    // ------------------------------------------------------------------ statement walk
-
     private Statement FoldReflectionStmt(Statement stmt)
     {
         switch (stmt)
@@ -156,8 +154,9 @@ public partial class SemanticVerifier
 
     private Statement FoldReturnStmt(Statement stmt, ReturnStatement ret)
     {
-        Expression v = FoldReflectionExpr(expr: ret.Value);
-        return ReferenceEquals(v, ret.Value) ? stmt : ret with { Value = v };
+        Expression retValue = ret.Value!;
+        Expression v = FoldReflectionExpr(expr: retValue);
+        return ReferenceEquals(v, retValue) ? stmt : ret with { Value = v };
     }
 
     private Statement FoldAssignmentStmt(Statement stmt, AssignmentStatement asg)
@@ -168,8 +167,9 @@ public partial class SemanticVerifier
 
     private Statement FoldDeclarationStmt(Statement stmt, DeclarationStatement ds, VariableDeclaration vd)
     {
-        Expression init = FoldReflectionExpr(expr: vd.Initializer);
-        return ReferenceEquals(init, vd.Initializer) ? stmt
+        Expression vdInitializer = vd.Initializer!;
+        Expression init = FoldReflectionExpr(expr: vdInitializer);
+        return ReferenceEquals(init, vdInitializer) ? stmt
             : ds with { Declaration = vd with { Initializer = init } };
     }
 
@@ -211,8 +211,6 @@ public partial class SemanticVerifier
         return !ReferenceEquals(nb, dg.Body) && nb is BlockStatement bs2 ? dg with { Body = bs2 } : stmt;
     }
 
-    // ------------------------------------------------------------------ expression walk
-
     private Expression FoldReflectionExpr(Expression expr)
     {
         // Leaf fold: a 0-arg member call to a constant list-returning BuilderQuery reflection routine on a
@@ -226,7 +224,7 @@ public partial class SemanticVerifier
             && owner is not GenericParameterTypeInfo
             && !owner.IsGenericDefinition)
         {
-            Expression? folded = FoldReflectionCall(owner: owner, routineName: rn,
+            ListLiteralExpression? folded = FoldReflectionCall(owner: owner, routineName: rn,
                 returnType: bqCall.ResolvedRoutine?.ReturnType, loc: bqCall.Location);
             if (folded != null) return folded;
         }
@@ -497,9 +495,7 @@ public partial class SemanticVerifier
         return changed ? result : list;
     }
 
-    // ------------------------------------------------------------------ leaf: compute + analyze inline list
-
-    private Expression? FoldReflectionCall(TypeInfo owner, string routineName, TypeInfo? returnType,
+    private ListLiteralExpression? FoldReflectionCall(TypeInfo owner, string routineName, TypeInfo? returnType,
         SourceLocation loc)
     {
         List<string>? values = ComputeReflectionStrings(owner: owner, routineName: routineName);

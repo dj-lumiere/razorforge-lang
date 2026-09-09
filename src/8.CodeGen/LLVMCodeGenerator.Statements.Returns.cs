@@ -10,6 +10,7 @@ namespace Compiler.CodeGen;
 public partial class LlvmCodeGenerator
 {
     private const string TracePop = "  call void @_rf_trace_pop()";
+    private const string RetVoid = "  ret void";
 
     #region Return Statements
 
@@ -49,8 +50,14 @@ public partial class LlvmCodeGenerator
             return;
         }
 
-        string value = EmitExpression(sb: sb, expr: ret.Value);
-        TypeInfo? retType = _currentRoutineReturnType ?? GetExpressionType(expr: ret.Value);
+        EmitValueReturn(sb: sb, ret: ret);
+    }
+
+    /// <summary>Emits the IR for a return that carries a non-void, non-crashable value.</summary>
+    private void EmitValueReturn(StringBuilder sb, ReturnStatement ret)
+    {
+        string value = EmitExpression(sb: sb, expr: ret.Value!);
+        TypeInfo? retType = _currentRoutineReturnType ?? GetExpressionType(expr: ret.Value!);
         if (retType == null)
             throw new InvalidOperationException(message: "Cannot determine return type for return statement");
 
@@ -65,7 +72,7 @@ public partial class LlvmCodeGenerator
         if (_traceCurrentRoutine)
             EmitLine(sb: sb, line: TracePop);
 
-        TypeInfo? exprType = GetExpressionType(expr: ret.Value);
+        TypeInfo? exprType = GetExpressionType(expr: ret.Value!);
         if (IsMaybeType(type: retType) && value != "zeroinitializer" &&
             (exprType == null || !IsMaybeType(type: exprType)))
         {
@@ -78,7 +85,7 @@ public partial class LlvmCodeGenerator
         if (_currentReturnViaSret)
         {
             EmitLine(sb: sb, line: $"  store {llvmType} {value}, ptr %sret");
-            EmitLine(sb: sb, line: "  ret void");
+            EmitLine(sb: sb, line: RetVoid);
             return;
         }
         // Coerced (Phase 2) return: reinterpret the struct value into its ABI register type.
@@ -100,12 +107,12 @@ public partial class LlvmCodeGenerator
             EmitLine(sb: sb, line: TracePop);
         if (_currentRoutineReturnType == null)
         {
-            EmitLine(sb: sb, line: "  ret void");
+            EmitLine(sb: sb, line: RetVoid);
             return;
         }
         string retLlvmType = GetLlvmType(type: _currentRoutineReturnType);
         if (retLlvmType == "void")
-            EmitLine(sb: sb, line: "  ret void");
+            EmitLine(sb: sb, line: RetVoid);
         else
         {
             string retZero = GetZeroValue(type: _currentRoutineReturnType);
@@ -132,7 +139,7 @@ public partial class LlvmCodeGenerator
         }
         else
         {
-            EmitLine(sb: sb, line: "  ret void");
+            EmitLine(sb: sb, line: RetVoid);
         }
     }
 
@@ -166,7 +173,7 @@ public partial class LlvmCodeGenerator
         };
     }
 
-    private void EmitEntityCleanup(StringBuilder sb, string? returnedVarName)
+    private static void EmitEntityCleanup(StringBuilder sb, string? returnedVarName)
     {
         // Scope-exit teardown of owned locals is lowered into the AST as explicit
         // `local.destroy()` calls by ScopeTeardownLoweringPass (Phase 8), so codegen emits none.

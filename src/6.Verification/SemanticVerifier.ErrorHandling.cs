@@ -91,16 +91,34 @@ public sealed partial class SemanticVerifier
             RoutineInfo? handWritten = ResolveRoutineInfoForDeclaration(decl: decl, moduleName: module);
             if (handWritten is null or { IsSynthesized: true }) continue;
 
-            RoutineInfo? baseRoutine = handWritten.OwnerType != null
-                ? _registry.LookupMemberRoutine(type: handWritten.OwnerType, memberRoutineName: baseName,
-                    isFailable: true)
-                : _registry.LookupRoutine(fullName: baseName, isFailable: true)
-                  ?? (module != null && !baseName.Contains(value: '.')
-                      ? _registry.LookupRoutine(fullName: $"{module}.{baseName}", isFailable: true)
-                      : null);
+            RoutineInfo? baseRoutine = FindBaseRoutineForVariantName(handWritten: handWritten,
+                baseName: baseName, module: module);
             if (baseRoutine is { IsFailable: true })
                 CheckReservedVariantCollision(baseRoutine: baseRoutine, variant: handWritten);
         }
+    }
+
+    /// <summary>
+    /// Looks up the failable base routine for a hand-written <c>try_</c>/<c>check_</c>/<c>lookup_</c>
+    /// routine: checks the member-routine table when the hand-written routine has an owner type, otherwise
+    /// searches free routines (bare name first, then module-qualified if module is known and the name is unqualified).
+    /// </summary>
+    private RoutineInfo? FindBaseRoutineForVariantName(RoutineInfo handWritten, string baseName, string? module)
+    {
+        if (handWritten.OwnerType != null)
+        {
+            return _registry.LookupMemberRoutine(type: handWritten.OwnerType,
+                memberRoutineName: baseName, isFailable: true);
+        }
+
+        RoutineInfo? found = _registry.LookupRoutine(fullName: baseName, isFailable: true);
+        if (found != null) return found;
+        if (module != null && !baseName.Contains(value: '.'))
+        {
+            return _registry.LookupRoutine(fullName: $"{module}.{baseName}", isFailable: true);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -114,15 +132,15 @@ public sealed partial class SemanticVerifier
     private void PreRegisterVariantsForDeclaration(ErrorHandlingGenerator generator,
         RoutineDeclaration decl, string? module)
     {
-        // AST scan: routines with direct throw/absent get precise variants;
-        // routines without any (propagated-failability via called `!` routines) get
+        // AST scan: routines with direct throw/absent get precise variants.
+        // Routines without any (propagated-failability via called `!` routines) get
         // pessimistic try_+lookup_ stubs so callsites can resolve them during SA.
-        bool hasDirect = generator.BodyHasThrowOrAbsent(body: decl.Body!);
+        bool hasDirect = ErrorHandlingGenerator.BodyHasThrowOrAbsent(body: decl.Body!);
 
         RoutineInfo? routineInfo =
             ResolveRoutineInfoForDeclaration(decl: decl, moduleName: module);
         if (routineInfo == null || !routineInfo.IsFailable) return;
-        if (routineInfo.Annotations.Any(predicate: a => a == "crash_only")) return;
+        if (routineInfo.Annotations.Contains(item: "crash_only")) return;
 
         // Record the base routine's body for ON-DEMAND variant synthesis: a call to
         // try_X/check_X/lookup_X that misses registry lookup during Phase 5 resolves by synthesizing
@@ -201,9 +219,8 @@ public sealed partial class SemanticVerifier
         if (baseRoutine is not { IsFailable: true }) return null;
         if (!EnsureVariantsSynthesizedForBase(baseRoutine: baseRoutine)) return null;
 
-        string variantFull = baseRoutine.OwnerType == null && baseName != baseRoutine.Name
-            ? callName // (defensive; bare callName is the registered variant name)
-            : callName;
+        // The variant name is always callName regardless of whether the base name matches (defensive).
+        string variantFull = callName;
         return _registry.LookupRoutine(fullName: variantFull, isFailable: false)
             ?? _registry.LookupRoutine(fullName: variantFull, isFailable: true)
             ?? (_currentModuleName != null && !variantFull.Contains(value: '.')
@@ -275,21 +292,17 @@ public sealed partial class SemanticVerifier
             // Not in the pre-registered index (e.g. a `Type!(from_text:)` constructor whose declaration
             // resolves under a different key than its registered `create#…` overload). Its body is still in
             // the collected routine bodies (CollectStdlibBodiesForVariantGeneration) — synthesize from there.
-            if (!_routineBodies.TryGetValue(key: baseRoutine.RegistryKey, value: out Statement? collectedBody))
-            {
-                // WARM: stdlib routine bodies are NOT collected into _routineBodies (SkipStdlibReprocessing)
-                // and PreRegisterStdlibVariants (which fills DeferredVariantBases) is skipped — so a STDLIB
-                // base reached on demand by a USER variant body (e.g. `S64.create` needed to rewrite the
-                // inner `S64!(from_text:)` of a user `try_S64_from_text`) has no body here. The captured
-                // stdlib bodies ARE available via `_warmStdlibRoutineBodies`; use them so warm can synthesize
-                // the variant exactly as cold does — else the inner rewrite fails and the user variant calls
-                // the raw failable form, crashing on the recoverable path.
-                if (_warmStdlibRoutineBodies == null
-                    || !_warmStdlibRoutineBodies.TryGetValue(key: baseRoutine.RegistryKey, value: out collectedBody))
-                    return false;
-            }
-            bool hasDirect = new ErrorHandlingGenerator(registry: _registry)
-                .BodyHasThrowOrAbsent(body: collectedBody);
+            // WARM: stdlib routine bodies are NOT collected into _routineBodies (SkipStdlibReprocessing)
+            // and PreRegisterStdlibVariants (which fills DeferredVariantBases) is skipped — so a STDLIB
+            // base reached on demand by a USER variant body has no body here. The captured
+            // stdlib bodies ARE available via `_warmStdlibRoutineBodies`; use them so warm can synthesize
+            // the variant exactly as cold does — else the inner rewrite fails and the user variant calls
+            // the raw failable form, crashing on the recoverable path.
+            if (!_routineBodies.TryGetValue(key: baseRoutine.RegistryKey, value: out Statement? collectedBody)
+                && (_warmStdlibRoutineBodies == null
+                    || !_warmStdlibRoutineBodies.TryGetValue(key: baseRoutine.RegistryKey, value: out collectedBody)))
+                return false;
+            bool hasDirect = ErrorHandlingGenerator.BodyHasThrowOrAbsent(body: collectedBody);
             deferred = (baseRoutine, collectedBody, !hasDirect);
         }
 
@@ -333,7 +346,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Generates the bodies of all on-demand-synthesized variants (the demand-driven replacement for
     /// ErrorHandlingVariantPass.TransformPendingBodies, which now only builds `emit` bodies). Each body is
-    /// built via <see cref="Desugaring.ErrorHandlingVariantPass.GenerateVariantBody"/>; its broad-propagation
+    /// built via <see cref="Compiler.Instantiation.ErrorHandlingVariantPass.GenerateVariantBody"/>; its broad-propagation
     /// rewrite re-looks-up inner failable calls, whose on-demand hook enqueues MORE bases — so this drains
     /// until the queue is empty (transitive closure). Skips variants whose body is already present (a warm
     /// restore or the eager `emit` path).
@@ -557,28 +570,39 @@ public sealed partial class SemanticVerifier
             if (type is GenericParameterTypeInfo) continue;
             foreach (RoutineInfo routine in _registry.GetMemberRoutinesForType(type: type))
             {
-                if (routine.IsSynthesized) continue;
-                // Gate-aware: only a collision if THIS type actually RECEIVES a derive of this name+arity —
-                // i.e. it satisfies the template's `needs T is <kind>` gate. A name-only HasDeriveTemplate
-                // check wrongly flagged a collection's own `count()` against the choice/flags-gated `count`
-                // derive (RF-S164), which no non-choice/flags type receives. count/all_cases are ChoiceType/
-                // FlagsType-gated buildtime derives; represent/diagnose keep the universal (`T is TypeName`)
-                // template, so they still require @override on every concrete override.
-                if (_registry.GetDeriveTemplate(name: routine.Name,
-                        arity: routine.Parameters.Count, forType: type) == null) continue;
-                if (_registry.IsOptInDeriveMemberRoutine(memberRoutine: routine.Name)) continue;
-                if (routine.Annotations.Contains(value: "override")) continue;
-                ReportError(code: SemanticDiagnosticCode.OverridableDeriveNeedsOverrideMarker,
-                    message:
-                    $"'{type.Name}.{routine.Name}' collides with the auto-derived '{routine.Name}' every type " +
-                    $"receives. Mark it '@override' to replace the auto-derive, or remove it (without the " +
-                    $"marker it would be silently shadowed).",
-                    location: routine.Location ?? new SourceLocation("", 0, 0, 0));
+                CheckRoutineForOverridableDeriveCollision(type: type, routine: routine);
             }
         }
     }
 
-    private bool DeriveOwnerIsTypeParameter(string ownerName, RoutineDeclaration decl)
+    /// <summary>
+    /// Checks a single routine on <paramref name="type"/> for an <c>@override</c>-marker violation:
+    /// reports <see cref="SemanticDiagnosticCode.OverridableDeriveNeedsOverrideMarker"/> when the routine
+    /// collides with a non-opt-in auto-derive template that <paramref name="type"/> actually receives
+    /// but is not marked <c>@override</c>. Skips synthesized routines and opt-in derives.
+    /// </summary>
+    private void CheckRoutineForOverridableDeriveCollision(TypeInfo type, RoutineInfo routine)
+    {
+        if (routine.IsSynthesized) return;
+        // Gate-aware: only a collision if THIS type actually RECEIVES a derive of this name+arity —
+        // i.e. it satisfies the template's `needs T is <kind>` gate. A name-only HasDeriveTemplate
+        // check wrongly flagged a collection's own `count()` against the choice/flags-gated `count`
+        // derive (RF-S164), which no non-choice/flags type receives. count/all_cases are ChoiceType/
+        // FlagsType-gated buildtime derives; represent/diagnose keep the universal (`T is TypeName`)
+        // template, so they still require @override on every concrete override.
+        if (_registry.GetDeriveTemplate(name: routine.Name,
+                arity: routine.Parameters.Count, forType: type) == null) return;
+        if (_registry.IsOptInDeriveMemberRoutine(memberRoutine: routine.Name)) return;
+        if (routine.Annotations.Contains(value: "override")) return;
+        ReportError(code: SemanticDiagnosticCode.OverridableDeriveNeedsOverrideMarker,
+            message:
+            $"'{type.Name}.{routine.Name}' collides with the auto-derived '{routine.Name}' every type " +
+            $"receives. Mark it '@override' to replace the auto-derive, or remove it (without the " +
+            $"marker it would be silently shadowed).",
+            location: routine.Location ?? new SourceLocation("", 0, 0, 0));
+    }
+
+    private static bool DeriveOwnerIsTypeParameter(string ownerName, RoutineDeclaration decl)
     {
         // A derive TEMPLATE is IDENTIFIED, structurally and resolution-independently, by declaring its
         // owner as a type parameter via a `needs <owner> is …` constraint (`needs T is TypeName`, or a
@@ -609,54 +633,8 @@ public sealed partial class SemanticVerifier
     {
         if (decl.MemberRoutineName is { } memberRoutineName)
         {
-            // Owner is the RENDERED receiver (Iterable[Text]) — the bracketed-owner bucket key used below.
-            string ownerTypeName = decl.RenderedReceiver!;
-
-            // Stdlib protocol-extension decls like `Iterable[Text].join` register their routines
-            // under the bracketed-owner bucket (FullName = "Core.Iterable[Text]"). Try the
-            // bracketed form first, falling back to the gen-def name. Both lookups can succeed
-            // on different types: prefer the one that actually has the candidate memberRoutine.
-            string bareLookupName = TypeInfo.StripTypeArgs(name: ownerTypeName);
-
-            // Own-module + own-REALM FIRST: a member decl `routine List[T].add_last` in an SF-realm
-            // `Standard/Suflae/…` file owns the SF-realm `Core.List`, not the RazorForge-realm one that
-            // shares the bare key. The decl's source-file extension (.sf → SF) gives its realm; a realm-
-            // blind lookup would type `me` as the RF list (which lacks the SF wrapper's `inner`) → RF-S450.
-            string declRealm = decl.Location?.FileName is { } df
-                               && df.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase)
-                ? "SF" : "RF";
-            TypeSymbol? bareOwner = (moduleName != null
-                                        ? _registry.LookupType(name: $"{moduleName}.{bareLookupName}", realm: declRealm)
-                                          ?? _registry.LookupType(name: $"{moduleName}.{bareLookupName}")
-                                        : null)
-                                    ?? _registry.LookupType(name: bareLookupName);
-            if (bareOwner == null)
-            {
-                return null;
-            }
-
-            var candidates = new List<RoutineInfo>();
-            _registry.CollectMemberRoutineCandidates(type: bareOwner, memberRoutineName: memberRoutineName,
-                candidates: candidates);
-
-            // Protocol-extension decls like `Iterable[Text].join` register their routines under
-            // a bracketed-owner bucket (e.g. owner FullName="Core.Iterable[Text]") that the
-            // gen-def lookup misses. Scan all routines for owners whose name shape matches the
-            // bracketed form.
-            if (ownerTypeName.Contains('[') && !LooksLikeGenericParamArg(ownerTypeName))
-            {
-                TypeSymbol? bracketed = _registry.LookupType(name: ownerTypeName);
-                if (bracketed != null && !ReferenceEquals(bracketed, bareOwner))
-                {
-                    _registry.CollectMemberRoutineCandidates(type: bracketed, memberRoutineName: memberRoutineName,
-                        candidates: candidates);
-                }
-            }
-            // For member-routine decls, prefer the decl's actual module (passed in) over the
-            // owner type's module: common routines for built-in types (e.g. `S64.from_digit_bytes`
-            // declared in `IO/BytesIO`) live in a different module from the owner.
-            return MatchRoutineDeclaration(candidates: candidates, decl: decl,
-                moduleName: moduleName ?? bareOwner.Module);
+            return ResolveRoutineInfoForMemberDeclaration(decl: decl, memberRoutineName: memberRoutineName,
+                moduleName: moduleName);
         }
 
         string bareName = decl.Name;
@@ -674,19 +652,88 @@ public sealed partial class SemanticVerifier
             moduleName: moduleName);
     }
 
+    /// <summary>
+    /// Resolves a <see cref="RoutineDeclaration"/> that names a member routine: looks up the owner type
+    /// (realm-aware, module-qualified when available), collects member-routine candidates on the bare owner
+    /// and on any matching bracketed-owner bucket (for protocol-extension decls such as
+    /// <c>Iterable[Text].join</c>), then matches by signature.
+    /// </summary>
+    private RoutineInfo? ResolveRoutineInfoForMemberDeclaration(RoutineDeclaration decl,
+        string memberRoutineName, string? moduleName)
+    {
+        // Owner is the RENDERED receiver (Iterable[Text]) — the bracketed-owner bucket key used below.
+        string ownerTypeName = decl.RenderedReceiver!;
+
+        // Stdlib protocol-extension decls like `Iterable[Text].join` register their routines
+        // under the bracketed-owner bucket (FullName = "Core.Iterable[Text]"). Try the
+        // bracketed form first, falling back to the gen-def name. Both lookups can succeed
+        // on different types: prefer the one that actually has the candidate memberRoutine.
+        string bareLookupName = TypeInfo.StripTypeArgs(name: ownerTypeName);
+
+        // Own-module + own-REALM FIRST: a member decl `routine List[T].add_last` in an SF-realm
+        // `Standard/Suflae/…` file owns the SF-realm `Core.List`, not the RazorForge-realm one that
+        // shares the bare key. The decl's source-file extension (.sf → SF) gives its realm; a realm-
+        // blind lookup would type `me` as the RF list (which lacks the SF wrapper's `inner`) → RF-S450.
+        string declRealm = decl.Location?.FileName is { } df
+                           && df.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase)
+            ? "SF" : "RF";
+        TypeSymbol? bareOwner = LookupBareOwner(moduleName: moduleName,
+            bareLookupName: bareLookupName, declRealm: declRealm);
+        if (bareOwner == null) return null;
+
+        var candidates = new List<RoutineInfo>();
+        _registry.CollectMemberRoutineCandidates(type: bareOwner, memberRoutineName: memberRoutineName,
+            candidates: candidates);
+
+        // Protocol-extension decls like `Iterable[Text].join` register their routines under
+        // a bracketed-owner bucket (e.g. owner FullName="Core.Iterable[Text]") that the
+        // gen-def lookup misses. Scan all routines for owners whose name shape matches the
+        // bracketed form.
+        if (ownerTypeName.Contains('[') && !LooksLikeGenericParamArg(ownerTypeName))
+        {
+            TypeSymbol? bracketed = _registry.LookupType(name: ownerTypeName);
+            if (bracketed != null && !ReferenceEquals(bracketed, bareOwner))
+            {
+                _registry.CollectMemberRoutineCandidates(type: bracketed, memberRoutineName: memberRoutineName,
+                    candidates: candidates);
+            }
+        }
+
+        // For member-routine decls, prefer the decl's actual module (passed in) over the
+        // owner type's module: common routines for built-in types (e.g. `S64.from_digit_bytes`
+        // declared in `IO/BytesIO`) live in a different module from the owner.
+        return MatchRoutineDeclaration(candidates: candidates, decl: decl,
+            moduleName: moduleName ?? bareOwner.Module);
+    }
+
+    /// <summary>
+    /// Looks up the bare (unparameterized) owner type for a member-routine declaration, preferring a
+    /// realm-and-module-qualified lookup when <paramref name="moduleName"/> is known.
+    /// </summary>
+    private TypeSymbol? LookupBareOwner(string? moduleName, string bareLookupName, string declRealm)
+    {
+        if (moduleName != null)
+        {
+            string qualified = $"{moduleName}.{bareLookupName}";
+            TypeSymbol? realmQualified = _registry.LookupType(name: qualified, realm: declRealm)
+                                         ?? _registry.LookupType(name: qualified);
+            if (realmQualified != null) return realmQualified;
+        }
+
+        return _registry.LookupType(name: bareLookupName);
+    }
+
     private static RoutineInfo? MatchRoutineDeclaration(List<RoutineInfo> candidates,
         RoutineDeclaration decl, string? moduleName)
     {
-        var astParamTypeNames = new List<string>(capacity: decl.Parameters.Count);
-        foreach (Parameter param in decl.Parameters)
+        if (decl.Parameters.Any(param => param.Type == null))
         {
-            if (param.Type == null)
-            {
-                return null;
-            }
-
-            astParamTypeNames.Add(item: NormalizeMatchTypeName(name: GetAstMatchTypeName(typeExpr: param.Type)));
+            return null;
         }
+
+        var astParamTypeNames = decl.Parameters
+            .Select(param => NormalizeMatchTypeName(name: GetAstMatchTypeName(typeExpr: param.Type!)))
+            .ToList();
 
         return candidates.FirstOrDefault(candidate =>
             CandidateMatchesDeclaration(candidate: candidate, decl: decl, moduleName: moduleName,

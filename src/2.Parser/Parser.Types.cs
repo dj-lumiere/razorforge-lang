@@ -360,7 +360,10 @@ public partial class Parser
             ConsumeIdentifier(errorMessage: "Expected type name after realm qualifier '::'"));
         while (Check(type: TokenType.Dot) || Check(type: TokenType.Slash))
         {
-            realmSb.Append(Match(type: TokenType.Dot) ? '.' : (Match(type: TokenType.Slash) ? '/' : '.'));
+            char sep = Match(type: TokenType.Dot) ? '.' : '/';
+            if (sep == '/')
+                Match(type: TokenType.Slash);
+            realmSb.Append(sep);
             realmSb.Append(ConsumeIdentifier(
                 errorMessage: "Expected name component after '.'/'/' in realm-qualified type"));
         }
@@ -682,7 +685,10 @@ public partial class Parser
         {
             do
             {
-                while (Match(type: TokenType.Newline)) { } // NOSONAR S108
+                while (Match(type: TokenType.Newline))
+                {
+                    // Skip newlines between comma-separated onlyif conditions.
+                }
                 conds.Add(item: ParseOneOnlyIfCondition());
             } while (Match(type: TokenType.Comma));
             Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after 'onlyif' conditions");
@@ -730,8 +736,7 @@ public partial class Parser
                 return existingConstraints;
             }
 
-            // Initialize genericParams so constraint parsing works
-            genericParams ??= [];
+            // genericParams may remain null or empty; constraint parsing proceeds without it.
         }
 
         List<GenericConstraintDeclaration> constraints = existingConstraints != null
@@ -877,7 +882,10 @@ public partial class Parser
             }
 
             Match(type: TokenType.Comma);
-            while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
+            while (Match(type: TokenType.Newline))
+            {
+                // Skip newlines between comma-separated constraint types.
+            }
             constraintTypes.Add(item: ParseType());
         }
 
@@ -915,7 +923,10 @@ public partial class Parser
                 break;
             }
 
-            while (Match(TokenType.Newline, TokenType.DocComment)) { } // NOSONAR S108
+            while (Match(TokenType.Newline, TokenType.DocComment))
+            {
+                // Skip newlines and doc-comments between relates clauses.
+            }
             Match(type: TokenType.Relates);
 
             SourceLocation location = GetLocation();
@@ -960,22 +971,5 @@ public partial class Parser
         return related.Count > 0 ? related : null;
     }
 
-    /// <summary>
-    /// Checks if the current position looks like a new constraint declaration (Identifier obeys/is/in).
-    /// Used to distinguish between "K obeys A, B" (K obeys both A and B) and
-    /// "K obeys A, U obeys B" (K obeys A, then U obeys B).
-    /// </summary>
-    private bool IsNewConstraintDeclaration()
-    {
-        // Must start with an identifier (type parameter name)
-        if (!Check(type: TokenType.Identifier))
-        {
-            return false;
-        }
-
-        // Lookahead: check if identifier is followed by a constraint keyword
-        Token next = PeekToken(offset: 1);
-        return next.Type is TokenType.Obeys or TokenType.Is or TokenType.In;
-    }
 
 }

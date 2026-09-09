@@ -312,46 +312,11 @@ public partial class Parser
         // Check for type-level generic params BEFORE the dot (e.g., "List[T].append")
         if (Match(type: TokenType.LeftBracket))
         {
-            if (HasNestedBrackets())
-            {
-                // Nested generics: parse as type expressions (e.g., List[DictEntry[K, V]]).
-                // The bound generic parameters are the leaf identifiers (no further generics)
-                // — e.g., for `List[DictEntry[K, V]]` → bind K and V, not "DictEntry".
-                var typeArgStrings = new List<string>();
-                var leafParams = new List<string>();
-                var typeArgExprs = new List<TypeExpression>();
-                do
-                {
-                    TypeExpression typeArg = ParseTypeOrConstGeneric();
-                    typeArgStrings.Add(item: SerializeTypeExpression(type: typeArg));
-                    typeArgExprs.Add(item: typeArg);
-                    CollectLeafGenericParams(type: typeArg, into: leafParams);
-                } while (Match(type: TokenType.Comma));
-
-                genericParams = leafParams;
-                receiverTypeArgStrings = typeArgStrings;
-                receiverArgExprs = typeArgExprs;
-                hasGenericParams = true;
-                Consume(type: TokenType.RightBracket,
-                    errorMessage: ExpectedRightBracketAfterGenericParameters);
-            }
-            else
-            {
-                (List<string> genericParams, List<GenericConstraintDeclaration>? inlineConstraints)
-                    result = ParseGenericParametersWithConstraints();
-                genericParams = result.genericParams;
-                inlineConstraints = result.inlineConstraints;
-                hasGenericParams = true;
-                // Receiver args as structured type expressions (each param name is a named type,
-                // e.g. `List[T]` → [T]); mirrors ParseTypeExpressionString on the serialized owner.
-                receiverArgExprs = result.genericParams
-                   .Select(selector: p => new TypeExpression(Name: p, GenericArguments: null,
-                        Location: GetLocation()))
-                   .ToList();
-
-                Consume(type: TokenType.RightBracket,
-                    errorMessage: ExpectedRightBracketAfterGenericParameters);
-            }
+            ParseReceiverTypeArgs(genericParams: out genericParams,
+                receiverTypeArgStrings: out receiverTypeArgStrings,
+                receiverArgExprs: out receiverArgExprs,
+                inlineConstraints: out inlineConstraints,
+                hasGenericParams: out hasGenericParams);
         }
 
         // ===============================================================================
@@ -378,44 +343,17 @@ public partial class Parser
 
         while (Match(type: TokenType.Dot))
         {
-            string part = ConsumeMemberRoutineName(errorMessage: "Expected member routine name after '.'");
-            memberOwnerName ??= name;
-            memberMemberRoutineName = part;
-
-            // If we parsed generic params before the dot, embed them in the name
-            // This transforms: name="List", generics=["T"], part="append"
-            //             to: name="List[T].append"
-            // For nested receivers (e.g. List[DictEntry[K, V]]), use the serialized type-arg
-            // strings rather than the bound leaf identifiers so the name preserves structure.
-            if (hasGenericParams && !nameSb.ToString().Contains(value: '.') &&
-                (receiverTypeArgStrings != null || genericParams != null))
-            {
-                List<string> nameArgs = receiverTypeArgStrings ?? genericParams!;
-                string renderedArgs = string.Join(separator: ", ", values: nameArgs);
-                memberRenderedReceiver = $"{name}[{renderedArgs}]"; // e.g. "List[T]", "List[DictEntry[K, V]]"
-                nameSb.Append('[');
-                nameSb.Append(renderedArgs);
-                nameSb.Append("].");
-                nameSb.Append(part);
-                memberHasReceiverTypeArgs = true; // owner carried type-args (List[T].append)
-                hasGenericParams = false; // Only add once
-            }
-            else
-            {
-                // Owner rendered so far (the bare owner, e.g. "S32", "Iterable") — captured BEFORE the
-                // member segment is appended.
-                memberRenderedReceiver = nameSb.ToString();
-                nameSb.Append('.');
-                nameSb.Append(part);
-            }
-
-            // Check for member-routine-level generic params AFTER the routine name
-            // e.g., "List[T].get[I]" - the [I] belongs to the member routine
-            if (Match(type: TokenType.LeftBracket))
-            {
-                ParseMemberRoutineGenericParams(genericParams: ref genericParams,
-                    inlineConstraints: ref inlineConstraints);
-            }
+            AppendRoutineMemberSegment(
+                baseName: name,
+                nameSb: nameSb,
+                memberOwnerName: ref memberOwnerName,
+                memberMemberRoutineName: ref memberMemberRoutineName,
+                memberHasReceiverTypeArgs: ref memberHasReceiverTypeArgs,
+                memberRenderedReceiver: ref memberRenderedReceiver,
+                hasGenericParams: ref hasGenericParams,
+                receiverTypeArgStrings: receiverTypeArgStrings,
+                genericParams: ref genericParams,
+                inlineConstraints: ref inlineConstraints);
         }
 
         name = nameSb.ToString();
@@ -438,7 +376,6 @@ public partial class Parser
                 result = ParseGenericParametersWithConstraints();
             genericParams = result.genericParams;
             inlineConstraints = result.inlineConstraints;
-            hasGenericParams = true;
             Consume(type: TokenType.RightBracket,
                 errorMessage: ExpectedRightBracketAfterGenericParameters);
         }
@@ -479,25 +416,7 @@ public partial class Parser
         // @innate routines are compiler-intrinsic: the body is supplied by the compiler,
         // not the source. Allow them to have no written body at all.
 
-        bool isInnate = annotations != null && annotations.Contains(item: "innate");
-        // A body exists when the next tokens are Newline+Indent or just Indent.
-        // A bare Newline without a following Indent means no body (next declaration follows).
-        bool hasBody = Check(type: TokenType.Indent) ||
-                       (Check(type: TokenType.Newline) &&
-                        PeekToken(offset: 1).Type == TokenType.Indent);
-
-        _inRoutineBody = true;
-        Statement body;
-        try
-        {
-            body = isInnate && !hasBody
-                ? new BlockStatement(Statements: [], Location: location)
-                : ParseIndentedBlock();
-        }
-        finally
-        {
-            _inRoutineBody = false;
-        }
+        Statement body = ParseRoutineBody(annotations: annotations, location: location);
 
         // Name is the BARE member for an extension-syntax member routine (owner lives in the structured
         // OwnerName/RenderedReceiver/ReceiverType fields); free routines and type-body members keep their
@@ -541,52 +460,89 @@ public partial class Parser
         {
             do
             {
-                // Handle 'me' parameter (self-reference for member routines)
-                if (Check(type: TokenType.Me))
-                {
-                    Token selfToken = Advance();
-                    TypeExpression? selfType = null;
-                    if (Match(type: TokenType.Colon))
-                    {
-                        selfType = ParseType();
-                    }
-
-                    parameters.Add(item: new Parameter(Name: "me",
-                        Type: selfType,
-                        DefaultValue: null,
-                        Location: GetLocation(token: selfToken)));
-                }
-                else
-                {
-                    // Regular parameter: name: Type = default
-                    // Varargs parameter: name...: Type
-                    // allowKeywords=true lets us use 'from', 'to', etc. as param names
-                    string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name",
-                        allowKeywords: true);
-                    bool isVariadic = Match(type: TokenType.DotDotDot);
-                    TypeExpression? paramType = null;
-                    Expression? defaultValue = null;
-
-                    if (Match(type: TokenType.Colon))
-                    {
-                        paramType = ParseType();
-                    }
-
-                    if (Match(type: TokenType.Assign))
-                    {
-                        defaultValue = ParseExpression();
-                    }
-
-                    parameters.Add(item: new Parameter(Name: paramName,
-                        Type: paramType,
-                        DefaultValue: defaultValue,
-                        Location: GetLocation(),
-                        IsVariadic: isVariadic));
-                }
+                parameters.Add(item: Check(type: TokenType.Me)
+                    ? ParseSelfParameter()
+                    : ParseRegularParameter());
             } while (Match(type: TokenType.Comma));
         }
 
         return parameters;
+    }
+
+    /// <summary>
+    /// Parses a <c>me</c> self-parameter: advances past the <c>me</c> token, then optionally reads a
+    /// colon-annotated type. Returns the resulting <see cref="Parameter"/>.
+    /// </summary>
+    private Parameter ParseSelfParameter()
+    {
+        Token selfToken = Advance();
+        TypeExpression? selfType = null;
+        if (Match(type: TokenType.Colon))
+        {
+            selfType = ParseType();
+        }
+
+        return new Parameter(Name: "me",
+            Type: selfType,
+            DefaultValue: null,
+            Location: GetLocation(token: selfToken));
+    }
+
+    /// <summary>
+    /// Parses a regular (non-<c>me</c>) routine parameter: <c>name[...]: Type = default</c>,
+    /// including variadic (<c>name...: Type</c>) and keyword-named params.
+    /// </summary>
+    private Parameter ParseRegularParameter()
+    {
+        // allowKeywords=true lets us use 'from', 'to', etc. as param names
+        string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name",
+            allowKeywords: true);
+        bool isVariadic = Match(type: TokenType.DotDotDot);
+        TypeExpression? paramType = null;
+        Expression? defaultValue = null;
+
+        if (Match(type: TokenType.Colon))
+        {
+            paramType = ParseType();
+        }
+
+        if (Match(type: TokenType.Assign))
+        {
+            defaultValue = ParseExpression();
+        }
+
+        return new Parameter(Name: paramName,
+            Type: paramType,
+            DefaultValue: defaultValue,
+            Location: GetLocation(),
+            IsVariadic: isVariadic);
+    }
+
+    /// <summary>
+    /// Parses the body of a routine declaration. For <c>@innate</c> routines with no written body an empty
+    /// <see cref="BlockStatement"/> is returned; otherwise the next indented block is parsed. Correctly
+    /// guards <see cref="_inRoutineBody"/> in a try/finally so nested-routine detection stays accurate.
+    /// </summary>
+    private Statement ParseRoutineBody(List<string>? annotations, SourceLocation location)
+    {
+        bool isInnate = annotations != null && annotations.Contains(item: "innate");
+        // A body exists when the next tokens are Newline+Indent or just Indent.
+        // A bare Newline without a following Indent means no body (next declaration follows).
+        bool hasBody = Check(type: TokenType.Indent) ||
+                       (Check(type: TokenType.Newline) &&
+                        PeekToken(offset: 1).Type == TokenType.Indent);
+
+        _inRoutineBody = true;
+        try
+        {
+            return isInnate && !hasBody
+                ? new BlockStatement(Statements: [], Location: location)
+                : ParseIndentedBlock();
+        }
+        finally
+        {
+            _inRoutineBody = false;
+        }
     }
 
     /// <summary>
@@ -651,6 +607,117 @@ public partial class Parser
 
             Consume(type: TokenType.RightBracket,
                 errorMessage: ExpectedRightBracketAfterGenericParameters);
+        }
+    }
+
+    /// <summary>
+    /// Parses type-level generic params on a routine receiver directly after the opening <c>[</c>
+    /// is consumed. Handles both nested generics (e.g. <c>DictEntry[K, V]</c>) and plain param lists
+    /// (e.g. <c>[T, U]</c>), populating the out parameters and consuming the closing <c>]</c>.
+    /// </summary>
+    private void ParseReceiverTypeArgs(
+        out List<string>? genericParams,
+        out List<string>? receiverTypeArgStrings,
+        out List<TypeExpression>? receiverArgExprs,
+        out List<GenericConstraintDeclaration>? inlineConstraints,
+        out bool hasGenericParams)
+    {
+        if (HasNestedBrackets())
+        {
+            // Nested generics: parse as type expressions (e.g., List[DictEntry[K, V]]).
+            // The bound generic parameters are the leaf identifiers (no further generics)
+            // — e.g., for `List[DictEntry[K, V]]` → bind K and V, not "DictEntry".
+            var typeArgStrings = new List<string>();
+            var leafParams = new List<string>();
+            var typeArgExprs = new List<TypeExpression>();
+            do
+            {
+                TypeExpression typeArg = ParseTypeOrConstGeneric();
+                typeArgStrings.Add(item: SerializeTypeExpression(type: typeArg));
+                typeArgExprs.Add(item: typeArg);
+                CollectLeafGenericParams(type: typeArg, into: leafParams);
+            } while (Match(type: TokenType.Comma));
+
+            genericParams = leafParams;
+            receiverTypeArgStrings = typeArgStrings;
+            receiverArgExprs = typeArgExprs;
+            hasGenericParams = true;
+            inlineConstraints = null;
+            Consume(type: TokenType.RightBracket,
+                errorMessage: ExpectedRightBracketAfterGenericParameters);
+        }
+        else
+        {
+            (List<string> genericParams, List<GenericConstraintDeclaration>? inlineConstraints)
+                result = ParseGenericParametersWithConstraints();
+            genericParams = result.genericParams;
+            inlineConstraints = result.inlineConstraints;
+            hasGenericParams = true;
+            // Receiver args as structured type expressions (each param name is a named type,
+            // e.g. `List[T]` → [T]); mirrors ParseTypeExpressionString on the serialized owner.
+            receiverArgExprs = result.genericParams
+               .Select(selector: p => new TypeExpression(Name: p, GenericArguments: null,
+                    Location: GetLocation()))
+               .ToList();
+            receiverTypeArgStrings = null;
+            Consume(type: TokenType.RightBracket,
+                errorMessage: ExpectedRightBracketAfterGenericParameters);
+        }
+    }
+
+    /// <summary>
+    /// Processes one dot-segment of a qualified routine name (the leading <c>.</c> was already consumed).
+    /// Embeds previously parsed type-args into the name builder on the first segment, appends the member
+    /// name on subsequent segments, and parses any member-routine-level generics that follow.
+    /// </summary>
+    private void AppendRoutineMemberSegment(
+        string baseName,
+        System.Text.StringBuilder nameSb,
+        ref string? memberOwnerName,
+        ref string? memberMemberRoutineName,
+        ref bool memberHasReceiverTypeArgs,
+        ref string? memberRenderedReceiver,
+        ref bool hasGenericParams,
+        List<string>? receiverTypeArgStrings,
+        ref List<string>? genericParams,
+        ref List<GenericConstraintDeclaration>? inlineConstraints)
+    {
+        string part = ConsumeMemberRoutineName(errorMessage: "Expected member routine name after '.'");
+        memberOwnerName ??= baseName;
+        memberMemberRoutineName = part;
+
+        // If we parsed generic params before the dot, embed them in the name.
+        // This transforms: name="List", generics=["T"], part="append"  →  "List[T].append".
+        // For nested receivers (e.g. List[DictEntry[K, V]]), use the serialized type-arg
+        // strings rather than the bound leaf identifiers so the name preserves structure.
+        if (hasGenericParams && !nameSb.ToString().Contains(value: '.') &&
+            (receiverTypeArgStrings != null || genericParams != null))
+        {
+            List<string> nameArgs = receiverTypeArgStrings ?? genericParams!;
+            string renderedArgs = string.Join(separator: ", ", values: nameArgs);
+            memberRenderedReceiver = $"{baseName}[{renderedArgs}]"; // e.g. "List[T]", "List[DictEntry[K, V]]"
+            nameSb.Append('[');
+            nameSb.Append(renderedArgs);
+            nameSb.Append("].");
+            nameSb.Append(part);
+            memberHasReceiverTypeArgs = true; // owner carried type-args (List[T].append)
+            hasGenericParams = false; // Only embed once
+        }
+        else
+        {
+            // Owner rendered so far (the bare owner, e.g. "S32", "Iterable") — captured BEFORE the
+            // member segment is appended.
+            memberRenderedReceiver = nameSb.ToString();
+            nameSb.Append('.');
+            nameSb.Append(part);
+        }
+
+        // Check for member-routine-level generic params AFTER the routine name
+        // e.g., "List[T].get[I]" - the [I] belongs to the member routine
+        if (Match(type: TokenType.LeftBracket))
+        {
+            ParseMemberRoutineGenericParams(genericParams: ref genericParams,
+                inlineConstraints: ref inlineConstraints);
         }
     }
 

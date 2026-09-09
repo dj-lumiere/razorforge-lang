@@ -53,7 +53,7 @@ public partial class Tokenizer
 
         string prefix = prefixSb.ToString();
         // Check if we found a valid prefix
-        if (!_textPrefixToTokenType.ContainsKey(key: prefix))
+        if (!_textPrefixToTokenType.TryGetValue(key: prefix, value: out TokenType tokenType))
         {
             _position = originalPos;
             _column = originalCol;
@@ -69,8 +69,6 @@ public partial class Tokenizer
         }
 
         Advance(); // consume opening quote
-
-        TokenType tokenType = _textPrefixToTokenType[key: prefix];
         bool isRaw = prefix.Contains(value: 'r');
         bool isFormatted = prefix.Contains(value: 'f');
 
@@ -277,7 +275,7 @@ public partial class Tokenizer
     {
         if (Peek(offset: 1) == '{')
         {
-            // Escaped brace {{ → literal {
+            // Doubled left-brace: escape sequence for a literal brace character in the output.
             Advance();
             Advance();
             textBuffer.Append(value: '{');
@@ -289,7 +287,7 @@ public partial class Tokenizer
         _tokenStart = _position;
         _tokenStartColumn = _column;
         _tokenStartLine = _line;
-        Advance(); // consume {
+        Advance(); // consume the opening brace
         AddToken(type: TokenType.LeftBrace, text: "{");
         _bracketDepth++;
         ScanInsertionExpression();
@@ -396,11 +394,7 @@ public partial class Tokenizer
                 break;
             case ')':
                 AddToken(type: TokenType.RightParen);
-                if (_bracketDepth > 0)
-                {
-                    _bracketDepth--;
-                }
-
+                if (_bracketDepth > 0) _bracketDepth--;
                 break;
             case '[':
                 AddToken(type: TokenType.LeftBracket);
@@ -408,11 +402,7 @@ public partial class Tokenizer
                 break;
             case ']':
                 AddToken(type: TokenType.RightBracket);
-                if (_bracketDepth > 0)
-                {
-                    _bracketDepth--;
-                }
-
+                if (_bracketDepth > 0) _bracketDepth--;
                 break;
             case '{':
                 AddToken(type: TokenType.LeftBrace);
@@ -420,11 +410,7 @@ public partial class Tokenizer
                 break;
             case '}':
                 AddToken(type: TokenType.RightBrace);
-                if (_bracketDepth > 0)
-                {
-                    _bracketDepth--;
-                }
-
+                if (_bracketDepth > 0) _bracketDepth--;
                 break;
             case ',':
                 AddToken(type: TokenType.Comma);
@@ -436,15 +422,7 @@ public partial class Tokenizer
                 ScanPlusOperator();
                 break;
             case '-':
-                if (Match(expected: '>'))
-                {
-                    AddToken(type: TokenType.Arrow);
-                }
-                else
-                {
-                    ScanMinusOperator();
-                }
-
+                ScanInsertionMinusToken();
                 break;
             case '*':
                 ScanStarOperator();
@@ -456,46 +434,20 @@ public partial class Tokenizer
                 ScanPercentOperator();
                 break;
             case ':':
-                // `::` is a realm qualifier (`LLVM::int_eq`) — emit DoubleColon so a
-                // realm-qualified call parses inside an f-string interpolation.
-                // Otherwise a lone `:` at entry depth was already handled above as a
-                // format-spec start (line ~319); reaching here with a lone `:` means
-                // we're inside nested parens/brackets — emit a regular Colon token so
-                // named arguments like `value: 42` inside an f-string interpolation
-                // parse correctly.
+                // A double colon is a realm qualifier (e.g. LLVM::int_eq) — emit DoubleColon so
+                // realm-qualified calls parse inside f-string interpolation. A lone colon at
+                // entry depth is already handled as a format-spec start before we get here;
+                // reaching this case with a lone colon means we are inside nested parens or
+                // brackets, so emit a plain Colon to support named arguments like "value: 42".
                 AddToken(type: Match(expected: ':')
                     ? TokenType.DoubleColon
                     : TokenType.Colon);
                 break;
             case '=':
-                if (Match(expected: '='))
-                {
-                    AddToken(type: Match(expected: '=') ? TokenType.IdentityEqual : TokenType.Equal);
-                }
-                else if (Match(expected: '>'))
-                {
-                    AddToken(type: TokenType.FatArrow);
-                }
-                else
-                {
-                    AddToken(type: TokenType.Assign);
-                }
-
+                ScanInsertionEqualsToken();
                 break;
             case '!':
-                if (Match(expected: '='))
-                {
-                    AddToken(type: Match(expected: '=') ? TokenType.IdentityNotEqual : TokenType.NotEqual);
-                }
-                else if (Match(expected: '!'))
-                {
-                    AddToken(type: TokenType.BangBang);
-                }
-                else
-                {
-                    AddToken(type: TokenType.Bang);
-                }
-
+                ScanInsertionBangToken();
                 break;
             case '<':
                 ScanLessThanOperator();
@@ -522,21 +474,7 @@ public partial class Tokenizer
                 AddToken(type: TokenType.Tilde);
                 break;
             case '?':
-                if (Match(expected: '.'))
-                {
-                    AddToken(type: TokenType.QuestionDot);
-                }
-                else if (Match(expected: '?'))
-                {
-                    AddToken(type: Match(expected: '=')
-                        ? TokenType.NoneCoalesceAssign
-                        : TokenType.NoneCoalesce);
-                }
-                else
-                {
-                    AddToken(type: TokenType.Question);
-                }
-
+                ScanInsertionQuestionToken();
                 break;
             case '"':
                 ScanString();
@@ -546,24 +484,106 @@ public partial class Tokenizer
                 break;
             // Prefixed string literals (b"..", r"..", f"..", rf"..", br"..") —
             // mirror Tokenizer.Scanning so nested literals work inside f-string
-            // interpolation holes, e.g. f"{try_parse(bytes: b\"42\")}".
+            // interpolation holes, e.g. f"{try_parse(bytes: b"42")}".
             case 'r' or 'f':
-                if (!TryParseTextPrefix())
-                {
-                    ScanIdentifier();
-                }
-
+                ScanInsertionTextPrefixOrIdentifier();
                 break;
             case 'b':
-                if (!TryParseTextPrefix() && !TryParseByteLiteralPrefix())
-                {
-                    ScanIdentifier();
-                }
-
+                ScanInsertionByteOrIdentifier();
                 break;
             default:
                 ScanInsertionDefaultToken(c: c);
                 break;
+        }
+    }
+
+    /// <summary>Scans a '-' token inside an insertion expression: arrow or minus operator.</summary>
+    private void ScanInsertionMinusToken()
+    {
+        if (Match(expected: '>'))
+        {
+            AddToken(type: TokenType.Arrow);
+        }
+        else
+        {
+            ScanMinusOperator();
+        }
+    }
+
+    /// <summary>Scans an '=' token inside an insertion expression: identity-equal, fat-arrow, or assign.</summary>
+    private void ScanInsertionEqualsToken()
+    {
+        if (Match(expected: '='))
+        {
+            AddToken(type: Match(expected: '=') ? TokenType.IdentityEqual : TokenType.Equal);
+        }
+        else if (Match(expected: '>'))
+        {
+            AddToken(type: TokenType.FatArrow);
+        }
+        else
+        {
+            AddToken(type: TokenType.Assign);
+        }
+    }
+
+    /// <summary>Scans a '!' token inside an insertion expression: identity-not-equal, bang-bang, or bang.</summary>
+    private void ScanInsertionBangToken()
+    {
+        if (Match(expected: '='))
+        {
+            AddToken(type: Match(expected: '=') ? TokenType.IdentityNotEqual : TokenType.NotEqual);
+        }
+        else if (Match(expected: '!'))
+        {
+            AddToken(type: TokenType.BangBang);
+        }
+        else
+        {
+            AddToken(type: TokenType.Bang);
+        }
+    }
+
+    /// <summary>Scans a '?' token inside an insertion expression: optional-dot, none-coalesce, or question.</summary>
+    private void ScanInsertionQuestionToken()
+    {
+        if (Match(expected: '.'))
+        {
+            AddToken(type: TokenType.QuestionDot);
+        }
+        else if (Match(expected: '?'))
+        {
+            AddToken(type: Match(expected: '=')
+                ? TokenType.NoneCoalesceAssign
+                : TokenType.NoneCoalesce);
+        }
+        else
+        {
+            AddToken(type: TokenType.Question);
+        }
+    }
+
+    /// <summary>
+    /// Handles 'r' or 'f' characters inside an insertion expression: tries a prefixed text literal
+    /// (rf"...", r"...", f"..."), falling back to scanning as an identifier.
+    /// </summary>
+    private void ScanInsertionTextPrefixOrIdentifier()
+    {
+        if (!TryParseTextPrefix())
+        {
+            ScanIdentifier();
+        }
+    }
+
+    /// <summary>
+    /// Handles 'b' characters inside an insertion expression: tries a prefixed text literal (b"...")
+    /// or byte character literal (b'x'), falling back to scanning as an identifier.
+    /// </summary>
+    private void ScanInsertionByteOrIdentifier()
+    {
+        if (!TryParseTextPrefix() && !TryParseByteLiteralPrefix())
+        {
+            ScanIdentifier();
         }
     }
 

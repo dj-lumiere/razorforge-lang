@@ -124,7 +124,7 @@ public sealed class MutationInference
     /// </summary>
     /// <param name="node">The call graph node for the current routine.</param>
     /// <param name="statement">The statement to analyze.</param>
-    public void AnalyzeStatementForMutation(CallGraphNode node, Statement statement)
+    public static void AnalyzeStatementForMutation(CallGraphNode node, Statement statement)
     {
         switch (statement)
         {

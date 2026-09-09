@@ -19,7 +19,7 @@ namespace RazorForge.Tests.Perf;
 /// entities, iterators, generics, locks, choices, variants, routine values). <see cref="AllFixtures_Parity"/>
 /// sweeps EVERY fixture and is opt-in (slow: one cold full-SA per fixture).</para>
 /// </summary>
-public sealed class WarmColdFixtureParityTests
+public sealed partial class WarmColdFixtureParityTests
 {
     private readonly ITestOutputHelper _out;
     public WarmColdFixtureParityTests(ITestOutputHelper output) => _out = output;
@@ -47,7 +47,7 @@ public sealed class WarmColdFixtureParityTests
     /// <summary>Risky-surface subset — the feature areas where demand-seeding has historically drifted
     /// between warm and cold (throw→crash_message/represent, entity self-free, iterator adapters, lock
     /// policies, choice/variant formatters, routine-value teardown).</summary>
-    public static IEnumerable<object[]> RiskyFixtures()
+    public static TheoryData<string, string> RiskyFixtures()
     {
         // Parity-clean fixtures — ENFORCED. Adding a fixture here locks its warm≡cold define-set forever.
         string[] names =
@@ -57,11 +57,13 @@ public sealed class WarmColdFixtureParityTests
             "guarded_api", "guarded_access_api", "fallible_lock_api", "agent_api",
             "array_api", "range_api", "filesystem_api", "itertools_api",
         ];
+        var data = new TheoryData<string, string>();
         foreach (string n in names)
         {
             string p = Path.Combine(FixtureDir, n + ".rf");
-            if (File.Exists(p)) yield return [n, p];
+            if (File.Exists(p)) data.Add(n, p);
         }
+        return data;
     }
 
     [Theory]
@@ -120,16 +122,25 @@ public sealed class WarmColdFixtureParityTests
             programs: r.Registry.UserPrograms, instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys, registry: r.Registry);
         var gen = new Compiler.CodeGen.LlvmCodeGenerator(
-            userPrograms: r.Registry.UserPrograms, registry: r.Registry,
-            stdlibPrograms: r.Registry.StdlibPrograms, synthesizedBodies: r.SynthesizedBodies,
-            instantiatedGenericBodies: r.InstantiatedGenericBodies, liveRoutineKeys: r.LiveRoutineKeys,
-            maySuspendRoutineKeys: r.MaySuspendRoutineKeys);
+            userPrograms: r.Registry.UserPrograms,
+            registry: r.Registry,
+            options: new Compiler.CodeGen.LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = r.Registry.StdlibPrograms,
+                SynthesizedBodies = r.SynthesizedBodies,
+                InstantiatedGenericBodies = r.InstantiatedGenericBodies,
+                LiveRoutineKeys = r.LiveRoutineKeys,
+                MaySuspendRoutineKeys = r.MaySuspendRoutineKeys
+            });
         return gen.Generate();
     }
+
+    [GeneratedRegex(@" !dbg ![0-9]+")]
+    private static partial Regex DbgAnnotationRegex();
 
     private static HashSet<string> DefineSet(string ll) =>
         ll.Split('\n')
           .Where(l => l.StartsWith("define ", System.StringComparison.Ordinal))
-          .Select(l => Regex.Replace(l.Split(" {", 2)[0], @" !dbg ![0-9]+", ""))
+          .Select(l => DbgAnnotationRegex().Replace(l.Split(" {", 2)[0], ""))
           .ToHashSet(System.StringComparer.Ordinal);
 }

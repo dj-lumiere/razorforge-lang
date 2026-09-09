@@ -21,7 +21,7 @@ internal partial class Program
     /// connection. The daemon handles requests SERIALLY, which also makes the transient Console
     /// redirection used to capture build diagnostics race-free.
     /// </summary>
-    internal static class CompileDaemon
+    internal static partial class CompileDaemon
     {
         /// <summary>
         /// Detaches the calling process from its console (Windows). An auto-spawned daemon inherits the
@@ -32,9 +32,9 @@ internal partial class Program
         /// from that group so those console events no longer reach it; it is then stopped only by an explicit
         /// <c>shutdown</c> request (<c>daemon-stop</c>).
         /// </summary>
-        [DllImport(dllName: "kernel32.dll", SetLastError = true)]
+        [LibraryImport(libraryName: "kernel32.dll", SetLastError = true)]
         [return: MarshalAs(unmanagedType: UnmanagedType.Bool)]
-        private static extern bool FreeConsole();
+        private static partial bool FreeConsole();
 
         // ---- request / response DTOs ---------------------------------------------------------------
 
@@ -128,7 +128,7 @@ internal partial class Program
         {
             // Key on language + the ordered library-root set: distinct [target] library sets index different
             // module surfaces. (Library roots are re-registered per request on top of the seeded stdlib index.)
-            string key = language + "" + string.Join(separator: "", values: libraryRoots);
+            string key = language + "\u0001" + string.Join(separator: "\u0001", values: libraryRoots);
             if (StdlibIndexCache.TryGetValue(key: key, value: out IReadOnlyDictionary<string, string>? cached))
                 return cached;
             IReadOnlyDictionary<string, string> index = Compiler.Declaration.BuildDriver.BuildStdlibIndex(
@@ -165,7 +165,7 @@ internal partial class Program
             // Pre-warm the primary language so the first real build is already warm.
             try
             {
-                GetWarm(language: InvokedAsSuflae ? Language.Suflae : Language.RazorForge);
+                _ = GetWarm(language: InvokedAsSuflae ? Language.Suflae : Language.RazorForge);
             }
             catch (Exception ex)
             {
@@ -277,16 +277,18 @@ internal partial class Program
                 Console.SetError(newError: captured);
                 exit = BuildExecutable(entryFile: req.EntryFile,
                     exeFile: out exePath,
-                    projectRoot: req.ProjectRoot,
-                    buildMode: (RfBuildMode)req.BuildMode,
-                    dumpAst: req.DumpAst,
-                    saTiming: req.SaTiming,
-                    requireStartRoutine: req.RequireStart,
-                    showBuildStages: req.ShowBuildStages,
-                    libraryRoots: req.LibraryRoots,
-                    cLibraries: req.CLibraries,
-                    libraryPaths: req.LibraryPaths,
-                    libraryConfigs: null,
+                    config: new ResolvedEntry
+                    {
+                        ProjectRoot = req.ProjectRoot,
+                        BuildMode = (RfBuildMode)req.BuildMode,
+                        DumpAst = req.DumpAst,
+                        SaTiming = req.SaTiming,
+                        RequireStartRoutine = req.RequireStart,
+                        ShowBuildStages = req.ShowBuildStages,
+                        LibraryRoots = req.LibraryRoots,
+                        CLibraries = req.CLibraries,
+                        LibraryPaths = req.LibraryPaths
+                    },
                     warmProvider: GetWarm);
             }
             catch (Exception ex)
@@ -331,12 +333,14 @@ internal partial class Program
                 Console.SetError(newError: captured);
                 exit = BuildToIr(entryFile: req.EntryFile,
                     ir: out ir,
-                    projectRoot: req.ProjectRoot,
-                    buildMode: (RfBuildMode)req.BuildMode,
-                    requireStartRoutine: req.RequireStart,
-                    libraryRoots: req.LibraryRoots,
-                    warmProvider: GetWarm,
-                    stdlibIndexProvider: GetStdlibIndex);
+                    config: new ResolvedEntry
+                    {
+                        ProjectRoot = req.ProjectRoot,
+                        BuildMode = (RfBuildMode)req.BuildMode,
+                        RequireStartRoutine = req.RequireStart,
+                        LibraryRoots = req.LibraryRoots
+                    },
+                    warm: new WarmProviders(GetWarm, null, GetStdlibIndex));
             }
             catch (Exception ex)
             {
@@ -462,11 +466,7 @@ internal partial class Program
             {
                 rc = BuildToIr(entryFile: System.IO.Path.GetFullPath(path: resolved.EntryFile),
                     ir: out ir,
-                    projectRoot: resolved.ProjectRoot,
-                    buildMode: resolved.BuildMode,
-                    requireStartRoutine: resolved.RequireStartRoutine,
-                    libraryRoots: resolved.LibraryRoots,
-                    warmProvider: null);
+                    config: resolved);
             }
 
             if (rc != 0 || string.IsNullOrEmpty(value: ir))
@@ -686,17 +686,6 @@ internal partial class Program
             for (int i = 0; i < 50 && PingStamp(timeoutMs: 100) != null; i++)
                 System.Threading.Thread.Sleep(millisecondsTimeout: 100);
         }
-
-        /// <summary>
-        /// Makes <c>use-daemon = true</c> a one-command experience: if no daemon is answering, the builder
-        /// starts one itself (detached, logging to a temp file) and waits for it to warm; if one is already
-        /// up, it is reused and NO second daemon is started. Idempotent + race-safe: a quick ping
-        /// short-circuits the common "already running" case, and a system-wide mutex serializes concurrent
-        /// clients so exactly ONE spawns. Returns true once a daemon is reachable, false if spawn/warm-up
-        /// failed (the caller then falls back to a cold in-process compile).
-        /// </summary>
-        private static bool EnsureDaemonRunning() =>
-            EnsureDaemonRunning(warmWaitMs: out _, spawned: out _);
 
         /// <summary>
         /// Ensures a warm daemon is reachable, spawning one if needed. <paramref name="warmWaitMs"/> is the

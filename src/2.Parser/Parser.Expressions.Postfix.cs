@@ -17,99 +17,126 @@ public partial class Parser
 
         while (true)
         {
-            // ===============================================================================
-            // CASE 1: Uniform bracket access - expr[...], expr[...](...), expr![...](...)
-            // ===============================================================================
-            if (Check(type: TokenType.LeftBracket) ||
-                (Check(type: TokenType.Bang) && PeekToken(offset: 1).Type == TokenType.LeftBracket))
-            {
-                expr = HandleBracketAccess(expr: expr);
-            }
-            // Throwable function call: identifier!(args) with named arguments
-            else if (Check(type: TokenType.Bang) && PeekToken(offset: 1)
-                        .Type == TokenType.LeftParen)
-            {
-                expr = HandleFailableCall(expr: expr);
-            }
-            else if (Match(type: TokenType.LeftParen))
-            {
-                // FreeRoutine call - supports named arguments (name: value)
-                List<Expression> args = ParseArgumentList();
-                Consume(type: TokenType.RightParen,
-                    errorMessage: ExpectedRightParenAfterArguments);
-                expr = new CallExpression(Callee: expr, Arguments: args, Location: expr.Location);
-            }
-            else if (Match(type: TokenType.QuestionDot))
-            {
-                // Optional chaining: obj?.member
-                string member = ConsumeMemberRoutineName(errorMessage: "Expected member name after '?.'");
-                expr = new OptionalMemberExpression(Object: expr,
-                    MemberName: member,
-                    Location: expr.Location);
-            }
-            else if (Check(type: TokenType.Dot) &&
-                     PeekToken(offset: 1).Type == TokenType.SpliceOpen)
-            {
-                // Comptime splice selector: obj.${expr}. Kept as a distinct SpliceMemberExpression
-                // (never a plain MemberExpression) so the monomorphizer folds the splice to a
-                // concrete field name and rewrites it to a real member access.
-                Advance(); // consume '.'
-                Advance(); // consume '${'
-                SpliceExpression selector = ParseSplice(kind: SpliceKind.Selector);
-                expr = new SpliceMemberExpression(Object: expr, Selector: selector,
-                    Location: expr.Location);
-            }
-            else if (Check(type: TokenType.Dot) &&
-                     PeekToken(offset: 1).Type == TokenType.Dollar)
-            {
-                // Brace-less comptime splice selector: obj.$nameof(m). Same SpliceMemberExpression as the
-                // legacy obj.${m.name}; the monomorphizer folds nameof(m) to the concrete field name.
-                Advance(); // consume '.'
-                Advance(); // consume '$'
-                SpliceExpression selector = ParseDollarSplice(kind: SpliceKind.Selector);
-                expr = new SpliceMemberExpression(Object: expr, Selector: selector,
-                    Location: expr.Location);
-            }
-            else if (Match(type: TokenType.Dot))
-            {
-                (Expression next, bool restartLoop) = HandleMemberAccess(expr: expr);
-                expr = next;
-                if (restartLoop)
-                {
-                    continue;
-                }
-            }
-            // ===============================================================================
-            // CASE 7: Force unwrap - expr!! (extract value from Maybe<T>, panic if None)
-            // ===============================================================================
-            else if (Match(type: TokenType.BangBang))
-            {
-                expr = new UnaryExpression(Operator: UnaryOperator.ForceUnwrap,
-                    Operand: expr,
-                    Location: expr.Location);
-            }
-            // ===============================================================================
-            // CASE 8: Multi-line dot chaining - skip newlines if followed by a dot
-            // Allows:  items
-            //            .where(x => x > 0)
-            //            .select(x => x * 2)
-            // ===============================================================================
-            else if (Check(type: TokenType.Newline))
-            {
-                if (TrySkipNewlinesBeforeDot())
-                {
-                    continue;
-                }
-
-                break;
-            }
-            else
+            if (!TryParsePostfixStep(ref expr))
             {
                 break;
             }
         }
 
         return expr;
+    }
+
+    /// <summary>
+    /// Attempts to parse one postfix step on <paramref name="expr"/>, updating it in place.
+    /// Returns <c>true</c> when a postfix operator was consumed and the loop should try another;
+    /// <c>false</c> when no postfix token was found and parsing should stop.
+    /// </summary>
+    private bool TryParsePostfixStep(ref Expression expr)
+    {
+        // Bracket access: expr[...], expr[...](...), or expr![...](...)
+        if (IsBracketAccessStart())
+        {
+            expr = HandleBracketAccess(expr: expr);
+            return true;
+        }
+
+        // Failable call: identifier!(args)
+        if (IsFailableCallStart())
+        {
+            expr = HandleFailableCall(expr: expr);
+            return true;
+        }
+
+        // Plain call: expr(args)
+        if (Match(type: TokenType.LeftParen))
+        {
+            List<Expression> args = ParseArgumentList();
+            Consume(type: TokenType.RightParen, errorMessage: ExpectedRightParenAfterArguments);
+            expr = new CallExpression(Callee: expr, Arguments: args, Location: expr.Location);
+            return true;
+        }
+
+        // Optional chaining: obj?.member
+        if (Match(type: TokenType.QuestionDot))
+        {
+            string member = ConsumeMemberRoutineName(errorMessage: "Expected member name after '?.'");
+            expr = new OptionalMemberExpression(Object: expr, MemberName: member,
+                Location: expr.Location);
+            return true;
+        }
+
+        // Comptime splice selectors: obj.${expr} or obj.$primary
+        if (TryParseSpliceMember(expr: expr, result: out Expression? spliceMember))
+        {
+            expr = spliceMember;
+            return true;
+        }
+
+        // Plain member access: obj.member
+        if (Match(type: TokenType.Dot))
+        {
+            expr = HandleMemberAccess(expr: expr).Expr;
+            return true;
+        }
+
+        // Force unwrap: expr!! — extracts the value from Maybe[T], panics if None
+        if (Match(type: TokenType.BangBang))
+        {
+            expr = new UnaryExpression(Operator: UnaryOperator.ForceUnwrap,
+                Operand: expr, Location: expr.Location);
+            return true;
+        }
+
+        // Multi-line dot chaining: consume pending newlines when the next non-newline is a dot
+        if (Check(type: TokenType.Newline))
+        {
+            return TrySkipNewlinesBeforeDot();
+        }
+
+        return false;
+    }
+
+    /// <summary>Returns true when the current token sequence starts a bracket access expression.</summary>
+    private bool IsBracketAccessStart() =>
+        Check(type: TokenType.LeftBracket) ||
+        (Check(type: TokenType.Bang) && PeekToken(offset: 1).Type == TokenType.LeftBracket);
+
+    /// <summary>Returns true when the current token sequence starts a failable call expression.</summary>
+    private bool IsFailableCallStart() =>
+        Check(type: TokenType.Bang) && PeekToken(offset: 1).Type == TokenType.LeftParen;
+
+    /// <summary>
+    /// Attempts to parse a comptime splice member access if the current token is a dot followed by
+    /// a splice opener (<c>${</c>) or a bare dollar (<c>$</c>). Returns false when no splice follows.
+    /// </summary>
+    private bool TryParseSpliceMember(Expression expr, out Expression? result)
+    {
+        if (Check(type: TokenType.Dot) && PeekToken(offset: 1).Type == TokenType.SpliceOpen)
+        {
+            // Comptime splice selector: obj.${expr}. A distinct SpliceMemberExpression so the
+            // monomorphizer folds the splice to a concrete field name before SA member resolve.
+            Advance(); // consume '.'
+            Advance(); // consume '${'
+            SpliceExpression selector = ParseSplice(kind: SpliceKind.Selector);
+            result = new SpliceMemberExpression(Object: expr, Selector: selector,
+                Location: expr.Location);
+            return true;
+        }
+
+        if (Check(type: TokenType.Dot) && PeekToken(offset: 1).Type == TokenType.Dollar)
+        {
+            // Brace-less comptime splice selector: obj.$nameof(m). Same SpliceMemberExpression as
+            // the braced form; the monomorphizer folds nameof(m) to the concrete field name.
+            Advance(); // consume '.'
+            Advance(); // consume '$'
+            SpliceExpression selector = ParseDollarSplice(kind: SpliceKind.Selector);
+            result = new SpliceMemberExpression(Object: expr, Selector: selector,
+                Location: expr.Location);
+            return true;
+        }
+
+        result = null;
+        return false;
     }
 
     /// <summary>
@@ -157,7 +184,7 @@ public partial class Parser
     /// <summary>
     /// Handles a throwable function call: <c>identifier!(args)</c> with named arguments.
     /// </summary>
-    private Expression HandleFailableCall(Expression expr)
+    private CallExpression HandleFailableCall(Expression expr)
     {
         Advance(); // consume '!'
         Advance(); // consume '('
@@ -306,6 +333,12 @@ public partial class Parser
             Location: expr.Location);
     }
 
+    /// <summary>Advances past all consecutive <see cref="TokenType.Newline"/> tokens.</summary>
+    private void ConsumeNewlines()
+    {
+        while (Match(type: TokenType.Newline)) { /* advance past each newline */ }
+    }
+
     /// <summary>
     /// Multi-line dot chaining: if the current newline(s) are followed by a dot, consume the newlines
     /// and report that the postfix loop should continue. Returns false (leaving the parser position
@@ -323,11 +356,8 @@ public partial class Parser
         if (PeekToken(offset: offset)
                .Type == TokenType.Dot)
         {
-            // Consume newlines and let next iteration handle the dot
-            while (Match(type: TokenType.Newline))
-            {
-            } // NOSONAR S108: intentional newline-consuming loop
-
+            // Consume all pending newlines; the next postfix iteration will handle the dot.
+            ConsumeNewlines();
             return true;
         }
 

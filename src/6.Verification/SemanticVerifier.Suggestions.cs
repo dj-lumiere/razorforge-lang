@@ -35,7 +35,12 @@ public sealed partial class SemanticVerifier
             return null;
         }
 
-        int maxDistance = target.Length <= 4 ? 1 : target.Length <= 8 ? 2 : 3;
+        int maxDistance = target.Length switch
+        {
+            <= 4 => 1,
+            <= 8 => 2,
+            _ => 3
+        };
         string? best = null;
         int bestDistance = maxDistance + 1;
 
@@ -85,26 +90,8 @@ public sealed partial class SemanticVerifier
         for (int i = 1; i <= n; i++)
         {
             curr[0] = i;
-            int rowMin = curr[0];
             char ca = char.ToLowerInvariant(c: a[i - 1]);
-            for (int j = 1; j <= m; j++)
-            {
-                char cb = char.ToLowerInvariant(c: b[j - 1]);
-                int cost = ca == cb ? 0 : 1;
-                curr[j] = Math.Min(val1: Math.Min(val1: curr[j - 1] + 1, val2: prev[j] + 1),
-                    val2: prev[j - 1] + cost);
-                if (i > 1 && j > 1 &&
-                    ca == char.ToLowerInvariant(c: b[j - 2]) &&
-                    char.ToLowerInvariant(c: a[i - 2]) == cb)
-                {
-                    curr[j] = Math.Min(val1: curr[j], val2: prevPrev[j - 2] + 1);
-                }
-
-                if (curr[j] < rowMin)
-                {
-                    rowMin = curr[j];
-                }
-            }
+            int rowMin = FillEditRow(a: a, b: b, i: i, ca: ca, m: m, prevPrev: prevPrev, prev: prev, curr: curr);
 
             if (rowMin > cap)
             {
@@ -115,6 +102,32 @@ public sealed partial class SemanticVerifier
         }
 
         return prev[m];
+    }
+
+    /// <summary>Fills one row of the edit-distance DP table and returns the row minimum.</summary>
+    private static int FillEditRow(string a, string b, int i, char ca, int m,
+        int[] prevPrev, int[] prev, int[] curr)
+    {
+        int rowMin = curr[0];
+        for (int j = 1; j <= m; j++)
+        {
+            char cb = char.ToLowerInvariant(c: b[j - 1]);
+            int cost = ca == cb ? 0 : 1;
+            curr[j] = Math.Min(val1: Math.Min(val1: curr[j - 1] + 1, val2: prev[j] + 1),
+                val2: prev[j - 1] + cost);
+            if (i > 1 && j > 1 &&
+                ca == char.ToLowerInvariant(c: b[j - 2]) &&
+                char.ToLowerInvariant(c: a[i - 2]) == cb)
+            {
+                curr[j] = Math.Min(val1: curr[j], val2: prevPrev[j - 2] + 1);
+            }
+
+            if (curr[j] < rowMin)
+            {
+                rowMin = curr[j];
+            }
+        }
+        return rowMin;
     }
 
     /// <summary>
@@ -191,54 +204,19 @@ public sealed partial class SemanticVerifier
 
         // Per-type memberRoutine tables hold the type's own declared memberRoutines (GetAllRoutines does
         // not include them all); query both the resolution and its generic definition.
-        foreach (RoutineInfo memberRoutine in _registry.GetMemberRoutinesForType(type: type))
-        {
-            if (memberRoutine.IsWiredMemberRoutine) continue;
-            string memberRoutineName = memberRoutine.Name;
-            if (memberRoutineName.Length > 0 && seen.Add(item: memberRoutineName))
-            {
-                yield return memberRoutineName;
-            }
-        }
+        foreach (string name in YieldMemberRoutineNames(type: type, seen: seen))
+            yield return name;
 
         if (genericDef != null)
         {
-            foreach (RoutineInfo memberRoutine in _registry.GetMemberRoutinesForType(type: genericDef))
-            {
-                if (memberRoutine.IsWiredMemberRoutine) continue;
-                string memberRoutineName = memberRoutine.Name;
-                if (memberRoutineName.Length > 0 && seen.Add(item: memberRoutineName))
-                {
-                    yield return memberRoutineName;
-                }
-            }
+            foreach (string name in YieldMemberRoutineNames(type: genericDef, seen: seen))
+                yield return name;
         }
 
-        foreach (RoutineInfo routine in _registry.GetAllRoutines())
+        foreach (string name in YieldOwnerMatchedRoutineNames(
+                     type: type, genericDef: genericDef, baseName: baseName, seen: seen))
         {
-            TypeSymbol? owner = routine.OwnerType;
-            if (owner == null)
-            {
-                continue;
-            }
-
-            // Owners are registered under bracketed generic-def names ("List[T]"),
-            // receivers arrive as resolutions ("List[Core.S64]") — compare base names.
-            string ownerBase = owner.BareName;
-            bool ownerMatches = ReferenceEquals(objA: owner, objB: type) ||
-                                (genericDef != null &&
-                                 ReferenceEquals(objA: owner, objB: genericDef)) ||
-                                ownerBase == baseName;
-            if (!ownerMatches)
-            {
-                continue;
-            }
-
-            string name = routine.Name;
-            if (name.Length > 0 && seen.Add(item: name))
-            {
-                yield return name;
-            }
+            yield return name;
         }
 
         List<MemberVariableInfo>? fields = type switch
@@ -249,16 +227,49 @@ public sealed partial class SemanticVerifier
         };
 
         if (fields == null)
-        {
             yield break;
-        }
 
-        foreach (MemberVariableInfo field in fields)
+        foreach (MemberVariableInfo field in fields.Where(predicate: f => seen.Add(item: f.Name)))
+            yield return field.Name;
+    }
+
+    /// <summary>
+    /// Yields non-wired member-routine names for <paramref name="type"/> that have not yet been seen.
+    /// </summary>
+    private IEnumerable<string> YieldMemberRoutineNames(TypeSymbol type, HashSet<string> seen)
+    {
+        foreach (RoutineInfo memberRoutine in _registry.GetMemberRoutinesForType(type: type))
         {
-            if (seen.Add(item: field.Name))
-            {
-                yield return field.Name;
-            }
+            if (memberRoutine.IsWiredMemberRoutine) continue;
+            string memberRoutineName = memberRoutine.Name;
+            if (memberRoutineName.Length > 0 && seen.Add(item: memberRoutineName))
+                yield return memberRoutineName;
+        }
+    }
+
+    /// <summary>
+    /// Yields routine names from all registered routines whose owner matches <paramref name="type"/>
+    /// (by reference or base name), skipping already-seen names.
+    /// </summary>
+    private IEnumerable<string> YieldOwnerMatchedRoutineNames(TypeSymbol type, TypeSymbol? genericDef,
+        string baseName, HashSet<string> seen)
+    {
+        foreach (RoutineInfo routine in _registry.GetAllRoutines())
+        {
+            TypeSymbol? owner = routine.OwnerType;
+            if (owner == null) continue;
+
+            // Owners are registered under bracketed generic-def names ("List[T]"),
+            // receivers arrive as resolutions ("List[Core.S64]") — compare base names.
+            bool ownerMatches = ReferenceEquals(objA: owner, objB: type) ||
+                                (genericDef != null &&
+                                 ReferenceEquals(objA: owner, objB: genericDef)) ||
+                                owner.BareName == baseName;
+            if (!ownerMatches) continue;
+
+            string name = routine.Name;
+            if (name.Length > 0 && seen.Add(item: name))
+                yield return name;
         }
     }
 }

@@ -14,26 +14,16 @@ object RazorForgeLanguage : Language("RazorForge")
 
 object SuflaeLanguage : Language("Suflae")
 
-class RazorForgeFileType private constructor() : LanguageFileType(RazorForgeLanguage) {
+object RazorForgeFileType : LanguageFileType(RazorForgeLanguage) {
     override fun getName(): String = "RazorForge"
     override fun getDescription(): String = "RazorForge source file"
     override fun getDefaultExtension(): String = "rf"
     override fun getIcon(): Icon? = null
-
-    companion object {
-        @JvmField
-        val INSTANCE = RazorForgeFileType()
-    }
 }
 
-class SuflaeFileType private constructor() : LanguageFileType(SuflaeLanguage) {
+object SuflaeFileType : LanguageFileType(SuflaeLanguage) {
     override fun getName(): String = "Suflae"
     override fun getDescription(): String = "Suflae source file"
     override fun getDefaultExtension(): String = "sf"
     override fun getIcon(): Icon? = null
-
-    companion object {
-        @JvmField
-        val INSTANCE = SuflaeFileType()
-    }
 }

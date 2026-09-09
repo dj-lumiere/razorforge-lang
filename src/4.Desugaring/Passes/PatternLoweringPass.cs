@@ -131,12 +131,12 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// than via <c>base.VisitWhen</c>, because the transform needs the already-lowered clauses to
     /// build the chain and a non-lowerable when must keep its rebuilt clause list.
     /// </summary>
-    protected override Statement VisitWhen(WhenStatement when)
+    protected override Statement VisitWhen(WhenStatement s)
     {
         // Recurse into clause bodies first (handles nested WhenStatements).
         bool clauseChanged = false;
-        var loweredClauses = new List<WhenClause>(capacity: when.Clauses.Count);
-        foreach (WhenClause c in when.Clauses)
+        var loweredClauses = new List<WhenClause>(capacity: s.Clauses.Count);
+        foreach (WhenClause c in s.Clauses)
         {
             Statement lBody = VisitStatement(stmt: c.Body);
             if (!ReferenceEquals(lBody, c.Body))
@@ -152,23 +152,38 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
 
         // Subject-less when (Expression == null): each arm is an ExpressionPattern (bool guard)
         // or ElsePattern. Lower directly to an if/else chain.
-        if (when.Expression == null)
-            return LowerSubjectlessWhen(loweredClauses: loweredClauses, loc: when.Location);
+        if (s.Expression == null)
+            return LowerSubjectlessWhen(loweredClauses: loweredClauses, loc: s.Location);
 
-        TypeInfo? subjectType = when.Expression.ResolvedType;
+        TypeInfo? subjectType = s.Expression.ResolvedType;
 
-        if (!IsLowerable(when: when, subjectType: subjectType))
+        if (!IsLowerable(when: s, subjectType: subjectType))
         {
             // Leave for codegen's EmitWhen; update clauses if any bodies changed.
-            return clauseChanged ? when with { Clauses = loweredClauses } : when;
+            return clauseChanged ? s with { Clauses = loweredClauses } : s;
         }
 
         // -----------------------------------------------------------------------------
-        SourceLocation loc = when.Location;
-        var hoisted = new List<Statement>();
+        SourceLocation loc = s.Location;
 
-        // Hoist non-trivial subject to a temp var to avoid re-evaluation.
-        Expression subject = when.Expression;
+        // Hoist a non-trivial subject to a temp, then build the if/else chain.
+        return BuildLowerableWhen(
+            expression: s.Expression, subjectType: subjectType,
+            loweredClauses: loweredClauses, loc: loc);
+    }
+
+    /// <summary>
+    /// Builds the output for a lowerable <see cref="WhenStatement"/> after its clauses have been
+    /// recursed into: optionally hoists the subject to a temp, rewrites carrier-dispatch bodies,
+    /// then assembles the if/else chain. Extracted from <see cref="VisitWhen"/> to reduce its
+    /// cognitive complexity.
+    /// </summary>
+    private Statement BuildLowerableWhen(Expression expression, TypeInfo? subjectType,
+        List<WhenClause> loweredClauses, SourceLocation loc)
+    {
+        var hoisted = new List<Statement>();
+        Expression subject = expression;
+
         if (subject is not (IdentifierExpression or LiteralExpression))
         {
             string subjName = NextTempName(prefix: "subj");
@@ -192,11 +207,9 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             }
         }
 
-        // Pre-scan: determine if the else arm on a carrier is narrowed to the inner type.
         bool isElseNarrowed = DetermineElseNarrowed(loweredClauses: loweredClauses,
             subjectType: subjectType);
 
-        // Build if/else chain via right-fold (last clause to first).
         Statement? chain = BuildWhenIfChain(loweredClauses: loweredClauses, subject: subject,
             subjectType: subjectType, isElseNarrowed: isElseNarrowed, loc: loc);
 
@@ -607,7 +620,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// Returns the (always-matching) condition and optional binding for an <see cref="ElsePattern"/>.
     /// Extracted from <see cref="GetPatternCondition"/>.
     /// </summary>
-    private (Expression? Cond, Statement? Binding) GetElsePatternCondition(
+    private static (Expression? Cond, Statement? Binding) GetElsePatternCondition(
         ElsePattern ep, Expression subject, TypeInfo? subjectType, bool isElseNarrowed,
         SourceLocation loc)
     {
@@ -935,23 +948,6 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
         };
     }
 
-    /// <summary>Builds <c>subject.type_id == typeId_u64</c> for a specific Result/Lookup arm.</summary>
-    private static BinaryExpression MakeTypeIdEquals(Expression subject, ulong typeId, SourceLocation loc,
-        TypeInfo? boolType, TypeInfo? u64Type)
-    {
-        var typeIdAccess = MakeMemberAccess(subject: subject, field: TypeIdFieldName,
-            fieldType: u64Type, loc: loc);
-        var constant = new LiteralExpression(Value: typeId, LiteralType: TokenType.U64Literal, Location: loc)
-        {
-            ResolvedType = u64Type
-        };
-        return new BinaryExpression(Left: typeIdAccess, Operator: BinaryOperator.Equal,
-            Right: constant, Location: loc)
-        {
-            ResolvedType = boolType
-        };
-    }
-
     /// <summary>
     /// Builds a <see cref="CarrierPayloadExpression"/> that extracts the inner value
     /// from the carrier's <c>data_address</c> field cast to <paramref name="innerType"/>.
@@ -977,45 +973,6 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
         if (subjectType is not RecordTypeInfo rec) return null;
         MemberVariableInfo? valueField = rec.LookupMemberVariable(memberVariableName: ValueFieldName);
         return valueField?.Type;
-    }
-
-    /// <summary>Builds <c>subject.value.is_none()</c> -> the absence check for <c>Maybe[T entity]</c>.</summary>
-    private CallExpression MakeIsNoneCall(Expression subject, TypeInfo subjectType, SourceLocation loc)
-    {
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
-        TypeInfo? hijackedType = GetEntityMaybeHijackedType(subjectType: subjectType);
-        var valueAccess = new MemberExpression(Object: subject, MemberName: ValueFieldName, Location: loc)
-        {
-            ResolvedType = hijackedType
-        };
-        var isNoneMember = new MemberExpression(Object: valueAccess, MemberName: Declaration.RuntimeContract.RawPointer.IsNone,
-            Location: loc)
-        {
-            ResolvedType = boolType
-        };
-        return new CallExpression(Callee: isNoneMember, Arguments: [], Location: loc)
-        {
-            ResolvedType = boolType
-        };
-    }
-
-    /// <summary>Builds <c>subject.value.peek()</c> -> extracts the entity from <c>Maybe[T entity]</c>.</summary>
-    private static CallExpression MakeEntityMaybeRead(Expression subject, TypeInfo subjectType,
-        TypeInfo entityType, SourceLocation loc)
-    {
-        TypeInfo? hijackedType = GetEntityMaybeHijackedType(subjectType: subjectType);
-        var valueAccess = new MemberExpression(Object: subject, MemberName: ValueFieldName, Location: loc)
-        {
-            ResolvedType = hijackedType
-        };
-        var readMember = new MemberExpression(Object: valueAccess, MemberName: Declaration.RuntimeContract.RawPointer.Peek, Location: loc)
-        {
-            ResolvedType = entityType
-        };
-        return new CallExpression(Callee: readMember, Arguments: [], Location: loc)
-        {
-            ResolvedType = entityType
-        };
     }
 
     /// <summary>
@@ -1045,11 +1002,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             {
                 (Expression? subCond, Statement? subBinding) = GetPatternCondition(
                     pattern: nested, subject: fieldAccess, subjectType: member.Type);
-                if (subCond != null)
-                    cond = cond == null
-                        ? subCond
-                        : new BinaryExpression(Left: cond, Operator: BinaryOperator.And,
-                            Right: subCond, Location: loc) { ResolvedType = boolType };
+                cond = CombineConditions(left: cond, right: subCond, loc: loc, boolType: boolType);
                 if (subBinding != null) stmts.Add(item: subBinding);
             }
             else if (b.BindingName != null)
@@ -1065,6 +1018,19 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             _ => new BlockStatement(Statements: stmts, Location: loc)
         };
         return (cond, binding);
+    }
+
+    /// <summary>
+    /// AND-combines two nullable conditions: when <paramref name="left"/> is null, returns
+    /// <paramref name="right"/> unchanged; otherwise wraps both in a <see cref="BinaryExpression"/>.
+    /// </summary>
+    private static Expression? CombineConditions(Expression? left, Expression? right,
+        SourceLocation loc, TypeInfo? boolType)
+    {
+        if (right == null) return left;
+        if (left == null) return right;
+        return new BinaryExpression(Left: left, Operator: BinaryOperator.And,
+            Right: right, Location: loc) { ResolvedType = boolType };
     }
 
     // -----------------------------------------------------------------------------

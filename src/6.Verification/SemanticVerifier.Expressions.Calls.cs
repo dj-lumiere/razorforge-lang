@@ -31,15 +31,14 @@ public sealed partial class SemanticVerifier
     private const string UseWhenHint = "Use 'when' to match the result, '??' to provide a default, or make the enclosing routine failable (!).";
     private const string NoneTypeName = "None";
     private const string ModifyMemberRoutineName = "modify";
-    private const string ConsultMemberRoutineName = "consult";
 
     /// <summary>
     /// Enforces the realm gate at a free-routine call site: a FOREIGN routine (C extern / LLVM intrinsic)
     /// must be called with its realm qualifier (`C::name(...)` / `LLVM::name(...)`), and a `C::`/`LLVM::`
     /// qualifier must resolve to a routine of that realm. `RF::`/`SF::` qualifiers (native cross-realm
-    /// references) are allowed through. Returns true if the call is legal, false (after reporting) if not.
+    /// references) are allowed through. Reports a diagnostic when the call is illegal.
     /// </summary>
-    private bool CheckCallRealm(IdentifierExpression callee, RoutineInfo routine, SourceLocation location)
+    private void CheckCallRealm(IdentifierExpression callee, RoutineInfo routine, SourceLocation location)
     {
         string? tag = callee.Realm;
         if (tag == null)
@@ -51,7 +50,7 @@ public sealed partial class SemanticVerifier
                 // call is then legitimate (the import is the explicit realm-crossing opt-in).
                 if (_importedForeignAliases.Contains(item: $"{realm}::{routine.Name}"))
                 {
-                    return true;
+                    return;
                 }
                 ReportError(code: SemanticDiagnosticCode.DirectWiredRoutineCall,
                     message:
@@ -59,9 +58,8 @@ public sealed partial class SemanticVerifier
                     $"'{realm}::{routine.Name}(...)', or bring it into scope with " +
                     $"'import <module>.{realm}::{routine.Name}'.",
                     location: location);
-                return false;
             }
-            return true;
+            return;
         }
 
         if (tag is "C" or "LLVM")
@@ -74,11 +72,8 @@ public sealed partial class SemanticVerifier
                 ReportError(code: SemanticDiagnosticCode.DirectWiredRoutineCall,
                     message: $"'{tag}::{routine.Name}' does not name a {tag} routine.",
                     location: location);
-                return false;
             }
         }
-
-        return true;
     }
 
     /// <summary>
@@ -150,7 +145,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Packs the trailing positional arguments of a call to a variadic routine into a single
     /// <c>Array[T, K]</c> literal, in place. A variadic parameter <c>nums...: T</c> was desugared to a
-    /// const-generic <c>Array[T, __VarargN]</c> (see <see cref="VariadicParamDesugar"/>); wrapping the K
+    /// const-generic <c>Array[T, __VarargN]</c> (via the variadic-param desugaring pass); wrapping the K
     /// call arguments into an <c>Array[T, K]</c> makes the argument count match the single parameter, so
     /// the normal const-generic inference below binds <c>__VarargN = K</c> and one specialized body is
     /// monomorphized per arity. No-op when the routine is not variadic or the args are already packed.
@@ -163,23 +158,6 @@ public sealed partial class SemanticVerifier
     private void PackVariadicCallArgs(List<Expression> arguments, RoutineInfo routine,
         SourceLocation location)
         => TryPackVariadicCallArgs(arguments: arguments, routine: routine, location: location);
-
-    /// <summary>
-    /// Finds a type's variadic <c>create</c> (the desugared <c>create(elements...: T)</c> behind literal
-    /// construction), or null. Uses <c>CollectMemberRoutineCandidates</c> — which walks the generic
-    /// definition and owner-substitutes — because <c>GetMemberRoutinesForType</c> does NOT surface a
-    /// type's <c>create</c> constructors (they register as <c>&lt;Type&gt;.create</c>), so a non-generic
-    /// owner like <c>BitList</c> would otherwise miss its variadic constructor.
-    /// </summary>
-    private RoutineInfo? FindVariadicCreate(TypeSymbol type)
-    {
-        var candidates = new List<RoutineInfo>();
-        _registry.CollectCreatorCandidates(type: type, candidates: candidates);
-        candidates.AddRange(collection: _registry.GetMemberRoutinesForType(type: type)
-            .Where(predicate: m => m.IsCreator));
-        return candidates.FirstOrDefault(
-            predicate: m => m.Parameters.Any(predicate: p => p.IsVariadicParam));
-    }
 
     /// <summary>
     /// Argument-list form used by every call shape (plain call, member call, generic member call). Packs
@@ -757,11 +735,17 @@ public sealed partial class SemanticVerifier
                         };
                         if (argExpected == null && ctorMemberVariables != null)
                         {
-                            MemberVariableInfo? field = arg is NamedArgumentExpression na
-                                ? ctorMemberVariables.FirstOrDefault(predicate: mv => mv.Name == na.Name)
-                                : (creatorPosIdx < ctorMemberVariables.Count
+                            MemberVariableInfo? field;
+                            if (arg is NamedArgumentExpression na)
+                            {
+                                field = ctorMemberVariables.FirstOrDefault(predicate: mv => mv.Name == na.Name);
+                            }
+                            else
+                            {
+                                field = creatorPosIdx < ctorMemberVariables.Count
                                     ? ctorMemberVariables[index: creatorPosIdx]
-                                    : null);
+                                    : null;
+                            }
                             argExpected = field?.Type;
                             // A USER constructor's PARAMETER names may differ from the field names
                             // (`routine Pt(v: S64) -> Pt` with a field `x`), so the field-by-name lookup
@@ -863,7 +847,7 @@ public sealed partial class SemanticVerifier
                         }
                         if (ctorInferred.All(predicate: t => t is not null)
                             && _registry.GetOrCreateResolution(genericDef: callableType,
-                                typeArguments: ctorInferred.Select(selector: t => (TypeInfo)t!).ToList())
+                                typeArguments: ctorInferred.Select(selector: t => t!).ToList())
                                 is { } ctorConcrete)
                         {
                             callableType = ctorConcrete;
@@ -889,9 +873,15 @@ public sealed partial class SemanticVerifier
                             {
                                 Expression cArg = call.Arguments[index: ci];
                                 Expression cArgValue = cArg is NamedArgumentExpression cna ? cna.Value : cArg;
-                                ParameterInfo? cParam = cArg is NamedArgumentExpression cNamed
-                                    ? creator.Parameters.FirstOrDefault(predicate: p => p.Name == cNamed.Name)
-                                    : (ci < creator.Parameters.Count ? creator.Parameters[index: ci] : null);
+                                ParameterInfo? cParam;
+                                if (cArg is NamedArgumentExpression cNamed)
+                                {
+                                    cParam = creator.Parameters.FirstOrDefault(predicate: p => p.Name == cNamed.Name);
+                                }
+                                else
+                                {
+                                    cParam = ci < creator.Parameters.Count ? creator.Parameters[index: ci] : null;
+                                }
                                 if (cParam is { Type: EntityTypeInfo }
                                     && cArgValue is IdentifierExpression or MemberExpression
                                     && creatorArgTypes[index: ci] is EntityTypeInfo cArgEntity)
@@ -1111,11 +1101,17 @@ public sealed partial class SemanticVerifier
                         };
                         if (argExpected == null && ctorMemberVariables != null)
                         {
-                            MemberVariableInfo? field = arg is NamedArgumentExpression na
-                                ? ctorMemberVariables.FirstOrDefault(predicate: mv => mv.Name == na.Name)
-                                : (ctorPosIdx < ctorMemberVariables.Count
+                            MemberVariableInfo? field;
+                            if (arg is NamedArgumentExpression na)
+                            {
+                                field = ctorMemberVariables.FirstOrDefault(predicate: mv => mv.Name == na.Name);
+                            }
+                            else
+                            {
+                                field = ctorPosIdx < ctorMemberVariables.Count
                                     ? ctorMemberVariables[index: ctorPosIdx]
-                                    : null);
+                                    : null;
+                            }
                             argExpected = field?.Type;
                             if (argExpected != null && type is { IsGenericResolution: true, TypeArguments: not null })
                             {
@@ -1165,28 +1161,22 @@ public sealed partial class SemanticVerifier
                     };
                     if (memberCount >= 3)
                     {
-                        foreach (Expression arg in call.Arguments)
+                        foreach (Expression arg in call.Arguments.Where(predicate: a => a is not NamedArgumentExpression))
                         {
-                            if (arg is not NamedArgumentExpression)
-                            {
-                                ReportError(code: SemanticDiagnosticCode.NamedArgumentRequired,
-                                    message:
-                                    $"Type '{id.Name}' has {memberCount} fields - all constructor arguments must be named.",
-                                    location: arg.Location);
-                            }
+                            ReportError(code: SemanticDiagnosticCode.NamedArgumentRequired,
+                                message:
+                                $"Type '{id.Name}' has {memberCount} fields - all constructor arguments must be named.",
+                                location: arg.Location);
                         }
                     }
                     else if (memberCount == 2)
                     {
-                        foreach (Expression arg in call.Arguments)
+                        foreach (Expression arg in call.Arguments.Where(predicate: a => a is not NamedArgumentExpression))
                         {
-                            if (arg is not NamedArgumentExpression)
-                            {
-                                ReportWarning(code: SemanticWarningCode.NamedArgumentRecommended,
-                                    message:
-                                    $"Type '{id.Name}' has 2 fields - naming constructor arguments is recommended for clarity.",
-                                    location: arg.Location);
-                            }
+                            ReportWarning(code: SemanticWarningCode.NamedArgumentRecommended,
+                                message:
+                                $"Type '{id.Name}' has 2 fields - naming constructor arguments is recommended for clarity.",
+                                location: arg.Location);
                         }
                     }
 
@@ -1884,11 +1874,6 @@ public sealed partial class SemanticVerifier
                     // P1: Store fully resolved RoutineInfo (with owner-level generic substitution)
                     call.ResolvedRoutine = memberRoutine;
 
-                    // (Removed: the member-call move-on-consume for `a.retain()`/`a.share[P]()` — the
-                    // entity→wrapper construction verbs are abolished. Entity→RC is now the constructor
-                    // `Wrapper(from: steal n)`, whose `steal` consumes the source through the normal steal
-                    // deadref path; a member call can no longer produce an RC wrapper from a bare entity.)
-
                     // #68: Real-to-Complex promotion — only add/sub allow float↔complex cross-type
                     if (IsOperatorWired(name: member.MemberName) &&
                         member.MemberName is not ("add" or "sub" or "iadd" or "isub") &&
@@ -1970,12 +1955,10 @@ public sealed partial class SemanticVerifier
                             location: call.Location);
                     }
 
-                    // NOTE: `consult()` / `amend()` are ordinary `Guarded[T, P]` memberRoutines now —
-                    // resolution + the `needs P in [...]` type-equality constraint (RF-S160) enforce
-                    // policy legality (consult not on Exclusive, amend not on ReadOnly), and the
-                    // scoped-token / `using`-binding rules enforce lifetime. The earlier ad-hoc
-                    // consult!/amend! validation (a variable→policy side-table that did not recognize
-                    // the 2-arg `Guarded[T, P]`) was removed in favour of the type system.
+                    // `consult` and `amend` are ordinary Guarded member routines now — their
+                    // policy legality (consult not on Exclusive, amend not on ReadOnly) is enforced by
+                    // the type-equality constraint (RF-S160), and their lifetime by the using-binding
+                    // rule. The earlier ad-hoc validation was replaced by the type system.
 
                     // Enforce a memberRoutine's `needs P in [...]` (TypeEquality) constraint when the
                     // constrained parameter is INHERITED FROM THE RECEIVER (e.g.

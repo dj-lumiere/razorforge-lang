@@ -38,6 +38,10 @@ namespace Compiler.Instantiation.Passes;
 /// </summary>
 public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 {
+    // The "represent" member-routine name appears in several liveness seeds. Using the constant
+    // avoids re-allocating the literal on each call and keeps the name in sync with RuntimeContract.
+    private const string RepresentMemberRoutineName = RuntimeContract.Display.Represent;
+
     /// <summary>True when <paramref name="t"/> still carries a generic parameter (directly or nested in a type
     /// argument) — i.e. not yet a fully-concrete monomorphized type.</summary>
     private static bool ContainsGenericParam(TypeInfo t) =>
@@ -132,15 +136,63 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         var sw = timing ? Stopwatch.StartNew() : null;
         int startCount = _processedTypes.Count;
 
+        SeedInitialConcreteTypes();
+        DrainDiscoveryQueueToFixedPoint();
+
+        if (timing)
+        {
+            sw!.Stop();
+            Console.Error.WriteLine(value:
+                $"    GMP reachable types: {_processedTypes.Count} ({_processedTypes.Count - startCount} new) ({sw.ElapsedMilliseconds} ms)");
+        }
+
+        // Scan built bodies for memberRoutine-generic call sites (e.g. getitem[U64]! called from
+        // List[Bytes].eq). SA only analyzes generic-def bodies, so these concrete
+        // call sites are never registered in _routineResolutions. Register them now so
+        // ProcessResolvedMemberRoutineGenericRoutines can build their bodies.
+        var sw2 = timing ? Stopwatch.StartNew() : null;
+        void LogSubTiming(string label)
+        {
+            if (sw2 == null) return;
+            sw2.Stop();
+            Console.Error.WriteLine(value: $"        GMP.RG sub - {label}: {sw2.ElapsedMilliseconds} ms");
+            sw2.Restart();
+        }
+
+        ScanAndRegisterMemberRoutineGenericCallResolutions();
+        LogSubTiming(label: "ScanAndRegisterMemberRoutineGenericCallResolutions");
+
+        ProcessResolvedMemberRoutineGenericRoutines();
+        LogSubTiming(label: "ProcessResolvedMemberRoutineGenericRoutines");
+
+        // Liveness expansion across the bodies emitted above. RoutineReachabilityPass ran BEFORE
+        // ProtocolDefaultImplLoweringPass synthesized the iterator-adapter bodies, so the nested
+        // adapter/emitter types those bodies construct and iterate (e.g. SelectIterator and its
+        // SelectEmitter, reached only through a chained `list.where(..).select(..)`) were never
+        // seeded as live owners, and the universal `hijack` instances they call were never seeded
+        // as live routines. Both were then silently gated out, leaving undefined symbols at link.
+        // Walk the emitted (=live) bodies, enliven every concrete type they reference and every
+        // routine they call, and re-process — iterating to a fixed point as newly-emitted bodies
+        // surface deeper layers of the adapter chain.
+        ExpandLivenessThroughEmittedBodies();
+        LogSubTiming(label: "ExpandLivenessThroughEmittedBodies");
+
+        EmitGenericDefBuilderQueryBodies();
+        LogSubTiming(label: "EmitGenericDefBuilderQueryBodies");
+    }
+
+    /// <summary>Seeds the initial liveness-filtered concrete types and all pre-existing unfiltered instances.</summary>
+    private void SeedInitialConcreteTypes()
+    {
         // Seed with liveness-filtered instances + wrapper instances. On an incremental re-run the
         // Add returns false for everything already processed, so these scans become cheap lookups.
         foreach (TypeInfo concreteType in ctx.Registry.AllConcreteGenericInstances
                      .Concat(second: ctx.Registry.AllConcreteWrapperInstances)
                      .DistinctBy(type => type.FullName)
+                     .Where(t => _processedTypes.Add(t.FullName))
                      .ToArray())
         {
-            if (_processedTypes.Add(concreteType.FullName))
-                ProcessConcreteType(concreteType);
+            ProcessConcreteType(concreteType);
         }
 
         // One-time pass over ALL concrete types in _resolutions that weren't in the liveness set.
@@ -162,16 +214,21 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             if (!_processedTypes.Add(preExisting.FullName)) continue;
             ProcessConcreteType(preExisting);
         }
+    }
 
-        // Fixed-point expansion: drain types created during body rewriting
-        // (e.g. ListEmitter[Byte] registered when GenericAstRewriter rewrites List[Byte].iter).
-        // The self-nesting guard in GetOrCreateResolution prevents Hijacked^N infinite chains.
-        List<TypeInfo> discovered;
+    /// <summary>
+    /// Fixed-point expansion: drains types created during body rewriting and rescans wrapper
+    /// instances until no new types appear. The self-nesting guard in GetOrCreateResolution
+    /// prevents Hijacked^N infinite chains.
+    /// </summary>
+    private void DrainDiscoveryQueueToFixedPoint()
+    {
         bool madeProgress;
         do
         {
             madeProgress = false;
-            while ((discovered = ctx.Registry.DrainGmpDiscoveryQueue()).Count > 0)
+            List<TypeInfo> discovered = ctx.Registry.DrainGmpDiscoveryQueue();
+            while (discovered.Count > 0)
             {
                 foreach (TypeInfo newType in discovered)
                 {
@@ -179,6 +236,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                     ProcessConcreteType(newType);
                     madeProgress = true;
                 }
+                discovered = ctx.Registry.DrainGmpDiscoveryQueue();
             }
 
             // Wrapper instances aren't enqueued by NotifyConcreteRegistration (it only handles
@@ -192,52 +250,11 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 madeProgress = true;
             }
         } while (madeProgress);
-
-        if (timing)
-        {
-            sw!.Stop();
-            Console.Error.WriteLine(value:
-                $"    GMP reachable types: {_processedTypes.Count} ({_processedTypes.Count - startCount} new) ({sw.ElapsedMilliseconds} ms)");
-        }
-
-        // Scan built bodies for memberRoutine-generic call sites (e.g. getitem[U64]! called from
-        // List[Bytes].eq). SA only analyzes generic-def bodies, so these concrete
-        // call sites are never registered in _routineResolutions. Register them now so
-        // ProcessResolvedMemberRoutineGenericRoutines can build their bodies.
-        var _sw2 = timing ? Stopwatch.StartNew() : null;
-        void _s2(string label)
-        {
-            if (_sw2 == null) return;
-            _sw2.Stop();
-            Console.Error.WriteLine(value: $"        GMP.RG sub - {label}: {_sw2.ElapsedMilliseconds} ms");
-            _sw2.Restart();
-        }
-
-        ScanAndRegisterMemberRoutineGenericCallResolutions();
-        _s2(label: "ScanAndRegisterMemberRoutineGenericCallResolutions");
-
-        ProcessResolvedMemberRoutineGenericRoutines();
-        _s2(label: "ProcessResolvedMemberRoutineGenericRoutines");
-
-        // Liveness expansion across the bodies emitted above. RoutineReachabilityPass ran BEFORE
-        // ProtocolDefaultImplLoweringPass synthesized the iterator-adapter bodies, so the nested
-        // adapter/emitter types those bodies construct and iterate (e.g. SelectIterator and its
-        // SelectEmitter, reached only through a chained `list.where(..).select(..)`) were never
-        // seeded as live owners, and the universal `hijack` instances they call were never seeded
-        // as live routines. Both were then silently gated out, leaving undefined symbols at link.
-        // Walk the emitted (=live) bodies, enliven every concrete type they reference and every
-        // routine they call, and re-process — iterating to a fixed point as newly-emitted bodies
-        // surface deeper layers of the adapter chain.
-        ExpandLivenessThroughEmittedBodies();
-        _s2(label: "ExpandLivenessThroughEmittedBodies");
-
-        EmitGenericDefBuilderQueryBodies();
-        _s2(label: "EmitGenericDefBuilderQueryBodies");
     }
 
     /// <summary>
     /// Propagates liveness through the bodies GMP already emitted, then emits the routines/types
-    /// that become reachable as a result. Needed because <see cref="RoutineReachabilityPass"/> runs
+    /// that become reachable as a result. Needed because <c>RoutineReachabilityPass</c> runs
     /// before <see cref="ProtocolDefaultImplLoweringPass"/>, so types/routines reachable only through
     /// the synthesized iterator-adapter chain were never marked live and got gated out. A fixed-point
     /// loop is required: enlivening one layer (e.g. <c>SelectIterator</c>) emits its <c>iter</c>,
@@ -259,67 +276,94 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         while (changed && guard++ < 100)
         {
             changed = false;
-            var newOwners = new Dictionary<string, TypeInfo>(StringComparer.Ordinal);
             bool registeredRoutine = false;
-
-            foreach ((string bodyKey, MonomorphizedBody mb) in ctx.InstantiatedGenericBodies.ToList())
-            {
-                // Only walk LIVE bodies. A dead (unreachable) instantiation is never emitted by codegen,
-                // so the owner types / callees it references need no enlivening: any adapter reached only
-                // through a LIVE body is marked live when that body is walked below (line ~306) and then
-                // picked up as live in the next fixed-point round. This skips re-walking the thousands of
-                // restored-but-dead stdlib instantiations every warm run (the resident-set cost that
-                // priming the whole stdlib into the snapshot exposed). The live check is BEFORE
-                // _walkedBodyKeys so a body that only BECOMES live in a later round is still walked then.
-                // Empty LiveRoutineKeys = fan-out/no-filter mode (the method already early-returns when
-                // BOTH liveness gates are empty), so keep walking everything in that case.
-                if (ctx.LiveRoutineKeys.Count > 0 && !ctx.LiveRoutineKeys.Contains(item: bodyKey)) continue;
-                if (!_walkedBodyKeys.Add(item: bodyKey) || mb.Ast?.Body == null) continue;
-                // A `throw X` in an emitted body needs X's crash_message live: codegen's EmitThrow
-                // calls it directly with no source CallExpression. RoutineReachabilityPass handles
-                // throws in bodies it walks, but bodies emitted HERE (e.g. a specialized-receiver
-                // member's retrieve!/race! that throws TaskSpawnError) were never walked by it.
-                AstWalker.Walk(root: mb.Ast.Body, visit: node =>
-                {
-                    if (EnliveThrowCrashMessage(node: node)) changed = true;
-                });
-                AstWalker.WalkExpressions(root: mb.Ast.Body, visit: expr =>
-                {
-                    if (EnliveEmittedBodyExpression(expr: expr, newOwners: newOwners,
-                            registeredRoutine: ref registeredRoutine))
-                    {
-                        changed = true;
-                    }
-                });
-            }
-
-            foreach ((string fullName, TypeInfo type) in newOwners)
-            {
-                if (ctx.LiveOwnerTypeNames.Add(item: fullName))
-                {
-                    _processedTypes.Add(item: fullName);
-                    ProcessConcreteType(type);
-                    changed = true;
-                }
-            }
-
-            // Drain types created while rewriting the bodies just emitted.
-            List<TypeInfo> discovered;
-            while ((discovered = ctx.Registry.DrainGmpDiscoveryQueue()).Count > 0)
-                foreach (TypeInfo newType in discovered)
-                {
-                    if (!_processedTypes.Add(item: newType.FullName)) continue;
-                    ProcessConcreteType(newType);
-                    changed = true;
-                }
-
-            // Only re-run the (expensive) resolved-routine builder when this round actually
-            // registered a new resolution to build — e.g. a universal-memberRoutine instance.
+            if (WalkEmittedBodiesForLiveness(ref changed, ref registeredRoutine))
+                changed = true;
+            DrainDiscoveryQueueForLiveness(ref changed);
             if (registeredRoutine)
                 ProcessResolvedMemberRoutineGenericRoutines();
         }
 
         EnliveWiredLeafCallees();
+    }
+
+    /// <summary>
+    /// Walks all currently-emitted instantiated bodies that haven't been walked yet, enlivening
+    /// throw crash-messages and expression-level owner types/callees. Returns true if any change occurred.
+    /// </summary>
+    private bool WalkEmittedBodiesForLiveness(ref bool changed, ref bool registeredRoutine)
+    {
+        var newOwners = new Dictionary<string, TypeInfo>(StringComparer.Ordinal);
+        // Captured locals: ref parameters cannot be used inside the walk lambdas (CS1628); mirror them
+        // in locals the closures can touch, then write the results back to the ref parameters at the end.
+        bool localChanged = false;
+        bool localRegistered = registeredRoutine;
+        foreach ((string bodyKey, MonomorphizedBody mb) in ctx.InstantiatedGenericBodies.ToList())
+        {
+            // Only walk LIVE bodies. A dead (unreachable) instantiation is never emitted by codegen,
+            // so the owner types / callees it references need no enlivening: any adapter reached only
+            // through a LIVE body is marked live when that body is walked below and then picked up as
+            // live in the next fixed-point round. The live check is BEFORE _walkedBodyKeys so a body
+            // that only BECOMES live in a later round is still walked then.
+            // Empty LiveRoutineKeys = fan-out/no-filter mode (early-returns when BOTH gates are empty).
+            if (ctx.LiveRoutineKeys.Count > 0 && !ctx.LiveRoutineKeys.Contains(item: bodyKey)) continue;
+            if (!_walkedBodyKeys.Add(item: bodyKey) || mb.Ast?.Body == null) continue;
+            // A `throw X` in an emitted body needs X's crash_message live: codegen's EmitThrow
+            // calls it directly with no source CallExpression. RoutineReachabilityPass handles
+            // throws in bodies it walks, but bodies emitted HERE (e.g. a specialized-receiver
+            // member's retrieve!/race! that throws TaskSpawnError) were never walked by it.
+            AstWalker.Walk(root: mb.Ast.Body, visit: node =>
+            {
+                if (EnliveThrowCrashMessage(node: node)) localChanged = true;
+            });
+            AstWalker.WalkExpressions(root: mb.Ast.Body, visit: expr =>
+            {
+                if (EnliveEmittedBodyExpression(expr: expr, newOwners: newOwners,
+                        registeredRoutine: ref localRegistered))
+                    localChanged = true;
+            });
+        }
+        if (localChanged) changed = true;
+        registeredRoutine = localRegistered;
+        return EnliveNewOwnerTypesFromMap(newOwners: newOwners);
+    }
+
+    /// <summary>
+    /// Marks each discovered owner type in <paramref name="newOwners"/> live and processes it.
+    /// Returns true if any new owner was enlivened.
+    /// </summary>
+    private bool EnliveNewOwnerTypesFromMap(Dictionary<string, TypeInfo> newOwners)
+    {
+        bool changed = false;
+        foreach ((string fullName, TypeInfo type) in newOwners)
+        {
+            if (ctx.LiveOwnerTypeNames.Add(item: fullName))
+            {
+                _processedTypes.Add(item: fullName);
+                ProcessConcreteType(type);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// Drains the GMP discovery queue after a body-walking round, processing any newly-created types.
+    /// Sets <paramref name="changed"/> to true whenever a new type is processed.
+    /// </summary>
+    private void DrainDiscoveryQueueForLiveness(ref bool changed)
+    {
+        List<TypeInfo> discovered = ctx.Registry.DrainGmpDiscoveryQueue();
+        while (discovered.Count > 0)
+        {
+            foreach (TypeInfo newType in discovered)
+            {
+                if (!_processedTypes.Add(item: newType.FullName)) continue;
+                ProcessConcreteType(newType);
+                changed = true;
+            }
+            discovered = ctx.Registry.DrainGmpDiscoveryQueue();
+        }
     }
 
     /// <summary>
@@ -339,7 +383,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         bool changed = ctx.LiveRoutineKeys.Add(item: crashMsg.RegistryKey);
         // crash_message's body formats via `me.represent()` (no source AST call), so a thrown error's
         // represent is otherwise never built → link-undefined. Enliven it alongside crash_message.
-        if (ctx.Registry.LookupMemberRoutine(type: errorType, memberRoutineName: "represent") is { } rep)
+        if (ctx.Registry.LookupMemberRoutine(type: errorType, memberRoutineName: RepresentMemberRoutineName) is { } rep)
             changed |= ctx.LiveRoutineKeys.Add(item: rep.RegistryKey);
         return changed;
     }
@@ -414,38 +458,53 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         TypeInfo? idxType = idxExpr.Index.ResolvedType;
         foreach (string accessor in (ReadOnlySpan<string>)["getitem", "setitem"])
         {
-            // Prefer the exact argType-matched overload. When the index type doesn't pin one (it is
-            // null, or not the accessor's index-parameter type), enliven EVERY registered overload of
-            // this accessor on the concrete owner instead of taking an arbitrary name-only pick — a
-            // name-only lookup can't disambiguate >1 overload (no first-wins), and liveness is
-            // conservative: an extra concrete accessor is harmless (codegen emits only the one it calls).
-            var accs = new List<RoutineInfo>();
-            RoutineInfo? typed = idxType != null
-                ? ctx.Registry.LookupMemberRoutineOverload(type: idxObjType,
-                    memberRoutineName: accessor, argTypes: [idxType])
-                : null;
-            if (typed != null)
-                accs.Add(item: typed);
-            else
-                ctx.Registry.CollectMemberRoutineCandidates(type: idxObjType,
-                    memberRoutineName: accessor, candidates: accs);
-
-            foreach (RoutineInfo acc in accs)
-            {
-                if (acc is not { OwnerType: not { IsGenericDefinition: true } }
-                    || !ctx.LiveRoutineKeys.Add(item: acc.RegistryKey))
-                {
-                    continue;
-                }
-                if (acc.GenericDefinition != null
-                    && !ctx.InstantiatedGenericBodies.ContainsKey(acc.RegistryKey)
-                    && !ctx.VariantBodies.ContainsKey(acc.RegistryKey))
-                {
-                    ctx.Registry.RegisterRoutineResolution(resolvedMemberRoutine: acc);
-                    registeredRoutine = true;
-                }
+            if (EnliveOneIndexAccessor(idxObjType: idxObjType, idxType: idxType,
+                    accessorName: accessor, registeredRoutine: ref registeredRoutine))
                 changed = true;
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// Enlivens a single index accessor (getitem or setitem) on the given owner type. Prefers the
+    /// exact overload matched by index type; falls back to all candidates when no exact match exists.
+    /// Returns true if it newly marked any accessor live.
+    /// </summary>
+    private bool EnliveOneIndexAccessor(TypeInfo idxObjType, TypeInfo? idxType,
+        string accessorName, ref bool registeredRoutine)
+    {
+        // Prefer the exact argType-matched overload. When the index type doesn't pin one (it is
+        // null, or not the accessor's index-parameter type), enliven EVERY registered overload of
+        // this accessor on the concrete owner instead of taking an arbitrary name-only pick — a
+        // name-only lookup can't disambiguate >1 overload (no first-wins), and liveness is
+        // conservative: an extra concrete accessor is harmless (codegen emits only the one it calls).
+        var accs = new List<RoutineInfo>();
+        RoutineInfo? typed = idxType != null
+            ? ctx.Registry.LookupMemberRoutineOverload(type: idxObjType,
+                memberRoutineName: accessorName, argTypes: [idxType])
+            : null;
+        if (typed != null)
+            accs.Add(item: typed);
+        else
+            ctx.Registry.CollectMemberRoutineCandidates(type: idxObjType,
+                memberRoutineName: accessorName, candidates: accs);
+
+        bool changed = false;
+        foreach (RoutineInfo acc in accs)
+        {
+            if (acc is not { OwnerType: not { IsGenericDefinition: true } }
+                || !ctx.LiveRoutineKeys.Add(item: acc.RegistryKey))
+            {
+                continue;
             }
+            if (acc.GenericDefinition != null
+                && !ctx.InstantiatedGenericBodies.ContainsKey(acc.RegistryKey)
+                && !ctx.VariantBodies.ContainsKey(acc.RegistryKey))
+            {
+                ctx.Registry.RegisterRoutineResolution(resolvedMemberRoutine: acc);
+                registeredRoutine = true;
+            }
+            changed = true;
         }
         return changed;
     }
@@ -453,7 +512,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// <summary>
     /// Closes the live-routine set under the implicit callees of compiler-synthesized routines.
     /// <para>
-    /// Routines enlivened AFTER <see cref="RoutineReachabilityPass"/> (by this pass, e.g. a wired
+    /// Routines enlivened AFTER <c>RoutineReachabilityPass</c> (by this pass, e.g. a wired
     /// <c>destroy</c> on <c>Tuple[S64, Bool]</c> pulled in by overflow-arithmetic machinery, or a
     /// derived <c>U64.lt</c> referenced from an emitted generic body) never had their own bodies
     /// walked: those bodies live in <c>SynthesizedBodies</c> (not <c>VariantBodies</c>, the only
@@ -518,35 +577,9 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         var worklist = new Queue<MonomorphizedBody>();
         int totalBuilt = 0;
 
-        // Build ONE routine's body in isolation (SINGULAR builder — no transitive drain). Returns the new
-        // body if it was freshly built, else null. Callees are left as extern declares for a later round.
-        MonomorphizedBody? BuildOne(RoutineInfo? r)
-        {
-            if (r?.GenericDefinition == null) return null;
-            if (ctx.InstantiatedGenericBodies.ContainsKey(key: r.RegistryKey)
-                || ctx.VariantBodies.ContainsKey(key: r.RegistryKey)) return null;
-            ctx.LiveRoutineKeys.Add(item: r.RegistryKey);
-            ProcessResolvedMemberRoutineGenericRoutine(resolvedRoutine: r);
-            if (ctx.InstantiatedGenericBodies.TryGetValue(key: r.RegistryKey, out MonomorphizedBody? b))
-            {
-                totalBuilt++;
-                return b;
-            }
-            return null;
-        }
-
         // SEED: the entity self-free tail (`me.hijack().invalidate()`) is CODEGEN-INJECTED with no
         // ResolvedRoutine, so the call-driven closure can't discover it — enumerate it per concrete entity.
-        foreach (TypeInfo t in ctx.Registry.AllConcreteGenericInstancesUnfiltered.ToArray())
-        {
-            if (t is not EntityTypeInfo { IsGenericDefinition: false } entity) continue;
-            if (BuildOne(r: ctx.Registry.LookupMemberRoutine(type: entity,
-                    memberRoutineName: RuntimeContract.RawPointer.Hijack)) is { } hb) worklist.Enqueue(item: hb);
-            TypeInfo hijacked = ctx.Registry.GetOrCreateWrapperType(
-                wrapperName: RuntimeContract.Hijacked, innerType: entity, isReadOnly: false);
-            if (BuildOne(r: ctx.Registry.LookupMemberRoutine(type: hijacked,
-                    memberRoutineName: RuntimeContract.RawPointer.Invalidate)) is { } ib) worklist.Enqueue(item: ib);
-        }
+        SeedEntitySelfFreeTail(worklist: worklist, totalBuilt: ref totalBuilt);
 
         // SEED the per-type LIFECYCLE HOOKS on EVERY REGISTERED instance. Codegen synthesizes a body per
         // type for each of these hooks — the teardown `destroy`/`roam_free_impl` (field-walk `me.f.destroy()`
@@ -562,25 +595,72 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // declares (measured: adding represent took the gap 140→367). Skip pseudo-concrete instances whose
         // const-generic arg is an UNFOLDED comptime splice (`Array[U8, ${max(...)}]` carrier — its `N` never
         // folds → codegen `Unknown identifier N`; a FOLDED `Array[U8,63]` builds fine).
-        string[] lifecycleHooks = ["destroy", "roam_free_impl", "roam_trace_impl"];
-        static bool HasUnfoldedComptime(TypeInfo ty) =>
-            ty.TypeArguments is { Count: > 0 } a && a.Any(predicate: x => x is ComptimeConstGenericTypeInfo);
-        foreach (TypeInfo t in ctx.Registry.AllConcreteGenericInstancesUnfiltered
-                     .Concat(second: ctx.Registry.AllConcreteWrapperInstancesUnfiltered).ToArray())
-        {
-            if (HasUnfoldedComptime(t)) continue;
-            foreach (string hook in lifecycleHooks)
-                if (BuildOne(r: ctx.Registry.LookupMemberRoutine(type: t, memberRoutineName: hook)) is { } db)
-                    worklist.Enqueue(item: db);
-        }
+        SeedLifecycleHooks(worklist: worklist, totalBuilt: ref totalBuilt);
 
         // CALL-DRIVEN closure: walk each freshly-built body, isolated-build every ResolvedRoutine callee it
         // references that isn't built yet, enqueue the result. Follows the ACTUAL lifecycle call graph
         // (hijack → get_address / Hijacked.create; invalidate → Hijacked.address; …) — NOT the transitive
         // resolution drain (which also builds derives like the abstract Array[SerialValue,63].assign that
         // nothing calls). Bounded by the finite lifecycle call graph; a visited set walks each body once.
+        DriveCallClosureWorklist(worklist: worklist, totalBuilt: ref totalBuilt);
+        return totalBuilt;
+    }
+
+    /// <summary>
+    /// Seeds the isolation worklist with hijack and Hijacked.invalidate for each concrete entity.
+    /// These are codegen-injected with no ResolvedRoutine, so the call-driven closure cannot discover them.
+    /// </summary>
+    private void SeedEntitySelfFreeTail(Queue<MonomorphizedBody> worklist, ref int totalBuilt)
+    {
+        foreach (TypeInfo t in ctx.Registry.AllConcreteGenericInstancesUnfiltered.ToArray())
+        {
+            if (t is not EntityTypeInfo { IsGenericDefinition: false } entity) continue;
+            if (BuildOneInIsolation(r: ctx.Registry.LookupMemberRoutine(type: entity,
+                    memberRoutineName: RuntimeContract.RawPointer.Hijack), totalBuilt: ref totalBuilt) is { } hb)
+                worklist.Enqueue(item: hb);
+            TypeInfo hijacked = ctx.Registry.GetOrCreateWrapperType(
+                wrapperName: RuntimeContract.Hijacked, innerType: entity, isReadOnly: false);
+            if (BuildOneInIsolation(r: ctx.Registry.LookupMemberRoutine(type: hijacked,
+                    memberRoutineName: RuntimeContract.RawPointer.Invalidate), totalBuilt: ref totalBuilt) is { } ib)
+                worklist.Enqueue(item: ib);
+        }
+    }
+
+    /// <summary>
+    /// Seeds the isolation worklist with lifecycle hooks (destroy/roam_free_impl/roam_trace_impl) on
+    /// every registered concrete and wrapper instance that has no unfolded comptime type argument.
+    /// </summary>
+    private void SeedLifecycleHooks(Queue<MonomorphizedBody> worklist, ref int totalBuilt)
+    {
+        string[] lifecycleHooks = ["destroy", "roam_free_impl", "roam_trace_impl"];
+        foreach (TypeInfo t in ctx.Registry.AllConcreteGenericInstancesUnfiltered
+                     .Concat(second: ctx.Registry.AllConcreteWrapperInstancesUnfiltered).ToArray())
+        {
+            if (HasUnfoldedComptimeArg(t)) continue;
+            foreach (string hook in lifecycleHooks)
+            {
+                if (BuildOneInIsolation(
+                        r: ctx.Registry.LookupMemberRoutine(type: t, memberRoutineName: hook),
+                        totalBuilt: ref totalBuilt) is { } db)
+                    worklist.Enqueue(item: db);
+            }
+        }
+    }
+
+    /// <summary>Returns true when any type argument is an unfolded comptime splice, which cannot be codegen'd.</summary>
+    private static bool HasUnfoldedComptimeArg(TypeInfo ty) =>
+        ty.TypeArguments is { Count: > 0 } a && a.Any(predicate: x => x is ComptimeConstGenericTypeInfo);
+
+    /// <summary>
+    /// Drives the call-closure worklist: walks each built body, isolated-builds every callee it
+    /// references that isn't already built, and enqueues the result. Bounded by a guard counter.
+    /// </summary>
+    private void DriveCallClosureWorklist(Queue<MonomorphizedBody> worklist, ref int totalBuilt)
+    {
         var walked = new HashSet<string>(comparer: StringComparer.Ordinal);
         int guard = 0;
+        // ref parameter cannot be captured by the walk lambda (CS1628); mirror it in a local and write back.
+        int localTotal = totalBuilt;
         while (worklist.Count > 0 && guard++ < 2_000_000)
         {
             MonomorphizedBody body = worklist.Dequeue();
@@ -593,10 +673,30 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                     GenericMemberRoutineCallExpression { ResolvedRoutine: { } gr } => gr,
                     _ => null
                 };
-                if (BuildOne(r: callee) is { } nb) worklist.Enqueue(item: nb);
+                if (BuildOneInIsolation(r: callee, totalBuilt: ref localTotal) is { } nb)
+                    worklist.Enqueue(item: nb);
             });
         }
-        return totalBuilt;
+        totalBuilt = localTotal;
+    }
+
+    /// <summary>
+    /// Builds ONE routine's body in isolation (singular builder — no transitive drain). Returns the new body
+    /// if freshly built, else null. Callees are left as extern declares for a later round.
+    /// </summary>
+    private MonomorphizedBody? BuildOneInIsolation(RoutineInfo? r, ref int totalBuilt)
+    {
+        if (r?.GenericDefinition == null) return null;
+        if (ctx.InstantiatedGenericBodies.ContainsKey(key: r.RegistryKey)
+            || ctx.VariantBodies.ContainsKey(key: r.RegistryKey)) return null;
+        ctx.LiveRoutineKeys.Add(item: r.RegistryKey);
+        ProcessResolvedMemberRoutineGenericRoutine(resolvedRoutine: r);
+        if (ctx.InstantiatedGenericBodies.TryGetValue(key: r.RegistryKey, out MonomorphizedBody? b))
+        {
+            totalBuilt++;
+            return b;
+        }
+        return null;
     }
 
     /// <summary>
@@ -616,10 +716,123 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         IReadOnlyDictionary<string, Statement>? synthesizedBodies = null)
     {
         if (!_routineIndexBuilt) { BuildRoutineIndex(); _routineIndexBuilt = true; }
+        return new IsolationCollector(gmp: this, ctx: ctx, programBodies: programBodies,
+            synthesizedBodies: synthesizedBodies).Run(entrySeeds: entrySeeds);
+    }
 
-        int totalBuilt = 0;
-        var walked = new HashSet<string>(comparer: StringComparer.Ordinal);
-        var worklist = new Queue<(string Key, Statement Body)>();
+    /// <summary>
+    /// Holds the mutable walk state for <see cref="CollectReferencedInIsolation"/> and exposes
+    /// <see cref="Discover"/> / <see cref="ForceSeedOwner"/> as instance methods so their mutual
+    /// recursion does not inflate the outer method's cognitive complexity.
+    /// </summary>
+    private sealed class IsolationCollector(
+        GenericMonomorphizationPass gmp,
+        DesugaringContext ctx,
+        IReadOnlyDictionary<string, Statement> programBodies,
+        IReadOnlyDictionary<string, Statement>? synthesizedBodies)
+    {
+        private readonly DesugaringContext _ctx = ctx;
+        private int _totalBuilt;
+        private readonly HashSet<string> _walked = new(comparer: StringComparer.Ordinal);
+        private readonly Queue<(string Key, Statement Body)> _worklist = new();
+        // Reached concrete owner types — each needs force-seeded codegen-injected verbs.
+        private readonly HashSet<TypeInfo> _reachedOwners = new(comparer: ReferenceEqualityComparer.Instance);
+
+        internal int Run(IEnumerable<(string Key, Statement Body)> entrySeeds)
+        {
+            // SEED with the entry-point BODIES directly (start()/@test/@bench — their RoutineDeclaration.Body
+            // is in hand from the caller, NOT looked up: a user `start` body lives in UserPrograms, not
+            // RoutineBodies). Mark each SEED's OWN key live too — the fixpoint below only marks CALLEES live
+            // (via Discover), so a root entry that nothing calls (e.g. the harness bundle's
+            // `StdlibHarness.start` which invokes each fixture's `start`) would otherwise stay un-live and be
+            // pruned by codegen's reachability gate — leaving the executable with no entry symbol.
+            foreach ((string k, Statement b) in entrySeeds)
+            {
+                _ctx.LiveRoutineKeys.Add(item: k);
+                _worklist.Enqueue(item: (k, b));
+            }
+            RunFixpoint();
+            return _totalBuilt;
+        }
+
+        // FIXPOINT: drain the call-graph worklist, then force-seed any newly-reached owner types (their seeds
+        // refill the worklist), and repeat until both are exhausted.
+        private void RunFixpoint()
+        {
+            var seededOwners = new HashSet<TypeInfo>(comparer: ReferenceEqualityComparer.Instance);
+            // Dispatched Crashable members seen in any walked body (represent/diagnose/crash_message/crash_title).
+            // Seeded on each reached crashable owner after the walk — see the CrashableDispatch case in WalkBody.
+            var dispatchMembers = new HashSet<string>(comparer: StringComparer.Ordinal);
+            int guard = 0;
+            do
+            {
+                while (_worklist.Count > 0 && guard++ < 5_000_000)
+                    WalkBody(dispatchMembers: dispatchMembers);
+                foreach (TypeInfo owner in _reachedOwners.ToArray().Where(o => seededOwners.Add(item: o)))
+                    ForceSeedOwner(type: owner);
+                // Seed each dispatched Crashable member on every REACHED crashable owner. A crashable is reached
+                // only by being thrown, and only a thrown crashable can be in the carrier the dispatch reads — so
+                // this is exactly the arm set codegen emits (gated on the member being live). Re-runs each round
+                // as _reachedOwners grows; its Discover calls refill the worklist, extending the fixpoint.
+                if (dispatchMembers.Count > 0)
+                    foreach (TypeInfo owner in _reachedOwners.ToArray().OfType<CrashableTypeInfo>())
+                        foreach (string member in dispatchMembers)
+                            Discover(r: _ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: member));
+            } while (_worklist.Count > 0);
+        }
+
+        // Walk one body off the worklist: mark throw-error owners, then discover all callee/creator refs.
+        private void WalkBody(HashSet<string> dispatchMembers)
+        {
+            (string key, Statement body) = _worklist.Dequeue();
+            if (!_walked.Add(item: key)) return;
+            // `throw E()` → codegen's EmitThrow calls `E.crash_message()` (→ `E.represent()`). The thrown
+            // error is NOT reliably a CreatorExpression after lowering (an empty crashable like
+            // TaskSpawnError lowers to a non-Creator node), so the CreatorExpression case below misses it.
+            // Catch the ThrowStatement directly and MarkOwner its error TYPE — ForceSeedOwner then seeds
+            // the crash formatter closure. Mirrors EmitThrow exactly (every reached throw ⇒ crash_message).
+            AstWalker.Walk(root: body, visit: n =>
+            {
+                if (n is ThrowStatement { Error.ResolvedType: { } errType }) MarkOwner(t: errType);
+            });
+            AstWalker.WalkExpressions(root: body, visit: expr =>
+            {
+                switch (expr)
+                {
+                    case CallExpression { ResolvedRoutine: { } cr }: Discover(r: cr); break;
+                    case GenericMemberRoutineCallExpression { ResolvedRoutine: { } gr }: Discover(r: gr); break;
+                    // A constructor (`SelectEmittable(...)`) — reach its create routine AND mark the
+                    // constructed type a live owner (an Emittable is often ONLY constructed, so its owner
+                    // liveness — needed for Phase-C try_emit emission — comes from here, not a method call).
+                    case CreatorExpression ce:
+                        Discover(r: ce.ResolvedCreatorRoutine);
+                        MarkOwner(t: ce.ConstructedType);
+                        break;
+                    // A type-erased crashable dispatch (`when is Crashable e => f"{e}"` / `e.diagnose()`).
+                    // Codegen lowers it to a `type_id` switch calling `<MemberName>` on each REACHED crashable
+                    // (a thrown error is the only thing that can land in the carrier). Record the member; the
+                    // post-fixpoint pass seeds it on every reached crashable owner, so codegen (which emits an
+                    // arm only for a LIVE member) and this walk agree on the SAME demand set — deterministic
+                    // across cold (partial registry) and warm (full-stdlib registry).
+                    case CrashableDispatchExpression cd:
+                        dispatchMembers.Add(item: cd.MemberName);
+                        break;
+                    // A routine referenced AS A VALUE (not called) — a bare routine name passed as an
+                    // argument (a coroutine/thread entry `coro_body`, a callback, a first-class routine).
+                    // Codegen wraps these in an entry/value thunk (EnsureCoroEntryThunk/RoutineValueThunk)
+                    // whose body calls the routine, so the routine — and its whole transitive closure
+                    // (e.g. coro_body → Worker.do_work → Box's create/destroy) — is genuinely live even
+                    // though no CallExpression names it. Discover it here so the demand walk follows it.
+                    // Two forms: pre-resolved (ResolvedRoutine set) or a bare name whose ResolvedType is a
+                    // RoutineTypeInfo (codegen resolves it by name+param-types via TryResolveRoutineReference,
+                    // e.g. a routine passed to a C function pointer like `rf_coro_create(entry: coro_body)`).
+                    case IdentifierExpression { ResolvedRoutine: { } ir }: Discover(r: ir); break;
+                    case IdentifierExpression { ResolvedType: RoutineTypeInfo rvt } rid:
+                        Discover(r: gmp.ResolveRoutineValueByName(name: rid.Name, routineType: rvt));
+                        break;
+                }
+            });
+        }
 
         // Emittable body for a routine key: a monomorphized generic instance, a synthesized variant, or a
         // concrete non-generic routine body from the actual (lowered) program ASTs — `programBodies`, built by
@@ -627,26 +840,21 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // decl.ResolvedInfo.RegistryKey). This is what lets the walk step into `Bytes.create(from_list:)` and
         // see its `List[Byte].getitem/count` calls. (RoutineBodies — the synthesis working set — is NOT the
         // codegen source and misses flattened stdlib member bodies, so it is not consulted.)
-        Statement? GetBody(string key) =>
-            ctx.InstantiatedGenericBodies.TryGetValue(key: key, out MonomorphizedBody? mb) ? mb.Ast?.Body :
-            ctx.VariantBodies.TryGetValue(key: key, out Statement? vb) ? vb :
-            programBodies.TryGetValue(key: key, out Statement? pb) ? pb :
+        private Statement? GetBody(string key)
+        {
+            if (_ctx.InstantiatedGenericBodies.TryGetValue(key: key, out MonomorphizedBody? mb))
+                return mb.Ast?.Body;
+            if (_ctx.VariantBodies.TryGetValue(key: key, out Statement? vb))
+                return vb;
+            if (programBodies.TryGetValue(key: key, out Statement? pb))
+                return pb;
             // Lowest priority: a SYNTHESIZED body (represent/diagnose/crash_message/crash_title on a concrete
             // crashable, a derived operator) that no program AST holds. Consulting it lets the demand walk step
-            // THROUGH a synthesized formatter (a crashable's `represent` → `crash_message` → `crash_title`, a
-            // dispatched `diagnose` → its field formatters) so the whole closed formatter family is discovered
-            // and marked live — otherwise materialization emits a body whose own callees were never seeded.
-            synthesizedBodies != null && synthesizedBodies.TryGetValue(key: key, out Statement? sb) ? sb : null;
-
-        // Discover a referenced routine: BUILD it if it is an unbuilt generic INSTANCE (singular builder, no
-        // transitive drain); then, whether generic or NON-generic, queue its body for traversal so the walk
-        // continues through it (this is how `start` → `Bytes.getitem` → `List[Byte].create` chains). Only
-        // genuinely-referenced routines are walked and only referenced instances are built — DCE preserved.
-        // Concrete non-generic-def owner types the walk has reached — each needs its codegen-injected /
-        // synthesis-emitted force-seeds (wired routines, implicit-call-contract verbs, entity self-free,
-        // Text.replace) which have NO AST call for the walk to follow. This is now the SOLE owner of
-        // force-seeding — the reachability-side pass was retired + deleted (Stage-3 push-DCE retirement).
-        var reachedOwners = new HashSet<TypeInfo>(comparer: ReferenceEqualityComparer.Instance);
+            // THROUGH a synthesized formatter so the whole closed formatter family is discovered and marked live.
+            if (synthesizedBodies != null && synthesizedBodies.TryGetValue(key: key, out Statement? sb))
+                return sb;
+            return null;
+        }
 
         // Mark a reached concrete owner type LIVE + materialized. Codegen's Phase-C synthesized-body emitters
         // (e.g. iterator-adapter `try_emit` per concrete owner) loop AllConcreteGenericInstancesUnfiltered
@@ -654,279 +862,201 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // unmarked Emittable owner leaves its synthesized `try_emit` undefined at link (the
         // warm-restore-overprune Category-B symptom). Called for a routine's owner AND for a
         // CreatorExpression's ConstructedType (an Emittable is often only CONSTRUCTED, never method-called).
-        void MarkOwner(TypeInfo? t)
+        private void MarkOwner(TypeInfo? t)
         {
             if (t is not { IsGenericDefinition: false } owner) return;
-            reachedOwners.Add(item: owner);
+            _reachedOwners.Add(item: owner);
             owner.IsStdlibLazy = false;
-            ctx.LiveOwnerTypeNames.Add(item: owner.FullName);
+            _ctx.LiveOwnerTypeNames.Add(item: owner.FullName);
         }
 
-        void Discover(RoutineInfo? r)
+        // Discover a referenced routine: BUILD it if it is an unbuilt generic INSTANCE (singular builder, no
+        // transitive drain); then, whether generic or NON-generic, queue its body for traversal so the walk
+        // continues through it (this is how `start` → `Bytes.getitem` → `List[Byte].create` chains). Only
+        // genuinely-referenced routines are walked and only referenced instances are built — DCE preserved.
+        private void Discover(RoutineInfo? r)
         {
             if (r == null) return;
             MarkOwner(t: r.OwnerType);
             string key = r.RegistryKey;
-            // Stage-2 (pull/(B)) demand resolution: ensure this reached routine's body is analyzed
-            // (calls/types resolved) BEFORE we read/monomorphize it below — this is how resolve-as-you-collect
-            // bootstraps from start(). No-op under the pre-(B) eager pipeline (hook guarded there). For a
-            // generic INSTANCE the template body lives in the DEF's file (List[T].foo in List.rf), and the
-            // instance key isn't a declared stdlib routine — so also trigger the DEF's file, or its
-            // monomorphized body reaches lowering with unresolved types.
-            bool desugaredNewFile = ctx.AnalyzeRoutineOnDemand?.Invoke(arg: key) ?? false;
-            // Walk the WHOLE generic-definition chain (instance → concrete-owner generic → root template)
-            // and trigger on-demand analysis for EACH key. The demand map is keyed by the ROOT source decl's
-            // RegistryKey (generic `List[T].from_literal#Array[T,__Vararg0]`); an intermediate concrete-owner
-            // key (`List[S64].from_literal#Array[S64,__Vararg0]`) misses it, so a const-generic arity instance
-            // (`from_literal[3]`) would clone the RAW, un-desugared source template (surviving GMCE + un-lowered
-            // WhileStatement) unless we reach the root key that DOES map to the file.
-            for (RoutineInfo? gd = r.GenericDefinition; gd != null; gd = gd.GenericDefinition)
-            {
-                if (gd.RegistryKey is { } gdKey && gdKey != key)
-                    desugaredNewFile |= ctx.AnalyzeRoutineOnDemand?.Invoke(arg: gdKey) ?? false;
-            }
-            // The demand analyzer REASSIGNS decl.Body when it desugars a newly-reached file (immutable
-            // rewriters → new decl in program.Declarations). Our _routineIndex snapshotted the OLD decls at
-            // walk start, so ProcessResolvedMemberRoutineGenericRoutine below would clone the STALE, un-lowered
-            // template (surviving GMCE / un-inlined file-private preset in the instance). Rebuild the index so
-            // monomorphization sources the freshly-desugared def.
-            if (desugaredNewFile) { BuildRoutineIndex(); }
+            TriggerOnDemandAnalysis(r: r, key: key);
             // Mark EVERY reached routine live FIRST — generic instance OR non-generic (e.g.
             // `Bytes.create(from_list:)` reached through `Bytes.getitem`). Everything reachable from an entry
             // point is live by definition; codegen's liveness gate only emits a definition for a live key, so
             // a reached-but-unmarked non-generic body would link-fail as an undefined symbol. Must precede the
             // build below — `ProcessResolvedMemberRoutineGenericRoutine` itself gates on the key being live.
-            bool newlyLive = ctx.LiveRoutineKeys.Add(item: key);
-            // Crash path per LIVE routine: codegen's EmitThrow calls `<E>.crash_message()` (→ `<E>.represent()`)
-            // for every crashable E this routine DIRECTLY throws (RoutineInfo.ThrowableTypes — populated post
-            // Phase-4, covering the routine and its check_/lookup_ variant). Those calls have NO AST node the
-            // walk can follow, and the routine body itself is often a `common`-broadcast/monomorph template the
-            // collector never indexes (so the `throw E()` CreatorExpression is never seen either). Seeding off
-            // ThrowableTypes matches codegen's reference set EXACTLY — demand-scoped to live routines, so no
-            // over-materialization of unthrown errors (which broke cold/warm determinism). Seed once per routine.
-            if (newlyLive)
-                // ThrowableTypes is populated on the GENERIC DEF (Phase-4 body analysis), not copied onto each
-                // monomorphized instance — so a generic throw (`Dict[K,V].getitem`→KeyNotFoundError,
-                // `Agent[T].retrieve`→TaskSpawn/TimeoutError) needs the def's list too, or its crash_message is
-                // never seeded and links undefined.
-                foreach (TypeInfo thrown in r.ThrowableTypes.Concat(
-                             second: r.GenericDefinition?.ThrowableTypes ?? Enumerable.Empty<TypeInfo>()))
-                {
-                    if (ctx.Registry.LookupMemberRoutine(type: thrown,
-                            memberRoutineName: RuntimeContract.CrashMessage) is not { } tcm) continue;
-                    Discover(r: tcm);
-                    Discover(r: ctx.Registry.LookupMemberRoutine(type: thrown, memberRoutineName: "represent"));
-                }
-            if (r.GenericDefinition != null
-                && !ctx.InstantiatedGenericBodies.ContainsKey(key: key)
-                && !ctx.VariantBodies.ContainsKey(key: key))
+            bool newlyLive = _ctx.LiveRoutineKeys.Add(item: key);
+            if (newlyLive) SeedThrowableCrashPath(r: r);
+            BuildGenericInstanceIfNeeded(r: r, key: key);
+            if (!_walked.Contains(item: key) && GetBody(key: key) is { } body)
+                _worklist.Enqueue(item: (key, body));
+        }
+
+        // Stage-2 (pull/(B)) demand resolution: ensure this reached routine's body is analyzed (calls/types
+        // resolved) BEFORE we read/monomorphize it. No-op under the pre-(B) eager pipeline (hook guarded there).
+        // Also triggers on-demand analysis for each key in the whole generic-definition chain — the demand map
+        // is keyed by the ROOT source decl's RegistryKey, so intermediate concrete-owner keys need the chain walk.
+        private void TriggerOnDemandAnalysis(RoutineInfo r, string key)
+        {
+            bool desugaredNewFile = _ctx.AnalyzeRoutineOnDemand?.Invoke(arg: key) ?? false;
+            for (RoutineInfo? gd = r.GenericDefinition; gd != null; gd = gd.GenericDefinition)
             {
-                ProcessResolvedMemberRoutineGenericRoutine(resolvedRoutine: r);
-                if (ctx.InstantiatedGenericBodies.ContainsKey(key: key)) totalBuilt++;
+                if (gd.RegistryKey is { } gdKey && gdKey != key)
+                    desugaredNewFile |= _ctx.AnalyzeRoutineOnDemand?.Invoke(arg: gdKey) ?? false;
             }
-            if (!walked.Contains(item: key) && GetBody(key: key) is { } body)
-                worklist.Enqueue(item: (key, body));
+            // The demand analyzer REASSIGNS decl.Body when it desugars a newly-reached file (immutable
+            // rewriters → new decl in program.Declarations). Our _routineIndex snapshotted the OLD decls at
+            // walk start, so ProcessResolvedMemberRoutineGenericRoutine below would clone the STALE, un-lowered
+            // template. Rebuild the index so monomorphization sources the freshly-desugared def.
+            if (desugaredNewFile) gmp.BuildRoutineIndex();
+        }
+
+        // Crash path per LIVE routine: codegen's EmitThrow calls `<E>.crash_message()` (→ `<E>.represent()`)
+        // for every crashable E this routine DIRECTLY throws (RoutineInfo.ThrowableTypes — populated post Phase-4,
+        // covering the routine and its check_/lookup_ variant). Seeding off ThrowableTypes matches codegen's
+        // reference set EXACTLY — demand-scoped to live routines, so no over-materialization of unthrown errors.
+        // ThrowableTypes is populated on the GENERIC DEF (Phase-4 body analysis), not copied onto each
+        // monomorphized instance — so a generic throw needs the def's list too.
+        private void SeedThrowableCrashPath(RoutineInfo r)
+        {
+            foreach (TypeInfo thrown in r.ThrowableTypes.Concat(
+                         second: r.GenericDefinition?.ThrowableTypes ?? Enumerable.Empty<TypeInfo>()))
+            {
+                if (_ctx.Registry.LookupMemberRoutine(type: thrown,
+                        memberRoutineName: RuntimeContract.CrashMessage) is not { } tcm) continue;
+                Discover(r: tcm);
+                Discover(r: _ctx.Registry.LookupMemberRoutine(type: thrown,
+                    memberRoutineName: RepresentMemberRoutineName));
+            }
+        }
+
+        // Build the monomorphized body for a generic instance if it hasn't been built yet.
+        private void BuildGenericInstanceIfNeeded(RoutineInfo r, string key)
+        {
+            if (r.GenericDefinition == null) return;
+            if (_ctx.InstantiatedGenericBodies.ContainsKey(key: key)) return;
+            if (_ctx.VariantBodies.ContainsKey(key: key)) return;
+            gmp.ProcessResolvedMemberRoutineGenericRoutine(resolvedRoutine: r);
+            if (_ctx.InstantiatedGenericBodies.ContainsKey(key: key)) _totalBuilt++;
         }
 
         // Force-seed the codegen-injected / synthesis-emitted routines on a reached OWNER type — they have no
         // AST call for the walk to follow. The collector is self-sufficient: this is the SOLE force-seeder now
         // (the reachability-side pass was retired + deleted, Stage-3). Each seed goes through
         // Discover (build-if-generic + mark-live + queue-body).
-        void ForceSeedOwner(TypeInfo type)
+        private void ForceSeedOwner(TypeInfo type)
         {
-            // (1) Wired derives. The CALL-DRIVEN family is EXCLUDED (denylist below): each is reached through
-            // a real lowered call site — `f"{x}"`/`show(x)`/a container element → `.represent()`/`.diagnose()`;
-            // a Dict/Set body → `.hash()`; `a==b`/`a<b`/`x in c` → `.eq()`/`.cmp()`/`.contains()` (+derived);
-            // a copy/store → `.duplicate()`/`.assign()`; `.serialize()`; indexing → `.getitem`/`.setitem`; a
-            // for-loop → `.iter`. Force-seeding those per reached owner OVER-APPROXIMATES — it drags in dead
-            // chains (a reached-but-unused `Complex[Real].represent` pulling a nonexistent
-            // `Real.represent_with_places`; a `Doc.duplicate` whose `assign` isn't derivable) the retired
-            // codegen liveness gate used to prune. Everything ELSE stays seeded — the genuinely
-            // non-discoverable, codegen/framework-inserted derives (cyclic_visit; crash_message/crash_title on
-            // the throw path) that have no AST call for the walk to follow.
+            SeedNonCallDrivenWiredRoutines(type: type);
+            SeedImplicitCodegenInserts(type: type);
+            SeedEntitySelfFreeIfApplicable(type: type);
+            SeedLifecycleHooksIfApplicable(type: type);
+            SeedCommonUnpackedFloatHelpers(type: type);
+        }
+
+        // (1) Wired derives. The CALL-DRIVEN family is EXCLUDED (denylist): each is reached through a real
+        // lowered call site. Force-seeding those per reached owner OVER-APPROXIMATES — drags in dead chains the
+        // retired codegen liveness gate used to prune. Only non-call-driven, non-operator wired names are seeded.
+        private void SeedNonCallDrivenWiredRoutines(TypeInfo type)
+        {
             foreach (string wiredName in WiredRoutineCatalog.BuildReachabilitySeedNames())
             {
-                if (wiredName is "represent" or "diagnose" or "hash" or "serialize"
-                    or "duplicate" or "assign" or "eq" or "ne" or "cmp"
-                    or "lt" or "le" or "gt" or "ge" or "contains" or "notcontains"
-                    or "getitem" or "iter")
-                    continue;
-                // NOTE: `setitem` is NOT excluded here (unlike the call-driven `getitem`). An index assignment
+                if (IsCallDrivenWiredName(wiredName: wiredName)) continue;
+                // NOTE: `setitem` is NOT excluded (unlike the call-driven `getitem`). An index assignment
                 // `a[i] = x` is lowered to a `setitem` CALL by CODEGEN at emission, not to an AST call the
                 // demand walk can follow, so setitem is never reached call-driven and must be force-seeded per
                 // reached owner or it links undefined (Array[S64,4]/Vector[F32,4]/BitArray/SplitArray/List).
-                // The OPERATOR family is call-driven too: `a+b`→.add, `a<<b`→.ashl, `-a`→.neg, `a+=b`→.iadd
-                // each reach their wired routine through a lowered call the walk follows. Force-seeding them
-                // per live owner OVER-approximates — worse, a widening op's body constructs a WIDER type
-                // (U64.mul_clamp builds U128 to detect overflow), so seeding it on live U64 drags in the whole
-                // U128 → bignum-division → decimal (D128) closure even when the program never multiplies. Skip
-                // every call-driven operator kind here; the genuinely non-discoverable framework hook
-                // (cyclic_visit / CycleTrace) and the display/compare/etc. names above stay handled.
+                // The OPERATOR family is call-driven too. Skip every call-driven operator kind; the genuinely
+                // non-discoverable framework hook (cyclic_visit / CycleTrace) and the denylist names above stay.
                 if (WiredRoutineCatalog.TryGet(name: wiredName, entry: out WiredEntry seedEntry)
-                    && seedEntry.Kind is WiredKind.Arithmetic or WiredKind.ArithmeticWrap
-                        or WiredKind.ArithmeticClamp or WiredKind.ArithmeticUnchecked
-                        or WiredKind.Bitwise or WiredKind.Shift or WiredKind.Unary or WiredKind.Unwrap
-                        or WiredKind.InPlaceArithmetic or WiredKind.InPlaceBitwise or WiredKind.InPlaceShift)
-                    continue;
-                if (!ctx.Registry.TypeHasWiredRoutine(type: type, wiredName: wiredName)) continue;
-                Discover(r: ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: wiredName));
+                    && IsCallDrivenWiredKind(kind: seedEntry.Kind)) continue;
+                if (!_ctx.Registry.TypeHasWiredRoutine(type: type, wiredName: wiredName)) continue;
+                Discover(r: _ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: wiredName));
             }
-            // (2) Implicit codegen inserts (RC copy verb; Roamed promote/lock/raw_inner; display transparency).
+        }
+
+        // Returns true for wired names that are always reached through a real lowered call-site (not codegen-injected).
+        private static bool IsCallDrivenWiredName(string wiredName) =>
+            wiredName is RepresentMemberRoutineName or "diagnose" or "hash" or "serialize"
+                or "duplicate" or "assign" or "eq" or "ne" or "cmp"
+                or "lt" or "le" or "gt" or "ge" or "contains" or "notcontains"
+                or "getitem" or "iter";
+
+        // Returns true for wired operator kinds that are reached call-driven (force-seeding them over-approximates).
+        private static bool IsCallDrivenWiredKind(WiredKind kind) =>
+            kind is WiredKind.Arithmetic or WiredKind.ArithmeticWrap
+                or WiredKind.ArithmeticClamp or WiredKind.ArithmeticUnchecked
+                or WiredKind.Bitwise or WiredKind.Shift or WiredKind.Unary or WiredKind.Unwrap
+                or WiredKind.InPlaceArithmetic or WiredKind.InPlaceBitwise or WiredKind.InPlaceShift;
+
+        // (2) Implicit codegen inserts (RC copy verb; Roamed promote/lock/raw_inner; display transparency).
+        // (2b) Crash path — `throw X` is genuinely NON-discoverable (control flow, no AST call): codegen's
+        //   EmitThrow calls `X.crash_message()`, whose body formats via `X.represent()`. Seed both per reached
+        //   throwable owner. represent is on the call-driven denylist (f-string/show), so seed it explicitly here.
+        // (2c) Lock-policy no-arg constructor. A `Guarded[T, P]` / `GuardController[T, P]` initializes its
+        //   lock field by constructing P (Exclusive/MultiRead/ReadOnly), but the ctor is synthesized into the
+        //   container's create with NO resolved-creator AST call the walk can follow. Seed P.create on each
+        //   reached lock policy so codegen's lock-field init links. Demand-scoped to a reached policy type.
+        private void SeedImplicitCodegenInserts(TypeInfo type)
+        {
             foreach ((TypeInfo owner, string mn) in ImplicitCallContract.ForLiveType(liveType: type))
-                Discover(r: ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: mn));
-            // (2b) Crash path — `throw X` is genuinely NON-discoverable (control flow, no AST call): codegen's
-            // EmitThrow calls `X.crash_message()`, whose body formats via `X.represent()`. Seed both per reached
-            // throwable owner (a type declaring crash_message). Discover build+walks crash_message so most of its
-            // callees fall out; represent is force-seeded above's DENYLIST (call-driven for f-string/show), so
-            // seed it explicitly here for the crash formatter that has no source call.
-            if (ctx.Registry.LookupMemberRoutine(type: type,
+                Discover(r: _ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: mn));
+            if (_ctx.Registry.LookupMemberRoutine(type: type,
                     memberRoutineName: RuntimeContract.CrashMessage) is { } crashMsg)
             {
                 Discover(r: crashMsg);
-                Discover(r: ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: "represent"));
+                Discover(r: _ctx.Registry.LookupMemberRoutine(type: type,
+                    memberRoutineName: RepresentMemberRoutineName));
             }
-            // (2c) Lock-policy no-arg constructor. A `Guarded[T, P]` / `GuardController[T, P]` initializes its
-            // lock field by constructing P (Exclusive/MultiRead/ReadOnly), but the ctor is synthesized into the
-            // container's create with NO resolved-creator AST call the walk can follow (ResolvedCreatorRoutine
-            // is null on the `P()` node). Seed P.create on each reached lock policy so codegen's lock-field init
-            // links. Demand-scoped to a reached policy type — bounded (three policies).
-            if (ctx.Registry.DoesTypeObeyProtocol(type: type, protocolName: "LockPolicy"))
-                Discover(r: ctx.Registry.LookupCreator(type: type));
-            // (3) Entity self-free tail (hijack / Hijacked[E].invalidate — zero-arg universal, no AST call).
-            // Skip a type that still carries a generic parameter (IsGenericDefinition can be false for a
-            // partially-substituted resolution like `RangeEmittable[RangeEmittable[T]]`): GetOrCreateWrapperType
-            // would mint `Hijacked[RangeEmittable[RangeEmittable[T]]]` whose hijack references a still-deeper
-            // `RangeEmittable[RangeEmittable[RangeEmittable[T]]]`, each level spawning the next → unbounded
-            // monomorphization. Only fully-concrete entities have a real self-free to seed.
-            if (type is EntityTypeInfo { IsGenericDefinition: false } && !ContainsGenericParam(t: type))
-            {
-                Discover(r: ctx.Registry.LookupMemberRoutine(type: type,
-                    memberRoutineName: RuntimeContract.RawPointer.Hijack));
-                TypeInfo hijacked = ctx.Registry.GetOrCreateWrapperType(
-                    wrapperName: RuntimeContract.Hijacked, innerType: type, isReadOnly: false);
-                Discover(r: ctx.Registry.LookupMemberRoutine(type: hijacked,
-                    memberRoutineName: RuntimeContract.RawPointer.Invalidate));
-            }
-            // (3b) Per-type LIFECYCLE HOOKS (destroy / roam_free_impl / roam_trace_impl). Codegen synthesizes
-            // teardown + cycle-trace calls per reached type with NO source AST call (scope-exit destroy of a
-            // temporary, a wrapper/routine-value's destroy). Base mode seeds these over ALL registered instances
-            // (MaterializeEntitySelfFreeInIsolation); mirror that DEMAND-scoped on each reached concrete owner.
-            if (!ContainsGenericParam(t: type))
-            {
-                foreach (string hook in new[] { "destroy", "roam_free_impl", "roam_trace_impl" })
-                    if (ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: hook) is { } hookR)
-                        Discover(r: hookR);
-                // Scope-teardown resolves the destructor via GetLifecycle, NOT a bare-name member lookup — a
-                // routine-VALUE (`Routine[(S64,), List[S64]]`) carries a `destroy` that GetLifecycle surfaces
-                // but `LookupMemberRoutine` misses, so codegen emits the teardown CALL while the definition is
-                // never seeded → link-undefined. Seed the exact routine GetLifecycle returns to match codegen.
-                if (ctx.Registry.GetLifecycle(type: type) is { IsBorrow: false, Destroy: { } lcDestroy })
-                    Discover(r: lcDestroy);
-            }
-            // (4) Text.replace — FStringLoweringPass synthesizes it for `:?`/`?` in-flight-entity interpolation.
+            if (_ctx.Registry.DoesTypeObeyProtocol(type: type, protocolName: "LockPolicy"))
+                Discover(r: _ctx.Registry.LookupCreator(type: type));
+        }
+
+        // (3) Entity self-free tail (hijack / Hijacked[E].invalidate — zero-arg universal, no AST call).
+        // Skip a type that still carries a generic parameter: GetOrCreateWrapperType would mint
+        // `Hijacked[RangeEmittable[T]]` recursively → unbounded monomorphization. Only fully-concrete entities.
+        // (4) Text.replace — FStringLoweringPass synthesizes it for `:?`/`?` in-flight-entity interpolation.
+        private void SeedEntitySelfFreeIfApplicable(TypeInfo type)
+        {
             if (type is { Name: "Text", Module: "Core" })
-                Discover(r: ctx.Registry.LookupMemberRoutine(type: type,
+                Discover(r: _ctx.Registry.LookupMemberRoutine(type: type,
                     memberRoutineName: RuntimeContract.Collection.Replace));
-            // (5) `common` routines. Force-seeding EVERY common member of a reached owner is an
-            // over-approximation (like the call-driven operator family excluded above): most common routines
-            // (from_digit_bytes, to_digit_bytes, …) are reached through a real call the demand walk follows.
-            // Worse, it is NON-DETERMINISTIC — `GetMemberRoutinesForType` returns MORE members in a warm build
-            // (a universal `Integer.X` common routine resolved onto every concrete width during the full-stdlib
-            // capture) than in a cold build, so a warm build would drag in the whole from_digit_bytes → Bytes/
-            // Integer/Tuple cascade for a program that never parses. The only genuinely NON-discoverable common
-            // family is the UnpackedFloat integer-width helpers (to_width / low_mask / from_words), reached only
-            // through nested generic-member instantiation with no AST call — seed just those.
-            foreach (RoutineInfo commonR in ctx.Registry.GetMemberRoutinesForType(type: type))
-                if (commonR is { IsCommon: true, IsGenericDefinition: false }
-                    && commonR.Name is "to_width" or "low_mask" or "from_words")
-                    Discover(r: commonR);
+            if (type is not EntityTypeInfo { IsGenericDefinition: false }) return;
+            if (ContainsGenericParam(t: type)) return;
+            Discover(r: _ctx.Registry.LookupMemberRoutine(type: type,
+                memberRoutineName: RuntimeContract.RawPointer.Hijack));
+            TypeInfo hijacked = _ctx.Registry.GetOrCreateWrapperType(
+                wrapperName: RuntimeContract.Hijacked, innerType: type, isReadOnly: false);
+            Discover(r: _ctx.Registry.LookupMemberRoutine(type: hijacked,
+                memberRoutineName: RuntimeContract.RawPointer.Invalidate));
         }
 
-        // SEED with the entry-point BODIES directly (start()/@test/@bench — their RoutineDeclaration.Body is
-        // in hand from the caller, NOT looked up: a user `start` body lives in UserPrograms, not RoutineBodies).
-        // Mark each SEED's OWN key live too — the fixpoint below only marks CALLEES live (via Discover), so a
-        // root entry that nothing calls (the program's own `start`, e.g. the harness bundle's `StdlibHarness.start`
-        // which invokes each fixture's `start`) would otherwise stay un-live and be pruned by codegen's
-        // reachability gate — leaving the executable with no entry symbol.
-        foreach ((string k, Statement b) in entrySeeds)
+        // (3b) Per-type LIFECYCLE HOOKS (destroy / roam_free_impl / roam_trace_impl). Codegen synthesizes
+        // teardown + cycle-trace calls per reached type with NO source AST call (scope-exit destroy of a
+        // temporary, a wrapper/routine-value's destroy). Base mode seeds these over ALL registered instances
+        // (MaterializeEntitySelfFreeInIsolation); mirror that DEMAND-scoped on each reached concrete owner.
+        // Also seeds the exact lifecycle-destroy GetLifecycle returns — routine-VALUEs carry a `destroy`
+        // that `LookupMemberRoutine` misses but GetLifecycle surfaces.
+        private void SeedLifecycleHooksIfApplicable(TypeInfo type)
         {
-            ctx.LiveRoutineKeys.Add(item: k);
-            worklist.Enqueue(item: (k, b));
+            if (ContainsGenericParam(t: type)) return;
+            foreach (string hook in new[] { "destroy", "roam_free_impl", "roam_trace_impl" })
+                if (_ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: hook) is { } hookR)
+                    Discover(r: hookR);
+            if (_ctx.Registry.GetLifecycle(type: type) is { IsBorrow: false, Destroy: { } lcDestroy })
+                Discover(r: lcDestroy);
         }
 
-        // FIXPOINT: drain the call-graph worklist, then force-seed any newly-reached owner types (their seeds
-        // refill the worklist), and repeat until both are exhausted.
-        var seededOwners = new HashSet<TypeInfo>(comparer: ReferenceEqualityComparer.Instance);
-        // Dispatched Crashable members seen in any walked body (represent/diagnose/crash_message/crash_title).
-        // Seeded on each reached crashable owner after the walk — see the CrashableDispatch case below.
-        var dispatchMembers = new HashSet<string>(comparer: StringComparer.Ordinal);
-        int guard = 0;
-        do
+        // (5) `common` routines. Force-seeding EVERY common member of a reached owner is an
+        // over-approximation (NON-DETERMINISTIC — warm vs cold build differ). Only the genuinely
+        // NON-discoverable common family is seeded: the UnpackedFloat integer-width helpers (to_width /
+        // low_mask / from_words), reached only through nested generic-member instantiation with no AST call.
+        private void SeedCommonUnpackedFloatHelpers(TypeInfo type)
         {
-            while (worklist.Count > 0 && guard++ < 5_000_000)
-            {
-                (string key, Statement body) = worklist.Dequeue();
-                if (!walked.Add(item: key)) continue;
-                // `throw E()` → codegen's EmitThrow calls `E.crash_message()` (→ `E.represent()`). The thrown
-                // error is NOT reliably a CreatorExpression after lowering (an empty crashable like
-                // TaskSpawnError lowers to a non-Creator node), so the CreatorExpression case below misses it.
-                // Catch the ThrowStatement directly and MarkOwner its error TYPE — ForceSeedOwner then seeds
-                // the crash formatter closure. Mirrors EmitThrow exactly (every reached throw ⇒ crash_message).
-                AstWalker.Walk(root: body, visit: n =>
-                {
-                    if (n is ThrowStatement { Error.ResolvedType: { } errType }) MarkOwner(t: errType);
-                });
-                AstWalker.WalkExpressions(root: body, visit: expr =>
-                {
-                    switch (expr)
-                    {
-                        case CallExpression { ResolvedRoutine: { } cr }: Discover(r: cr); break;
-                        case GenericMemberRoutineCallExpression { ResolvedRoutine: { } gr }: Discover(r: gr); break;
-                        // A constructor (`SelectEmittable(...)`) — reach its create routine AND mark the
-                        // constructed type a live owner (an Emittable is often ONLY constructed, so its owner
-                        // liveness — needed for Phase-C try_emit emission — comes from here, not a method call).
-                        case CreatorExpression ce:
-                            Discover(r: ce.ResolvedCreatorRoutine);
-                            MarkOwner(t: ce.ConstructedType);
-                            break;
-                        // A type-erased crashable dispatch (`when is Crashable e => f"{e}"` / `e.diagnose()`).
-                        // Codegen lowers it to a `type_id` switch calling `<MemberName>` on each REACHED crashable
-                        // (a thrown error is the only thing that can land in the carrier). Record the member; the
-                        // post-fixpoint pass seeds it on every reached crashable owner, so codegen (which emits an
-                        // arm only for a LIVE member) and this walk agree on the SAME demand set — deterministic
-                        // across cold (partial registry) and warm (full-stdlib registry).
-                        case CrashableDispatchExpression cd:
-                            dispatchMembers.Add(item: cd.MemberName);
-                            break;
-                        // A routine referenced AS A VALUE (not called) — a bare routine name passed as an
-                        // argument (a coroutine/thread entry `coro_body`, a callback, a first-class routine).
-                        // Codegen wraps these in an entry/value thunk (EnsureCoroEntryThunk/RoutineValueThunk)
-                        // whose body calls the routine, so the routine — and its whole transitive closure
-                        // (e.g. coro_body → Worker.do_work → Box's create/destroy) — is genuinely live even
-                        // though no CallExpression names it. Discover it here so the demand walk follows it.
-                        // Two forms: pre-resolved (ResolvedRoutine set) or a bare name whose ResolvedType is a
-                        // RoutineTypeInfo (codegen resolves it by name+param-types via TryResolveRoutineReference,
-                        // e.g. a routine passed to a C function pointer like `rf_coro_create(entry: coro_body)`).
-                        case IdentifierExpression { ResolvedRoutine: { } ir }: Discover(r: ir); break;
-                        case IdentifierExpression { ResolvedType: RoutineTypeInfo rvt } rid:
-                            Discover(r: ResolveRoutineValueByName(name: rid.Name, routineType: rvt));
-                            break;
-                    }
-                });
-            }
-            foreach (TypeInfo owner in reachedOwners.ToArray())
-                if (seededOwners.Add(item: owner)) ForceSeedOwner(type: owner);
-            // Seed each dispatched Crashable member on every REACHED crashable owner. A crashable is reached
-            // only by being thrown, and only a thrown crashable can be in the carrier the dispatch reads — so
-            // this is exactly the arm set codegen emits (gated on the member being live). Re-runs each round as
-            // reachedOwners grows; its Discover calls refill the worklist, extending the fixpoint.
-            if (dispatchMembers.Count > 0)
-                foreach (TypeInfo owner in reachedOwners.ToArray())
-                    if (owner is CrashableTypeInfo)
-                        foreach (string member in dispatchMembers)
-                            Discover(r: ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: member));
-        } while (worklist.Count > 0);
-        return totalBuilt;
+            foreach (RoutineInfo commonR in _ctx.Registry.GetMemberRoutinesForType(type: type)
+                         .Where(r => r is { IsCommon: true, IsGenericDefinition: false }
+                             && r.Name is "to_width" or "low_mask" or "from_words"))
+                Discover(r: commonR);
+        }
     }
 
     /// <summary>
@@ -1247,37 +1377,12 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// </summary>
     private void ProcessResolvedMemberRoutineGenericRoutine(RoutineInfo resolvedRoutine)
     {
-        if (resolvedRoutine.GenericDefinition == null ||
-            ctx.InstantiatedGenericBodies.ContainsKey(resolvedRoutine.RegistryKey) ||
-            ctx.VariantBodies.ContainsKey(resolvedRoutine.RegistryKey) ||
-            resolvedRoutine.OwnerType is ProtocolTypeInfo)
-        {
-            return;
-        }
-
-        // Reachability gate: SA's RoutineResolutions index includes routines that were
-        // type-checked during analysis but never reached from program entry points.
-        // ProcessConcreteType applies this gate at line ~222; this path historically
-        // bypassed it, causing Phase B to emit unreachable bodies whose call sites
-        // reference further unreachable routines (linker errors).
-        if (ctx.LiveRoutineKeys.Count > 0
-            && !ctx.LiveRoutineKeys.Contains(item: resolvedRoutine.RegistryKey)
-            && !IsWiredRoutineName(resolvedRoutine.Name))
-        {
-            return;
-        }
-
-        if (resolvedRoutine.OwnerType is { } resolvedOwner
-            && !RoutineApplicableToConcreteOwner(routine: resolvedRoutine, owner: resolvedOwner))
-        {
-            return;
-        }
+        if (!ShouldProcessResolvedRoutine(resolvedRoutine)) return;
 
         // Routine types are structural — no per-type wired handler in WiredRoutinePass — so the
         // universal represent/diagnose template would field-walk their (empty) member set into a
         // bogus `Routine()`. Emit the SIGNATURE (the routine type's own name, e.g.
-        // `Routine[(S32,), S32]`) directly: no parens, no field walk. (serialize isn't a
-        // universal memberRoutine, so routine serialize is handled where it's registered.)
+        // `Routine[(S32,), S32]`) directly: no parens, no field walk.
         if (resolvedRoutine.OwnerType is RoutineTypeInfo routineOwner
             && resolvedRoutine.Name is RuntimeContract.Display.Represent
                 or RuntimeContract.Display.Diagnose)
@@ -1286,46 +1391,83 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             return;
         }
 
-        Dictionary<string, TypeInfo> typeSubs =
-            BuildResolvedRoutineTypeSubstitutions(resolvedRoutine);
-        if (typeSubs.Count == 0 ||
-            typeSubs.Values.Any(predicate: HasUnresolvedTypeArgs))
-        {
+        Dictionary<string, TypeInfo> typeSubs = BuildResolvedRoutineTypeSubstitutions(resolvedRoutine);
+        if (typeSubs.Count == 0 || typeSubs.Values.Any(predicate: HasUnresolvedTypeArgs))
             return;
-        }
 
         // Variant routines (iterator `try_emit`; and try_/check_/lookup_ of any failable) have NO source AST
         // under their own name — their real body is built from the ORIGINAL failable routine's AST via the
         // path-2 transform (BuildVariantBody → FindInStdlib(emit!) + ErrorHandlingVariantPass.TransformBody).
-        // ProcessConcreteType→BuildBody routes variants this way; this singular build-one path (the demand
-        // collector's build atom) must too, else FindInStdlib(try_emit) below fails → an EMPTY SENTINEL body →
-        // undefined `try_emit` at link (the reason iterator adapters over-pruned under the pull collector).
-        if (resolvedRoutine.GenericDefinition.OriginalName != null
-            && resolvedRoutine.GenericDefinition.OwnerType is { } variantGenDefOwner)
-        {
-            MonomorphizedBody? variantBodyBuilt = BuildVariantBody(
-                genMemberRoutine: resolvedRoutine.GenericDefinition,
-                concreteInfo: resolvedRoutine,
-                genDef: variantGenDefOwner,
-                typeSubs: typeSubs,
-                stringSubs: typeSubs.ToDictionary(keySelector: kv => kv.Key,
-                    elementSelector: kv => kv.Value.FullName));
-            if (variantBodyBuilt != null)
-            {
-                ctx.InstantiatedGenericBodies[key: resolvedRoutine.RegistryKey] = variantBodyBuilt;
-                return;
-            }
-        }
+        if (TryBuildAndStoreVariantBody(resolvedRoutine: resolvedRoutine, typeSubs: typeSubs)) return;
 
+        EmitResolvedRoutineBodyFromAst(resolvedRoutine: resolvedRoutine, typeSubs: typeSubs);
+    }
+
+    /// <summary>
+    /// Returns false when this resolved routine should be skipped (already built, not live, protocol-owned,
+    /// or not applicable to its concrete owner).
+    /// </summary>
+    private bool ShouldProcessResolvedRoutine(RoutineInfo resolvedRoutine)
+    {
+        if (resolvedRoutine.GenericDefinition == null ||
+            ctx.InstantiatedGenericBodies.ContainsKey(resolvedRoutine.RegistryKey) ||
+            ctx.VariantBodies.ContainsKey(resolvedRoutine.RegistryKey) ||
+            resolvedRoutine.OwnerType is ProtocolTypeInfo)
+            return false;
+
+        // Reachability gate: SA's RoutineResolutions index includes routines that were
+        // type-checked during analysis but never reached from program entry points.
+        if (ctx.LiveRoutineKeys.Count > 0
+            && !ctx.LiveRoutineKeys.Contains(item: resolvedRoutine.RegistryKey)
+            && !IsWiredRoutineName(resolvedRoutine.Name))
+            return false;
+
+        if (resolvedRoutine.OwnerType is { } resolvedOwner
+            && !RoutineApplicableToConcreteOwner(routine: resolvedRoutine, owner: resolvedOwner))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Attempts to build and store the monomorphized body for a variant routine (try_/check_/lookup_/try_emit).
+    /// Returns true if the variant body was found and stored.
+    /// </summary>
+    private bool TryBuildAndStoreVariantBody(RoutineInfo resolvedRoutine, Dictionary<string, TypeInfo> typeSubs)
+    {
+        if (resolvedRoutine.GenericDefinition.OriginalName == null
+            || resolvedRoutine.GenericDefinition.OwnerType is not { } variantGenDefOwner)
+            return false;
+
+        MonomorphizedBody? variantBodyBuilt = BuildVariantBody(
+            genMemberRoutine: resolvedRoutine.GenericDefinition,
+            concreteInfo: resolvedRoutine,
+            genDef: variantGenDefOwner,
+            typeSubs: typeSubs,
+            stringSubs: typeSubs.ToDictionary(keySelector: kv => kv.Key,
+                elementSelector: kv => kv.Value.FullName));
+        if (variantBodyBuilt == null) return false;
+
+        ctx.InstantiatedGenericBodies[key: resolvedRoutine.RegistryKey] = variantBodyBuilt;
+        return true;
+    }
+
+    /// <summary>
+    /// Emits the monomorphized body for a resolved routine by finding its AST declaration in stdlib
+    /// and rewriting it with type substitutions. Falls back to variant-body sources when no AST is found.
+    /// </summary>
+    private void EmitResolvedRoutineBodyFromAst(RoutineInfo resolvedRoutine,
+        Dictionary<string, TypeInfo> typeSubs)
+    {
         string astName = BuildAstNameForResolvedRoutine(resolvedRoutine);
         RoutineDeclaration? astDecl = FindInStdlib(
             genericAstName: astName,
-            expectedParamCount: resolvedRoutine.GenericDefinition.Parameters.Count,
+            expectedParamCount: resolvedRoutine.GenericDefinition!.Parameters.Count,
             typeSubs: typeSubs,
             expectedParamNames: resolvedRoutine.GenericDefinition.Parameters
                 .Select(static p => p.Name).ToList(),
             expectedParamTypeNames: resolvedRoutine.GenericDefinition.Parameters
-                .Select(static p => (string?)p.Type?.Name).ToList(),
+                .Select(static p => p.Type?.Name).ToList(),
             expectedOwnerModule: resolvedRoutine.OwnerType?.FullName is { } ownerFn
                 ? TypeInfo.StripTypeArgs(name: ownerFn)
                 : null);
@@ -1340,13 +1482,12 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             keySelector: kvp => kvp.Key,
             elementSelector: kvp => kvp.Value.FullName);
 
-        RoutineDeclaration rewrittenDecl =
-            GenericAstRewriter.Rewrite(
-                routine: astDecl,
-                subs: stringSubs,
-                typeSubs: typeSubs,
-                registry: ctx.Registry,
-                enclosingRoutine: resolvedRoutine);
+        RoutineDeclaration rewrittenDecl = GenericAstRewriter.Rewrite(
+            routine: astDecl,
+            subs: stringSubs,
+            typeSubs: typeSubs,
+            registry: ctx.Registry,
+            enclosingRoutine: resolvedRoutine);
 
         ctx.InstantiatedGenericBodies[resolvedRoutine.RegistryKey] = new MonomorphizedBody(
             Ast: rewrittenDecl,
@@ -1363,14 +1504,15 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// </summary>
     private void EmitRoutineTypeSignatureBody(RoutineInfo resolvedRoutine, RoutineTypeInfo routineOwner)
     {
+        SourceLocation loc = resolvedRoutine.Location ?? new SourceLocation("", 0, 0, 0);
         var sigBody = new ReturnStatement(
             Value: new LiteralExpression(Value: routineOwner.Name,
                 LiteralType: Tokenizer.TokenType.TextLiteral,
-                Location: resolvedRoutine.Location)
+                Location: loc)
             {
                 ResolvedType = ctx.Registry.LookupType(name: "Text")
             },
-            Location: resolvedRoutine.Location);
+            Location: loc);
         ctx.InstantiatedGenericBodies[key: resolvedRoutine.RegistryKey] =
             new MonomorphizedBody(
                 Ast: WrapInShellDecl(name: resolvedRoutine.Name, body: sigBody,
@@ -1590,7 +1732,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // Regular memberRoutine: search stdlib + user program ASTs
         string astName = BuildAstName(genDef: genDef, routineName: genMemberRoutine.Name);
         var paramNames = genMemberRoutine.Parameters.Select(static p => p.Name).ToList();
-        var paramTypeNames = genMemberRoutine.Parameters.Select(static p => (string?)p.Type?.Name).ToList();
+        var paramTypeNames = genMemberRoutine.Parameters.Select(static p => p.Type?.Name).ToList();
         RoutineDeclaration? astDecl = FindInStdlib(
             genericAstName: astName,
             expectedParamCount: genMemberRoutine.Parameters.Count,
@@ -1604,9 +1746,6 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
         if (astDecl == null)
         {
-            string ck = concreteInfo.RegistryKey;
-            if (ck.Contains("List[Core.Owned") && (ck.Contains("eq") || ck.Contains("contains")))
-                Console.Error.WriteLine($"[BuildBody-stdlib-miss] gen={genMemberRoutine.RegistryKey} concrete={ck} astName={astName}");
             return null;
         }
 
@@ -1927,64 +2066,18 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // WrapperTypeInfo (e.g., Hijacked[T] or Hijacked[Core.Byte]) must always be resolved
         // to the real RecordTypeInfo so LookupMemberRoutine and LLVM mangled names work correctly.
         // Use TryGetResolution (lookup-only) -> GMP must not grow AllConcreteGenericInstances.
-        // Any unresolved generic parameter left in a RoutineInfo should not reach codegen —
-        // GenericAstRewriter resolves expression ResolvedType before codegen entry.
         if (type is WrapperTypeInfo wrapper)
-        {
-            TypeInfo? wrapperDef = ctx.Registry.LookupType(name: wrapper.Name);
-            if (wrapperDef is { IsGenericDefinition: true } &&
-                wrapper.TypeArguments is { Count: > 0 })
-            {
-                var resolvedInnerArgs = wrapper.TypeArguments
-                    .Select(a => ResolveSubstitutedType(a, subs))
-                    .ToList();
-                return ctx.Registry.TryGetResolution(genericDef: wrapperDef,
-                    typeArguments: resolvedInnerArgs) ?? type;
-            }
-        }
+            return ResolveWrapperType(wrapper: wrapper, subs: subs);
 
         // Tuples carry their elements in ElementTypes (not TypeArguments), so the generic-resolution
         // recursion below misses them — substitute element-wise (e.g. Tuple[U64, T] -> Tuple[U64, Text]).
         if (type is TupleTypeInfo tuple)
-        {
-            var subbedElems = tuple.ElementTypes
-                .Select(selector: e => ResolveSubstitutedType(e, subs))
-                .ToList();
-            bool tupleChanged = subbedElems
-                .Where(predicate: (e, i) => !ReferenceEquals(objA: e, objB: tuple.ElementTypes[index: i]))
-                .Any();
-            return tupleChanged ? new TupleTypeInfo(elementTypes: subbedElems) : type;
-        }
+            return ResolveTupleType(tuple: tuple, subs: subs);
 
         if (type is { IsGenericResolution: true, TypeArguments: not null })
         {
-            bool anySubstituted = false;
-            var substitutedArgs = new List<TypeInfo>();
-            foreach (TypeInfo arg in type.TypeArguments)
-            {
-                TypeInfo resolved = ResolveSubstitutedType(arg, subs);
-                substitutedArgs.Add(resolved);
-                if (!ReferenceEquals(resolved, arg)) anySubstituted = true;
-            }
-            if (anySubstituted)
-            {
-                TypeInfo? genericBase = GetGenericBase(type);
-                if (genericBase != null)
-                {
-                    TypeInfo? alreadyResolved = ctx.Registry.TryGetResolution(
-                        genericDef: genericBase,
-                        typeArguments: substitutedArgs);
-                    if (alreadyResolved != null) return alreadyResolved;
-                    // Not yet registered — create it so the concrete signature reaches codegen
-                    // without unresolved GenericParameterTypeInfo. Safe here because wrapper types
-                    // are intercepted above (the WrapperTypeInfo branch) and never reach this path.
-                    // GetOrCreateResolution also enqueues the new type for ProcessConcreteType.
-                    if (substitutedArgs.All(predicate: a => a is not ErrorTypeInfo))
-                        return ctx.Registry.GetOrCreateResolution(
-                            genericDef: genericBase,
-                            typeArguments: substitutedArgs);
-                }
-            }
+            TypeInfo? resolved = ResolveGenericResolutionType(type: type, subs: subs);
+            if (resolved != null) return resolved;
         }
 
         if (type is { IsGenericDefinition: true, GenericParameters: not null, TypeArguments: null })
@@ -2004,6 +2097,66 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         return type;
     }
 
+    /// <summary>Resolves a wrapper type by substituting its inner type arguments and looking up the concrete instance.</summary>
+    private TypeInfo ResolveWrapperType(WrapperTypeInfo wrapper, Dictionary<string, TypeInfo> subs)
+    {
+        TypeInfo? wrapperDef = ctx.Registry.LookupType(name: wrapper.Name);
+        if (wrapperDef is { IsGenericDefinition: true } && wrapper.TypeArguments is { Count: > 0 })
+        {
+            var resolvedInnerArgs = wrapper.TypeArguments
+                .Select(a => ResolveSubstitutedType(a, subs))
+                .ToList();
+            return ctx.Registry.TryGetResolution(genericDef: wrapperDef,
+                typeArguments: resolvedInnerArgs) ?? wrapper;
+        }
+        return wrapper;
+    }
+
+    /// <summary>Resolves a tuple type by substituting each element type.</summary>
+    private TypeInfo ResolveTupleType(TupleTypeInfo tuple, Dictionary<string, TypeInfo> subs)
+    {
+        var subbedElems = tuple.ElementTypes
+            .Select(selector: e => ResolveSubstitutedType(e, subs))
+            .ToList();
+        bool tupleChanged = subbedElems
+            .Where(predicate: (e, i) => !ReferenceEquals(objA: e, objB: tuple.ElementTypes[index: i]))
+            .Any();
+        return tupleChanged ? new TupleTypeInfo(elementTypes: subbedElems) : tuple;
+    }
+
+    /// <summary>
+    /// Resolves a generic-resolution type by substituting each type argument and looking up or creating
+    /// the concrete instance. Returns null if no substitution occurred or no generic base was found.
+    /// </summary>
+    private TypeInfo? ResolveGenericResolutionType(TypeInfo type, Dictionary<string, TypeInfo> subs)
+    {
+        bool anySubstituted = false;
+        var substitutedArgs = new List<TypeInfo>();
+        foreach (TypeInfo arg in type.TypeArguments!)
+        {
+            TypeInfo resolved = ResolveSubstitutedType(arg, subs);
+            substitutedArgs.Add(resolved);
+            if (!ReferenceEquals(resolved, arg)) anySubstituted = true;
+        }
+        if (!anySubstituted) return null;
+
+        TypeInfo? genericBase = GetGenericBase(type);
+        if (genericBase == null) return null;
+
+        TypeInfo? alreadyResolved = ctx.Registry.TryGetResolution(
+            genericDef: genericBase, typeArguments: substitutedArgs);
+        if (alreadyResolved != null) return alreadyResolved;
+
+        // Not yet registered — create it so the concrete signature reaches codegen
+        // without unresolved GenericParameterTypeInfo. Safe here because wrapper types
+        // are intercepted above (the WrapperTypeInfo branch) and never reach this path.
+        // GetOrCreateResolution also enqueues the new type for ProcessConcreteType.
+        if (substitutedArgs.All(predicate: a => a is not ErrorTypeInfo))
+            return ctx.Registry.GetOrCreateResolution(
+                genericDef: genericBase, typeArguments: substitutedArgs);
+        return null;
+    }
+
     /// <summary>Builds the expected AST name for a routine on a generic type definition.</summary>
     private static string BuildAstName(TypeInfo genDef, string routineName)
     {
@@ -2017,45 +2170,38 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
     private string BuildAstNameForResolvedRoutine(RoutineInfo resolvedRoutine)
     {
-        string astName;
-        if (resolvedRoutine.OwnerType != null)
-        {
-            string ownerAstName;
-            if (resolvedRoutine.GenericDefinition?.OwnerType is GenericParameterTypeInfo universalOwner)
-            {
-                ownerAstName = universalOwner.Name;
-            }
-            else
-            {
-                TypeInfo ownerType = resolvedRoutine.OwnerType;
-                TypeInfo? ownerGenericDef = GetGenericBase(ownerType)
-                    ?? (ownerType is WrapperTypeInfo ? ctx.Registry.LookupType(name: ownerType.Name) : null);
-                if (ownerGenericDef?.GenericParameters is { Count: > 0 } gdParams)
-                    ownerAstName = $"{ownerGenericDef.Name}[{string.Join(", ", gdParams)}]";
-                else if (ownerType.IsGenericDefinition && ownerType.GenericParameters is { Count: > 0 } ownParams)
-                    ownerAstName = $"{ownerType.Name}[{string.Join(", ", ownParams)}]";
-                else
-                    ownerAstName = ownerType.Name;
-            }
-            // Specialized-receiver member (e.g. List[Agent[V]].gather!): the AST decl is indexed
-            // under its receiver PATTERN "List[Agent[V]]", not "List[T]". Format MeType to match.
-            if (resolvedRoutine.GenericDefinition?.MeType is { } mePat)
-            {
-                ownerAstName = FormatReceiverPatternAstName(type: mePat);
-            }
-            astName = $"{ownerAstName}.{resolvedRoutine.Name}";
-        }
-        else
-        {
-            astName = resolvedRoutine.Name;
-        }
+        string astName = resolvedRoutine.OwnerType != null
+            ? $"{ResolvedRoutineOwnerAstName(resolvedRoutine)}.{resolvedRoutine.Name}"
+            : resolvedRoutine.Name;
 
         if (resolvedRoutine.GenericDefinition?.IsGenericDefinition == true)
-        {
             astName += "[generic]";
-        }
 
         return astName;
+    }
+
+    /// <summary>
+    /// Computes the AST owner-name segment for a resolved routine, handling universal-owner,
+    /// specialized-receiver (MeType), and concrete generic-def owner cases.
+    /// </summary>
+    private string ResolvedRoutineOwnerAstName(RoutineInfo resolvedRoutine)
+    {
+        // Specialized-receiver member (e.g. List[Agent[V]].gather!): the AST decl is indexed
+        // under its receiver PATTERN "List[Agent[V]]", not "List[T]". Format MeType to match.
+        if (resolvedRoutine.GenericDefinition?.MeType is { } mePat)
+            return FormatReceiverPatternAstName(type: mePat);
+
+        if (resolvedRoutine.GenericDefinition?.OwnerType is GenericParameterTypeInfo universalOwner)
+            return universalOwner.Name;
+
+        TypeInfo ownerType = resolvedRoutine.OwnerType!;
+        TypeInfo? ownerGenericDef = GetGenericBase(ownerType)
+            ?? (ownerType is WrapperTypeInfo ? ctx.Registry.LookupType(name: ownerType.Name) : null);
+        if (ownerGenericDef?.GenericParameters is { Count: > 0 } gdParams)
+            return $"{ownerGenericDef.Name}[{string.Join(", ", gdParams)}]";
+        if (ownerType.IsGenericDefinition && ownerType.GenericParameters is { Count: > 0 } ownParams)
+            return $"{ownerType.Name}[{string.Join(", ", ownParams)}]";
+        return ownerType.Name;
     }
 
     /// <summary>Formats a specialized-receiver pattern (a memberRoutine's MeType, e.g. List[Agent[V]]) into
@@ -2113,10 +2259,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     {
         var typeSubs = new Dictionary<string, TypeInfo>();
 
-        // Specialized-receiver member: bind the receiver-derived memberRoutine generics (V → S64) by
-        // unifying the generic definition's MeType (List[Agent[V]]) against the concrete owner
-        // (List[Agent[S64]]), so the body rewriter substitutes V even though it carries no
-        // memberRoutine-type-arg suffix.
+        // (1) Specialized-receiver member: bind receiver-derived generics (V → S64) by unifying the
+        // generic definition's MeType against the concrete owner.
         if (resolvedRoutine.GenericDefinition?.MeType is { } mePattern &&
             resolvedRoutine.OwnerType is { } resolvedOwnerForMe)
         {
@@ -2124,100 +2268,111 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 genericParams: resolvedRoutine.GenericDefinition.GenericParameters, into: typeSubs);
         }
 
+        // (2) Universal-owner binding: map the single generic-owner parameter to the concrete owner.
         if (resolvedRoutine.GenericDefinition?.OwnerType is GenericParameterTypeInfo universalOwner &&
             resolvedRoutine.OwnerType != null)
         {
             typeSubs[universalOwner.Name] = resolvedRoutine.OwnerType;
         }
 
+        // (3) Owner type-argument bindings (including wrapper-forwarder inner-generic propagation).
         if (resolvedRoutine.OwnerType is { TypeArguments: { Count: > 0 } } ownerType)
-        {
-            TypeInfo? ownerGenericDef = GetGenericBase(ownerType)
-                ?? (ownerType is WrapperTypeInfo ? ctx.Registry.LookupType(name: ownerType.Name) : null);
-            if (ownerGenericDef?.GenericParameters is { Count: > 0 })
-            {
-                for (int i = 0;
-                     i < ownerGenericDef.GenericParameters.Count && i < ownerType.TypeArguments.Count;
-                     i++)
-                {
-                    string paramName = ownerGenericDef.GenericParameters[index: i];
-                    // Don't overwrite a universal-owner mapping (e.g. T->BTreeListNode[Byte] from
-                    // case 1) with the owner's own type argument (e.g. T->Byte from BTreeListNode[T]).
-                    // These are different uses of the same name T: the memberRoutine's universal-owner T
-                    // refers to the whole owner type, not to the owner's element type.
-                    if (!typeSubs.ContainsKey(key: paramName))
-                        typeSubs[paramName] = ownerType.TypeArguments[index: i];
-                }
-            }
+            AddOwnerTypeArgSubstitutions(typeSubs: typeSubs, resolvedRoutine: resolvedRoutine, ownerType: ownerType);
 
-            // Wrapper forwarder over a generic inner type: the forwarder's parameters and body
-            // reference the inner type's generic parameters (e.g. `Owned[BTreeDictNode[K,V]]`'s
-            // synthesized `entries_add_last(k: K, v: V)` carries `K, V` from BTreeDictNode, not
-            // from Owned). The outer ownerGenericDef.GenericParameters only knows Owned's `T`
-            // — propagate the inner type's K, V substitutions too so the body rewriter can
-            // resolve them when monomorphizing per concrete inner type.
-            if (resolvedRoutine.WrapperForwarderInnerGenericDef is { GenericParameters: { Count: > 0 } } innerGenDef
-                && ownerType.TypeArguments[index: 0] is { TypeArguments: { Count: > 0 } } innerInstance)
-            {
-                // Register the inner instance's type-args under their original inner-param
-                // names. WrapperForwardingPass sets `ForwarderOriginalName = innerParamName`
-                // on the disambiguated GenericParameterTypeInfo, and downstream substitution
-                // sites (GenericAstRewriter.ResolveType, codegen.ResolveTypeSubstitution) look
-                // up by that name when the disambiguated Name miss. So the map only needs the
-                // original-name key — no `__rfwd_` sentinel.
-                for (int i = 0;
-                     i < innerGenDef.GenericParameters.Count && i < innerInstance.TypeArguments.Count;
-                     i++)
-                {
-                    string innerParamName = innerGenDef.GenericParameters[index: i];
-                    if (!typeSubs.ContainsKey(key: innerParamName))
-                        typeSubs[innerParamName] = innerInstance.TypeArguments[index: i];
-                }
-            }
-        }
-
+        // (4) Method-generic type-argument bindings (e.g. getitem![I] where I → U64).
         if (resolvedRoutine.GenericDefinition?.GenericParameters is { Count: > 0 } memberRoutineParams &&
             resolvedRoutine.TypeArguments is { Count: > 0 } memberRoutineTypeArgs)
         {
-            for (int i = 0; i < memberRoutineParams.Count && i < memberRoutineTypeArgs.Count; i++)
-            {
-                string pName = memberRoutineParams[index: i];
-                TypeInfo pVal = memberRoutineTypeArgs[index: i];
-                if (typeSubs.TryGetValue(key: pName, value: out TypeInfo? existingOwnerValue))
-                {
-                    // Name collision: the owner already maps pName -> some type.
-                    // When existingOwnerValue is a generic definition (TypeArguments=null),
-                    // SubstituteType cannot recurse into it and returns it unchanged.
-                    // Explicitly instantiate the generic def with pVal so we get a concrete type
-                    // (e.g. T->BTreeListNode[T] + memberRoutine T->BuildMode -> T->BTreeListNode[BuildMode]).
-                    TypeInfo newVal;
-                    if (existingOwnerValue is { IsGenericDefinition: true, GenericParameters: { Count: > 0 } innerParams } &&
-                        innerParams.Any(predicate: p => p == pName))
-                    {
-                        var newArgs = innerParams
-                            .Select(selector: p => p == pName ? pVal : (TypeInfo)new GenericParameterTypeInfo(name: p))
-                            .ToList();
-                        newVal = newArgs.All(predicate: a => a is not GenericParameterTypeInfo)
-                            ? ctx.Registry.GetOrCreateResolution(genericDef: existingOwnerValue,
-                                typeArguments: newArgs)
-                            : existingOwnerValue;
-                    }
-                    else
-                    {
-                        var innerSub = new Dictionary<string, TypeInfo> { [pName] = pVal };
-                        newVal = RoutineInfo.SubstituteType(type: existingOwnerValue,
-                            substitution: innerSub);
-                    }
-                    typeSubs[pName] = newVal;
-                }
-                else
-                {
-                    typeSubs[pName] = pVal;
-                }
-            }
+            AddMemberRoutineTypeArgSubstitutions(typeSubs: typeSubs,
+                memberRoutineParams: memberRoutineParams,
+                memberRoutineTypeArgs: memberRoutineTypeArgs);
         }
 
         return typeSubs;
+    }
+
+    /// <summary>
+    /// Adds the owner's type-argument → generic-parameter substitutions, including propagation of a
+    /// wrapper forwarder's inner-generic-def parameters (e.g. K, V from Owned[BTreeDictNode[K,V]]).
+    /// </summary>
+    private void AddOwnerTypeArgSubstitutions(Dictionary<string, TypeInfo> typeSubs,
+        RoutineInfo resolvedRoutine, TypeInfo ownerType)
+    {
+        TypeInfo? ownerGenericDef = GetGenericBase(ownerType)
+            ?? (ownerType is WrapperTypeInfo ? ctx.Registry.LookupType(name: ownerType.Name) : null);
+        if (ownerGenericDef?.GenericParameters is { Count: > 0 })
+        {
+            for (int i = 0;
+                 i < ownerGenericDef.GenericParameters.Count && i < ownerType.TypeArguments!.Count;
+                 i++)
+            {
+                string paramName = ownerGenericDef.GenericParameters[index: i];
+                // Don't overwrite a universal-owner mapping (e.g. T->BTreeListNode[Byte] from case 2)
+                // with the owner's own type argument (e.g. T->Byte from BTreeListNode[T]).
+                if (!typeSubs.ContainsKey(key: paramName))
+                    typeSubs[paramName] = ownerType.TypeArguments[index: i];
+            }
+        }
+
+        // Wrapper forwarder over a generic inner type: propagate the inner type's K, V substitutions
+        // so the body rewriter can resolve them when monomorphizing per concrete inner type.
+        if (resolvedRoutine.WrapperForwarderInnerGenericDef is { GenericParameters: { Count: > 0 } } innerGenDef
+            && ownerType.TypeArguments![index: 0] is { TypeArguments: { Count: > 0 } } innerInstance)
+        {
+            for (int i = 0;
+                 i < innerGenDef.GenericParameters.Count && i < innerInstance.TypeArguments.Count;
+                 i++)
+            {
+                string innerParamName = innerGenDef.GenericParameters[index: i];
+                if (!typeSubs.ContainsKey(key: innerParamName))
+                    typeSubs[innerParamName] = innerInstance.TypeArguments[index: i];
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adds method-level generic type-argument substitutions, resolving name collisions by
+    /// instantiating the already-mapped generic definition or by substituting into it.
+    /// </summary>
+    private void AddMemberRoutineTypeArgSubstitutions(Dictionary<string, TypeInfo> typeSubs,
+        List<string> memberRoutineParams, List<TypeInfo> memberRoutineTypeArgs)
+    {
+        for (int i = 0; i < memberRoutineParams.Count && i < memberRoutineTypeArgs.Count; i++)
+        {
+            string pName = memberRoutineParams[index: i];
+            TypeInfo pVal = memberRoutineTypeArgs[index: i];
+            if (typeSubs.TryGetValue(key: pName, value: out TypeInfo? existingOwnerValue))
+                typeSubs[pName] = ResolveTypeArgCollision(pName: pName, pVal: pVal,
+                    existingOwnerValue: existingOwnerValue);
+            else
+                typeSubs[pName] = pVal;
+        }
+    }
+
+    /// <summary>
+    /// Resolves a name collision between an existing owner substitution and a method-level type argument.
+    /// When the existing value is a generic definition that uses the same name, instantiates it with
+    /// the method arg. Otherwise substitutes the method arg into the existing mapping.
+    /// </summary>
+    private TypeInfo ResolveTypeArgCollision(string pName, TypeInfo pVal, TypeInfo existingOwnerValue)
+    {
+        // Name collision: the owner already maps pName -> some type.
+        // When existingOwnerValue is a generic definition (TypeArguments=null),
+        // SubstituteType cannot recurse into it and returns it unchanged.
+        // Explicitly instantiate the generic def with pVal so we get a concrete type
+        // (e.g. T->BTreeListNode[T] + memberRoutine T->BuildMode -> T->BTreeListNode[BuildMode]).
+        if (existingOwnerValue is { IsGenericDefinition: true, GenericParameters: { Count: > 0 } innerParams } &&
+            innerParams.Contains(item: pName))
+        {
+            var newArgs = innerParams
+                .Select(selector: p => p == pName ? pVal : (TypeInfo)new GenericParameterTypeInfo(name: p))
+                .ToList();
+            return newArgs.All(predicate: a => a is not GenericParameterTypeInfo)
+                ? ctx.Registry.GetOrCreateResolution(genericDef: existingOwnerValue, typeArguments: newArgs)
+                : existingOwnerValue;
+        }
+        var innerSub = new Dictionary<string, TypeInfo> { [pName] = pVal };
+        return RoutineInfo.SubstituteType(type: existingOwnerValue, substitution: innerSub);
     }
 
     /// <summary>
@@ -2241,21 +2396,34 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // a structured flag (RoutineDeclaration.IsFailable), never part of the name — so a plain
         // lookup on the bare name already reaches failable overloads.
         if (!_routineIndex.TryGetValue(key: baseName, value: out List<RoutineDeclaration>? candidates))
-        {
             return null;
-        }
 
+        candidates = NarrowCandidatesByModuleAndRealm(
+            candidates: candidates,
+            expectedOwnerModule: expectedOwnerModule,
+            expectedOwnerRealm: expectedOwnerRealm);
+
+        return FindBestCandidate(
+            candidates: candidates,
+            requireGenericSuffix: requireGenericSuffix,
+            typeSubs: typeSubs,
+            expectedParamCount: expectedParamCount,
+            expectedParamNames: expectedParamNames,
+            expectedParamTypeNames: expectedParamTypeNames);
+    }
+
+    /// <summary>
+    /// Narrows a candidate list by module and realm, preferring exact matches while falling back to
+    /// the full set when no match exists (non-overlay types or RF-only compiles).
+    /// </summary>
+    private static List<RoutineDeclaration> NarrowCandidatesByModuleAndRealm(
+        List<RoutineDeclaration> candidates, string? expectedOwnerModule, string? expectedOwnerRealm)
+    {
         // Module-scoped disambiguation: the same bare AST name (`List[T].add_last`) is declared in both
-        // the RazorForge-realm `Core.List` and the Suflae-realm overlay `Suflae.List`. Without keying on
-        // the owner module, the first-registered (Core) decl is cloned for the Suflae instantiation — so
-        // `Suflae.List[S32].add_last` ran Core.List's body (its `reserve` call left the wrapper body's T
-        // unsubstituted → monomorphization-incomplete crash). Prefer the candidate whose registered
-        // owner module matches; fall back to the full set when none match (non-overlay types).
+        // the RazorForge-realm `Core.List` and the Suflae-realm overlay `Suflae.List`. Prefer the
+        // candidate whose registered owner module matches; fall back to the full set when none match.
         if (expectedOwnerModule != null)
         {
-            // Match on the type-arg-stripped owner FullName (e.g. "Suflae.List") rather than the
-            // Module field: a concrete generic-instance owner (Suflae.List[Core.S32]) carries an empty
-            // Module, but its FullName still embeds the realm/module prefix.
             var moduleMatched = candidates
                 .Where(predicate: d => d.ResolvedInfo?.OwnerType?.FullName is { } fn
                                        && TypeInfo.StripTypeArgs(name: fn) == expectedOwnerModule)
@@ -2263,11 +2431,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             if (moduleMatched.Count > 0) candidates = moduleMatched;
         }
 
-        // Realm-scoped disambiguation: `Core.List` FullName is realm-FREE, so an SF-realm `List[T].m`
-        // wrapper and the RF-realm `List[T].m` share owner FullName — the module filter above keeps BOTH,
-        // and the first (RF) would win, cloning RF's body (e.g. `return me.count`) for the SF wrapper whose
-        // real body is `return me.inner.count()`. Prefer the candidate whose owner realm matches the
-        // requested owner; fall back to the full set when none match (RF compiles never narrow — RF-only).
+        // Realm-scoped disambiguation: prefer the candidate whose owner realm matches; fall back when none.
         if (expectedOwnerRealm != null)
         {
             var realmMatched = candidates
@@ -2275,7 +2439,18 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 .ToList();
             if (realmMatched.Count > 0) candidates = realmMatched;
         }
+        return candidates;
+    }
 
+    /// <summary>
+    /// Picks the best matching declaration from a narrowed candidate list, preferring exact
+    /// parameter-name+type matches over count-only matches over first-encountered fallbacks.
+    /// </summary>
+    private static RoutineDeclaration? FindBestCandidate(
+        List<RoutineDeclaration> candidates, bool requireGenericSuffix,
+        Dictionary<string, TypeInfo>? typeSubs, int expectedParamCount,
+        List<string>? expectedParamNames, List<string?>? expectedParamTypeNames)
+    {
         RoutineDeclaration? countOnlyMatch = null;
         RoutineDeclaration? firstMatch = null;
         foreach (RoutineDeclaration decl in candidates)
@@ -2294,53 +2469,18 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             // vs create(from: SortedList[T]) which both have 1 parameter.
             if (expectedParamNames != null && decl.Parameters.Count == expectedParamNames.Count)
             {
-                bool namesMatch = true;
-                for (int i = 0; i < expectedParamNames.Count; i++)
-                {
-                    if (decl.Parameters[i].Name != expectedParamNames[i])
-                    {
-                        namesMatch = false;
-                        break;
-                    }
-                }
+                bool namesMatch = ParamNamesMatch(decl: decl, expectedParamNames: expectedParamNames);
                 if (namesMatch)
                 {
                     // Param names alone don't disambiguate same-name-different-type overloads
                     // (e.g. `create(from: Set[T])` vs `create(from: SortedSet[T])`). When type
-                    // names are supplied, require those to match too. Without this gate the
-                    // first-declared overload wins by source order, and Set's body ends up
-                    // mounted under SortedSet's mangled signature (LINKERR on iter mismatch).
+                    // names are supplied, require those to match too.
                     if (expectedParamTypeNames != null &&
-                        decl.Parameters.Count == expectedParamTypeNames.Count)
+                        decl.Parameters.Count == expectedParamTypeNames.Count
+                        && !ParamTypesMatch(decl: decl, expectedParamTypeNames: expectedParamTypeNames))
                     {
-                        bool typesMatch = true;
-                        for (int i = 0; i < expectedParamTypeNames.Count; i++)
-                        {
-                            string? expected = expectedParamTypeNames[i];
-                            if (expected == null) continue;
-                            string? actual = decl.Parameters[i].Type?.Name;
-                            if (actual == null) continue;
-                            // Compare by base name (strip [T]/[K,V]) so `Set[T]` matches `Set`
-                            // and `SortedSet[T]` matches `SortedSet` regardless of generic-arg form.
-                            // Also unwrap a borrow/reference wrapper on the resolved side: a param
-                            // declared `from: Accessing[SortedSet[T]]` carries Type.Name "SortedSet" in
-                            // the AST (the wrapper is a modifier), but the resolved RoutineInfo keeps
-                            // the full "Accessing[SortedSet[T]]". Without unwrapping, the right overload
-                            // is rejected and FindInStdlib falls back to an arbitrary same-arity one
-                            // (e.g. List's `capacity:U64` body mounted under the SortedSet creator).
-                            string expectedBase = MatchableBaseName(expected);
-                            string actualBase = MatchableBaseName(actual);
-                            if (expectedBase != actualBase)
-                            {
-                                typesMatch = false;
-                                break;
-                            }
-                        }
-                        if (!typesMatch)
-                        {
-                            countOnlyMatch ??= decl;
-                            continue;
-                        }
+                        countOnlyMatch ??= decl;
+                        continue;
                     }
                     return decl;
                 }
@@ -2352,6 +2492,40 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
 
         return countOnlyMatch ?? firstMatch;
+    }
+
+    /// <summary>Returns true when every parameter name in <paramref name="decl"/> matches the expected list.</summary>
+    private static bool ParamNamesMatch(RoutineDeclaration decl, List<string> expectedParamNames)
+    {
+        for (int i = 0; i < expectedParamNames.Count; i++)
+        {
+            if (decl.Parameters[i].Name != expectedParamNames[i]) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true when every non-null expected parameter type name matches the corresponding
+    /// declaration parameter type, comparing by base name (strips type args, unwraps borrow wrappers).
+    /// </summary>
+    private static bool ParamTypesMatch(RoutineDeclaration decl, List<string?> expectedParamTypeNames)
+    {
+        for (int i = 0; i < expectedParamTypeNames.Count; i++)
+        {
+            string? expected = expectedParamTypeNames[i];
+            if (expected == null) continue;
+            string? actual = decl.Parameters[i].Type?.Name;
+            if (actual == null) continue;
+            // Compare by base name (strip [T]/[K,V]) so `Set[T]` matches `Set`
+            // and `SortedSet[T]` matches `SortedSet` regardless of generic-arg form.
+            // Also unwrap a borrow/reference wrapper on the resolved side: a param
+            // declared `from: Accessing[SortedSet[T]]` carries Type.Name "SortedSet" in
+            // the AST (the wrapper is a modifier), but the resolved RoutineInfo keeps
+            // the full "Accessing[SortedSet[T]]". Without unwrapping, the right overload
+            // is rejected and FindInStdlib falls back to an arbitrary same-arity one.
+            if (MatchableBaseName(expected) != MatchableBaseName(actual)) return false;
+        }
+        return true;
     }
 
     private static string StripGenericSuffix(string typeName) => TypeInfo.StripTypeArgs(name: typeName);

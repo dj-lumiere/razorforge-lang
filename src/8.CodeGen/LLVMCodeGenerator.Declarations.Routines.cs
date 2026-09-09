@@ -12,67 +12,86 @@ public partial class LlvmCodeGenerator
     private void GenerateRoutineDeclaration(RoutineInfo routine, string? nameOverride = null)
     {
         string funcName = nameOverride ?? MangleRoutineName(routine: routine);
-
-        // Skip if already generated
-        if (_generatedRoutines.Contains(item: funcName))
-        {
+        if (ShouldSkipDeclaration(routine: routine, funcName: funcName))
             return;
-        }
-
-        // Skip @innate routines — compile-time stubs, never have bodies, must not reach codegen
-        if (routine.Annotations.Contains(value: "innate"))
-            return;
-
-        // Skip declarations on generic-definition owner types (e.g. T, List[T]) —
-        // these produce invalid LLVM IR; only monomorphized concrete instances should be declared
-        if (routine.OwnerType?.IsGenericDefinition == true)
-            return;
-
-        // Skip declarations that reference unresolved generic parameter types —
-        // these produce invalid LLVM IR (e.g., Maybe[BTreeDictNode[K, V]] instead of concrete types)
-        if (routine.Parameters.Any(predicate: p =>
-                ContainsGenericParameter(type: p.Type)) ||
-            routine.ReturnType != null && ContainsGenericParameter(type: routine.ReturnType) ||
-            routine.OwnerType != null && ContainsGenericParameter(type: routine.OwnerType))
-        {
-            return;
-        }
 
         _generatedRoutines.Add(item: funcName);
 
-        // Build parameter list
+        bool isCExtern = routine.CallingConvention == "C";
+        bool isCreator = IsCreatorRoutine(routine: routine);
+        List<string> paramTypes = BuildDeclarationParameterList(routine: routine, isCExtern: isCExtern, isCreator: isCreator);
+        EnsureRecordTypesDeclared(routine: routine);
+
+        string returnType = ComputeDeclarationReturnType(routine: routine, isCExtern: isCExtern);
+        EmitRoutineDeclarationString(routine: routine, funcName: funcName,
+            paramTypes: paramTypes, returnType: returnType,
+            isCExtern: isCExtern, isCreator: isCreator);
+    }
+
+    /// <summary>
+    /// Returns true when a routine declaration should be skipped: already generated, compile-time
+    /// stubs, generic-definition owners, or signatures containing generic parameters.
+    /// </summary>
+    private bool ShouldSkipDeclaration(RoutineInfo routine, string funcName)
+    {
+        if (_generatedRoutines.Contains(item: funcName))
+            return true;
+        if (routine.Annotations.Contains(value: "innate"))
+            return true;
+        if (routine.OwnerType?.IsGenericDefinition == true)
+            return true;
+        return routine.Parameters.Any(predicate: p => ContainsGenericParameter(type: p.Type))
+            || (routine.ReturnType != null && ContainsGenericParameter(type: routine.ReturnType))
+            || (routine.OwnerType != null && ContainsGenericParameter(type: routine.OwnerType));
+    }
+
+    /// <summary>
+    /// Builds the LLVM parameter type list (no names) for a routine declaration: the implicit
+    /// me receiver, then each explicit parameter in its ABI form.
+    /// </summary>
+    private List<string> BuildDeclarationParameterList(RoutineInfo routine, bool isCExtern, bool isCreator)
+    {
         var paramTypes = new List<string>();
 
-        // For memberRoutines, add implicit 'me' parameter first
-        // Skip 'me' for create routines (static factories) and common (type-level) routines
-        bool isCreator = IsCreatorRoutine(routine: routine);
+        // For member routines, add implicit 'me' parameter first.
+        // Skip for create routines (static factories) and common (type-level) routines.
         if (routine.OwnerType != null && !isCreator && !routine.IsCommon)
         {
-            // setitem! on records: me is passed by pointer so mutations propagate to caller
-            paramTypes.Add(item: GetImplicitMeParameterDeclaration(routine: routine,
-                includeName: false));
+            paramTypes.Add(item: GetImplicitMeParameterDeclaration(routine: routine, includeName: false));
         }
 
-        // Add explicit parameters
-        // For external("C") functions, F16 (half) must be passed as i16 (C ABI uses integer register)
-        bool isCExtern = routine.CallingConvention == "C";
+        // Add explicit parameters. For external C functions, F16 (half) becomes i16 (integer ABI register).
         paramTypes.AddRange(collection: routine.Parameters.Select(selector: param =>
-        {
-            // By-ref struct-record thread arg: the worker receives a pointer to the spawner's cell.
-            if (IsByRefThreadArg(routine: routine, param: param)) return "ptr";
-            // ABI-Indirect struct value arg: passed as a hidden byval pointer-to-copy.
-            if (ParameterPassedByval(routine: routine, paramType: param.Type))
-                return $"ptr byval({GetLlvmType(type: param.Type)})";
-            // ABI-Coerce small struct value arg: passed reinterpreted as an integer register form.
-            if (ParameterCoerceType(routine: routine, paramType: param.Type) is { } coerceArg)
-                return coerceArg;
-            string t = GetParameterLlvmType(type: param.Type);
-            if (isCExtern && t == "half") return "i16";
-            string attrs = GetExplicitParameterAttributes(type: param.Type);
-            return string.IsNullOrEmpty(attrs) ? t : $"{t} {attrs}";
-        }));
+            FormatDeclarationParameter(routine: routine, param: param, isCExtern: isCExtern)));
 
-        // Ensure record type definitions exist for parameter and return types
+        return paramTypes;
+    }
+
+    /// <summary>
+    /// Formats a single parameter for a routine declaration (no name, just ABI type string).
+    /// </summary>
+    private string FormatDeclarationParameter(RoutineInfo routine, ParameterInfo param, bool isCExtern)
+    {
+        // By-ref struct-record thread arg: the worker receives a pointer to the spawner's cell.
+        if (IsByRefThreadArg(routine: routine, param: param)) return "ptr";
+        // ABI-Indirect struct value arg: passed as a hidden byval pointer-to-copy.
+        if (ParameterPassedByval(routine: routine, paramType: param.Type))
+            return $"ptr byval({GetLlvmType(type: param.Type)})";
+        // ABI-Coerce small struct value arg: passed reinterpreted as an integer register form.
+        if (ParameterCoerceType(routine: routine, paramType: param.Type) is { } coerceArg)
+            return coerceArg;
+        string t = GetParameterLlvmType(type: param.Type);
+        if (isCExtern && t == "half") return "i16";
+        string attrs = GetExplicitParameterAttributes(type: param.Type);
+        return string.IsNullOrEmpty(attrs) ? t : $"{t} {attrs}";
+    }
+
+    /// <summary>
+    /// Ensures that LLVM struct type definitions exist for all struct-record parameter and return types
+    /// referenced by the routine declaration.
+    /// </summary>
+    private void EnsureRecordTypesDeclared(RoutineInfo routine)
+    {
         foreach (ParameterInfo param in routine.Parameters)
         {
             if (param.Type is RecordTypeInfo { BackendType: null, IsGenericDefinition: false } paramRecord)
@@ -85,11 +104,18 @@ public partial class LlvmCodeGenerator
         {
             GenerateRecordType(record: returnRecord);
         }
+    }
 
-        // Get return type
+    /// <summary>
+    /// Computes the LLVM return type string for a routine declaration, applying failable-variant
+    /// carrier forms (Lookup / Check / TryBool) and the C ABI half-to-i16 promotion.
+    /// </summary>
+    private string ComputeDeclarationReturnType(RoutineInfo routine, bool isCExtern)
+    {
         string returnType = routine.ReturnType != null
             ? GetLlvmType(type: routine.ReturnType)
             : "void";
+
         if (routine.FailableVariant == FailableVariant.Lookup)
         {
             // Lookup[None] degenerates to Result[None]: a None value payload makes the
@@ -112,9 +138,21 @@ public partial class LlvmCodeGenerator
             returnType = "i16";
         }
 
+        return returnType;
+    }
+
+    /// <summary>
+    /// Writes the final LLVM declare string into the declarations dictionary, choosing between sret,
+    /// coerced-return, and plain-return forms. The sret form changes the header to void and prepends
+    /// a hidden pointer; the coerced form changes only the declared return type; the plain form may
+    /// add a noalias prefix for creator routines that return a freshly allocated pointer.
+    /// </summary>
+    private void EmitRoutineDeclarationString(RoutineInfo routine, string funcName,
+        List<string> paramTypes, string returnType, bool isCExtern, bool isCreator)
+    {
         // Struct returns classified Indirect by the target ABI go through a hidden sret pointer.
-        // For external("C") this matches the platform C ABI (Win-x64 MSVC: structs > 8 bytes);
-        // for RF routines it is the ABI boundary-coercion return form. The declaration, definition,
+        // For external C routines this matches the platform C ABI (Win-x64 MSVC: structs > 8 bytes).
+        // For RF routines it is the ABI boundary-coercion return form. The declaration, definition,
         // every return, and every call site must agree — see ReturnsViaSret / _currentReturnViaSret.
         bool needsSret = isCExtern
             ? NeedsCExternSret(routine: routine)
@@ -122,6 +160,7 @@ public partial class LlvmCodeGenerator
         // Phase 2: a small struct return is coerced to an integer register form — the declared
         // return type becomes that, matching the define/return/call sites. (Not for C externs.)
         string? declCoerceReturn = isCExtern || needsSret ? null : ReturnCoerceType(routine: routine);
+
         if (needsSret)
         {
             // Change declaration: void @func(ptr sret(%RecordType), original_params...)
@@ -300,34 +339,33 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private List<TypeInfo> ResolveAstParameterTypes(RoutineDeclaration routine)
     {
-        var astParamTypes = new List<TypeInfo>();
-        foreach (Parameter param in routine.Parameters)
+        return routine.Parameters
+            .Where(predicate: param => param.Type != null)
+            .Select(selector: param => ResolveAstParameterType(param: param))
+            .OfType<TypeInfo>()
+            .ToList();
+    }
+
+    /// <summary>
+    /// Resolves a single AST parameter's declared type annotation to a registered <see cref="TypeInfo"/>.
+    /// Returns null for parameters whose type cannot be resolved and is not a recognizable generic parameter name.
+    /// </summary>
+    private TypeInfo? ResolveAstParameterType(Parameter param)
+    {
+        string typeName = param.Type!.Name;
+        if (param.Type.GenericArguments is { Count: > 0 } genArgs)
         {
-            if (param.Type == null)
-            {
-                continue;
-            }
-
-            string typeName = param.Type.Name;
-            if (param.Type.GenericArguments is { Count: > 0 } genArgs)
-            {
-                typeName =
-                    $"{typeName}[{string.Join(separator: ", ", values: genArgs.Select(selector: a => a.Name))}]";
-            }
-
-            TypeInfo? t = _registry.LookupType(name: typeName);
-            // A bare unresolvable name is a generic PARAMETER (e.g. `value: T` in `List[T].add_last`);
-            // keep it as a GenericParameterTypeInfo so the arg-type list stays arity-complete and the
-            // overload matcher's Tier-1 name match (param.Name == arg.Name) can bind the generic-def routine.
-            t ??= param.Type.GenericArguments is not { Count: > 0 } && !typeName.Contains(value: '.')
-                ? new GenericParameterTypeInfo(name: typeName)
-                : null;
-            if (t != null)
-            {
-                astParamTypes.Add(item: t);
-            }
+            typeName =
+                $"{typeName}[{string.Join(separator: ", ", values: genArgs.Select(selector: a => a.Name))}]";
         }
-        return astParamTypes;
+
+        TypeInfo? t = _registry.LookupType(name: typeName);
+        // A bare unresolvable name is a generic PARAMETER (e.g. value: T in List[T].add_last).
+        // Keep it as a GenericParameterTypeInfo so the arg-type list stays arity-complete and the
+        // overload matcher's Tier-1 name match (param.Name == arg.Name) can bind the generic-def routine.
+        return t ?? (param.Type.GenericArguments is not { Count: > 0 } && !typeName.Contains(value: '.')
+            ? new GenericParameterTypeInfo(name: typeName)
+            : null);
     }
 
     /// <summary>
@@ -423,14 +461,21 @@ public partial class LlvmCodeGenerator
         string? coerce = !byRefThreadArg && !byval
             ? ParameterCoerceType(routine: info, paramType: param.Type)
             : null;
-        string paramType = byRefThreadArg ? "ptr"
-            : byval ? $"ptr byval({GetLlvmType(type: param.Type)})"
-            : coerce ?? GetParameterLlvmType(type: param.Type);
+        string paramType;
+        if (byRefThreadArg)
+            paramType = "ptr";
+        else if (byval)
+            paramType = $"ptr byval({GetLlvmType(type: param.Type)})";
+        else
+            paramType = coerce ?? GetParameterLlvmType(type: param.Type);
         string paramAttrs = byRefThreadArg || byval || coerce != null
             ? string.Empty
             : GetExplicitParameterAttributes(type: param.Type);
-        string emittedName = byRefThreadArg || byval ? $"{param.Name}.addr"
-            : param.Name == "entry" ? "entry_" : param.Name;
+        string emittedName;
+        if (byRefThreadArg || byval)
+            emittedName = $"{param.Name}.addr";
+        else
+            emittedName = param.Name == "entry" ? "entry_" : param.Name;
         return string.IsNullOrEmpty(paramAttrs)
             ? $"{paramType} %{emittedName}"
             : $"{paramType} {paramAttrs} %{emittedName}";
@@ -810,19 +855,12 @@ public partial class LlvmCodeGenerator
     /// </summary>
     internal static string MangleRoutineName(RoutineInfo routine)
     {
-        // All routines with parameters are disambiguated by parameter type. Overloads
-        // sharing only a name (e.g. LocalMoment.sub(Duration) vs sub(LocalMoment),
-        // or hash() vs hash(k0, k1)) collapse to the same symbol otherwise and the
-        // linker arbitrarily picks one definition, mis-typing every call site.
-        static bool ShouldDisambiguateByParameterTypes(RoutineInfo candidate) =>
-            candidate.Parameters.Count > 0;
-
         // Failability is a routine PROPERTY (IsFailable), never part of the symbol name. The `!`
         // is stripped from every mangled symbol — `foo()` and `foo!()` with the same params are a
         // duplication error (RegistryKey excludes failability), so `owner.name(params)` is already
         // a unique symbol and the bang would only be decorative. Kept as a no-op wrapper so the
         // owner-case call sites below read uniformly.
-        static string Bang(string name, bool failable) => name;
+        static string Bang(string name) => name;
 
         // Structured attribute prefix — the routine's PROPERTIES (kind, failability, async mode,
         // storage) are obfuscated into a bracketed list so the name itself carries only the
@@ -870,7 +908,7 @@ public partial class LlvmCodeGenerator
             int col = routine.Location?.Column ?? 0;
             string paramTypes = string.Join(separator: ",",
                 values: routine.Parameters.Select(selector: p => p.Type.Name));
-            string lambdaName = Bang(name: $"[lambda]{fileName}:{line}:{col}", failable: routine.IsFailable);
+            string lambdaName = Bang(name: $"[lambda]{fileName}:{line}:{col}");
             return Q(name: $"{lambdaName}({paramTypes})");
         }
 
@@ -880,8 +918,7 @@ public partial class LlvmCodeGenerator
         // both mangle from the same RoutineInfo, so they agree on the override.
         if (routine.CallingConvention == "C")
         {
-            return Q(name: Bang(name: SanitizeLlvmName(name: routine.LinkSymbol is { Length: > 0 } sym ? sym : routine.Name),
-                failable: routine.IsFailable));
+            return Q(name: Bang(name: SanitizeLlvmName(name: routine.LinkSymbol is { Length: > 0 } sym ? sym : routine.Name)));
         }
 
         string name = SanitizeLlvmName(name: routine.Name);
@@ -1111,7 +1148,8 @@ public partial class LlvmCodeGenerator
         // codegen paths diverge (the monomorph reaches codegen in one path, the generic in the other) —
         // WarmCodegenAst_MatchesCold.
         bool isWrapperOwner = routine.OwnerType is WrapperTypeInfo
-            || (GetGenericBaseNameStatic(type: routine.OwnerType) is { } ownerBase
+            || (routine.OwnerType != null
+                && GetGenericBaseNameStatic(type: routine.OwnerType) is { } ownerBase
                 && Declaration.RuntimeContract.WrapperTypes.Contains(item: ownerBase));
         return isWrapperOwner ? "readonly" : string.Empty;
     }

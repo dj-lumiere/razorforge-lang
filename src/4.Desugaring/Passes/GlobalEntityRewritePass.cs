@@ -54,7 +54,7 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
         // No globals in this program → the singleton was never synthesized; nothing to do.
         if (SingletonType == null) return;
 
-        foreach (SyntaxTree.Declaration decl in program.Declarations)
+        foreach (SyntaxTree.Declaration decl in program.Declarations.OfType<SyntaxTree.Declaration>())
         {
             RewriteDeclaration(decl: decl);
         }
@@ -80,8 +80,8 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
     {
         switch (decl)
         {
-            case RoutineDeclaration { Body: { } body } r:
-                ReplaceBody(r, body);
+            case RoutineDeclaration { Body: { } body }:
+                ReplaceBody(body);
                 break;
             case EntityDeclaration e:
                 RewriteMemberRoutines(e.Members);
@@ -97,7 +97,7 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
 
     // RoutineDeclaration.Body is init-only; rebuild the block in place on the mutable Statements list so
     // the routine node identity (which downstream passes hold) is preserved.
-    private void ReplaceBody(RoutineDeclaration r, Statement body)
+    private void ReplaceBody(Statement body)
     {
         if (body is not BlockStatement block) return;
         var rewritten = block.Statements.Select(selector: RewriteStmt).ToList();
@@ -109,7 +109,7 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
     {
         foreach (SyntaxTree.Declaration m in members)
         {
-            if (m is RoutineDeclaration { Body: { } body } mr) ReplaceBody(mr, body);
+            if (m is RoutineDeclaration { Body: { } body }) ReplaceBody(body);
         }
     }
 
@@ -204,24 +204,42 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
 
     private Expression RW(Expression e)
     {
+        // The one real substitution: a stamped global reference -> `__globals__.<name>`.
+        if (e is IdentifierExpression id
+            && id.IsModuleGlobal
+            && id.Name != Builder.Program.ModuleGlobalsSingletonName)
+        {
+            return RewriteGlobalIdentifier(id: id);
+        }
+
+        return RWStructural(e: e);
+    }
+
+    /// <summary>
+    /// Rewrites a stamped <see cref="IdentifierExpression.IsModuleGlobal"/> reference into a
+    /// <c>__globals__.&lt;name&gt;</c> member access on the promoted singleton.
+    /// </summary>
+    private Expression RewriteGlobalIdentifier(IdentifierExpression id)
+    {
+        var receiver = new IdentifierExpression(
+            Name: Builder.Program.ModuleGlobalsSingletonName, Location: id.Location)
+        {
+            ResolvedType = SingletonType
+        };
+        return new MemberExpression(Object: receiver, MemberName: id.Name, Location: id.Location)
+        {
+            ResolvedType = id.ResolvedType
+        };
+    }
+
+    /// <summary>
+    /// Structural traversal: recursively rewrites every expression sub-tree, propagating the global
+    /// reference rewrite into every expression node without changing the expression's logical value.
+    /// </summary>
+    private Expression RWStructural(Expression e)
+    {
         switch (e)
         {
-            // The one real substitution: a stamped global reference -> `__globals__.<name>`.
-            case IdentifierExpression id when id.IsModuleGlobal
-                && id.Name != Builder.Program.ModuleGlobalsSingletonName:
-            {
-                var receiver = new IdentifierExpression(
-                    Name: Builder.Program.ModuleGlobalsSingletonName, Location: id.Location)
-                {
-                    ResolvedType = SingletonType
-                };
-                return new MemberExpression(Object: receiver, MemberName: id.Name, Location: id.Location)
-                {
-                    ResolvedType = id.ResolvedType
-                };
-            }
-
-
             case BinaryExpression x:
                 return x with { Left = RW(x.Left), Right = RW(x.Right) };
             case UnaryExpression x:

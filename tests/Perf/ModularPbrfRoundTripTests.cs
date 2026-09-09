@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Compiler.Serialization;
 using Compiler.Tokenizer;
 using SyntaxTree;
@@ -15,7 +16,7 @@ namespace RazorForge.Tests.Perf;
 /// per-module partition + extern/shell re-link reproduces the whole semantic model with reference identity
 /// intact (cross-module cycles and all).
 /// </summary>
-public sealed class ModularPbrfRoundTripTests
+public sealed partial class ModularPbrfRoundTripTests
 {
     private readonly ITestOutputHelper _out;
     public ModularPbrfRoundTripTests(ITestOutputHelper output) => _out = output;
@@ -40,17 +41,26 @@ public sealed class ModularPbrfRoundTripTests
             programs: r.Registry.UserPrograms, instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys, registry: r.Registry);
         var gen = new Compiler.CodeGen.LlvmCodeGenerator(
-            userPrograms: r.Registry.UserPrograms, registry: r.Registry,
-            stdlibPrograms: r.Registry.StdlibPrograms, synthesizedBodies: r.SynthesizedBodies,
-            instantiatedGenericBodies: r.InstantiatedGenericBodies, liveRoutineKeys: r.LiveRoutineKeys,
-            maySuspendRoutineKeys: r.MaySuspendRoutineKeys);
+            userPrograms: r.Registry.UserPrograms,
+            registry: r.Registry,
+            options: new Compiler.CodeGen.LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = r.Registry.StdlibPrograms,
+                SynthesizedBodies = r.SynthesizedBodies,
+                InstantiatedGenericBodies = r.InstantiatedGenericBodies,
+                LiveRoutineKeys = r.LiveRoutineKeys,
+                MaySuspendRoutineKeys = r.MaySuspendRoutineKeys
+            });
         return gen.Generate();
     }
+
+    [GeneratedRegex(@" !dbg ![0-9]+")]
+    private static partial Regex DebugAnnotationPattern();
 
     private static System.Collections.Generic.HashSet<string> DefineSet(string ll) =>
         ll.Split('\n')
           .Where(l => l.StartsWith("define ", System.StringComparison.Ordinal))
-          .Select(l => System.Text.RegularExpressions.Regex.Replace(l.Split(" {", 2)[0], @" !dbg ![0-9]+", ""))
+          .Select(l => DebugAnnotationPattern().Replace(l.Split(" {", 2)[0], ""))
           .ToHashSet(System.StringComparer.Ordinal);
 
     [Fact]

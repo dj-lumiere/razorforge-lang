@@ -94,10 +94,19 @@ public partial class LlvmCodeGenerator
             let coerce = byval ? null : ParameterCoerceType(routine: routine, paramType: param.Type)
             let paramType = byval ? $"ptr byval({GetLlvmType(type: param.Type)})"
                 : coerce ?? GetParameterLlvmType(type: param.Type)
-            let emittedName = byval ? $"{param.Name}.addr"
-                : param.Name == "entry" ? "entry_" : param.Name
+            let emittedName = GetEmittedParamName(byval: byval, name: param.Name)
             select $"{paramType} %{emittedName}");
         return paramList;
+    }
+
+    /// <summary>Returns the LLVM parameter name for a routine parameter. Byval parameters use a
+    /// <c>.addr</c> suffix; the reserved name <c>entry</c> is escaped to <c>entry_</c> to avoid
+    /// colliding with the LLVM basic-block label of the same name; all other names are used as-is.</summary>
+    private static string GetEmittedParamName(bool byval, string name)
+    {
+        if (byval) return $"{name}.addr";
+        if (name == "entry") return "entry_";
+        return name;
     }
 
 }

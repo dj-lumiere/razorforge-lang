@@ -53,8 +53,8 @@ public static class TargetGate
         {
             string line = raw.Trim();
             if (line.Length == 0) continue;               // blank line
-            if (line.StartsWith(value: "#")) continue;    // comment / doc comment — keep scanning header
-            if (line.StartsWith(value: "@target(") && line.EndsWith(value: ")"))
+            if (line.StartsWith('#')) continue;           // comment / doc comment — keep scanning header
+            if (line.StartsWith(value: "@target(") && line.EndsWith(')'))
                 return line["@target(".Length..^1];
             return null; // first real line (e.g. `module`) — the `@target` directive must precede it
         }

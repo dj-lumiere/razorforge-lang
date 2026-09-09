@@ -282,7 +282,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
 
     // Compute the transferred value while the spills are still alive, tear them down, then
     // transfer control. Without this the destroys would sit after an unreachable point.
-    private Statement EmitTerminatorSpillBlock(Statement owner, Expression rewritten,
+    private BlockStatement EmitTerminatorSpillBlock(Statement owner, Expression rewritten,
         Func<Expression, Statement> rebuildWithCondition, List<Spill> spills, List<Statement> stmts)
     {
         string retName = $"__ret_{_counter++}";
@@ -493,7 +493,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         return e;
     }
 
-    private Expression MakeSpill(Expression producer, List<Spill> spills)
+    private IdentifierExpression MakeSpill(Expression producer, List<Spill> spills)
     {
         TypeInfo type = producer.ResolvedType!;
         RoutineInfo destroy = ctx.Registry.GetLifecycle(type).Destroy!;

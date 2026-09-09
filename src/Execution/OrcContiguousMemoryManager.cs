@@ -19,7 +19,7 @@ namespace Builder;
 /// per-object context (slab + section ranges) is a managed object kept alive through a <see cref="GCHandle"/>
 /// passed as the callbacks' <c>Opaque</c>.
 /// </summary>
-internal static unsafe class OrcContiguousMemoryManager
+internal static unsafe partial class OrcContiguousMemoryManager
 {
     // 64 MiB reserved+committed per linked object. Windows demand-pages committed memory, so the resident
     // footprint only grows with the code/data actually written — the reservation is effectively free.
@@ -29,16 +29,16 @@ internal static unsafe class OrcContiguousMemoryManager
     private const uint MEM_COMMIT = 0x1000, MEM_RESERVE = 0x2000, MEM_RELEASE = 0x8000;
     private const uint PAGE_READWRITE = 0x04, PAGE_EXECUTE_READWRITE = 0x40;
 
-    [DllImport("kernel32", SetLastError = true)]
-    private static extern void* VirtualAlloc(void* addr, nuint size, uint type, uint protect);
-    [DllImport("kernel32", SetLastError = true)]
-    private static extern int VirtualFree(void* addr, nuint size, uint type);
-    [DllImport("kernel32", SetLastError = true)]
-    private static extern int VirtualProtect(void* addr, nuint size, uint newProtect, uint* oldProtect);
-    [DllImport("kernel32")]
-    private static extern int FlushInstructionCache(IntPtr process, void* addr, nuint size);
-    [DllImport("kernel32")]
-    private static extern IntPtr GetCurrentProcess();
+    [LibraryImport("kernel32", SetLastError = true)]
+    private static partial void* VirtualAlloc(void* addr, nuint size, uint type, uint protect);
+    [LibraryImport("kernel32", SetLastError = true)]
+    private static partial int VirtualFree(void* addr, nuint size, uint type);
+    [LibraryImport("kernel32", SetLastError = true)]
+    private static partial int VirtualProtect(void* addr, nuint size, uint newProtect, uint* oldProtect);
+    [LibraryImport("kernel32")]
+    private static partial int FlushInstructionCache(IntPtr process, void* addr, nuint size);
+    [LibraryImport("kernel32")]
+    private static partial IntPtr GetCurrentProcess();
 
     /// <summary>Per-linked-object slab state: one contiguous block, bump-allocated. The whole used range is
     /// flipped to RWX at finalize — a dev-loop JIT trades W^X for simplicity, and some sections genuinely
@@ -85,7 +85,11 @@ internal static unsafe class OrcContiguousMemoryManager
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void NotifyTerminating(void* _) { }
+    private static void NotifyTerminating(void* _)
+    {
+        // No cleanup is required when the MCJIT memory manager is notified of termination;
+        // the contiguous slab is released in the Destroy callback instead.
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static byte* AllocateCodeSection(void* opaque, nuint size, uint align, uint sectionId, sbyte* name)
@@ -125,8 +129,10 @@ internal static unsafe class OrcContiguousMemoryManager
             uint old;
             // DIAGNOSTIC: whole slab RWX to rule out any page-protection fault (data mutated at runtime,
             // e.g. emulated-TLS control blocks). Will tighten to code=RX / data=RW once execution is clean.
-            VirtualProtect(addr: slab.Base, size: slab.Offset, newProtect: PAGE_EXECUTE_READWRITE, oldProtect: &old);
-            FlushInstructionCache(process: GetCurrentProcess(), addr: slab.Base, size: slab.Offset);
+            // Return values indicate Win32 success/failure; failure is best-effort here — if protection
+            // change fails the JIT will fault on execute, which surfaces as a clear crash rather than silence.
+            _ = VirtualProtect(addr: slab.Base, size: slab.Offset, newProtect: PAGE_EXECUTE_READWRITE, oldProtect: &old);
+            _ = FlushInstructionCache(process: GetCurrentProcess(), addr: slab.Base, size: slab.Offset);
             return 0; // LLVMBool: 0 = success
         }
         catch
@@ -143,7 +149,9 @@ internal static unsafe class OrcContiguousMemoryManager
             GCHandle h = GCHandle.FromIntPtr(value: (IntPtr)opaque);
             if (h.Target is Slab slab && slab.Base != null)
             {
-                VirtualFree(addr: slab.Base, size: 0, type: MEM_RELEASE);
+                // Return value indicates Win32 success/failure; failure during teardown is non-recoverable
+                // (best-effort release — the OS will reclaim the reservation when the process exits).
+                _ = VirtualFree(addr: slab.Base, size: 0, type: MEM_RELEASE);
             }
             h.Free();
         }

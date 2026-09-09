@@ -16,6 +16,7 @@ using TypeSymbol = TypeInfo;
 public sealed partial class SemanticVerifier
 {
     private const string AddressTypeName = "Address";
+    private const string IntegerTypeName = "Integer";
 
     /// <summary>
     /// Analyze literal expression as part of this compiler phase.
@@ -23,18 +24,12 @@ public sealed partial class SemanticVerifier
     private TypeSymbol AnalyzeLiteralExpression(LiteralExpression literal,
         TypeSymbol? expectedType = null)
     {
-        // Map token type to the corresponding type (PascalCase)
         // `none` value literal: needs a carrier-slot expected type
-        // (Maybe[T] / Lookup[T] / variant-with-None). Anything else is a hard error —
-        // `none` has no standalone meaning outside an absence-carrying slot.
+        // (Maybe[T] / Lookup[T] / variant-with-None). Anything else is a hard error.
         if (literal.LiteralType == TokenType.NoneValue)
-        {
             return AnalyzeNoneValueLiteral(literal: literal, expectedType: expectedType);
-        }
 
         string? typeName = MapLiteralTypeName(literal: literal);
-
-        // Report error for unknown literal types
         if (typeName == null)
         {
             ReportError(code: SemanticDiagnosticCode.UnknownLiteralType,
@@ -43,18 +38,7 @@ public sealed partial class SemanticVerifier
             return ErrorTypeInfo.Instance;
         }
 
-        // Suflae number gate for a literal SUFFIX (`5_s32`, `1j64`). The type-annotation form (`var x: S32`)
-        // is gated in TypeResolver.EnforceSuflaeNumberGate, but a suffixed literal carries no TypeExpression,
-        // so it slips that gate — close the hole here. Fires ONLY on an explicit fixed-width / complex suffix
-        // (typeName is import-gated) in a non-stdlib `.sf` file; unsuffixed literals (UndecidedInteger →
-        // Integer/S64, IntegerLiteral, DecimalLiteral) are never suffixed and stay bare.
-        if (literal.LiteralType is not (TokenType.UndecidedInteger or TokenType.UndecidedDecimal
-                or TokenType.IntegerLiteral or TokenType.DecimalLiteral)
-            && Compiler.Declaration.TypeResolver.IsImportGatedNumeric(name: typeName)
-            && UsesSuflaeNumericDefaults(literal: literal)
-            && !IsStdlibFile(filePath: literal.Location.FileName ?? "")
-            && !(_importedModules.Contains(item: "Numerics")
-                 && !_importedSymbolNames.Contains(item: "Integer")))
+        if (IsSuflaeSuffixGateViolation(literal: literal, typeName: typeName))
         {
             ReportError(code: SemanticDiagnosticCode.SuflaeNumericImportRequired,
                 message: $"Fixed-width numeric literal suffix '{typeName}' is import-gated in Suflae — add "
@@ -64,43 +48,11 @@ public sealed partial class SemanticVerifier
             return ErrorTypeInfo.Instance;
         }
 
-        // Contextual type inference for unsuffixed integer literals
-        if (expectedType != null && literal.LiteralType is TokenType.UndecidedInteger &&
-            IsFixedWidthIntegerType(type: expectedType))
-        {
-            if (LiteralFitsInType(literal: literal, targetType: expectedType))
-            {
-                typeName = expectedType.Name;
-            }
-            else
-            {
-                string range = GetIntegerTypeRange(typeName: expectedType.Name);
-                ReportError(code: SemanticDiagnosticCode.IntegerLiteralOverflow,
-                    message:
-                    $"Integer literal '{literal.Value}' overflows type '{expectedType.Name}'. Valid range: {range}.",
-                    location: literal.Location);
-                return ErrorTypeInfo.Instance;
-            }
-        }
+        typeName = ApplyContextualTypeInference(literal: literal, expectedType: expectedType,
+            typeName: typeName, earlyExit: out bool earlyExitOnOverflow);
+        if (earlyExitOnOverflow) return ErrorTypeInfo.Instance;
 
-        // Contextual type inference for unsuffixed decimal literals
-        if (expectedType != null && literal.LiteralType is TokenType.UndecidedDecimal &&
-            (IsFloatType(type: expectedType) || IsDecimalType(type: expectedType)))
-        {
-            typeName = expectedType.Name;
-        }
-
-        // Parse and validate deferred numeric types using native libraries
-        if (literal.Value is string rawValue)
-        {
-            ParsedLiteral? parsed = ParseDeferredLiteral(literal: literal,
-                rawValue: rawValue,
-                resolvedTypeName: typeName);
-            if (parsed != null)
-            {
-                _parsedLiterals[key: literal.Location] = parsed;
-            }
-        }
+        StoreParsedLiteral(literal: literal, typeName: typeName);
 
         TypeSymbol? type = LookupTypeWithImports(name: typeName);
         if (type == null)
@@ -112,6 +64,65 @@ public sealed partial class SemanticVerifier
         }
 
         return type;
+    }
+
+    /// <summary>
+    /// Returns true when a fixed-width/complex numeric suffix is used in a Suflae source file but the
+    /// required <c>Numerics</c> import is absent — i.e. the literal slips the TypeResolver gate.
+    /// </summary>
+    private bool IsSuflaeSuffixGateViolation(LiteralExpression literal, string typeName)
+    {
+        // Only fires for explicit fixed-width / complex suffixes; unsuffixed literals stay bare.
+        if (literal.LiteralType is TokenType.UndecidedInteger or TokenType.UndecidedDecimal
+                or TokenType.IntegerLiteral or TokenType.DecimalLiteral)
+            return false;
+        return Compiler.Declaration.TypeResolver.IsImportGatedNumeric(name: typeName)
+            && UsesSuflaeNumericDefaults(literal: literal)
+            && !IsStdlibFile(filePath: literal.Location.FileName ?? "")
+            && !(_importedModules.Contains(item: "Numerics")
+                 && !_importedSymbolNames.Contains(item: IntegerTypeName));
+    }
+
+    /// <summary>
+    /// Applies contextual type inference for unsuffixed integer/decimal literals when an expected type
+    /// is present. Sets <paramref name="earlyExit"/> to true if an overflow error was reported.
+    /// </summary>
+    private string ApplyContextualTypeInference(LiteralExpression literal, TypeSymbol? expectedType,
+        string typeName, out bool earlyExit)
+    {
+        earlyExit = false;
+        if (expectedType == null) return typeName;
+
+        if (literal.LiteralType is TokenType.UndecidedInteger && IsFixedWidthIntegerType(type: expectedType))
+        {
+            if (LiteralFitsInType(literal: literal, targetType: expectedType))
+                return expectedType.Name;
+
+            string range = GetIntegerTypeRange(typeName: expectedType.Name);
+            ReportError(code: SemanticDiagnosticCode.IntegerLiteralOverflow,
+                message: $"Integer literal '{literal.Value}' overflows type '{expectedType.Name}'. Valid range: {range}.",
+                location: literal.Location);
+            earlyExit = true;
+            return typeName;
+        }
+
+        if (literal.LiteralType is TokenType.UndecidedDecimal
+            && (IsFloatType(type: expectedType) || IsDecimalType(type: expectedType)))
+            return expectedType.Name;
+
+        return typeName;
+    }
+
+    /// <summary>
+    /// Parses a string-valued literal and stores the result in <c>_parsedLiterals</c>.
+    /// </summary>
+    private void StoreParsedLiteral(LiteralExpression literal, string typeName)
+    {
+        if (literal.Value is not string rawValue) return;
+        ParsedLiteral? parsed = ParseDeferredLiteral(literal: literal,
+            rawValue: rawValue, resolvedTypeName: typeName);
+        if (parsed != null)
+            _parsedLiterals[key: literal.Location] = parsed;
     }
 
     /// <summary>
@@ -186,14 +197,14 @@ public sealed partial class SemanticVerifier
             // the LITERAL's own file (its Location), NOT `_currentFilePath` (stale = the user entry under
             // cross-module body analysis).
             TokenType.UndecidedInteger => UsesSuflaeNumericDefaults(literal)
-                ? "Integer"
+                ? IntegerTypeName
                 : "S64",
             TokenType.UndecidedDecimal => UsesSuflaeNumericDefaults(literal)
                 ? "Decimal"
                 : "F64",
 
             // Explicit arbitrary-precision suffix (n): always Integer or Decimal
-            TokenType.IntegerLiteral => "Integer",
+            TokenType.IntegerLiteral => IntegerTypeName,
             TokenType.DecimalLiteral => "Decimal",
 
             // Boolean
@@ -283,9 +294,30 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool LiteralFitsInType(LiteralExpression literal, TypeSymbol targetType)
     {
-        bool negative;
-        ulong magnitude;
+        // String-form literals whose magnitude doesn't fit in 64 bits can only fit in S128/U128.
+        if (literal.Value is string strVal)
+        {
+            if (!TryExtractStringLiteralMagnitude(strValue: strVal, negative: out bool neg64,
+                    magnitude: out ulong mag64))
+                return targetType.Name is "S128" or "U128";
+            return MagnitudeFitsInType(targetType: targetType, negative: neg64, magnitude: mag64);
+        }
 
+        if (!TryExtractLiteralMagnitudeAndSign(literal: literal, negative: out bool negative,
+                magnitude: out ulong magnitude))
+            return false;
+
+        return MagnitudeFitsInType(targetType: targetType, negative: negative, magnitude: magnitude);
+    }
+
+    /// <summary>
+    /// Extracts the sign and 64-bit magnitude from a literal's stored value (long or string form).
+    /// Returns false for unrecognised value shapes or when the string form's magnitude exceeds 64 bits
+    /// and the target would need to be checked separately (caller handles that case via the string path).
+    /// </summary>
+    private static bool TryExtractLiteralMagnitudeAndSign(LiteralExpression literal,
+        out bool negative, out ulong magnitude)
+    {
         switch (literal.Value)
         {
             case long longValue:
@@ -293,33 +325,53 @@ public sealed partial class SemanticVerifier
                 magnitude = negative
                     ? (ulong)(-(longValue + 1)) + 1 // two's-complement-safe |long.MinValue|
                     : (ulong)longValue;
-                break;
-            case string strValue:
-            {
-                // Strip type suffix before removing digit-separator underscores.
-                // e.g. "20_s64" -> strip "_s64" -> "20" -> parses fine.
-                // A suffix starts at the last '_' when what follows is a letter.
-                int lastUnderscore = strValue.LastIndexOf(value: '_');
-                string withoutSuffix = lastUnderscore >= 0 &&
-                                       lastUnderscore < strValue.Length - 1 &&
-                                       char.IsLetter(c: strValue[lastUnderscore + 1])
-                    ? strValue[..lastUnderscore]
-                    : strValue;
-                string cleaned = withoutSuffix.Replace(oldValue: "_", newValue: "");
-                negative = cleaned.StartsWith(value: '-');
-                string digits = negative ? cleaned[1..] : cleaned;
-                if (!TryParseLiteralMagnitude(digits: digits, magnitude: out magnitude))
-                {
-                    // Magnitude doesn't fit in 64 bits -> only S128/U128 could hold it
-                    return targetType.Name is "S128" or "U128";
-                }
+                return true;
 
-                break;
-            }
+            case string strValue:
+                return TryExtractStringLiteralMagnitude(strValue: strValue,
+                    negative: out negative, magnitude: out magnitude);
+
             default:
+                negative = false;
+                magnitude = 0;
                 return false;
         }
+    }
 
+    /// <summary>
+    /// Strips any type suffix and underscore separators from a string literal value, then parses the
+    /// sign and 64-bit magnitude. Returns false when the magnitude does not fit in 64 bits
+    /// (wide literals — only S128/U128 could hold them; callers handle that).
+    /// </summary>
+    private static bool TryExtractStringLiteralMagnitude(string strValue,
+        out bool negative, out ulong magnitude)
+    {
+        // Strip type suffix before removing digit-separator underscores.
+        // e.g. "20_s64" -> strip "_s64" -> "20" -> parses fine.
+        // A suffix starts at the last '_' when what follows is a letter.
+        int lastUnderscore = strValue.LastIndexOf(value: '_');
+        string withoutSuffix = lastUnderscore >= 0 &&
+                               lastUnderscore < strValue.Length - 1 &&
+                               char.IsLetter(c: strValue[lastUnderscore + 1])
+            ? strValue[..lastUnderscore]
+            : strValue;
+        string cleaned = withoutSuffix.Replace(oldValue: "_", newValue: "");
+        negative = cleaned.StartsWith(value: '-');
+        string digits = negative ? cleaned[1..] : cleaned;
+        if (!TryParseLiteralMagnitude(digits: digits, magnitude: out magnitude))
+        {
+            // Magnitude doesn't fit in 64 bits — only S128/U128 could hold it, but we can't
+            // determine that here; callers that need the wide-literal check do so themselves.
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Returns whether the given sign + 64-bit magnitude fits in the named target type.
+    /// </summary>
+    private static bool MagnitudeFitsInType(TypeSymbol targetType, bool negative, ulong magnitude)
+    {
         return targetType.Name switch
         {
             "S8" => negative ? magnitude <= 128UL : magnitude <= 127UL,
@@ -454,7 +506,7 @@ public sealed partial class SemanticVerifier
                     rawValue: rawValue),
 
                 // Unsuffixed literals: route through resolved type (contextual inference may have changed it)
-                TokenType.UndecidedInteger => resolvedTypeName == "Integer"
+                TokenType.UndecidedInteger => resolvedTypeName == IntegerTypeName
                     ? ParseIntegerLiteral(literal: literal, rawValue: rawValue)
                     : ParseIntegerByResolvedType(literal: literal,
                         rawValue: rawValue,
@@ -870,7 +922,7 @@ public sealed partial class SemanticVerifier
     /// Parses a U256 literal (range 0 .. 2^256-1) via BigInteger. The literal is a non-negative
     /// magnitude; codegen emits the raw decimal digits as the LLVM i256 constant.
     /// </summary>
-    private ParsedLiteral? ParseU256Literal(LiteralExpression literal, string rawValue)
+    private ParsedWideInt? ParseU256Literal(LiteralExpression literal, string rawValue)
     {
         string cleanedValue = CleanNumericLiteral(value: ExtractNumericPart(rawValue: rawValue, suffix: "u256"));
         if (TryParseWideMagnitude(cleaned: cleanedValue, value: out System.Numerics.BigInteger value)
@@ -889,7 +941,7 @@ public sealed partial class SemanticVerifier
     /// Parses an S256 literal magnitude (0 .. 2^255-1) via BigInteger. The sign comes from a unary
     /// minus operator, so the literal itself is a non-negative magnitude.
     /// </summary>
-    private ParsedLiteral? ParseS256Literal(LiteralExpression literal, string rawValue)
+    private ParsedWideInt? ParseS256Literal(LiteralExpression literal, string rawValue)
     {
         string cleanedValue = CleanNumericLiteral(value: ExtractNumericPart(rawValue: rawValue, suffix: "s256"));
         // The lexer bakes a leading sign into the literal text (mirroring S128), so accept the
@@ -1112,7 +1164,7 @@ public sealed partial class SemanticVerifier
     private ParsedJ32? ParseJ32Literal(LiteralExpression literal, string rawValue)
     {
         // Remove 'j32' suffix
-        string numericPart = RemoveImaginarySuffix(rawValue: rawValue, suffix: "j32");
+        string numericPart = ExtractNumericPart(rawValue: rawValue, suffix: "j32");
         string cleanedValue = CleanNumericLiteral(value: numericPart);
 
         if (float.TryParse(s: cleanedValue, result: out float value))
@@ -1134,8 +1186,8 @@ public sealed partial class SemanticVerifier
         // Remove 'j64' or 'j' suffix
         string numericPart =
             rawValue.EndsWith(value: "j64", comparisonType: StringComparison.OrdinalIgnoreCase)
-                ? RemoveImaginarySuffix(rawValue: rawValue, suffix: "j64")
-                : RemoveImaginarySuffix(rawValue: rawValue, suffix: "j");
+                ? ExtractNumericPart(rawValue: rawValue, suffix: "j64")
+                : ExtractNumericPart(rawValue: rawValue, suffix: "j");
         string cleanedValue = CleanNumericLiteral(value: numericPart);
 
         if (double.TryParse(s: cleanedValue, result: out double value))
@@ -1155,7 +1207,7 @@ public sealed partial class SemanticVerifier
     private ParsedJ128? ParseJ128Literal(LiteralExpression literal, string rawValue)
     {
         // Remove 'j128' suffix
-        string numericPart = RemoveImaginarySuffix(rawValue: rawValue, suffix: "j128");
+        string numericPart = ExtractNumericPart(rawValue: rawValue, suffix: "j128");
         string cleanedValue = CleanNumericLiteral(value: numericPart);
 
         try
@@ -1178,7 +1230,7 @@ public sealed partial class SemanticVerifier
     private ParsedJn? ParseJnLiteral(LiteralExpression literal, string rawValue)
     {
         // Remove 'jn' suffix
-        string numericPart = RemoveImaginarySuffix(rawValue: rawValue, suffix: "jn");
+        string numericPart = ExtractNumericPart(rawValue: rawValue, suffix: "jn");
         string cleanedValue = CleanNumericLiteral(value: numericPart);
 
         try
@@ -1233,35 +1285,53 @@ public sealed partial class SemanticVerifier
     {
         value = System.Numerics.BigInteger.Zero;
         if (string.IsNullOrEmpty(value: cleaned))
-        {
             return false;
-        }
 
         int i = 0;
         bool negative = cleaned[index: 0] == '-';
         if (cleaned[index: 0] is '+' or '-')
-        {
             i = 1;
-        }
 
-        int numericBase = 10;
-        if (i + 1 < cleaned.Length && cleaned[index: i] == '0')
-        {
-            switch (char.ToLowerInvariant(c: cleaned[index: i + 1]))
-            {
-                case 'x': numericBase = 16; i += 2; break;
-                case 'b': numericBase = 2; i += 2; break;
-                case 'o': numericBase = 8; i += 2; break;
-            }
-        }
+        (int numericBase, int start) = DetectWideBase(cleaned: cleaned, signEnd: i);
+        i = start;
 
         if (i >= cleaned.Length)
-        {
             return false; // sign / base prefix with no digits
-        }
 
-        var acc = System.Numerics.BigInteger.Zero;
-        for (; i < cleaned.Length; i++)
+        if (!TryAccumulateWideDigits(cleaned: cleaned, startIndex: i, numericBase: numericBase,
+                acc: out System.Numerics.BigInteger acc))
+            return false;
+
+        value = negative ? -acc : acc;
+        return true;
+    }
+
+    /// <summary>
+    /// Detects the numeric base (16/2/8/10) and the index of the first digit after any base prefix.
+    /// </summary>
+    private static (int NumericBase, int DigitStart) DetectWideBase(string cleaned, int signEnd)
+    {
+        if (signEnd + 1 < cleaned.Length && cleaned[index: signEnd] == '0')
+        {
+            switch (char.ToLowerInvariant(c: cleaned[index: signEnd + 1]))
+            {
+                case 'x': return (16, signEnd + 2);
+                case 'b': return (2, signEnd + 2);
+                case 'o': return (8, signEnd + 2);
+            }
+        }
+        return (10, signEnd);
+    }
+
+    /// <summary>
+    /// Accumulates the wide-integer digit characters into a <see cref="System.Numerics.BigInteger"/>.
+    /// Returns false on any invalid or out-of-base character.
+    /// </summary>
+    private static bool TryAccumulateWideDigits(string cleaned, int startIndex, int numericBase,
+        out System.Numerics.BigInteger acc)
+    {
+        acc = System.Numerics.BigInteger.Zero;
+        for (int i = startIndex; i < cleaned.Length; i++)
         {
             int digit = char.ToLowerInvariant(c: cleaned[index: i]) switch
             {
@@ -1270,14 +1340,9 @@ public sealed partial class SemanticVerifier
                 _ => -1
             };
             if (digit < 0 || digit >= numericBase)
-            {
                 return false;
-            }
-
             acc = acc * numericBase + digit;
         }
-
-        value = negative ? -acc : acc;
         return true;
     }
 
@@ -1372,19 +1437,6 @@ public sealed partial class SemanticVerifier
     /// Extracts the numeric part from a literal by removing the unit suffix.
     /// </summary>
     private static string ExtractNumericPart(string rawValue, string suffix)
-    {
-        if (rawValue.EndsWith(value: suffix, comparisonType: StringComparison.OrdinalIgnoreCase))
-        {
-            return rawValue[..^suffix.Length];
-        }
-
-        return rawValue;
-    }
-
-    /// <summary>
-    /// Removes the imaginary suffix from a literal value.
-    /// </summary>
-    private static string RemoveImaginarySuffix(string rawValue, string suffix)
     {
         if (rawValue.EndsWith(value: suffix, comparisonType: StringComparison.OrdinalIgnoreCase))
         {

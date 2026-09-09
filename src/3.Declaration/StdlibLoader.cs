@@ -126,96 +126,119 @@ public sealed partial class StdlibLoader
         // forwarders flow through the ordinary register/analyze/monomorph/codegen path as authored source.
         SynthesizeSuflaeForwarders();
 
-        // Three-pass registration ensures protocols exist before types reference them in 'obeys' clauses.
-        // Pass 1a: Register all protocol type shells first (names + generic params, no memberRoutines yet)
-        RegisterCoreProtocolShells(registry: registry);
-
-        // Pass 1a.1: Fill in protocol memberRoutine signatures (all protocols are now registered for cross-refs)
-        FillCoreProtocolMemberRoutines(registry: registry);
-
-        // Pass 1a.2: Resolve parent protocol hierarchies (now that all protocols are registered)
-        foreach ((Program program, string _, string _) in _corePrograms)
-        {
-            ResolveProtocolParents(registry: registry, program: program);
-        }
-
-        // Pass 1b: Register all type shells (record, entity, choice, variant)
-        foreach ((Program program, string filePath, string ns) in _corePrograms)
-        {
-            _registeringRealm = RealmOf(filePath: filePath);
-            RegisterProgramTypes(registry: registry, program: program, moduleName: ns);
-        }
+        RunCoreRegistrationPasses(registry: registry, corePrograms: _corePrograms);
 
         // Pass 1b.1: Load modules imported by Core files so their types are available
         // for member variable resolution (e.g., Set imports Collections.SortedSet).
         LoadCoreImportedModules(registry: registry);
 
+        RunCoreDeferredResolutionPasses(registry: registry, corePrograms: _corePrograms);
+    }
+
+    /// <summary>
+    /// Runs the realm-stamped protocol + type-shell registration passes (1a through 1a.2, 1b) over
+    /// the Core programs. Extracted from <see cref="LoadCoreModule"/> so all StampRealm writes happen
+    /// in a static context.
+    /// </summary>
+    private static void RunCoreRegistrationPasses(TypeRegistry registry,
+        List<(Program Program, string FilePath, string Module)> corePrograms)
+    {
+        // Three-pass registration ensures protocols exist before types reference them in 'obeys' clauses.
+        // Pass 1a: Register all protocol type shells first (names + generic params, no memberRoutines yet)
+        RegisterCoreProtocolShells(registry: registry, corePrograms: corePrograms);
+
+        // Pass 1a.1: Fill in protocol memberRoutine signatures (all protocols are now registered for cross-refs)
+        FillCoreProtocolMemberRoutines(registry: registry, corePrograms: corePrograms);
+
+        // Pass 1a.2: Resolve parent protocol hierarchies (now that all protocols are registered)
+        foreach ((Program program, string _, string _) in corePrograms)
+        {
+            ResolveProtocolParents(registry: registry, program: program);
+        }
+
+        // Pass 1b: Register all type shells (record, entity, choice, variant)
+        foreach ((Program program, string filePath, string ns) in corePrograms)
+        {
+            StampRealm(realm: RealmOf(filePath: filePath));
+            RegisterProgramTypes(registry: registry, program: program, moduleName: ns);
+        }
+    }
+
+    /// <summary>
+    /// Runs the realm-stamped deferred resolution + routine registration passes (1c through 3) over
+    /// the Core programs. Extracted from <see cref="LoadCoreModule"/> so all StampRealm writes happen
+    /// in a static context.
+    /// </summary>
+    private static void RunCoreDeferredResolutionPasses(TypeRegistry registry,
+        List<(Program Program, string FilePath, string Module)> corePrograms)
+    {
         // Pass 1c: Re-resolve member variables now that all types are registered.
         // The initial registration may have empty member lists due to forward references
         // (e.g., Bytes needs List which needs U64, but files are processed alphabetically).
         // Each deferred pass RE-STAMPS `_registeringRealm` per program — the shell-registration loop left it
         // at the last program's realm, which mis-scopes an RF program's deferred lookups to a coexisting SF
         // wrapper's shell (see the LoadModule siblings + the BitList not-iterable bug).
-        foreach ((Program program, string filePath, string _) in _corePrograms)
+        foreach ((Program program, string filePath, string _) in corePrograms)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             ResolveProgramMemberVariables(registry: registry, program: program);
         }
 
         // Pass 1d: Re-resolve protocol conformances now that all types are registered.
         // Protocol arguments may reference types not yet registered during Pass 1b
         // (e.g., EnumerateIterator[T] obeys Iterable[Tuple[S64, T]] needs S64).
-        foreach ((Program program, string filePath, string _) in _corePrograms)
+        foreach ((Program program, string filePath, string _) in corePrograms)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             ResolveProgramProtocolConformances(registry: registry, program: program);
         }
 
         // Pass 1e: Re-resolve protocol memberRoutine return types that failed in pass 1a.1 due to
         // forward references (e.g., Crashable.crash_message() -> Text where Text was not yet
         // registered when protocols were first processed in pass 1a.1).
-        foreach ((Program program, string filePath, string _) in _corePrograms)
+        foreach ((Program program, string filePath, string _) in corePrograms)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             ResolveProtocolMemberRoutineReturnTypes(registry: registry, program: program);
             ResolveAssociatedTypeBindings(registry: registry, program: program);
         }
 
         // Pass 2: Register all routines (now all types are available for return type resolution)
-        foreach ((Program program, string filePath, string ns) in _corePrograms)
+        foreach ((Program program, string filePath, string ns) in corePrograms)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             RegisterProgramRoutines(registry: registry, program: program, moduleName: ns);
         }
 
         // Pass 2.1: Refresh any routine signatures that were still partially unresolved during
         // initial registration and later collapsed to None via semantic finalization.
-        foreach ((Program program, string filePath, string ns) in _corePrograms)
+        foreach ((Program program, string filePath, string ns) in corePrograms)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             ResolveRoutineSignatures(registry: registry, program: program, moduleName: ns);
         }
 
         // Pass 3: Register all presets (module-level constants accessible across files)
-        foreach ((Program program, string filePath, string ns) in _corePrograms)
+        foreach ((Program program, string filePath, string ns) in corePrograms)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             RegisterProgramPresets(registry: registry, program: program, moduleName: ns);
         }
 
         // Clear the thread-static realm so it never leaks into a later (on-demand) load pass on this thread.
-        _registeringRealm = null;
+        StampRealm(realm: null);
     }
 
     /// <summary>
     /// Pass 1a: registers every Core program's protocol type shells (names + generic params, no
     /// memberRoutines yet), realm-stamped per program.
     /// </summary>
-    private void RegisterCoreProtocolShells(TypeRegistry registry)
+    private static void RegisterCoreProtocolShells(TypeRegistry registry,
+        List<(Program Program, string FilePath, string Module)> corePrograms)
     {
-        foreach ((Program program, string filePath, string ns) in _corePrograms)
+        foreach ((Program program, string filePath, string ns) in corePrograms)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             foreach (ISyntaxTreeNode node in program.Declarations)
             {
                 if (node is ProtocolDeclaration protocol)
@@ -232,9 +255,10 @@ public sealed partial class StdlibLoader
     /// Pass 1a.1: fills in protocol memberRoutine signatures across every Core program (all protocols
     /// are now registered for cross-refs).
     /// </summary>
-    private void FillCoreProtocolMemberRoutines(TypeRegistry registry)
+    private static void FillCoreProtocolMemberRoutines(TypeRegistry registry,
+        List<(Program Program, string FilePath, string Module)> corePrograms)
     {
-        foreach ((Program program, string _, string _) in _corePrograms)
+        foreach ((Program program, string _, string _) in corePrograms)
         {
             foreach (ISyntaxTreeNode node in program.Declarations)
             {
@@ -361,21 +385,6 @@ public sealed partial class StdlibLoader
     }
 
     /// <summary>
-    /// Parses a file using the appropriate tokenizer/parser for the current language.
-    /// Used for scanning stdlib files where extension matches language.
-    /// </summary>
-    /// <param name="code">The source code to parse.</param>
-    /// <param name="filePath">The file path for error reporting.</param>
-    /// <returns>The parsed program AST.</returns>
-    private Program ParseFile(string code, string filePath)
-    {
-        var tokenizer = new Tokenizer.Tokenizer(source: code, fileName: filePath, language: _language);
-        List<Token> tokens = tokenizer.Tokenize();
-        var parser = new Parser.Parser(tokens: tokens, language: _language, fileName: filePath);
-        return parser.Parse();
-    }
-
-    /// <summary>
     /// Parses a file using the tokenizer/parser determined by file extension.
     /// Used for cross-language imports where a Suflae file imports a RazorForge module.
     /// </summary>
@@ -477,32 +486,22 @@ public sealed partial class StdlibLoader
 
         _loadedModules.Add(item: moduleName);
 
+        RunModuleRegistrationPasses(registry: registry, programs: programs);
+        return true;
+    }
+
+    /// <summary>
+    /// Runs the full three-pass registration sequence (protocol shells → types → routines → presets)
+    /// for a single on-demand module. Extracted from <see cref="LoadModule(TypeRegistry, string)"/> so
+    /// all StampRealm writes happen in a static context.
+    /// </summary>
+    private static void RunModuleRegistrationPasses(TypeRegistry registry,
+        List<(Program Program, string FilePath, string Module)> programs)
+    {
         // Three-pass registration: protocols first, then other types, then routines
         // Register protocol shells across all files first, then fill in memberRoutines
-        foreach ((Program program, string filePath, string ns) in programs)
-        {
-            _registeringRealm = RealmOf(filePath: filePath);
-            foreach (ISyntaxTreeNode node in program.Declarations)
-            {
-                if (node is ProtocolDeclaration protocol)
-                {
-                    RegisterProtocolTypeShell(registry: registry,
-                        protocol: protocol,
-                        moduleName: ns);
-                }
-            }
-        }
-
-        foreach ((Program program, string _, string _) in programs)
-        {
-            foreach (ISyntaxTreeNode node in program.Declarations)
-            {
-                if (node is ProtocolDeclaration protocol)
-                {
-                    FillProtocolMemberRoutines(registry: registry, protocol: protocol);
-                }
-            }
-        }
+        RegisterCoreProtocolShells(registry: registry, corePrograms: programs);
+        FillCoreProtocolMemberRoutines(registry: registry, corePrograms: programs);
 
         foreach ((Program program, string _, string _) in programs)
         {
@@ -511,7 +510,7 @@ public sealed partial class StdlibLoader
 
         foreach ((Program program, string filePath, string ns) in programs)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             RegisterProgramTypes(registry: registry, program: program, moduleName: ns);
         }
 
@@ -524,46 +523,45 @@ public sealed partial class StdlibLoader
         // shell and mis-apply its protocols/members to the wrong realm — the `BitList` not-iterable bug).
         foreach ((Program program, string filePath, string _) in programs)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             ResolveProgramMemberVariables(registry: registry, program: program);
         }
 
         foreach ((Program program, string filePath, string _) in programs)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             ResolveProgramProtocolConformances(registry: registry, program: program);
         }
 
         // Re-resolve protocol memberRoutine return types that failed due to forward references
         foreach ((Program program, string filePath, string _) in programs)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             ResolveProtocolMemberRoutineReturnTypes(registry: registry, program: program);
             ResolveAssociatedTypeBindings(registry: registry, program: program);
         }
 
         foreach ((Program program, string filePath, string ns) in programs)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             RegisterProgramRoutines(registry: registry, program: program, moduleName: ns);
         }
 
         foreach ((Program program, string filePath, string ns) in programs)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             ResolveRoutineSignatures(registry: registry, program: program, moduleName: ns);
         }
 
         // Register presets for the module
         foreach ((Program program, string filePath, string ns) in programs)
         {
-            _registeringRealm = RealmOf(filePath: filePath);
+            StampRealm(realm: RealmOf(filePath: filePath));
             RegisterProgramPresets(registry: registry, program: program, moduleName: ns);
         }
 
         // Clear the thread-static realm so it never leaks into a later load pass on this thread.
-        _registeringRealm = null;
-        return true;
+        StampRealm(realm: null);
     }
 
     /// <summary>
@@ -625,8 +623,10 @@ public sealed partial class StdlibLoader
     }
 
     /// <summary>
-    /// Resolves parent protocol relationships for all protocols in a program.
-    /// Must run after all protocols are registered (pass 1a) so parent lookups succeed.
+    /// Resolves a type expression to a <see cref="TypeInfo"/> using the current generic and module context.
+    /// Handles splice handles, comptime values, the <c>Me</c> placeholder, associated-type projections,
+    /// generic parameters, const-generic literals, routine types, and parameterized types. Returns null
+    /// when the expression cannot be resolved (forward reference or unknown type).
     /// </summary>
     private static TypeInfo? ResolveSimpleType(TypeRegistry registry, TypeExpression? typeExpr,
         List<string>? genericParams = null, string? moduleName = null)
@@ -674,21 +674,11 @@ public sealed partial class StdlibLoader
         // resolves through the base's binding once the base is concrete.
         if (typeName.Contains(value: '/'))
         {
-            string[] segments = typeName.Split(separator: '/');
-            TypeInfo? projBase = segments[0] == "Me"
-                ? ProtocolSelfTypeInfo.Instance
-                : genericParams != null && genericParams.Contains(value: segments[0])
-                    ? new GenericParameterTypeInfo(name: segments[0])
-                    : null;
-            if (projBase != null)
+            TypeInfo? projection = ResolveAssociatedProjection(
+                typeName: typeName, genericParams: genericParams);
+            if (projection != null)
             {
-                TypeInfo current = projBase;
-                for (int i = 1; i < segments.Length; i++)
-                {
-                    current = new AssociatedProjectionTypeInfo(baseType: current,
-                        slotName: segments[i]);
-                }
-                return current;
+                return projection;
             }
         }
 
@@ -699,7 +689,7 @@ public sealed partial class StdlibLoader
         }
 
         // Const generic literal (e.g., 16, 8u64) used as a type argument (e.g., Array[T, 16])
-        TypeInfo? constGeneric = ResolveConstGenericLiteral(typeName: typeName);
+        ConstGenericValueTypeInfo? constGeneric = ResolveConstGenericLiteral(typeName: typeName);
         if (constGeneric != null)
         {
             return constGeneric;
@@ -732,10 +722,42 @@ public sealed partial class StdlibLoader
     }
 
     /// <summary>
+    /// Resolves a slash-segmented associated-type projection like <c>S/Iter</c> into a chain of
+    /// <see cref="AssociatedProjectionTypeInfo"/> nodes. The first segment must be <c>Me</c> or an
+    /// in-scope generic parameter; returns null otherwise (the caller falls through to other resolution
+    /// paths).
+    /// </summary>
+    private static TypeInfo? ResolveAssociatedProjection(string typeName, List<string>? genericParams)
+    {
+        string[] segments = typeName.Split(separator: '/');
+        TypeInfo? projBase;
+        if (segments[0] == "Me")
+        {
+            projBase = ProtocolSelfTypeInfo.Instance;
+        }
+        else if (genericParams != null && genericParams.Contains(value: segments[0]))
+        {
+            projBase = new GenericParameterTypeInfo(name: segments[0]);
+        }
+        else
+        {
+            return null;
+        }
+
+        TypeInfo current = projBase;
+        for (int i = 1; i < segments.Length; i++)
+        {
+            current = new AssociatedProjectionTypeInfo(baseType: current, slotName: segments[i]);
+        }
+
+        return current;
+    }
+
+    /// <summary>
     /// Resolves a const-generic literal type argument: a bare integer (16), or a typed suffix
     /// ("16u64", "8s32", …). Returns null when <paramref name="typeName"/> is not a numeric literal.
     /// </summary>
-    private static TypeInfo? ResolveConstGenericLiteral(string typeName)
+    private static ConstGenericValueTypeInfo? ResolveConstGenericLiteral(string typeName)
     {
         if (long.TryParse(s: typeName, result: out long constValue))
         {
@@ -765,7 +787,7 @@ public sealed partial class StdlibLoader
     /// live in the first arg's GenericArguments (parsed as Tuple). Returns null when a parameter type
     /// fails to resolve.
     /// </summary>
-    private static TypeInfo? ResolveRoutineType(TypeRegistry registry, TypeExpression typeExpr,
+    private static RoutineTypeInfo? ResolveRoutineType(TypeRegistry registry, TypeExpression typeExpr,
         List<string>? genericParams, string? moduleName)
     {
         TypeExpression paramTupleExpr = typeExpr.GenericArguments![index: 0];
@@ -844,24 +866,9 @@ public sealed partial class StdlibLoader
         // Tuple types are not registered as generic definitions — handle specially
         if (typeName is "Tuple")
         {
-            var elemTypes = new List<TypeInfo>();
-            foreach (TypeExpression argExpr in typeExpr.GenericArguments)
-            {
-                TypeInfo? argType = ResolveSimpleType(registry: registry,
-                    typeExpr: argExpr,
-                    genericParams: genericParams,
-                    moduleName: moduleName);
-                if (argType == null)
-                {
-                    resolved = true;
-                    return null;
-                }
-
-                elemTypes.Add(item: argType);
-            }
-
             resolved = true;
-            return new TupleTypeInfo(elementTypes: elemTypes);
+            return ResolveTupleType(registry: registry, typeExpr: typeExpr,
+                genericParams: genericParams, moduleName: moduleName);
         }
 
         // Own-module FIRST: a bare `List` in `module Suflae` (e.g. the overlay constructor's
@@ -874,29 +881,64 @@ public sealed partial class StdlibLoader
         if (genericDef is { IsGenericDefinition: true } &&
             genericDef.GenericParameters!.Count == typeExpr.GenericArguments.Count)
         {
-            var typeArgs = new List<TypeInfo>();
-            foreach (TypeExpression argExpr in typeExpr.GenericArguments)
-            {
-                TypeInfo? argType = ResolveSimpleType(registry: registry,
-                    typeExpr: argExpr,
-                    genericParams: genericParams,
-                    moduleName: moduleName);
-                if (argType == null)
-                {
-                    resolved = true;
-                    return null;
-                }
-
-                typeArgs.Add(item: argType);
-            }
-
             resolved = true;
-            return registry.GetOrCreateResolution(genericDef: genericDef,
-                typeArguments: typeArgs);
+            return ResolveGenericDefinitionType(registry: registry, typeExpr: typeExpr,
+                genericDef: genericDef, genericParams: genericParams, moduleName: moduleName);
         }
 
         resolved = false;
         return null;
+    }
+
+    /// <summary>
+    /// Resolves a <c>Tuple[..]</c> type expression by resolving each element type argument.
+    /// Returns null when any element type fails to resolve (forward reference).
+    /// </summary>
+    private static TypeInfo? ResolveTupleType(TypeRegistry registry, TypeExpression typeExpr,
+        List<string>? genericParams, string? moduleName)
+    {
+        var elemTypes = new List<TypeInfo>();
+        foreach (TypeExpression argExpr in typeExpr.GenericArguments!)
+        {
+            TypeInfo? argType = ResolveSimpleType(registry: registry,
+                typeExpr: argExpr,
+                genericParams: genericParams,
+                moduleName: moduleName);
+            if (argType == null)
+            {
+                return null;
+            }
+
+            elemTypes.Add(item: argType);
+        }
+
+        return new TupleTypeInfo(elementTypes: elemTypes);
+    }
+
+    /// <summary>
+    /// Resolves a parameterized application of a known generic definition (e.g. <c>List[T]</c>)
+    /// by resolving each type argument and calling <see cref="TypeRegistry.GetOrCreateResolution"/>.
+    /// Returns null when any argument fails to resolve (forward reference).
+    /// </summary>
+    private static TypeInfo? ResolveGenericDefinitionType(TypeRegistry registry, TypeExpression typeExpr,
+        TypeInfo genericDef, List<string>? genericParams, string? moduleName)
+    {
+        var typeArgs = new List<TypeInfo>();
+        foreach (TypeExpression argExpr in typeExpr.GenericArguments!)
+        {
+            TypeInfo? argType = ResolveSimpleType(registry: registry,
+                typeExpr: argExpr,
+                genericParams: genericParams,
+                moduleName: moduleName);
+            if (argType == null)
+            {
+                return null;
+            }
+
+            typeArgs.Add(item: argType);
+        }
+
+        return registry.GetOrCreateResolution(genericDef: genericDef, typeArguments: typeArgs);
     }
 
     /// <summary>
@@ -952,15 +994,8 @@ public sealed partial class StdlibLoader
             return null;
         }
 
-        foreach (string ann in annotations)
-        {
-            if (ann.StartsWith(value: "llvm(") && ann.EndsWith(')'))
-            {
-                return ann[5..^1]
-                   .Trim(trimChar: '"');
-            }
-        }
-
-        return null;
+        string? match = annotations.FirstOrDefault(predicate: ann =>
+            ann.StartsWith(value: "llvm(") && ann.EndsWith(value: ')'));
+        return match != null ? match[5..^1].Trim(trimChar: '"') : null;
     }
 }

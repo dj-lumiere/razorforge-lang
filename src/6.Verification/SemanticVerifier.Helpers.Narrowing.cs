@@ -8,7 +8,7 @@ using TypeSymbol = TypeInfo;
 
 public sealed partial class SemanticVerifier
 {
-    private record NarrowingInfo(
+    private sealed record NarrowingInfo(
         string VariableName,
         TypeSymbol? ThenBranchType,
         TypeSymbol? ElseBranchType)
@@ -36,7 +36,7 @@ public sealed partial class SemanticVerifier
     {
         if (condition is not IsPatternExpression
             {
-                Expression: IdentifierExpression id, Pattern: TypePattern tp
+                Expression: IdentifierExpression id, Pattern: TypePattern
             } isPat)
         {
             return null;
@@ -138,12 +138,16 @@ public sealed partial class SemanticVerifier
             }
 
             // Negating the condition swaps then/else narrowing (type + nullability facts)
+            TypeSymbol? thenBranchType = inner.ElseBranchType;
+            TypeSymbol? elseBranchType = inner.ThenBranchType;
+            bool thenNonNull = inner.ElseNonNull;
+            bool elseNonNull = inner.ThenNonNull;
             return new NarrowingInfo(VariableName: inner.VariableName,
-                ThenBranchType: inner.ElseBranchType,
-                ElseBranchType: inner.ThenBranchType)
+                ThenBranchType: thenBranchType,
+                ElseBranchType: elseBranchType)
             {
-                ThenNonNull = inner.ElseNonNull,
-                ElseNonNull = inner.ThenNonNull
+                ThenNonNull = thenNonNull,
+                ElseNonNull = elseNonNull
             };
         }
 
@@ -198,7 +202,6 @@ public sealed partial class SemanticVerifier
 
         TypeSymbol? narrowedType = ComputeNarrowedType(type: varType,
             eliminateNone: eliminateNone,
-            eliminateNoneValue: eliminateNoneValue,
             eliminateCrashable: eliminateCrashable);
 
         if (narrowedType == null)
@@ -244,7 +247,6 @@ public sealed partial class SemanticVerifier
     /// </summary>
     /// <returns>The narrowed type, or null if narrowing is not possible.</returns>
     private static TypeSymbol? ComputeNarrowedType(TypeSymbol type, bool eliminateNone,
-        bool eliminateNoneValue,
         bool eliminateCrashable)
     {
         string? baseName = GetCarrierBaseName(type: type);

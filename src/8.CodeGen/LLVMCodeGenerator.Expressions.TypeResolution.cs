@@ -481,68 +481,119 @@ public partial class LlvmCodeGenerator
         if (substitutions.TryGetValue(key: type.Name, value: out TypeInfo? sub))
             return sub;
 
-        if (type is { IsGenericResolution: true, TypeArguments: not null })
-        {
-            bool needsResolution = false;
-            var resolvedArgs = new List<TypeInfo>();
-            foreach (TypeInfo ta in type.TypeArguments)
-            {
-                resolvedArgs.Add(item: SubstituteTypeArgument(ta: ta,
-                    substitutions: substitutions, needsResolution: ref needsResolution));
-            }
+        TypeInfo? resolvedGenericResolution = TrySubstituteGenericResolution(
+            type: type, substitutions: substitutions);
+        if (resolvedGenericResolution != null)
+            return resolvedGenericResolution;
 
-            if (needsResolution)
-            {
-                TypeInfo? genericBase = GetGenericBase(type: type);
-                if (genericBase != null)
-                    return _registry.GetOrCreateResolution(genericDef: genericBase,
-                        typeArguments: resolvedArgs);
-            }
-        }
+        TypeInfo? resolvedWrapper = TrySubstituteWrapper(type: type, substitutions: substitutions);
+        if (resolvedWrapper != null)
+            return resolvedWrapper;
 
-        if (type is WrapperTypeInfo wrapperT)
-        {
-            TypeInfo resolvedInner = SubstituteTypeParams(type: wrapperT.InnerType,
-                substitutions: substitutions);
-            TypeInfo? wrapperRecordDef = _registry.LookupType(name: wrapperT.Name);
-            if (wrapperRecordDef is { IsGenericDefinition: true })
-                return _registry.GetOrCreateResolution(genericDef: wrapperRecordDef,
-                    typeArguments: new List<TypeInfo> { resolvedInner });
-            if (!ReferenceEquals(resolvedInner, wrapperT.InnerType))
-                return new WrapperTypeInfo(wrapperName: wrapperT.Name, innerType: resolvedInner,
-                    isReadOnly: wrapperT.IsReadOnly);
-        }
+        TypeInfo? resolvedGenericDef = TrySubstituteGenericDefinition(
+            type: type, substitutions: substitutions);
+        if (resolvedGenericDef != null)
+            return resolvedGenericDef;
 
-        if (type is { IsGenericDefinition: true, GenericParameters: not null })
-        {
-            bool canResolve = true;
-            var resolvedArgs = new List<TypeInfo>();
-            foreach (string param in type.GenericParameters)
-            {
-                if (substitutions.TryGetValue(key: param, value: out TypeInfo? paramSub))
-                    resolvedArgs.Add(item: paramSub);
-                else { canResolve = false; break; }
-            }
-
-            if (canResolve && resolvedArgs.Count > 0)
-                return _registry.GetOrCreateResolution(genericDef: type, typeArguments: resolvedArgs);
-        }
-
-        if (type is TupleTypeInfo tuple)
-        {
-            bool anyChanged = false;
-            var resolvedElems = new List<TypeInfo>();
-            foreach (TypeInfo elem in tuple.ElementTypes)
-            {
-                TypeInfo resolved = SubstituteTypeParams(type: elem, substitutions: substitutions);
-                if (resolved != elem) anyChanged = true;
-                resolvedElems.Add(item: resolved);
-            }
-
-            if (anyChanged) return new TupleTypeInfo(elementTypes: resolvedElems.ToList());
-        }
+        TypeInfo? resolvedTuple = TrySubstituteTuple(type: type, substitutions: substitutions);
+        if (resolvedTuple != null)
+            return resolvedTuple;
 
         return type;
+    }
+
+    /// <summary>
+    /// Tries to substitute type arguments into a generic-resolution type. Returns the substituted
+    /// resolution when any argument changed; returns null if the type is not a generic resolution
+    /// or no argument required substitution.
+    /// </summary>
+    private TypeInfo? TrySubstituteGenericResolution(TypeInfo type,
+        Dictionary<string, TypeInfo> substitutions)
+    {
+        if (type is not { IsGenericResolution: true, TypeArguments: not null })
+            return null;
+
+        bool needsResolution = false;
+        var resolvedArgs = new List<TypeInfo>();
+        foreach (TypeInfo ta in type.TypeArguments)
+        {
+            resolvedArgs.Add(item: SubstituteTypeArgument(ta: ta,
+                substitutions: substitutions, needsResolution: ref needsResolution));
+        }
+
+        if (!needsResolution)
+            return null;
+
+        TypeInfo? genericBase = GetGenericBase(type: type);
+        return genericBase != null
+            ? _registry.GetOrCreateResolution(genericDef: genericBase, typeArguments: resolvedArgs)
+            : null;
+    }
+
+    /// <summary>
+    /// Tries to substitute the inner type of a wrapper type. Returns the substituted wrapper (or
+    /// a resolved generic record) when the inner type changed; returns null if the type is not a wrapper.
+    /// </summary>
+    private TypeInfo? TrySubstituteWrapper(TypeInfo type, Dictionary<string, TypeInfo> substitutions)
+    {
+        if (type is not WrapperTypeInfo wrapperT)
+            return null;
+
+        TypeInfo resolvedInner = SubstituteTypeParams(type: wrapperT.InnerType,
+            substitutions: substitutions);
+        TypeInfo? wrapperRecordDef = _registry.LookupType(name: wrapperT.Name);
+        if (wrapperRecordDef is { IsGenericDefinition: true })
+            return _registry.GetOrCreateResolution(genericDef: wrapperRecordDef,
+                typeArguments: [resolvedInner]);
+        if (!ReferenceEquals(resolvedInner, wrapperT.InnerType))
+            return new WrapperTypeInfo(wrapperName: wrapperT.Name, innerType: resolvedInner,
+                isReadOnly: wrapperT.IsReadOnly);
+        return null;
+    }
+
+    /// <summary>
+    /// Tries to resolve a generic definition whose all parameters are covered by the substitution map.
+    /// Returns the concrete resolution when all parameters are bound; null otherwise.
+    /// </summary>
+    private TypeInfo? TrySubstituteGenericDefinition(TypeInfo type,
+        Dictionary<string, TypeInfo> substitutions)
+    {
+        if (type is not { IsGenericDefinition: true, GenericParameters: not null })
+            return null;
+
+        var resolvedArgs = new List<TypeInfo>();
+        foreach (string param in type.GenericParameters)
+        {
+            if (substitutions.TryGetValue(key: param, value: out TypeInfo? paramSub))
+                resolvedArgs.Add(item: paramSub);
+            else
+                return null;
+        }
+
+        return resolvedArgs.Count > 0
+            ? _registry.GetOrCreateResolution(genericDef: type, typeArguments: resolvedArgs)
+            : null;
+    }
+
+    /// <summary>
+    /// Tries to substitute element types inside a tuple type. Returns the new tuple when any element
+    /// changed; null when the type is not a tuple or no element changed.
+    /// </summary>
+    private TypeInfo? TrySubstituteTuple(TypeInfo type, Dictionary<string, TypeInfo> substitutions)
+    {
+        if (type is not TupleTypeInfo tuple)
+            return null;
+
+        bool anyChanged = false;
+        var resolvedElems = new List<TypeInfo>();
+        foreach (TypeInfo elem in tuple.ElementTypes)
+        {
+            TypeInfo resolved = SubstituteTypeParams(type: elem, substitutions: substitutions);
+            if (resolved != elem) anyChanged = true;
+            resolvedElems.Add(item: resolved);
+        }
+
+        return anyChanged ? new TupleTypeInfo(elementTypes: resolvedElems.ToList()) : null;
     }
 
     /// <summary>
@@ -805,6 +856,16 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>
+    /// Returns true when <paramref name="type"/> is a fully concrete, non-generic type that is safe to
+    /// use as a LLVM return type (i.e., not a generic parameter, not an error, not a generic definition,
+    /// and contains no unresolved generic parameters).
+    /// </summary>
+    private bool IsConcreteReturnType(TypeInfo type) =>
+        type is not GenericParameterTypeInfo and not ErrorTypeInfo
+        && !type.IsGenericDefinition
+        && !ContainsGenericParameter(type: type);
+
+    /// <summary>
     /// Gets the return type of a call expression.
     /// </summary>
     private TypeInfo? GetCallReturnType(CallExpression call)
@@ -812,19 +873,16 @@ public partial class LlvmCodeGenerator
         // The emitted `call` targets ResolvedRoutine, and its LLVM return type is
         // GetLlvmType(ResolvedRoutine.ReturnType). So a FULLY CONCRETE resolved return type is
         // authoritative and must win over ConstructedType. This matters for a failable creator call
-        // retargeted to its try_/check_/lookup_ variant (e.g. `S64(x)` → `S64.try_create`): the node
-        // still records the bare constructed payload in ConstructedType (S64) while the routine
-        // actually returns — and emits — the Maybe[S64] carrier. Sizing a spilled
-        // `var __td_ret = S64(x)` off ConstructedType there yields `store i64 %maybeVal`, which fails
-        // LLVM verification. When ReturnType is still generic (the universal `create` returns `T`/
-        // `Me`), it is not concrete, so we fall through to ConstructedType — preserving prior
-        // behaviour for generic constructors.
+        // retargeted to its try_/check_/lookup_ variant (e.g. S64(x) lowered to S64.try_create):
+        // the node still records the bare constructed payload in ConstructedType (S64) while the
+        // routine actually returns the Maybe[S64] carrier. Sizing a spilled var off ConstructedType
+        // there yields a mismatched store, which fails LLVM verification. When ReturnType is still
+        // generic (the universal create returns T/Me), it is not concrete, so we fall through to
+        // ConstructedType — preserving prior behaviour for generic constructors.
         if (call.ResolvedRoutine?.ReturnType is { } resolvedReturn and not ErrorTypeInfo)
         {
             TypeInfo concreteReturn = ApplyTypeSubstitutions(type: resolvedReturn);
-            if (concreteReturn is not GenericParameterTypeInfo and not ErrorTypeInfo
-                && !concreteReturn.IsGenericDefinition
-                && !ContainsGenericParameter(type: concreteReturn))
+            if (IsConcreteReturnType(type: concreteReturn))
             {
                 return concreteReturn;
             }
@@ -852,6 +910,9 @@ public partial class LlvmCodeGenerator
         throw UnresolvedCallReturnType(call: call);
     }
 
+    // Sentinel used in diagnostic messages to represent a null type/routine reference.
+    private const string NullTypePlaceholder = "<null>";
+
     /// <summary>
     /// Builds the diagnostic thrown when a call reaches the backend with no concrete SA-resolved
     /// return type. Reports the ACTUAL annotation values (a call can carry a non-null ResolvedRoutine
@@ -866,16 +927,16 @@ public partial class LlvmCodeGenerator
             _ => call.Callee.GetType().Name
         };
         string memberObjResolvedDesc = call.Callee is MemberExpression me
-            ? me.Object.ResolvedType?.FullName ?? "<null>"
+            ? me.Object.ResolvedType?.FullName ?? NullTypePlaceholder
             : "<not member>";
         string resolvedRoutineDesc = call.ResolvedRoutine is { } rr
-            ? $"{rr.FullName} -> {rr.ReturnType?.FullName ?? "<null>"}"
-            : "<null>";
+            ? $"{rr.FullName} -> {rr.ReturnType?.FullName ?? NullTypePlaceholder}"
+            : NullTypePlaceholder;
         return new InvalidOperationException(
             $"CallExpression '{calleeDesc}' has no concrete SA-resolved return type " +
             $"(ResolvedRoutine={resolvedRoutineDesc}, " +
-            $"ConstructedType={call.ConstructedType?.FullName ?? "<null>"}, " +
-            $"ResolvedType={call.ResolvedType?.FullName ?? "<null>"}, " +
+            $"ConstructedType={call.ConstructedType?.FullName ?? NullTypePlaceholder}, " +
+            $"ResolvedType={call.ResolvedType?.FullName ?? NullTypePlaceholder}, " +
             $"ObjectResolvedType={memberObjResolvedDesc}). " +
             $"Semantic analysis must annotate all calls. Routine: {_currentEmittingRoutine?.Name ?? "<unknown>"}.");
     }

@@ -490,8 +490,8 @@ public enum ExpandSourceKind
 /// rewritten to real member accesses.
 /// </summary>
 /// <param name="HandleName">The per-part handle identifier (e.g. <c>m</c>).</param>
+/// <param name="SourceName">The intrinsic name following <c>in</c> (e.g. <c>allmemvarof</c>, <c>openmemvarof</c>, <c>caseof</c>); classified to an <see cref="ExpandSourceKind"/> by the semantic verifier.</param>
 /// <param name="SourceType">The type inside <c>allmemvarof(...)</c> (a generic param before monomorph).</param>
-/// <param name="SourceKind">Which reflection source is iterated (Phase 1: MemberVariables only).</param>
 /// <param name="Body">The loop body, cloned per part at monomorphization.</param>
 /// <param name="Location">Source location information.</param>
 public record ExpandStatement(

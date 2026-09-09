@@ -42,9 +42,9 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
 
         // Warm-restore incrementalization: the instantiated bodies already in the context on entry were
         // captured POST-lowering (empty on a cold compile — nothing seeds this map before Phase 8), so the
-        // per-body lowering chain below only needs to touch the NEW bodies GMP builds this run. Skipping the
-        // (potentially thousands of) already-lowered restored bodies is the bulk of the warm-compile win;
-        // an empty pre-existing set makes this a no-op for cold builds.
+        // per-body lowering chain below only needs to touch the NEW bodies GMP builds this run. Skipping
+        // the already-lowered restored bodies is the bulk of the warm-compile win; an empty pre-existing
+        // set makes this a no-op for cold builds.
         var preExistingInstantiationKeys = new HashSet<string>(collection: ctx.InstantiatedGenericBodies.Keys);
 
         // Lower protocol-default-impl routines (e.g. Iterable[Text].join) to per-implementer
@@ -93,9 +93,9 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
 
         LowerFreshBodies(ctx: ctx, adapter: adapter, freshBodies: freshBodies);
         _step(label: "lowering passes (freshBodies)");
-        // NOTE: RcRetainLoweringPass deleted. The per-field retain on a record copy lives in the type's
-        // own assign/copy derive (post-mono, RecordCopyLoweringPass above routes the copy through it);
-        // the pass bumping on top double-counted → teardown double-free. Decrement = scope-exit teardown.
+        // RcRetainLoweringPass was deleted. The per-field retain on a record copy lives in the type's
+        // own assign/copy derive (post-mono, RecordCopyLoweringPass routes the copy through it).
+        // The old pass bumped on top of the derive, double-counting and causing teardown double-frees.
 
         // The lowering passes REASSIGN dict entries (`dict[key] = body with { ... }`, MonomorphizedBody is
         // a record), so when freshBodies is a separate (warm-restore) dict the lowered results live there,
@@ -202,9 +202,9 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
         // VariantReturnStatement and trip the codegen guard.
         new Desugaring.Passes.VariantReturnLoweringPass(ctx: postCtx)
             .RunOnInstantiatedGenericBodies(bodies: freshBodies);
-        // FStringLoweringPass runs BEFORE OperatorLoweringPass (per the per-file pipeline order);
-        // monomorphized represent/diagnose bodies need f-strings lowered to represent/diagnose
-        // memberRoutine calls + Text.add before operator lowering can fold the `+` chain.
+        // FStringLoweringPass runs BEFORE OperatorLoweringPass (per the per-file pipeline order).
+        // Monomorphized represent/diagnose bodies need f-strings lowered to represent/diagnose
+        // member-routine calls and Text concatenation before operator lowering can fold the chain.
         new FStringLoweringPass(ctx: postCtx)
             .RunOnInstantiatedGenericBodies(freshBodies);
         // ExpressionLoweringPass: handles RangeExpression, UnaryExpression(Not), pattern lowering

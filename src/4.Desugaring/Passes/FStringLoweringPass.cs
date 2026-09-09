@@ -162,7 +162,7 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// Post-processes an in-flight entity's rendered text via <c>Text.replace</c>, inserting a
     /// <c>?</c> immediately before the short type name in the compile-time-known type-name prefix.
     /// </summary>
-    private static Expression WrapInFlightEntityMarker(Expression renderCall, ExpressionPart ep,
+    private static CallExpression WrapInFlightEntityMarker(Expression renderCall, ExpressionPart ep,
         EntityTypeInfo entityType, TypeInfo? textType)
     {
         string fullName = entityType.FullName;

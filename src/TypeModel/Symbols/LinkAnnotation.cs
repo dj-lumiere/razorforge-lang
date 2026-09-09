@@ -25,7 +25,7 @@ public static class LinkAnnotation
     public static (string? Library, string? Symbol) Parse(string annotation)
     {
         string a = annotation.Trim();
-        if (!a.StartsWith(value: "link(") || !a.EndsWith(value: ")"))
+        if (!a.StartsWith(value: "link(") || !a.EndsWith(')'))
         {
             return (null, null);
         }
@@ -44,27 +44,40 @@ public static class LinkAnnotation
                 continue;
             }
 
-            int eq = part.IndexOf(value: '=');
-            if (eq >= 0)
-            {
-                string key = part[..eq].Trim();
-                string val = Unquote(s: part[(eq + 1)..]);
-                switch (key)
-                {
-                    case "lib" or "library": lib = val; break;
-                    case "symbol" or "entry": symbol = val; break;
-                }
-            }
-            else
-            {
-                // Positional: first argument is the library name.
-                if (positional == 0)
-                {
-                    lib = Unquote(s: part);
-                }
+            (lib, symbol) = ParseLinkPart(part: part, lib: lib, symbol: symbol,
+                positional: ref positional);
+        }
 
-                positional++;
+        return (lib, symbol);
+    }
+
+    /// <summary>
+    /// Parses one comma-split part of the link annotation body (either a named <c>key=value</c> pair
+    /// or a positional value) and updates <paramref name="lib"/> and <paramref name="symbol"/> accordingly.
+    /// </summary>
+    private static (string? lib, string? symbol) ParseLinkPart(string part, string? lib,
+        string? symbol, ref int positional)
+    {
+        int eq = part.IndexOf(value: '=');
+        if (eq >= 0)
+        {
+            string key = part[..eq].Trim();
+            string val = Unquote(s: part[(eq + 1)..]);
+            switch (key)
+            {
+                case "lib" or "library": lib = val; break;
+                case "symbol" or "entry": symbol = val; break;
             }
+        }
+        else
+        {
+            // Positional: first argument is the library name.
+            if (positional == 0)
+            {
+                lib = Unquote(s: part);
+            }
+
+            positional++;
         }
 
         return (lib, symbol);

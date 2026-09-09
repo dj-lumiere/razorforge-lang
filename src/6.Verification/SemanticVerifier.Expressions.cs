@@ -114,13 +114,7 @@ public sealed partial class SemanticVerifier
 
         if (type.TypeArguments is { Count: > 0 } args)
         {
-            foreach (TypeSymbol arg in args)
-            {
-                if (ContainsUnresolvedGenericParameter(type: arg))
-                {
-                    return true;
-                }
-            }
+            return args.Any(arg => ContainsUnresolvedGenericParameter(type: arg));
         }
 
         return false;
@@ -128,65 +122,22 @@ public sealed partial class SemanticVerifier
 
     private TypeSymbol AnalyzeIdentifierExpression(IdentifierExpression id)
     {
-        switch (id.Name)
+        if (TryResolveSpecialIdentifier(id: id, result: out TypeSymbol? special))
         {
-            // Special identifiers
-            // First check if we're inside a type body
-            case "me" when _currentType != null:
-                return _currentType;
-            case "me" when _currentRoutine?.OwnerType == null:
-                ReportError(code: SemanticDiagnosticCode.MeOutsideTypeMemberRoutine,
-                    message: "'me' can only be used inside a type member routine.",
-                    location: id.Location);
-                return ErrorTypeInfo.Instance;
-            // For extension memberRoutines (routine Type.MemberRoutine), check the routine's owner type
-            case "me":
-            {
-                if (ResolveMeIdentifier() is { } meType)
-                {
-                    return meType;
-                }
-
-                break;
-            }
-            case "None":
-                // None represents Maybe.None - return a generic Maybe type
-                return _registry.LookupType(name: "Maybe") ?? ErrorTypeInfo.Instance;
+            return special!;
         }
 
-        // Flag-context resolution: while a flags type is the active flag-context, a bare
-        // identifier (e.g. `READ`) resolves against that type's flag members. The matching
-        // FlagsMemberInfo bit is stashed on the identifier so ExpressionLoweringPass can emit
-        // the bitmask.
-        if (_flagsContextStack.Count > 0 && id.Name.Length > 0 && !id.Name.Contains(value: '.'))
+        if (TryResolveFlagsContextIdentifier(id: id, result: out TypeSymbol? flagsResult))
         {
-            TypeSymbol flagsCtx = _flagsContextStack.Peek();
-            if (flagsCtx is FlagsTypeInfo flagsTypeCtx)
-            {
-                FlagsMemberInfo? memberInfo = flagsTypeCtx.Members
-                    .FirstOrDefault(predicate: m => m.Name == id.Name);
-                if (memberInfo != null)
-                {
-                    id.ResolvedFlagsBit = memberInfo.BitPosition;
-                    return flagsTypeCtx;
-                }
-            }
+            return flagsResult!;
         }
 
-        // Try to look up as variable first
-        VariableInfo? varInfo = _registry.LookupVariable(name: id.Name);
-        // Try current module prefix for presets (e.g., "MY_CONST" -> "MyModule.MY_CONST")
-        if (varInfo == null && _currentModuleName != null && !id.Name.Contains(value: '.'))
-        {
-            varInfo = _registry.LookupVariable(name: $"{_currentModuleName}.{id.Name}");
-        }
-
+        VariableInfo? varInfo = LookupVariableWithModulePrefix(name: id.Name);
         if (varInfo != null)
         {
             return ResolveVariableReference(id: id, varInfo: varInfo);
         }
 
-        // Try to look up as choice case (SCREAMING_SNAKE_CASE identifiers like ME_SMALL, SAME)
         (ChoiceTypeInfo ChoiceType, ChoiceCaseInfo CaseInfo)? choiceCase =
             _registry.LookupChoiceCase(caseName: id.Name);
         if (choiceCase.HasValue)
@@ -201,52 +152,29 @@ public sealed partial class SemanticVerifier
         // `T.to_width(...)`. Without this the receiver resolved to the record, the call bound to
         // `record-T.to_width`, and GMP emitted it into a 256-bit numeric routine (garbage
         // `zext i64 to record-T` / `shl i256 <record-T>`). Mirrors TypeResolver.ResolveTypeCore; the
-        // shadow is granted only for a GENUINE definition-scope parameter ([[generic-parameter
-        // identity = SLOT]]).
+        // shadow is granted only for a GENUINE definition-scope parameter (generic-parameter
+        // identity = SLOT, not name).
         if (IsGenericParameter(name: id.Name) &&
             (LookupTypeWithImports(name: id.Name) is null || IsGenericDefinitionScopeParam(name: id.Name)))
         {
             return new GenericParameterTypeInfo(name: id.Name, slot: GenericParameterSlot(name: id.Name));
         }
 
-        // Try to look up as type FIRST (for static access like `U64.data_size()`).
-        // Types take precedence over routines when both share a bare name — bare type
-        // references for static access (member access, type-as-value generic args, etc.)
-        // are the common case; first-class routine references with name-collisions are rare
-        // and can be disambiguated by qualified name if ever needed.
+        // Types take precedence over routines when both share a bare name — bare type references for
+        // static access (member access, type-as-value generic args, etc.) are the common case.
         TypeSymbol? type = LookupTypeWithImports(name: id.Name);
         if (type != null)
         {
             return type;
         }
 
-        // Try to look up as routine (function reference).
-        // Identifier names are bare — the failable `!` is a structured flag, never in the name.
-        string routineLookupName = id.Name;
-        RoutineInfo? routine = _registry.LookupRoutine(fullName: routineLookupName);
-        // Try current module prefix (e.g., "infinite_loop" -> "HelloWorld.infinite_loop")
-        if (routine == null && _currentModuleName != null &&
-            !routineLookupName.Contains(value: '.'))
-        {
-            routine = _registry.LookupRoutine(
-                fullName: $"{_currentModuleName}.{routineLookupName}");
-        }
-
-        // Generic free routines are indexed only in the generic-overload table, not under a plain
-        // name key, so LookupRoutine misses them. A bare reference — e.g. the receiver identifier of
-        // an explicit `gen_id[T](...)` call — must consult it too, or a generic free routine reads as
-        // an unknown identifier when called from another module (concrete free routines resolve fine).
-        routine ??= _registry.LookupGenericOverload(name: routineLookupName);
-
+        RoutineInfo? routine = LookupRoutineWithModulePrefix(name: id.Name);
         if (routine != null)
         {
             // First-class routine VALUE reference (bare `foo` used as a value, not called): record the
             // routine SA just resolved on the node so codegen consumes it directly (EmitIdentifier's
-            // ResolvedRoutine fast-path) instead of re-doing name-based lookup at emission time. A
-            // routine name used as a call callee is handled separately (the CallExpression carries its
-            // own overload-resolved ResolvedRoutine), so stamping the callee identifier here is inert.
+            // ResolvedRoutine fast-path) instead of re-doing name-based lookup at emission time.
             id.ResolvedRoutine = routine;
-            // Return the function type for first-class function references
             return GetRoutineType(routine: routine);
         }
 
@@ -269,6 +197,108 @@ public sealed partial class SemanticVerifier
             $"Unknown identifier '{id.Name}'.{DidYouMean(target: id.Name, candidates: IdentifierSuggestionCandidates())}",
             location: id.Location);
         return ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// Handles <c>me</c> and <c>None</c> — the special built-in identifiers. Returns true when
+    /// the identifier was one of these and sets <paramref name="result"/>; false means the caller
+    /// should continue with normal lookup.
+    /// </summary>
+    private bool TryResolveSpecialIdentifier(IdentifierExpression id, out TypeSymbol? result)
+    {
+        switch (id.Name)
+        {
+            case "me" when _currentType != null:
+                result = _currentType;
+                return true;
+            case "me" when _currentRoutine?.OwnerType == null:
+                ReportError(code: SemanticDiagnosticCode.MeOutsideTypeMemberRoutine,
+                    message: "'me' can only be used inside a type member routine.",
+                    location: id.Location);
+                result = ErrorTypeInfo.Instance;
+                return true;
+            case "me":
+                // For extension member routines (routine Type.MemberRoutine)
+                if (ResolveMeIdentifier() is { } meType)
+                {
+                    result = meType;
+                    return true;
+                }
+                result = null;
+                return false;
+            case "None":
+                // None represents Maybe.None - return a generic Maybe type
+                result = _registry.LookupType(name: "Maybe") ?? ErrorTypeInfo.Instance;
+                return true;
+            default:
+                result = null;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Resolves a bare identifier against the active flags-context stack. When a flags type is
+    /// the current context (e.g. inside an <c>is FLAG</c> test), a bare name like <c>READ</c>
+    /// resolves to that type's flag member and stamps <see cref="IdentifierExpression.ResolvedFlagsBit"/>.
+    /// Returns true and sets <paramref name="result"/> when matched; false otherwise.
+    /// </summary>
+    private bool TryResolveFlagsContextIdentifier(IdentifierExpression id, out TypeSymbol? result)
+    {
+        result = null;
+        if (_flagsContextStack.Count == 0 || id.Name.Length == 0 || id.Name.Contains(value: '.'))
+        {
+            return false;
+        }
+
+        TypeSymbol flagsCtx = _flagsContextStack.Peek();
+        if (flagsCtx is not FlagsTypeInfo flagsTypeCtx)
+        {
+            return false;
+        }
+
+        FlagsMemberInfo? memberInfo = flagsTypeCtx.Members
+            .FirstOrDefault(predicate: m => m.Name == id.Name);
+        if (memberInfo == null)
+        {
+            return false;
+        }
+
+        id.ResolvedFlagsBit = memberInfo.BitPosition;
+        result = flagsTypeCtx;
+        return true;
+    }
+
+    /// <summary>
+    /// Looks up a variable by bare name, then by module-qualified name when the bare lookup fails
+    /// (for presets declared as <c>MyModule.MY_CONST</c> and referenced bare inside the same module).
+    /// </summary>
+    private VariableInfo? LookupVariableWithModulePrefix(string name)
+    {
+        VariableInfo? varInfo = _registry.LookupVariable(name: name);
+        if (varInfo == null && _currentModuleName != null && !name.Contains(value: '.'))
+        {
+            varInfo = _registry.LookupVariable(name: $"{_currentModuleName}.{name}");
+        }
+        return varInfo;
+    }
+
+    /// <summary>
+    /// Looks up a routine by bare name, then by module-qualified name. Falls back to the generic-
+    /// overload table because generic free routines are not indexed under a plain name key.
+    /// </summary>
+    private RoutineInfo? LookupRoutineWithModulePrefix(string name)
+    {
+        // Identifier names are bare — the failable `!` is a structured flag, never in the name.
+        RoutineInfo? routine = _registry.LookupRoutine(fullName: name);
+        if (routine == null && _currentModuleName != null && !name.Contains(value: '.'))
+        {
+            routine = _registry.LookupRoutine(fullName: $"{_currentModuleName}.{name}");
+        }
+        // Generic free routines are indexed only in the generic-overload table, not under a plain
+        // name key, so LookupRoutine misses them. A bare reference — e.g. the receiver identifier of
+        // an explicit `gen_id[T](...)` call — must consult it too.
+        routine ??= _registry.LookupGenericOverload(name: name);
+        return routine;
     }
 
     /// <summary>
@@ -413,13 +443,13 @@ public sealed partial class SemanticVerifier
             EnforceComptimeMemberGate(wiredName: opWired, location: binary.Location);
 
         // Re-binding (lhs = rhs) revives a stolen-from identifier: clear deadref
-        // BEFORE analyzing the LHS so the deadref-read check at line ~135 doesn't fire.
+        // BEFORE analyzing the LHS so the deadref-read check doesn't fire.
         if (binary is { Operator: BinaryOperator.Assign, Left: IdentifierExpression rebindId })
         {
             _deadrefVariables.Remove(item: rebindId.Name);
         }
 
-        // TODO: This should be done with not operator, but with member routines.
+        // Logical negation should eventually lower through member routines rather than a not operator.
         TypeSymbol leftType = AnalyzeExpression(expression: binary.Left);
         // Pass leftType as expected for assignments so RHS literals like `none`
         // see the target's carrier-slot type as their contextual expected type.
@@ -430,45 +460,19 @@ public sealed partial class SemanticVerifier
         (leftType, rightType) = ReinferBinaryLiteralOperands(binary: binary,
             leftType: leftType, rightType: rightType);
 
-        switch (binary.Operator)
+        if (binary.Operator == BinaryOperator.Assign)
         {
-            // Handle assignment operator
-            case BinaryOperator.Assign:
-                return AnalyzeAssignmentExpression(target: binary.Left,
-                    value: binary.Right,
-                    targetType: leftType,
-                    valueType: rightType,
-                    location: binary.Location);
-            // Handle flags removal operator (but) — removes flags from a value
-            case BinaryOperator.But when leftType is not FlagsTypeInfo:
-                ReportError(code: SemanticDiagnosticCode.FlagsTypeMismatch,
-                    message:
-                    $"'but' operator requires a flags type on the left side, but got '{leftType.Name}'.",
-                    location: binary.Location);
-                return ErrorTypeInfo.Instance;
-            case BinaryOperator.But when rightType is not FlagsTypeInfo:
-                ReportError(code: SemanticDiagnosticCode.FlagsTypeMismatch,
-                    message:
-                    $"'but' operator requires a flags type on the right side, but got '{rightType.Name}'.",
-                    location: binary.Location);
-                return ErrorTypeInfo.Instance;
-            case BinaryOperator.But when leftType.Name != rightType.Name:
-                ReportError(code: SemanticDiagnosticCode.FlagsTypeMismatch,
-                    message:
-                    $"'but' operator requires both operands to be the same flags type, but got '{leftType.Name}' and '{rightType.Name}'.",
-                    location: binary.Location);
-                return ErrorTypeInfo.Instance;
-            case BinaryOperator.But:
-                return leftType;
-            // #128: 'or' cannot be used to combine flags outside is/isnot tests
-            case BinaryOperator.Or when
-                (leftType is FlagsTypeInfo || rightType is FlagsTypeInfo):
-                ReportError(code: SemanticDiagnosticCode.FlagsOrInAssignment,
-                    message:
-                    "Cannot use 'or' to combine flags values. Use 'is FLAG_A or FLAG_B' for testing, " +
-                    "or separate flag assignments.",
-                    location: binary.Location);
-                return leftType;
+            return AnalyzeAssignmentExpression(target: binary.Left,
+                value: binary.Right,
+                targetType: leftType,
+                valueType: rightType,
+                location: binary.Location);
+        }
+
+        if (TryAnalyzeFlagsOperator(binary: binary, leftType: leftType, rightType: rightType,
+                result: out TypeSymbol? flagsResult))
+        {
+            return flagsResult!;
         }
 
         // Check for operator prohibitions on choice and flags types, and operator-protocol conformance.
@@ -480,7 +484,7 @@ public sealed partial class SemanticVerifier
             return ErrorTypeInfo.Instance;
         }
 
-        // #117: Fixed-width numeric types must match exactly (S32 + S64 = error)
+        // #117: Fixed-width numeric types must match exactly (S32 + S64 = error).
         // System types (Address) are exempt. Shift operators are also exempt because
         // they intentionally use U32 for the shift amount regardless of the left-operand type.
         if (leftType.Name != rightType.Name && IsFixedWidthNumericType(type: leftType) &&
@@ -494,40 +498,96 @@ public sealed partial class SemanticVerifier
             return ErrorTypeInfo.Instance;
         }
 
-        switch (binary.Operator)
+        // S854: Unchecked operators require a danger block or @dangerous routine.
+        if (binary.Operator is BinaryOperator.AddUnchecked or BinaryOperator.SubtractUnchecked
+            or BinaryOperator.MultiplyUnchecked or BinaryOperator.TrueDivideUnchecked
+            or BinaryOperator.FloorDivideUnchecked or BinaryOperator.ModuloUnchecked
+            or BinaryOperator.PowerUnchecked && !InDangerBlock)
         {
-            // S854: Unchecked operators require a danger block or @dangerous routine
-            case BinaryOperator.AddUnchecked or BinaryOperator.SubtractUnchecked
-                or BinaryOperator.MultiplyUnchecked or BinaryOperator.TrueDivideUnchecked
-                or BinaryOperator.FloorDivideUnchecked or BinaryOperator.ModuloUnchecked
-                or BinaryOperator.PowerUnchecked when !InDangerBlock:
-                ReportError(code: SemanticDiagnosticCode.UncheckedOperatorOutsideDanger,
-                    message: $"Unchecked operator '{binary.Operator.ToStringRepresentation()}' " +
-                             "requires a 'danger' block or '@dangerous' routine.",
-                    location: binary.Location);
-                return ErrorTypeInfo.Instance;
-            // Flags combination: A and B -> bitwise OR (combines flags)
-            case BinaryOperator.And when leftType is FlagsTypeInfo &&
-                                         leftType.Name == rightType.Name:
-                return leftType;
+            ReportError(code: SemanticDiagnosticCode.UncheckedOperatorOutsideDanger,
+                message: $"Unchecked operator '{binary.Operator.ToStringRepresentation()}' " +
+                         "requires a 'danger' block or '@dangerous' routine.",
+                location: binary.Location);
+            return ErrorTypeInfo.Instance;
         }
 
-        // Handle logical operators (and, or) — require bool operands, return bool
-        // These are not desugared because they need short-circuit evaluation
+        // Flags combination: A and B -> bitwise OR (combines flags)
+        if (binary.Operator == BinaryOperator.And && leftType is FlagsTypeInfo &&
+            leftType.Name == rightType.Name)
+        {
+            return leftType;
+        }
+
+        return AnalyzeBinaryExpressionByKind(binary: binary,
+            leftType: leftType, rightType: rightType);
+    }
+
+    /// <summary>
+    /// Handles the flags-specific operators <c>but</c> and <c>or</c> on flags types.
+    /// Returns true when a result (including error result) was produced; false means
+    /// the caller should continue with generic operator analysis.
+    /// </summary>
+    private bool TryAnalyzeFlagsOperator(BinaryExpression binary,
+        TypeSymbol leftType, TypeSymbol rightType, out TypeSymbol? result)
+    {
+        result = null;
+        switch (binary.Operator)
+        {
+            case BinaryOperator.But when leftType is not FlagsTypeInfo:
+                ReportError(code: SemanticDiagnosticCode.FlagsTypeMismatch,
+                    message: $"'but' operator requires a flags type on the left side, but got '{leftType.Name}'.",
+                    location: binary.Location);
+                result = ErrorTypeInfo.Instance;
+                return true;
+            case BinaryOperator.But when rightType is not FlagsTypeInfo:
+                ReportError(code: SemanticDiagnosticCode.FlagsTypeMismatch,
+                    message: $"'but' operator requires a flags type on the right side, but got '{rightType.Name}'.",
+                    location: binary.Location);
+                result = ErrorTypeInfo.Instance;
+                return true;
+            case BinaryOperator.But when leftType.Name != rightType.Name:
+                ReportError(code: SemanticDiagnosticCode.FlagsTypeMismatch,
+                    message: $"'but' operator requires both operands to be the same flags type, but got '{leftType.Name}' and '{rightType.Name}'.",
+                    location: binary.Location);
+                result = ErrorTypeInfo.Instance;
+                return true;
+            case BinaryOperator.But:
+                result = leftType;
+                return true;
+            // #128: 'or' cannot be used to combine flags outside is/isnot tests
+            case BinaryOperator.Or when leftType is FlagsTypeInfo || rightType is FlagsTypeInfo:
+                ReportError(code: SemanticDiagnosticCode.FlagsOrInAssignment,
+                    message: "Cannot use 'or' to combine flags values. Use 'is FLAG_A or FLAG_B' for testing, " +
+                             "or separate flag assignments.",
+                    location: binary.Location);
+                result = leftType;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Handles logical, identity, comparison, none-coalescing, and overloadable member-routine
+    /// operators after the early exits (assignment, flags) in <see cref="AnalyzeBinaryExpression"/>.
+    /// </summary>
+    private TypeSymbol AnalyzeBinaryExpressionByKind(BinaryExpression binary,
+        TypeSymbol leftType, TypeSymbol rightType)
+    {
+        // Logical operators (and, or) — require bool operands, return bool.
+        // Not desugared because they need short-circuit evaluation.
         if (IsLogicalOperator(op: binary.Operator))
         {
             if (!IsBoolType(type: leftType) || !IsBoolType(type: rightType))
             {
                 ReportError(code: SemanticDiagnosticCode.LogicalOperatorRequiresBool,
-                    message:
-                    $"Logical operator '{binary.Operator.ToStringRepresentation()}' requires boolean operands.",
+                    message: $"Logical operator '{binary.Operator.ToStringRepresentation()}' requires boolean operands.",
                     location: binary.Location);
             }
-
             return _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
         }
 
-        // Reference-identity operators (===, !==): NOT overloadable and NOT lowered to `.eq()` — a
+        // Reference-identity operators (===, !==): NOT overloadable, NOT lowered to `.eq()` — a
         // primitive pointer compare in codegen. Both operands must be reference-carrying (entity or a
         // forwarding wrapper); a value type has no identity. Result is always Bool.
         if (binary.Operator is BinaryOperator.IdentityEqual or BinaryOperator.IdentityNotEqual)
@@ -537,42 +597,58 @@ public sealed partial class SemanticVerifier
             return _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
         }
 
-        // Handle comparison operators — all return Bool
-        // Includes overloadable (==, !=, <, <=, >, >=, in, notin) and non-overloadable (is, isnot, obeys, disobeys)
+        // Comparison operators — all return Bool.
+        // Includes overloadable (==, !=, <, <=, >, >=, in, notin) and non-overloadable (is, isnot, obeys, disobeys).
         if (IsComparisonOperator(op: binary.Operator))
         {
-            ValidateComparisonOperands(left: leftType,
-                right: rightType,
-                op: binary.Operator,
-                location: binary.Location);
+            ValidateComparisonOperands(left: leftType, right: rightType,
+                op: binary.Operator, location: binary.Location);
             return _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
         }
 
-        // Handle none coalescing operator (??)
-        // Not desugared because it needs short-circuit evaluation for built-in types
+        // None coalescing operator (??) — not desugared because it needs short-circuit evaluation.
         if (binary.Operator == BinaryOperator.NoneCoalesce)
         {
-            if (IsCarrierType(type: leftType) && leftType.TypeArguments is { Count: > 0 })
-            {
-                return leftType.TypeArguments[index: 0];
-            }
-
-            // User type — look up unwrap_or memberRoutine
-            RoutineInfo? unwrapOrMemberRoutine =
-                _registry.LookupMemberRoutine(type: leftType, memberRoutineName: "unwrap_or");
-            if (unwrapOrMemberRoutine != null)
-            {
-                return unwrapOrMemberRoutine.ReturnType ?? rightType;
-            }
-
-            ReportError(code: SemanticDiagnosticCode.TypeDoesNotSupportOperator,
-                message: $"Type '{leftType.Name}' does not support the '??' operator. " +
-                         "Implement 'unwrap_or(default: T) -> T' to enable none coalescing.",
-                location: binary.Location);
-            return ErrorTypeInfo.Instance;
+            return AnalyzeNoneCoalesce(binary: binary, leftType: leftType, rightType: rightType);
         }
 
-        // Validate RHS type against the operator memberRoutine's parameter type
+        // Overloadable operator: validate via the member routine's parameter type.
+        return AnalyzeOverloadableOperator(binary: binary, leftType: leftType, rightType: rightType);
+    }
+
+    /// <summary>
+    /// Resolves the result type of the <c>??</c> none-coalescing operator. Built-in carrier types
+    /// (Maybe/Result) unwrap directly; user types are dispatched through <c>unwrap_or</c>.
+    /// </summary>
+    private TypeSymbol AnalyzeNoneCoalesce(BinaryExpression binary, TypeSymbol leftType, TypeSymbol rightType)
+    {
+        if (IsCarrierType(type: leftType) && leftType.TypeArguments is { Count: > 0 })
+        {
+            return leftType.TypeArguments[index: 0];
+        }
+
+        RoutineInfo? unwrapOrMemberRoutine =
+            _registry.LookupMemberRoutine(type: leftType, memberRoutineName: "unwrap_or");
+        if (unwrapOrMemberRoutine != null)
+        {
+            return unwrapOrMemberRoutine.ReturnType ?? rightType;
+        }
+
+        ReportError(code: SemanticDiagnosticCode.TypeDoesNotSupportOperator,
+            message: $"Type '{leftType.Name}' does not support the '??' operator. " +
+                     "Implement 'unwrap_or(default: T) -> T' to enable none coalescing.",
+            location: binary.Location);
+        return ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// Validates an overloadable binary operator against the member routine it lowers to:
+    /// propagates failable-call metadata for checked integer ops, checks the RHS conforms
+    /// to the routine's parameter type, and returns the routine's declared return type.
+    /// </summary>
+    private TypeSymbol AnalyzeOverloadableOperator(BinaryExpression binary,
+        TypeSymbol leftType, TypeSymbol rightType)
+    {
         string? memberRoutineName = binary.Operator.GetMemberRoutineName();
         if (memberRoutineName == null)
         {
@@ -589,11 +665,9 @@ public sealed partial class SemanticVerifier
         // Floats (F16/F32/F64/F128) and software decimals (D32/D64/D128) are excluded
         // because the codegen emits raw float instructions (fadd/fmul/...) for them,
         // bypassing the checked dispatch path.
-        bool isIntegerCheckedOp = memberRoutine is { IsFailable: true } && leftType is RecordTypeInfo
-                                  {
-                                      BackendType: not null, LlvmType: { } ltIr
-                                  } &&
-                                  ltIr.StartsWith('i') && ltIr != "i1";
+        bool isIntegerCheckedOp = memberRoutine is { IsFailable: true }
+            && leftType is RecordTypeInfo { BackendType: not null, LlvmType: { } ltIr }
+            && ltIr.StartsWith('i') && ltIr != "i1";
         if (isIntegerCheckedOp && _currentRoutine != null)
         {
             _currentRoutine.HasFailableCalls = true;
@@ -616,7 +690,7 @@ public sealed partial class SemanticVerifier
 
         TypeSymbol paramType = memberRoutine.Parameters[index: 0].Type;
 
-        // Substitute Me -> leftType for protocol-sourced memberRoutines
+        // Substitute Me -> leftType for protocol-sourced member routines.
         if (paramType is ProtocolSelfTypeInfo)
         {
             paramType = leftType;
@@ -637,13 +711,11 @@ public sealed partial class SemanticVerifier
         if (!allowIntegralShiftAmount && !IsAssignableTo(source: rightType, target: paramType))
         {
             ReportError(code: SemanticDiagnosticCode.ArgumentTypeMismatch,
-                message:
-                $"Operator '{binary.Operator.ToStringRepresentation()}': cannot convert '{rightType.Name}' to '{paramType.Name}'.",
+                message: $"Operator '{binary.Operator.ToStringRepresentation()}': cannot convert '{rightType.Name}' to '{paramType.Name}'.",
                 location: binary.Location);
             return ErrorTypeInfo.Instance;
         }
 
-        // Return the memberRoutine's actual return type instead of blindly returning leftType
         TypeSymbol returnType = memberRoutine.ReturnType ?? leftType;
         if (returnType is ProtocolSelfTypeInfo)
         {
@@ -651,9 +723,6 @@ public sealed partial class SemanticVerifier
         }
 
         return returnType;
-
-        // Default: return left type
-        // This handles any edge cases that might slip through
     }
 
     /// <summary>
@@ -780,41 +849,8 @@ public sealed partial class SemanticVerifier
         // #173: Tuple assignment destructuring — (a, b) = (b, a)
         if (target is TupleLiteralExpression tupleLhs)
         {
-            // Verify all elements of the LHS tuple are assignable targets
-            foreach (Expression element in tupleLhs.Elements)
-            {
-                if (!IsAssignableTarget(target: element))
-                {
-                    ReportError(code: SemanticDiagnosticCode.InvalidAssignmentTarget,
-                        message:
-                        "All elements of tuple destructuring must be assignable targets (variables, member accesses, or indices).",
-                        location: element.Location);
-                }
-
-                // Check modifiability for identifier elements
-                if (element is IdentifierExpression elemId)
-                {
-                    VariableInfo? varInfo = _registry.LookupVariable(name: elemId.Name);
-                    if (varInfo is { IsModifiable: false })
-                    {
-                        ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
-                            message: $"Cannot assign to preset variable '{elemId.Name}'.",
-                            location: location);
-                    }
-                }
-            }
-
-            // Check that RHS is a tuple with matching arity
-            if (valueType is TupleTypeInfo tupleType &&
-                tupleLhs.Elements.Count != tupleType.ElementTypes.Count)
-            {
-                ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
-                    message:
-                    $"Tuple destructuring has {tupleLhs.Elements.Count} targets but the value has {tupleType.ElementTypes.Count} elements.",
-                    location: location);
-            }
-
-            return targetType;
+            return AnalyzeTupleDestructuringAssignment(tupleLhs: tupleLhs,
+                value: value, targetType: targetType, valueType: valueType, location: location);
         }
 
         // Check if target is assignable (variable, member variable, or index)
@@ -828,139 +864,207 @@ public sealed partial class SemanticVerifier
 
         switch (target)
         {
-            // Check modifiability for variable assignments
             case IdentifierExpression id:
+                ValidateIdentifierAssignmentTarget(id: id, value: value, location: location);
+                break;
+            case MemberExpression member:
+                ValidateMemberAssignmentTarget(member: member, value: value, location: location);
+                break;
+            case IndexExpression index:
+                ValidateIndexAssignmentTarget(index: index, location: location);
+                break;
+        }
+
+        ValidateAssignmentValueConstraints(target: target, value: value,
+            targetType: targetType, valueType: valueType, location: location);
+
+        return targetType;
+    }
+
+    /// <summary>
+    /// Handles tuple destructuring assignment <c>(a, b) = rhs</c>: validates that every LHS element
+    /// is an assignable target, checks preset immutability for identifier elements, and verifies
+    /// that the RHS arity matches the LHS when the RHS is a known tuple type.
+    /// </summary>
+    private TypeSymbol AnalyzeTupleDestructuringAssignment(TupleLiteralExpression tupleLhs,
+        Expression value, TypeSymbol targetType, TypeSymbol valueType, SourceLocation location)
+    {
+        foreach (Expression element in tupleLhs.Elements)
+        {
+            if (!IsAssignableTarget(target: element))
             {
-                VariableInfo? varInfo = _registry.LookupVariable(name: id.Name);
+                ReportError(code: SemanticDiagnosticCode.InvalidAssignmentTarget,
+                    message: "All elements of tuple destructuring must be assignable targets (variables, member accesses, or indices).",
+                    location: element.Location);
+            }
+
+            if (element is IdentifierExpression elemId)
+            {
+                VariableInfo? varInfo = _registry.LookupVariable(name: elemId.Name);
                 if (varInfo is { IsModifiable: false })
                 {
                     ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
-                        message: $"Cannot assign to preset variable '{id.Name}'.",
+                        message: $"Cannot assign to preset variable '{elemId.Name}'.",
                         location: location);
                 }
-
-                // Suflae flow typing: reassigning an entity reference re-derives its nullability.
-                if (_registry.Language == Language.Suflae && varInfo != null &&
-                    IsEntityRefType(type: varInfo.Type))
-                {
-                    bool valueNullable = IsNullableEntityRead(expr: value);
-                    if (varInfo.IsNullable)
-                    {
-                        // A nullable local: a possibly-none RHS re-nullifies it (shadowing any prior
-                        // null-check); a non-null RHS proves it non-none for the rest of this flow.
-                        if (valueNullable)
-                        {
-                            _registry.MarkVariableNullableAgain(name: id.Name);
-                        }
-                        else
-                        {
-                            _registry.MarkVariableNonNull(name: id.Name);
-                        }
-                    }
-                    else if (valueNullable)
-                    {
-                        // A non-null local cannot take a possibly-none value.
-                        ReportNullableIntoNonNull(target: $"variable '{id.Name}'", value: value,
-                            optionalHint: $"{id.Name}: <Type>?");
-                    }
-                }
-
-                break;
-            }
-            // Validate member variable write access (setter visibility)
-            case MemberExpression member:
-            {
-                TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
-
-                // Read-only wrapper types (Viewing, Consulting) cannot be written through
-                if (IsReadOnlyWrapper(type: objectType))
-                {
-                    ReportError(code: SemanticDiagnosticCode.WriteThroughReadOnlyWrapper,
-                        message:
-                        $"Cannot write to member '{member.MemberName}' through read-only wrapper '{objectType.Name}'. " +
-                        "Use Modifying[T] for exclusive write access or Amending[T] for locked write access.",
-                        location: location);
-                }
-
-                ValidateMemberVariableWriteAccess(objectType: objectType,
-                    memberVariableName: member.MemberName,
-                    location: location);
-
-                // Suflae: a NON-NULLABLE entity field (`x: E`) rejects `o.x = <possibly-none>` — literal
-                // `none` or an unchecked `E?` read. Only an optional field (`x: E?`) may hold a null Roamed
-                // handle. Mirrors the construction check; the field's IsNullable is set in TypeBodyResolver.
-                if (_registry.Language == Language.Suflae &&
-                    objectType is EntityTypeInfo writeEntity &&
-                    writeEntity.LookupMemberVariable(memberVariableName: member.MemberName) is
-                        { IsNullable: false, Type: RecordTypeInfo
-                            { GenericDefinition.Name: Compiler.Declaration.RuntimeContract.Roamed } } writeField &&
-                    IsNullableEntityRead(expr: value))
-                {
-                    ReportNullableIntoNonNull(target: $"field '{writeField.Name}'",
-                        value: value, optionalHint: $"{writeField.Name}: <Type>?");
-                }
-
-                // Check if we're in a @readonly memberRoutine trying to modify 'me'
-                if (_registry.CompilationLanguage != Language.Suflae &&
-                    _currentRoutine is { IsReadOnly: true } &&
-                    member.Object is IdentifierExpression { Name: "me" })
-                {
-                    ReportError(code: SemanticDiagnosticCode.MutationInReadonlyMemberRoutine,
-                        message:
-                        $"Cannot mutate member variable '{member.MemberName}' in a @readonly member routine. " +
-                        "Use @reshaping to allow mutations.",
-                        location: location);
-                }
-
-                break;
-            }
-            // Check modifiability for index assignments
-            case IndexExpression index:
-            {
-                TypeSymbol indexedObjectType = AnalyzeExpression(expression: index.Object);
-
-                // Failability: lookup setitem on the indexed type and propagate `!` to caller.
-                // `arr[i] = v` desugars to `arr.setitem!(i, v)` for failable indexers; a
-                // non-failable caller must mark HasFailableCalls so its `!` decl is justified.
-                TryGetTransparentProtocolTarget(type: indexedObjectType,
-                    targetType: out TypeSymbol setLookupType);
-                RoutineInfo? setItem = _registry.LookupMemberRoutine(type: setLookupType,
-                    memberRoutineName: "setitem") ?? _registry.LookupMemberRoutine(type: setLookupType,
-                    memberRoutineName: "setitem", isFailable: true);
-                if (setItem is { IsFailable: true } && _currentRoutine != null)
-                {
-                    _currentRoutine.HasFailableCalls = true;
-                    _currentRoutine.FailableCallees.Add(setItem);
-                }
-
-                if (IsReadOnlyTransparentProtocol(type: indexedObjectType))
-                {
-                    ReportError(code: SemanticDiagnosticCode.WriteThroughReadOnlyWrapper,
-                        message:
-                        $"Cannot write through index access on read-only protocol '{indexedObjectType.Name}'. " +
-                        "Use Controlling[T] or a writable token instead.",
-                        location: location);
-                }
-
-                // The object being indexed must be modifiable
-                if (index.Object is IdentifierExpression indexedVar)
-                {
-                    VariableInfo? varInfo = _registry.LookupVariable(name: indexedVar.Name);
-                    if (varInfo is { IsModifiable: false })
-                    {
-                        ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
-                            message:
-                            $"Cannot assign to index of preset variable '{indexedVar.Name}'.",
-                            location: location);
-                    }
-                }
-
-                break;
             }
         }
 
-        // RazorForge: Entity bare assignment prohibition
-        // `b = a` where `a` is a bare identifier of entity type is a build error
+        if (valueType is TupleTypeInfo tupleType &&
+            tupleLhs.Elements.Count != tupleType.ElementTypes.Count)
+        {
+            ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
+                message: $"Tuple destructuring has {tupleLhs.Elements.Count} targets but the value has {tupleType.ElementTypes.Count} elements.",
+                location: location);
+        }
+
+        return targetType;
+    }
+
+    /// <summary>
+    /// Validates an identifier (variable) as an assignment target: checks preset immutability and,
+    /// in Suflae, updates the variable's nullability flow state based on the RHS.
+    /// </summary>
+    private void ValidateIdentifierAssignmentTarget(IdentifierExpression id,
+        Expression value, SourceLocation location)
+    {
+        VariableInfo? varInfo = _registry.LookupVariable(name: id.Name);
+        if (varInfo is { IsModifiable: false })
+        {
+            ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
+                message: $"Cannot assign to preset variable '{id.Name}'.",
+                location: location);
+        }
+
+        // Suflae flow typing: reassigning an entity reference re-derives its nullability.
+        if (_registry.Language != Language.Suflae || varInfo == null ||
+            !IsEntityRefType(type: varInfo.Type))
+        {
+            return;
+        }
+
+        bool valueNullable = IsNullableEntityRead(expr: value);
+        if (varInfo.IsNullable)
+        {
+            // A nullable local: a possibly-none RHS re-nullifies it (shadowing any prior
+            // null-check); a non-null RHS proves it non-none for the rest of this flow.
+            if (valueNullable)
+            {
+                _registry.MarkVariableNullableAgain(name: id.Name);
+            }
+            else
+            {
+                _registry.MarkVariableNonNull(name: id.Name);
+            }
+        }
+        else if (valueNullable)
+        {
+            // A non-null local cannot take a possibly-none value.
+            ReportNullableIntoNonNull(target: $"variable '{id.Name}'", value: value,
+                optionalHint: $"{id.Name}: <Type>?");
+        }
+    }
+
+    /// <summary>
+    /// Validates a member-access expression as an assignment target: checks read-only wrappers,
+    /// setter visibility, Suflae non-nullable field nullability, and @readonly routine mutation.
+    /// </summary>
+    private void ValidateMemberAssignmentTarget(MemberExpression member,
+        Expression value, SourceLocation location)
+    {
+        TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
+
+        // Read-only wrapper types (Viewing, Consulting) cannot be written through.
+        if (IsReadOnlyWrapper(type: objectType))
+        {
+            ReportError(code: SemanticDiagnosticCode.WriteThroughReadOnlyWrapper,
+                message: $"Cannot write to member '{member.MemberName}' through read-only wrapper '{objectType.Name}'. " +
+                         "Use Modifying[T] for exclusive write access or Amending[T] for locked write access.",
+                location: location);
+        }
+
+        ValidateMemberVariableWriteAccess(objectType: objectType,
+            memberVariableName: member.MemberName, location: location);
+
+        // Suflae: a NON-NULLABLE entity field (`x: E`) rejects `o.x = <possibly-none>` — literal
+        // `none` or an unchecked `E?` read. Only an optional field (`x: E?`) may hold a null Roamed
+        // handle. Mirrors the construction check; the field's IsNullable is set in TypeBodyResolver.
+        if (_registry.Language == Language.Suflae &&
+            objectType is EntityTypeInfo writeEntity &&
+            writeEntity.LookupMemberVariable(memberVariableName: member.MemberName) is
+                { IsNullable: false, Type: RecordTypeInfo
+                    { GenericDefinition.Name: Compiler.Declaration.RuntimeContract.Roamed } } writeField &&
+            IsNullableEntityRead(expr: value))
+        {
+            ReportNullableIntoNonNull(target: $"field '{writeField.Name}'",
+                value: value, optionalHint: $"{writeField.Name}: <Type>?");
+        }
+
+        // Check if we're in a @readonly member routine trying to modify 'me'.
+        if (_registry.CompilationLanguage != Language.Suflae &&
+            _currentRoutine is { IsReadOnly: true } &&
+            member.Object is IdentifierExpression { Name: "me" })
+        {
+            ReportError(code: SemanticDiagnosticCode.MutationInReadonlyMemberRoutine,
+                message: $"Cannot mutate member variable '{member.MemberName}' in a @readonly member routine. " +
+                         "Use @reshaping to allow mutations.",
+                location: location);
+        }
+    }
+
+    /// <summary>
+    /// Validates an index expression as an assignment target: propagates failable setitem metadata,
+    /// checks read-only transparent protocols, and verifies the indexed variable is modifiable.
+    /// </summary>
+    private void ValidateIndexAssignmentTarget(IndexExpression index, SourceLocation location)
+    {
+        TypeSymbol indexedObjectType = AnalyzeExpression(expression: index.Object);
+
+        // Failability: lookup setitem on the indexed type and propagate `!` to caller.
+        // `arr[i] = v` desugars to `arr.setitem!(i, v)` for failable indexers; a
+        // non-failable caller must mark HasFailableCalls so its `!` decl is justified.
+        TryGetTransparentProtocolTarget(type: indexedObjectType,
+            targetType: out TypeSymbol setLookupType);
+        RoutineInfo? setItem = _registry.LookupMemberRoutine(type: setLookupType,
+            memberRoutineName: "setitem") ?? _registry.LookupMemberRoutine(type: setLookupType,
+            memberRoutineName: "setitem", isFailable: true);
+        if (setItem is { IsFailable: true } && _currentRoutine != null)
+        {
+            _currentRoutine.HasFailableCalls = true;
+            _currentRoutine.FailableCallees.Add(setItem);
+        }
+
+        if (IsReadOnlyTransparentProtocol(type: indexedObjectType))
+        {
+            ReportError(code: SemanticDiagnosticCode.WriteThroughReadOnlyWrapper,
+                message: $"Cannot write through index access on read-only protocol '{indexedObjectType.Name}'. " +
+                         "Use Controlling[T] or a writable token instead.",
+                location: location);
+        }
+
+        // The object being indexed must be modifiable.
+        if (index.Object is IdentifierExpression indexedVar)
+        {
+            VariableInfo? varInfo = _registry.LookupVariable(name: indexedVar.Name);
+            if (varInfo is { IsModifiable: false })
+            {
+                ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
+                    message: $"Cannot assign to index of preset variable '{indexedVar.Name}'.",
+                    location: location);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Post-target-validation checks shared by all scalar assignment forms: RF entity bare-assignment
+    /// prohibition, implicit non-trivially-assignable wrapper copy detection, type-compatibility, and
+    /// <c>??=</c> flow-narrowing.
+    /// </summary>
+    private void ValidateAssignmentValueConstraints(Expression target, Expression value,
+        TypeSymbol targetType, TypeSymbol valueType, SourceLocation location)
+    {
+        // RazorForge: Entity bare assignment prohibition.
+        // `b = a` where `a` is a bare identifier of entity type is a build error.
         if (_registry.Language == Language.RazorForge && value is IdentifierExpression &&
             valueType is EntityTypeInfo)
         {
@@ -970,8 +1074,8 @@ public sealed partial class SemanticVerifier
                 location: location);
         }
 
-        // Phase 1: warn when the RHS is a borrowed reference and the type is not trivially
-        // copyable. See AnalyzeVariableDeclaration for the same rule applied to var initializers.
+        // Phase 1: warn when the RHS is a non-trivially-copyable wrapper reference.
+        // See AnalyzeVariableDeclaration for the same rule applied to var initializers.
         if (_registry.Language == Language.RazorForge &&
             value is IdentifierExpression or MemberExpression &&
             !IsTriviallyAssignable(type: valueType))
@@ -984,19 +1088,17 @@ public sealed partial class SemanticVerifier
                     ? $"value of type '{valueType.Name}' is a '{hint.Value.Wrapper}[…]' wrapper"
                     : $"field '{hint.Value.Path}' of type '{hint.Value.Wrapper}[…]'";
                 ReportError(code: SemanticDiagnosticCode.ImplicitWrapperCopy,
-                    message:
-                    $"Implicit copy in assignment: {fieldNote} requires an explicit copy verb. " +
-                    $"Spell out '{verb}' at the copy site, or reconstruct the record with each field's verb.",
+                    message: $"Implicit copy in assignment: {fieldNote} requires an explicit copy verb. " +
+                             $"Spell out '{verb}' at the copy site, or reconstruct the record with each field's verb.",
                     location: location);
             }
         }
 
-        // Check type compatibility
+        // Check type compatibility.
         if (!IsAssignableTo(source: valueType, target: targetType))
         {
             ReportError(code: SemanticDiagnosticCode.AssignmentTypeMismatch,
-                message:
-                $"Cannot assign value of type '{valueType.Name}' to target of type '{targetType.Name}'.",
+                message: $"Cannot assign value of type '{valueType.Name}' to target of type '{targetType.Name}'.",
                 location: location);
         }
 
@@ -1004,7 +1106,7 @@ public sealed partial class SemanticVerifier
         // member is). The general AssignmentTypeMismatch/Assignable checks above already
         // enforce this through the structural rule — no variant-specific check needed.
 
-        // #42: ??= narrowing — `a ??= b` is expanded to `a = a ?? b`
+        // #42: ??= narrowing — `a ??= b` is expanded to `a = a ?? b`.
         // When assigning `target = target ?? default` where target is Maybe[T],
         // narrow the variable to T after the coalescing assignment.
         if (target is IdentifierExpression narrowId &&
@@ -1014,9 +1116,6 @@ public sealed partial class SemanticVerifier
             _registry.NarrowVariable(name: narrowId.Name,
                 narrowedType: targetType.TypeArguments[index: 0]);
         }
-
-        // Assignment expression returns the target type
-        return targetType;
     }
 
     /// <summary>

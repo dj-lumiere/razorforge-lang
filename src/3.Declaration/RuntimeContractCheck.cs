@@ -78,14 +78,11 @@ public static class RuntimeContractCheck
     /// </summary>
     private static void CheckRoutineContracts(HashSet<string> declaredRoutines, List<string> errors)
     {
-        foreach (string name in RuntimeContract.StdlibRoutineContracts)
-        {
-            if (!declaredRoutines.Contains(item: name))
-            {
-                errors.Add(item: $"routine contract '{name}' resolves to NO declared stdlib routine "
-                                 + "(renamed in stdlib without updating RuntimeContract?)");
-            }
-        }
+        errors.AddRange(
+            RuntimeContract.StdlibRoutineContracts
+                .Where(name => !declaredRoutines.Contains(item: name))
+                .Select(name => $"routine contract '{name}' resolves to NO declared stdlib routine "
+                                + "(renamed in stdlib without updating RuntimeContract?)"));
     }
 
     /// <summary>
@@ -93,13 +90,10 @@ public static class RuntimeContractCheck
     /// </summary>
     private static void CheckTypeContracts(TypeRegistry registry, List<string> errors)
     {
-        foreach (string typeName in RuntimeContract.WrapperTypes.Concat(second: RuntimeContract.StdlibTypeContracts))
-        {
-            if (registry.LookupType(name: typeName) is null)
-            {
-                errors.Add(item: $"type contract '{typeName}' resolves to NO registered type");
-            }
-        }
+        errors.AddRange(
+            RuntimeContract.WrapperTypes.Concat(second: RuntimeContract.StdlibTypeContracts)
+                .Where(typeName => registry.LookupType(name: typeName) is null)
+                .Select(typeName => $"type contract '{typeName}' resolves to NO registered type"));
     }
 
     /// <summary>
@@ -117,13 +111,10 @@ public static class RuntimeContractCheck
         }
 
         HashSet<string> fields = MemberVariableNames(type: carrier);
-        foreach (string field in new[] { RuntimeContract.Carrier.PresentField, RuntimeContract.Carrier.ValueField })
-        {
-            if (!fields.Contains(item: field))
-            {
-                errors.Add(item: $"carrier-field contract '{CarrierTypeName}.{field}' resolves to NO member variable");
-            }
-        }
+        errors.AddRange(
+            new[] { RuntimeContract.Carrier.PresentField, RuntimeContract.Carrier.ValueField }
+                .Where(field => !fields.Contains(item: field))
+                .Select(field => $"carrier-field contract '{CarrierTypeName}.{field}' resolves to NO member variable"));
     }
 
     private static HashSet<string> MemberVariableNames(TypeInfo type)

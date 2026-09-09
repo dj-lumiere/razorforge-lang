@@ -318,7 +318,7 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// <see cref="CreatorExpression"/> so codegen's constructor path handles it.
     /// Returns null when the argument list mixes named and positional entries.
     /// </summary>
-    private Expression? LowerFieldInitCreator(GenericMemberRoutineCallExpression gmc)
+    private CreatorExpression? LowerFieldInitCreator(GenericMemberRoutineCallExpression gmc)
     {
         // Accept either fully named args (record-style field init) or fully positional
         // (constructor call form like Hijacked[T](me) from synthesized wrapper bodies).
@@ -353,7 +353,7 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// plain <see cref="CallExpression"/> whose callee names the type (constructions) or the resolved
     /// free routine.
     /// </summary>
-    private CallExpression LowerConstructionCall(GenericMemberRoutineCallExpression gmc,
+    private static CallExpression LowerConstructionCall(GenericMemberRoutineCallExpression gmc,
         IdentifierExpression id, List<Expression> loweredArgs)
     {
         bool isTypeConstruction = gmc.ConstructedType != null ||

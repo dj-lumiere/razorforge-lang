@@ -34,7 +34,7 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
     /// <summary>Inserts spawn-boundary promote calls across a whole program.</summary>
     public void Run(Program program)
     {
-        foreach (SyntaxTree.Declaration decl in program.Declarations)
+        foreach (SyntaxTree.Declaration decl in program.Declarations.OfType<SyntaxTree.Declaration>())
         {
             LowerDeclaration(decl);
         }
@@ -128,8 +128,9 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
     {
         switch (stmt)
         {
-            case ExpressionStatement s: yield return s.Expression; break;
-            case DiscardStatement s: yield return s.Expression; break;
+            case ExpressionStatement or DiscardStatement:
+                yield return stmt is ExpressionStatement es ? es.Expression : ((DiscardStatement)stmt).Expression;
+                break;
             case ReturnStatement { Value: not null } s: yield return s.Value; break;
             case VariantReturnStatement { Value: not null } s: yield return s.Value; break;
             case BecomesStatement s: yield return s.Value; break;
@@ -163,7 +164,7 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
 
     // Builds `handle.promote()` as an ExpressionStatement when `handle` is a Roamed[T]. promote
     // returns void and mutates in place, so the statement is a pure side effect before the spawn.
-    private Statement? TryMakePromote(Expression handle)
+    private ExpressionStatement? TryMakePromote(Expression handle)
     {
         if (handle.ResolvedType is not RecordTypeInfo rec ||
             LlvmCodeGenerator.GetGenericBaseNameStatic(type: rec) != RuntimeContract.Roamed)

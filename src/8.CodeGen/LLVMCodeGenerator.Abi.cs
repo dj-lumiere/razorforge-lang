@@ -49,6 +49,9 @@ public partial class LlvmCodeGenerator
         public static readonly AbiPassing Indirect = new(Kind: AbiKind.Indirect);
     }
 
+    private const string LlvmFloat = "float";
+    private const string LlvmDouble = "double";
+
     /// <summary>The integer width (<c>i8/i16/i32/i64</c>) covering a chunk of <paramref name="bytes"/>.</summary>
     private static string ChunkIntType(int bytes) => bytes switch
     {
@@ -71,21 +74,9 @@ public partial class LlvmCodeGenerator
             return false;
         }
 
-        foreach (MemberVariableInfo m in members)
-        {
-            string llvm = GetLlvmType(type: m.Type);
-            if (llvm is "half" or "float" or "double" or "fp128")
-            {
-                return true;
-            }
-
-            if (m.Type is RecordTypeInfo { BackendType: null } && StructHasFloatField(type: m.Type))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return members.Any(m =>
+            GetLlvmType(type: m.Type) is "half" or LlvmFloat or LlvmDouble or "fp128" ||
+            (m.Type is RecordTypeInfo { BackendType: null } && StructHasFloatField(type: m.Type)));
     }
 
     /// <summary>
@@ -230,7 +221,7 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>Whether an llvm type name is a floating-point (SSE-class) scalar.</summary>
-    private static bool IsFpLlvm(string llvm) => llvm is "half" or "float" or "double" or "fp128";
+    private static bool IsFpLlvm(string llvm) => llvm is "half" or LlvmFloat or LlvmDouble or "fp128";
 
     /// <summary>
     /// The ABI register type for the eightbyte <c>[start, start+8)</c> of a struct given its leaf fields:
@@ -265,7 +256,9 @@ public partial class LlvmCodeGenerator
             return ChunkIntType(bytes: chunkBytes);
         }
 
-        return chunkBytes <= 2 ? "half" : chunkBytes <= 4 ? "float" : "double";
+        if (chunkBytes <= 2) return "half";
+        if (chunkBytes <= 4) return LlvmFloat;
+        return LlvmDouble;
     }
 
     /// <summary>
@@ -284,7 +277,7 @@ public partial class LlvmCodeGenerator
         }
 
         string elem = leaves[index: 0].Llvm;
-        if (elem is not ("half" or "float" or "double"))
+        if (elem is not ("half" or LlvmFloat or LlvmDouble))
         {
             return false;
         }

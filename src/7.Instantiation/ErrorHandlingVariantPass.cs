@@ -18,8 +18,18 @@ namespace Compiler.Instantiation;
 /// </summary>
 internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
 {
-    /// <summary>Per-file stub -> variant generation is global only.</summary>
-    public static void Run(Program program) { }
+    private const string PrefixTry    = "try";
+    private const string PrefixCheck  = "check";
+    private const string PrefixLookup = "lookup";
+
+    /// <summary>
+    /// Per-file stub: variant generation is global only (see <see cref="RunGlobal"/>).
+    /// This overload intentionally does nothing.
+    /// </summary>
+    public static void Run(Program program)
+    {
+        // Variant generation is a single global pass (RunGlobal); there is no per-file work to do.
+    }
 
     /// <summary>
     /// Runs variant generation globally.
@@ -47,18 +57,16 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// </summary>
     private void PopulateDirectFailability(List<RoutineInfo> routines)
     {
-        foreach (RoutineInfo routine in routines)
+        foreach (RoutineInfo routine in routines.Where(r => r.IsFailable
+            && ctx.RoutineBodies.ContainsKey(r.RegistryKey)))
         {
-            if (!routine.IsFailable) continue;
-            if (!ctx.RoutineBodies.TryGetValue(key: routine.RegistryKey,
-                    value: out Statement? body)) continue;
-
+            Statement body = ctx.RoutineBodies[routine.RegistryKey];
             ErrorHandlingAnalysis analysis = ErrorHandlingGenerator.AnalyzeBody(body);
             if (analysis.HasThrow) routine.HasThrow = true;
             if (analysis.HasAbsent) routine.HasAbsent = true;
-            foreach (TypeInfo t in analysis.ThrownTypes)
+            foreach (TypeInfo t in analysis.ThrownTypes.Where(t => !routine.ThrowableTypes.Contains(t)))
             {
-                if (!routine.ThrowableTypes.Contains(t)) routine.ThrowableTypes.Add(t);
+                routine.ThrowableTypes.Add(t);
             }
         }
     }
@@ -73,12 +81,11 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// </summary>
     private void MarkPessimisticStdlibFailability(List<RoutineInfo> routines)
     {
-        foreach (RoutineInfo routine in routines)
+        foreach (RoutineInfo routine in routines.Where(r => r.IsFailable
+            && !r.HasThrow && !r.HasAbsent
+            && r.FailableCallees.Count == 0
+            && ctx.RoutineBodies.ContainsKey(r.RegistryKey)))
         {
-            if (!routine.IsFailable) continue;
-            if (routine.HasThrow || routine.HasAbsent) continue;
-            if (routine.FailableCallees.Count > 0) continue;
-            if (!ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey)) continue;
             routine.HasThrow = true;
             routine.HasAbsent = true;
         }
@@ -96,9 +103,8 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         while (changed)
         {
             changed = false;
-            foreach (RoutineInfo routine in routines)
+            foreach (RoutineInfo routine in routines.Where(r => r.IsFailable))
             {
-                if (!routine.IsFailable) continue;
                 foreach (RoutineInfo callee in routine.FailableCallees)
                 {
                     if (callee.HasThrow && !routine.HasThrow)
@@ -133,47 +139,56 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         List<RoutineInfo> routines, ErrorHandlingGenerator generator)
     {
         var pending = new List<(RoutineInfo routine, Statement body, List<GeneratedVariant> variants)>();
-        foreach (RoutineInfo routine in routines)
+
+        // DEMAND-DRIVEN: only the iterator `emit` variants are generated eagerly here (their generic-def
+        // bodies must exist before Phase-8 monomorphization of composed emitters). EVERY OTHER failable's
+        // try_/check_/lookup_ variant — body and registration — is produced ON DEMAND the first time a call
+        // site reaches it (SemanticVerifier's TrySynthesizeVariantOnDemand → GenerateVariantBody, drained
+        // before AnalyzeVariantBodies). This is what stops ~3600 stdlib variant bodies from being built +
+        // analyzed every run when a program uses only a handful.
+        foreach (RoutineInfo routine in routines.Where(r => r.IsFailable && r.Name == "emit"))
         {
-            if (!routine.IsFailable) continue;
-
-            // DEMAND-DRIVEN: only the iterator `emit` variants are generated eagerly here (their generic-def
-            // bodies must exist before Phase-8 monomorphization of composed emitters). EVERY OTHER failable's
-            // try_/check_/lookup_ variant — body and registration — is produced ON DEMAND the first time a call
-            // site reaches it (SemanticVerifier's TrySynthesizeVariantOnDemand → GenerateVariantBody, drained
-            // before AnalyzeVariantBodies). This is what stops ~3600 stdlib variant bodies from being built +
-            // analyzed every run when a program uses only a handful.
-            if (routine.Name != "emit") continue;
-
             if (!ctx.RoutineBodies.TryGetValue(key: routine.RegistryKey, value: out Statement? body))
                 continue;
 
-            // @crash_only: still analyze throw/absent but suppress safe variant generation
-            if (routine.Annotations.Any(predicate: a => a == "crash_only"))
-            {
-                ErrorHandlingResult crashOnlyResult =
-                    generator.GenerateVariants(routine: routine, body: body);
-                routine.HasThrow = crashOnlyResult.HasThrow;
-                routine.HasAbsent = crashOnlyResult.HasAbsent;
-                continue;
-            }
-
-            ErrorHandlingResult result = generator.GenerateVariants(routine: routine, body: body);
-            if (result.Error != null) continue;
-
-            routine.HasThrow = result.HasThrow;
-            routine.HasAbsent = result.HasAbsent;
-            routine.ThrowableTypes = result.ThrownTypes;
-
-            foreach (GeneratedVariant variant in result.Variants)
-            {
-                ctx.Registry.RegisterRoutine(routine: variant.Routine);
-                variant.Routine.ThrowableTypes = result.ThrownTypes;
-            }
-
-            pending.Add((routine, body, result.Variants));
+            RegisterVariantsForEmitRoutine(routine: routine, body: body, generator: generator, pending: pending);
         }
         return pending;
+    }
+
+    /// <summary>
+    /// Registers error-handling variants for a single eagerly-processed <c>emit</c> routine.
+    /// Handles the <c>@crash_only</c> annotation case (analyze but suppress safe variants) and
+    /// the normal case (register all generated variants and enqueue for body transformation).
+    /// </summary>
+    private void RegisterVariantsForEmitRoutine(RoutineInfo routine, Statement body,
+        ErrorHandlingGenerator generator,
+        List<(RoutineInfo routine, Statement body, List<GeneratedVariant> variants)> pending)
+    {
+        // @crash_only: still analyze throw/absent but suppress safe variant generation
+        if (routine.Annotations.Contains("crash_only"))
+        {
+            ErrorHandlingResult crashOnlyResult =
+                generator.GenerateVariants(routine: routine, body: body);
+            routine.HasThrow = crashOnlyResult.HasThrow;
+            routine.HasAbsent = crashOnlyResult.HasAbsent;
+            return;
+        }
+
+        ErrorHandlingResult result = generator.GenerateVariants(routine: routine, body: body);
+        if (result.Error != null) return;
+
+        routine.HasThrow = result.HasThrow;
+        routine.HasAbsent = result.HasAbsent;
+        routine.ThrowableTypes = result.ThrownTypes;
+
+        foreach (RoutineInfo variantRoutine in result.Variants.Select(v => v.Routine))
+        {
+            ctx.Registry.RegisterRoutine(routine: variantRoutine);
+            variantRoutine.ThrowableTypes = result.ThrownTypes;
+        }
+
+        pending.Add((routine, body, result.Variants));
     }
 
     /// <summary>
@@ -183,7 +198,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     private void TransformPendingBodies(
         List<(RoutineInfo routine, Statement body, List<GeneratedVariant> variants)> pending)
     {
-        foreach ((RoutineInfo routine, Statement body, List<GeneratedVariant> variants) in pending)
+        foreach ((RoutineInfo _, Statement body, List<GeneratedVariant> variants) in pending)
         {
             foreach (GeneratedVariant variant in variants)
             {
@@ -260,9 +275,9 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
             rewritten = null;
             string? prefix = kind switch
             {
-                ErrorHandlingVariantKind.Try => "try",
-                ErrorHandlingVariantKind.Check => "check",
-                ErrorHandlingVariantKind.Lookup => "lookup",
+                ErrorHandlingVariantKind.Try    => PrefixTry,
+                ErrorHandlingVariantKind.Check  => PrefixCheck,
+                ErrorHandlingVariantKind.Lookup => PrefixLookup,
                 _ => null
             };
             if (prefix == null) return false;
@@ -382,29 +397,9 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
                     rewriter: rewriter, registry: registry, nextOnly: nextOnly)
             },
 
-            IfStatement ifs => ifs with
-            {
-                ThenStatement = TransformBodyCore(body: ifs.ThenStatement, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
-                ElseStatement = ifs.ElseStatement != null
-                    ? TransformBodyCore(body: ifs.ElseStatement, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
-                    : null
-            },
-
-            WhileStatement ws => ws with
-            {
-                Body = TransformBodyCore(body: ws.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
-                ElseBranch = ws.ElseBranch != null
-                    ? TransformBodyCore(body: ws.ElseBranch, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
-                    : null
-            },
-
-            EachStatement fs => fs with
-            {
-                Body = TransformBodyCore(body: fs.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
-                ElseBranch = fs.ElseBranch != null
-                    ? TransformBodyCore(body: fs.ElseBranch, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
-                    : null
-            },
+            IfStatement ifs => TransformIf(ifs: ifs, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            WhileStatement ws => TransformWhile(ws: ws, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            EachStatement fs => TransformEach(fs: fs, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
 
             WhenStatement ws => ws with
             {
@@ -416,13 +411,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
                             .ToList()
             },
 
-            UsingStatement us => us with
-            {
-                Body = TransformBodyCore(body: us.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
-                FallbackBody = us.FallbackBody != null
-                    ? TransformBodyCore(body: us.FallbackBody, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
-                    : null
-            },
+            UsingStatement us => TransformUsing(us: us, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
 
             DangerStatement danger => danger with
             {
@@ -437,6 +426,46 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
             _ => body // All other statements pass through unchanged
         };
     }
+
+    private static IfStatement TransformIf(IfStatement ifs, ErrorHandlingVariantKind kind,
+        VariantCallRewriter? rewriter, TypeRegistry? registry, bool nextOnly)
+        => ifs with
+        {
+            ThenStatement = TransformBodyCore(body: ifs.ThenStatement, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            ElseStatement = ifs.ElseStatement != null
+                ? TransformBodyCore(body: ifs.ElseStatement, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                : null
+        };
+
+    private static WhileStatement TransformWhile(WhileStatement ws, ErrorHandlingVariantKind kind,
+        VariantCallRewriter? rewriter, TypeRegistry? registry, bool nextOnly)
+        => ws with
+        {
+            Body = TransformBodyCore(body: ws.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            ElseBranch = ws.ElseBranch != null
+                ? TransformBodyCore(body: ws.ElseBranch, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                : null
+        };
+
+    private static EachStatement TransformEach(EachStatement fs, ErrorHandlingVariantKind kind,
+        VariantCallRewriter? rewriter, TypeRegistry? registry, bool nextOnly)
+        => fs with
+        {
+            Body = TransformBodyCore(body: fs.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            ElseBranch = fs.ElseBranch != null
+                ? TransformBodyCore(body: fs.ElseBranch, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                : null
+        };
+
+    private static UsingStatement TransformUsing(UsingStatement us, ErrorHandlingVariantKind kind,
+        VariantCallRewriter? rewriter, TypeRegistry? registry, bool nextOnly)
+        => us with
+        {
+            Body = TransformBodyCore(body: us.Body, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly),
+            FallbackBody = us.FallbackBody != null
+                ? TransformBodyCore(body: us.FallbackBody, kind: kind, rewriter: rewriter, registry: registry, nextOnly: nextOnly)
+                : null
+        };
 
     private static int _propTemp;
 
@@ -597,7 +626,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         if (nextOnly && baseName != "emit") return false;
 
         RoutineInfo? variant = LookupVariantForOverload(registry: registry, owner: owner,
-            prefix: "try", original: failRoutine);
+            prefix: PrefixTry, original: failRoutine);
 
         // Need a Maybe carrier (flat {present,value}) to unwrap with field access. The TryBool
         // variant returns Bool (no type args) and is rejected here.
@@ -682,8 +711,8 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
 
         // Prefer the outer kind's variant, then fall back to the most-informative available.
         string[] order = kind == ErrorHandlingVariantKind.Check
-            ? ["check", "lookup", "try"]
-            : ["lookup", "check", "try"];
+            ? [PrefixCheck, PrefixLookup, PrefixTry]
+            : [PrefixLookup, PrefixCheck, PrefixTry];
         RoutineInfo? variant = null;
         string chosen = "";
         foreach (string p in order)
@@ -699,8 +728,8 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         }
         if (variant?.ReturnType is not { } carrier) return false;
 
-        innerCanNone = chosen is "try" or "lookup";
-        innerCanError = chosen is "check" or "lookup";
+        innerCanNone = chosen is PrefixTry or PrefixLookup;
+        innerCanError = chosen is PrefixCheck or PrefixLookup;
 
         // The outer carrier represents None only for Lookup (Try uses the flat-field path), and an
         // error for both Check and Lookup. If neither failure the inner can produce maps onto the
@@ -779,9 +808,9 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
             rewritten = null;
             string? prefix = kind switch
             {
-                ErrorHandlingVariantKind.Try => "try",
-                ErrorHandlingVariantKind.Check => "check",
-                ErrorHandlingVariantKind.Lookup => "lookup",
+                ErrorHandlingVariantKind.Try    => PrefixTry,
+                ErrorHandlingVariantKind.Check  => PrefixCheck,
+                ErrorHandlingVariantKind.Lookup => PrefixLookup,
                 _ => null
             };
             if (prefix == null) return false;
@@ -820,9 +849,9 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
 
         string? prefix = kind switch
         {
-            ErrorHandlingVariantKind.Try => "try",
-            ErrorHandlingVariantKind.Check => "check",
-            ErrorHandlingVariantKind.Lookup => "lookup",
+            ErrorHandlingVariantKind.Try    => PrefixTry,
+            ErrorHandlingVariantKind.Check  => PrefixCheck,
+            ErrorHandlingVariantKind.Lookup => PrefixLookup,
             _ => null
         };
         if (prefix == null) return false;
@@ -901,19 +930,24 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
             if (r.Name != variantName) continue;
             if (r.OriginalName != original.Name) continue;
             if (!ReferenceEquals(objA: r.OwnerType, objB: original.OwnerType)) continue;
-            if (r.Parameters.Count != original.Parameters.Count) continue;
-            bool allMatch = true;
-            for (int i = 0; i < r.Parameters.Count; i++)
-            {
-                if (r.Parameters[index: i].Type.FullName != original.Parameters[index: i].Type.FullName)
-                {
-                    allMatch = false;
-                    break;
-                }
-            }
-            if (!allMatch) continue;
+            if (!ParametersMatch(candidate: r, original: original)) continue;
             return r;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="candidate"/> has the same parameter count as
+    /// <paramref name="original"/> and every parameter's <c>FullName</c> matches positionally.
+    /// </summary>
+    private static bool ParametersMatch(RoutineInfo candidate, RoutineInfo original)
+    {
+        if (candidate.Parameters.Count != original.Parameters.Count) return false;
+        for (int i = 0; i < candidate.Parameters.Count; i++)
+        {
+            if (candidate.Parameters[index: i].Type.FullName != original.Parameters[index: i].Type.FullName)
+                return false;
+        }
+        return true;
     }
 }

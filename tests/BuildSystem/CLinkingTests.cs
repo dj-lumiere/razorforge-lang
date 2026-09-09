@@ -10,6 +10,8 @@ namespace RazorForge.Tests.BuildSystem;
 /// </summary>
 public sealed class CLinkingTests
 {
+    private static readonly string[] ExpectedCLibraries = ["SDL2", "m"];
+
     [Fact]
     public void Manifest_ParsesCLibrariesAndResolvesLibraryPaths()
     {
@@ -33,7 +35,7 @@ public sealed class CLinkingTests
             ProjectManifest manifest = ManifestLoader.Load(
                 tomlPath: Path.Combine(path1: root, path2: "config.toml"));
 
-            Assert.Equal(expected: new[] { "SDL2", "m" }, actual: manifest.Target.CLibraries);
+            Assert.Equal(expected: ExpectedCLibraries, actual: manifest.Target.CLibraries);
 
             // library_paths entries are resolved to absolute paths against the manifest directory.
             Assert.Single(collection: manifest.Target.LibraryPaths);

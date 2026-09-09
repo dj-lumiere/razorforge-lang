@@ -20,7 +20,7 @@ namespace Compiler.Verification.Results;
 /// RoutineInfo.RegistryKey. Codegen uses these to skip AST search and re-rewriting
 /// for all generic instantiations visible during semantic analysis.</param>
 /// <param name="LiveRoutineKeys">Reachable routine RegistryKeys computed by
-/// <see cref="RoutineReachabilityPass"/>. Codegen Phase A uses this to gate stdlib
+/// <see cref="Compiler.Collection.Passes.RoutineReachabilityPass"/>. Codegen Phase A uses this to gate stdlib
 /// body emission so unreachable routines are not emitted.</param>
 /// <param name="LiveOwnerTypeNames">Live concrete owner type full-names from RoutineReachabilityPass.
 /// GMP gates monomorphization on membership so unreachable generic instances are skipped.</param>

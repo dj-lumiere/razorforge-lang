@@ -398,7 +398,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         HashSet<string> scope,
         List<string>? inheritedGenericParameters,
         List<GenericConstraintDeclaration>? inheritedGenericConstraints,
-        bool includeMe) // NOSONAR S3776
+        bool includeMe)
     {
         switch (expression)
         {
@@ -887,8 +887,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         var captureNameList = lambda.Captures != null
             ? lambda.Captures.Where(predicate: localCaptures.Contains).ToList()
             : localCaptures.ToList();
-        foreach (string capName in localCaptures)
-            if (!captureNameList.Contains(item: capName)) captureNameList.Add(item: capName);
+        captureNameList.AddRange(localCaptures.Where(capName => !captureNameList.Contains(capName)));
 
         Dictionary<string, TypeInfo> captureTypes =
             CollectCaptureTypesFromBody(lambda.Body, captureNameList);
@@ -1132,7 +1131,13 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         }
     }
 
-    private static IEnumerable<Expression> GetSubExpressions(Expression expr) // NOSONAR S3776
+    private static IEnumerable<Expression> GetSubExpressions(Expression expr)
+    {
+        foreach (Expression sub in GetSubExpressionsCore(expr)) yield return sub;
+        foreach (Expression sub in GetSubExpressionsExtended(expr)) yield return sub;
+    }
+
+    private static IEnumerable<Expression> GetSubExpressionsCore(Expression expr)
     {
         switch (expr)
         {
@@ -1172,6 +1177,13 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             case CreatorExpression c:
                 foreach ((_, Expression val) in c.MemberVariables) yield return val;
                 break;
+        }
+    }
+
+    private static IEnumerable<Expression> GetSubExpressionsExtended(Expression expr)
+    {
+        switch (expr)
+        {
             case NamedArgumentExpression n:
                 yield return n.Value;
                 break;
@@ -1316,22 +1328,8 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         }
 
         var merged = new List<string>();
-        foreach (string item in a ?? [])
-        {
-            if (!merged.Contains(item))
-            {
-                merged.Add(item);
-            }
-        }
-
-        foreach (string item in b ?? [])
-        {
-            if (!merged.Contains(item))
-            {
-                merged.Add(item);
-            }
-        }
-
+        merged.AddRange((a ?? []).Where(item => !merged.Contains(item)));
+        merged.AddRange((b ?? []).Where(item => !merged.Contains(item)));
         return merged;
     }
 
@@ -1340,22 +1338,8 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         List<GenericConstraintDeclaration>? b)
     {
         var merged = new List<GenericConstraintDeclaration>();
-        foreach (GenericConstraintDeclaration item in a ?? [])
-        {
-            if (!merged.Contains(item))
-            {
-                merged.Add(item);
-            }
-        }
-
-        foreach (GenericConstraintDeclaration item in b ?? [])
-        {
-            if (!merged.Contains(item))
-            {
-                merged.Add(item);
-            }
-        }
-
+        merged.AddRange((a ?? []).Where(item => !merged.Contains(item)));
+        merged.AddRange((b ?? []).Where(item => !merged.Contains(item)));
         return merged;
     }
 
@@ -1439,8 +1423,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 return;
 
             case CompoundAssignmentExpression compound:
-                CollectLocalCapturesRecursive(compound.Target, outerScope, parameterNames, captures);
-                CollectLocalCapturesRecursive(compound.Value, outerScope, parameterNames, captures);
+                CollectCapturesInCompound(compound, outerScope, parameterNames, captures);
                 break;
 
             case BinaryExpression binary:
@@ -1453,11 +1436,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 break;
 
             case CallExpression call:
-                CollectLocalCapturesRecursive(call.Callee, outerScope, parameterNames, captures);
-                foreach (Expression argument in call.Arguments)
-                {
-                    CollectLocalCapturesRecursive(argument, outerScope, parameterNames, captures);
-                }
+                CollectCapturesInCall(call, outerScope, parameterNames, captures);
                 break;
 
             case MemberExpression member:
@@ -1474,45 +1453,72 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 break;
 
             case ConditionalExpression conditional:
-                CollectLocalCapturesRecursive(conditional.Condition, outerScope, parameterNames, captures);
-                CollectLocalCapturesRecursive(conditional.TrueExpression, outerScope, parameterNames, captures);
-                CollectLocalCapturesRecursive(conditional.FalseExpression, outerScope, parameterNames, captures);
+                CollectCapturesInConditional(conditional, outerScope, parameterNames, captures);
                 break;
 
             case RangeExpression range:
-                CollectLocalCapturesRecursive(range.Start, outerScope, parameterNames, captures);
-                CollectLocalCapturesRecursive(range.End, outerScope, parameterNames, captures);
-                if (range.Step != null)
-                {
-                    CollectLocalCapturesRecursive(range.Step, outerScope, parameterNames, captures);
-                }
+                CollectCapturesInRange(range, outerScope, parameterNames, captures);
                 break;
 
+            default:
+                CollectLocalCapturesRecursiveExtended(expression, outerScope, parameterNames, captures);
+                break;
+        }
+    }
+
+    private static void CollectCapturesInCompound(CompoundAssignmentExpression compound,
+        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
+    {
+        CollectLocalCapturesRecursive(compound.Target, outerScope, parameterNames, captures);
+        CollectLocalCapturesRecursive(compound.Value, outerScope, parameterNames, captures);
+    }
+
+    private static void CollectCapturesInCall(CallExpression call,
+        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
+    {
+        CollectLocalCapturesRecursive(call.Callee, outerScope, parameterNames, captures);
+        foreach (Expression argument in call.Arguments)
+            CollectLocalCapturesRecursive(argument, outerScope, parameterNames, captures);
+    }
+
+    private static void CollectCapturesInConditional(ConditionalExpression conditional,
+        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
+    {
+        CollectLocalCapturesRecursive(conditional.Condition, outerScope, parameterNames, captures);
+        CollectLocalCapturesRecursive(conditional.TrueExpression, outerScope, parameterNames, captures);
+        CollectLocalCapturesRecursive(conditional.FalseExpression, outerScope, parameterNames, captures);
+    }
+
+    private static void CollectCapturesInRange(RangeExpression range,
+        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
+    {
+        CollectLocalCapturesRecursive(range.Start, outerScope, parameterNames, captures);
+        CollectLocalCapturesRecursive(range.End, outerScope, parameterNames, captures);
+        if (range.Step != null)
+            CollectLocalCapturesRecursive(range.Step, outerScope, parameterNames, captures);
+    }
+
+    // Second-tier dispatch for expression kinds that are less common or structurally simpler.
+    private static void CollectLocalCapturesRecursiveExtended(Expression expression,
+        HashSet<string> outerScope,
+        HashSet<string> parameterNames,
+        HashSet<string> captures)
+    {
+        switch (expression)
+        {
             case CreatorExpression creator:
                 foreach ((_, Expression value) in creator.MemberVariables)
-                {
                     CollectLocalCapturesRecursive(value, outerScope, parameterNames, captures);
-                }
                 break;
 
             case WithExpression withExpr:
-                CollectLocalCapturesRecursive(withExpr.Base, outerScope, parameterNames, captures);
-                foreach ((_, Expression? index, Expression value) in withExpr.Updates)
-                {
-                    CollectLocalCapturesRecursive(value, outerScope, parameterNames, captures);
-                    if (index != null)
-                    {
-                        CollectLocalCapturesRecursive(index, outerScope, parameterNames, captures);
-                    }
-                }
+                CollectCapturesInWith(withExpr, outerScope, parameterNames, captures);
                 break;
 
             case GenericMemberRoutineCallExpression genericCall:
                 CollectLocalCapturesRecursive(genericCall.Object, outerScope, parameterNames, captures);
                 foreach (Expression argument in genericCall.Arguments)
-                {
                     CollectLocalCapturesRecursive(argument, outerScope, parameterNames, captures);
-                }
                 break;
 
             case GenericMemberExpression genericMember:
@@ -1525,16 +1531,12 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
             case ListLiteralExpression list:
                 foreach (Expression element in list.Elements)
-                {
                     CollectLocalCapturesRecursive(element, outerScope, parameterNames, captures);
-                }
                 break;
 
             case SetLiteralExpression set:
                 foreach (Expression element in set.Elements)
-                {
                     CollectLocalCapturesRecursive(element, outerScope, parameterNames, captures);
-                }
                 break;
 
             case DictLiteralExpression dict:
@@ -1547,9 +1549,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
             case TupleLiteralExpression tuple:
                 foreach (Expression element in tuple.Elements)
-                {
                     CollectLocalCapturesRecursive(element, outerScope, parameterNames, captures);
-                }
                 break;
 
             case TypeConversionExpression conversion:
@@ -1558,9 +1558,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
             case ChainedComparisonExpression chained:
                 foreach (Expression operand in chained.Operands)
-                {
                     CollectLocalCapturesRecursive(operand, outerScope, parameterNames, captures);
-                }
                 break;
 
             case BlockExpression block:
@@ -1583,12 +1581,8 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
             case InsertedTextExpression inserted:
                 foreach (InsertedTextPart part in inserted.Parts)
-                {
                     if (part is ExpressionPart expressionPart)
-                    {
                         CollectLocalCapturesRecursive(expressionPart.Expression, outerScope, parameterNames, captures);
-                    }
-                }
                 break;
 
             case StealExpression steal:
@@ -1598,21 +1592,11 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             case WaitforExpression waitfor:
                 CollectLocalCapturesRecursive(waitfor.Operand, outerScope, parameterNames, captures);
                 if (waitfor.Timeout != null)
-                {
                     CollectLocalCapturesRecursive(waitfor.Timeout, outerScope, parameterNames, captures);
-                }
                 break;
 
             case DependentWaitforExpression dependentWaitfor:
-                CollectLocalCapturesRecursive(dependentWaitfor.Operand, outerScope, parameterNames, captures);
-                foreach (TaskDependency dependency in dependentWaitfor.Dependencies)
-                {
-                    CollectLocalCapturesRecursive(dependency.DependencyExpr, outerScope, parameterNames, captures);
-                }
-                if (dependentWaitfor.Timeout != null)
-                {
-                    CollectLocalCapturesRecursive(dependentWaitfor.Timeout, outerScope, parameterNames, captures);
-                }
+                CollectCapturesInDependentWaitfor(dependentWaitfor, outerScope, parameterNames, captures);
                 break;
 
             case CarrierPayloadExpression payload:
@@ -1624,17 +1608,40 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 break;
 
             case WhenExpression whenExpr:
-                if (whenExpr.Expression != null)
-                {
-                    CollectLocalCapturesRecursive(whenExpr.Expression, outerScope, parameterNames, captures);
-                }
-
-                foreach (WhenClause clause in whenExpr.Clauses)
-                {
-                    CollectLocalCapturesInStatement(clause.Body, outerScope, parameterNames, captures);
-                }
+                CollectCapturesInWhenExpression(whenExpr, outerScope, parameterNames, captures);
                 break;
         }
+    }
+
+    private static void CollectCapturesInWith(WithExpression withExpr,
+        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
+    {
+        CollectLocalCapturesRecursive(withExpr.Base, outerScope, parameterNames, captures);
+        foreach ((_, Expression? index, Expression value) in withExpr.Updates)
+        {
+            CollectLocalCapturesRecursive(value, outerScope, parameterNames, captures);
+            if (index != null)
+                CollectLocalCapturesRecursive(index, outerScope, parameterNames, captures);
+        }
+    }
+
+    private static void CollectCapturesInDependentWaitfor(DependentWaitforExpression dependentWaitfor,
+        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
+    {
+        CollectLocalCapturesRecursive(dependentWaitfor.Operand, outerScope, parameterNames, captures);
+        foreach (TaskDependency dependency in dependentWaitfor.Dependencies)
+            CollectLocalCapturesRecursive(dependency.DependencyExpr, outerScope, parameterNames, captures);
+        if (dependentWaitfor.Timeout != null)
+            CollectLocalCapturesRecursive(dependentWaitfor.Timeout, outerScope, parameterNames, captures);
+    }
+
+    private static void CollectCapturesInWhenExpression(WhenExpression whenExpr,
+        HashSet<string> outerScope, HashSet<string> parameterNames, HashSet<string> captures)
+    {
+        if (whenExpr.Expression != null)
+            CollectLocalCapturesRecursive(whenExpr.Expression, outerScope, parameterNames, captures);
+        foreach (WhenClause clause in whenExpr.Clauses)
+            CollectLocalCapturesInStatement(clause.Body, outerScope, parameterNames, captures);
     }
 
     private static void CollectLocalCapturesInStatement(Statement statement,

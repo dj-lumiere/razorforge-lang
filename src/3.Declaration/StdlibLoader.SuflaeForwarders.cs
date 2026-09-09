@@ -168,19 +168,13 @@ public sealed partial class StdlibLoader
         List<(Program Program, string FilePath, string Module)> allProgs)
     {
         var sfWrapperNames = new HashSet<string>(comparer: StringComparer.Ordinal);
-        foreach ((Program prog, string filePath, string _) in allProgs)
+        foreach ((Program prog, string filePath, string _) in allProgs.Where(p => RealmOf(filePath: p.FilePath) == "SF"))
         {
-            if (RealmOf(filePath: filePath) != "SF")
+            foreach (EntityDeclaration e in prog.Declarations.OfType<EntityDeclaration>()
+                .Where(e => e.Members.OfType<VariableDeclaration>()
+                    .Any(predicate: v => v.Name == "inner" && v.Type is { Realm: "RF" })))
             {
-                continue;
-            }
-            foreach (EntityDeclaration e in prog.Declarations.OfType<EntityDeclaration>())
-            {
-                if (e.Members.OfType<VariableDeclaration>()
-                    .Any(predicate: v => v.Name == "inner" && v.Type is { Realm: "RF" }))
-                {
-                    sfWrapperNames.Add(item: BareTypeName(name: e.Name));
-                }
+                sfWrapperNames.Add(item: BareTypeName(name: e.Name));
             }
         }
 
@@ -295,6 +289,10 @@ public sealed partial class StdlibLoader
     /// <summary>Builds one <c>routine X[..].m(args) -> ret: return me.inner.m(args)</c> forwarder.
     /// <paramref name="filePath"/> is the wrapper's stdlib source path — used as the forwarder's source
     /// location so builder-internal chains (e.g. <c>me.inner.iter()</c>) pass the stdlib exemption.</summary>
+    /// <param name="entity">The SF wrapper entity that will own the synthesized forwarder routine.</param>
+    /// <param name="ownerParams">The generic parameter names of the wrapper entity (e.g. <c>["T"]</c> for <c>List[T]</c>).</param>
+    /// <param name="inner">The RF inner-type member routine being forwarded.</param>
+    /// <param name="filePath">The stdlib source file path, used as the forwarder's source location.</param>
     /// <param name="reWrap">When true the inner call returns a bare <c>RF::Core.Y</c> that must be
     /// re-surfaced as the SF wrapper — the body becomes <c>return X[..](inner: me.inner.m(args))</c>
     /// instead of returning the raw RF value.</param>

@@ -25,11 +25,10 @@ internal sealed class LiteralLoweringPass : AstRewriter
 {
     private readonly Dictionary<string, Statement>? _variantBodies;
     // Arbitrary-precision literal lowering: `123n`/`3.14dn` -> Integer/Decimal.from_literal(text:"...").
+    private const string FromLiteralRoutine = "from_literal";
     private readonly TypeInfo? _integerType;
-    private readonly TypeInfo? _decimalType;
     private readonly TypeInfo? _textType;
     private readonly RoutineInfo? _integerFromLiteral;
-    private readonly RoutineInfo? _decimalFromLiteral;
     // Imaginary literal lowering: `4.0j64` -> C64(real: 0.0_f64, imag: 4.0_f64), etc.
     private readonly TypeInfo? _c32Type;
     private readonly TypeInfo? _c64Type;
@@ -64,13 +63,9 @@ internal sealed class LiteralLoweringPass : AstRewriter
         // and the raw arbitrary-precision literal reached codegen as malformed IR — `store %Record 42n`).
         _integerType = ctx.Registry.LookupType(name: "Numerics.Integer")
                        ?? ctx.Registry.LookupType(name: "Integer");
-        _decimalType = ctx.Registry.LookupType(name: "Decimal");
         _textType = ctx.Registry.LookupType(name: "Text");
         _integerFromLiteral = _integerType != null
-            ? ctx.Registry.LookupMemberRoutine(type: _integerType, memberRoutineName: "from_literal")
-            : null;
-        _decimalFromLiteral = _decimalType != null
-            ? ctx.Registry.LookupMemberRoutine(type: _decimalType, memberRoutineName: "from_literal")
+            ? ctx.Registry.LookupMemberRoutine(type: _integerType, memberRoutineName: FromLiteralRoutine)
             : null;
 
         // Imaginary `j*` literals (J32/J64/J128/Jn) are emitted as Text by codegen (no scalar form
@@ -86,7 +81,7 @@ internal sealed class LiteralLoweringPass : AstRewriter
         _realType = ctx.Registry.LookupType(name: "Numerics.Real")
                     ?? ctx.Registry.LookupType(name: "Real");
         _realFromLiteral = _realType != null
-            ? ctx.Registry.LookupMemberRoutine(type: _realType, memberRoutineName: "from_literal")
+            ? ctx.Registry.LookupMemberRoutine(type: _realType, memberRoutineName: FromLiteralRoutine)
             : null;
 
         _characterType = ctx.Registry.LookupType(name: "Character");
@@ -133,7 +128,7 @@ internal sealed class LiteralLoweringPass : AstRewriter
                 if (fromLit != null) return fromLit;
 
                 // Imaginary `j*` literals -> pure-imaginary complex constructor.
-                Expression? imag = TryLowerImaginaryLiteral(literal);
+                CreatorExpression? imag = TryLowerImaginaryLiteral(literal);
                 if (imag != null) return imag;
 
                 Expression? lowered = TryLowerLiteral(literal);
@@ -150,22 +145,22 @@ internal sealed class LiteralLoweringPass : AstRewriter
         }
     }
 
-    protected override Expression VisitBackIndex(BackIndexExpression back)
+    protected override Expression VisitBackIndex(BackIndexExpression e)
     {
         // `^n` is NOT materialized into a value here — it stays a `BackIndexExpression` marker.
         // OperatorLoweringPass (runs after this pass) rewrites the enclosing subscript/slice to
         // `back_resolve(count: coll.count(), offset: n)`. Retag an untyped/signed integer-literal
         // offset to U64 (the `^n` position is U64) BEFORE lowering, so it stays a scalar i64 and
         // is not lowered to an arbitrary-precision Integer (which is heap/Text-backed).
-        Expression operand = back.Operand is LiteralExpression
+        Expression operand = e.Operand is LiteralExpression
             {
                 LiteralType: TokenType.UndecidedInteger or TokenType.IntegerLiteral
                     or TokenType.S64Literal
             } lit
             ? lit with { LiteralType = TokenType.U64Literal }
-            : back.Operand;
+            : e.Operand;
         Expression o = VisitExpression(operand);
-        return back with { Operand = o };
+        return e with { Operand = o };
     }
 
     // -----------------------------------------------------------------------------
@@ -233,7 +228,7 @@ internal sealed class LiteralLoweringPass : AstRewriter
     /// (C32/C64/C128 memberwise, or Complex for <c>jn</c>). Returns null if not such a literal or the
     /// types are unavailable. Codegen has no scalar form for the complex record types.
     /// </summary>
-    private Expression? TryLowerImaginaryLiteral(LiteralExpression literal)
+    private CreatorExpression? TryLowerImaginaryLiteral(LiteralExpression literal)
     {
         if (literal.Value is not string raw) return null;
         int j = raw.IndexOfAny(['j', 'J']);
@@ -292,7 +287,7 @@ internal sealed class LiteralLoweringPass : AstRewriter
         var arg = new NamedArgumentExpression(Name: "text", Value: textLit, Location: loc);
         var callee = new MemberExpression(
             Object: new IdentifierExpression(Name: type.Name, Location: loc) { ResolvedType = type },
-            MemberName: "from_literal", Location: loc);
+            MemberName: FromLiteralRoutine, Location: loc);
         return new CallExpression(Callee: callee, Arguments: [arg], Location: loc)
         {
             ResolvedRoutine = fromLiteral,

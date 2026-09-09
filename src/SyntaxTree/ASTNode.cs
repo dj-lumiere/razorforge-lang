@@ -104,7 +104,7 @@ public abstract record SyntaxTreeNode(SourceLocation Location) : ISyntaxTreeNode
 /// <item>Optimization passes and transformations</item>
 /// </list>
 /// </remarks>
-public interface ISyntaxTreeVisitor<T>
+public interface ISyntaxTreeVisitor<out T>
 {
     // Expression visitor memberRoutines - handle all expression node types
 

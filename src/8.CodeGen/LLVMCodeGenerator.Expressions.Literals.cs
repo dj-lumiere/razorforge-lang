@@ -61,7 +61,7 @@ public partial class LlvmCodeGenerator
         // BitArray[N] packs its `N` bool elements into `[(N+7)/8 x i8]`; Array[T,N] stores one
         // element per slot. Both reduce to a constant `[M x T]` initializer.
         string initializer = GetGenericBaseName(type: preset.Type) == "BitArray"
-            ? BuildBitArrayPresetInitializer(key: key, list: list, arrLlvm: arrLlvm)
+            ? BuildBitArrayPresetInitializer(key: key, list: list)
             : BuildArrayPresetInitializer(key: key, list: list, arrLlvm: arrLlvm);
 
         EmitLine(sb: _globalDeclarations,
@@ -101,7 +101,7 @@ public partial class LlvmCodeGenerator
     /// element is seen; the inline site uses that to fall back to a runtime bit-pack, while the preset
     /// site (which requires constant elements) treats it via <paramref name="onNonLiteral"/>.</para>
     /// </summary>
-    private static int[] PackBitArrayLiteralBytes(IReadOnlyList<Expression> elements,
+    private static int[] PackBitArrayLiteralBytes(List<Expression> elements,
         out bool allLiteral, Action<Expression>? onNonLiteral = null)
     {
         allLiteral = true;
@@ -135,8 +135,7 @@ public partial class LlvmCodeGenerator
     /// Builds the <c>[(N+7)/8 x i8] [...]</c> constant initializer for a <c>BitArray[N]</c> preset by
     /// packing 8 bool literals per byte (bit 0 = LSB) via the shared <see cref="PackBitArrayLiteralBytes"/>.
     /// </summary>
-    private static string BuildBitArrayPresetInitializer(string key, ListLiteralExpression list,
-        string arrLlvm)
+    private static string BuildBitArrayPresetInitializer(string key, ListLiteralExpression list)
     {
         if (list.Elements.Count == 0)
             return "zeroinitializer";
@@ -175,8 +174,7 @@ public partial class LlvmCodeGenerator
                 return EmitFloatLiteral(numericValue: StripNumericSuffix(text: s),
                     literalType: literal.LiteralType);
             case string s when IsDecimalFloatLiteralType(type: literal.LiteralType):
-                return EmitDecimalFloatLiteral(sb: sb,
-                    numericValue: StripNumericSuffix(text: s),
+                return EmitDecimalFloatLiteral(numericValue: StripNumericSuffix(text: s),
                     literalType: literal.LiteralType);
             case string s when literal.LiteralType == TokenType.BytesLiteral:
                 return EmitBytesLiteral(sb: sb, value: s);
@@ -469,14 +467,11 @@ public partial class LlvmCodeGenerator
 
         // Second try: direct suffix without underscore (e.g., "0u64" "0", "0x7Fu32" "127")
         string lower = text.ToLowerInvariant();
-        foreach (string suffix in NumericSuffixes)
+        string? matchedSuffix = NumericSuffixes.FirstOrDefault(s => lower.EndsWith(value: s));
+        if (matchedSuffix != null)
         {
-            if (lower.EndsWith(value: suffix))
-            {
-                string numPart = text[..^suffix.Length]
-                   .Replace(oldValue: "_", newValue: "");
-                return ConvertPrefixedToDecimal(value: numPart);
-            }
+            string numPart = text[..^matchedSuffix.Length].Replace(oldValue: "_", newValue: "");
+            return ConvertPrefixedToDecimal(value: numPart);
         }
 
         // No suffix found ? just remove underscores
@@ -641,8 +636,7 @@ public partial class LlvmCodeGenerator
     /// Emits a decimal floating-point literal (D32, D64, D128) as raw integer bits.
     /// D32/D64 return scalar values. D128 emits insertvalue instructions and returns a temp.
     /// </summary>
-    private string EmitDecimalFloatLiteral(StringBuilder sb, string numericValue,
-        TokenType literalType)
+    private static string EmitDecimalFloatLiteral(string numericValue, TokenType literalType)
     {
         // IEEE 754-2008 decimal: bit-pattern combination-field encodes special values.
         // Common-form: top 5 bits 11110 = inf, 11111 = NaN (quiet NaN: payload MSB 0).

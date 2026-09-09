@@ -290,8 +290,8 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>Infers generic bindings pairwise across two positionally-aligned type lists.</summary>
-    private static void InferPairwiseBindings(IReadOnlyList<TypeInfo> patterns,
-        IReadOnlyList<TypeInfo> concretes, Dictionary<string, TypeInfo> inferred)
+    private static void InferPairwiseBindings(List<TypeInfo> patterns,
+        List<TypeInfo> concretes, Dictionary<string, TypeInfo> inferred)
     {
         for (int i = 0; i < patterns.Count && i < concretes.Count; i++)
         {
@@ -431,11 +431,11 @@ public partial class LlvmCodeGenerator
         bool fromIsPtr = fromType == "ptr";
         bool toIsPtr = toType == "ptr";
         if (fromIsInt && toIsPtr)
-            return line.Substring(startIndex: 0, length: idx + 2) + "inttoptr " +
-                   line.Substring(startIndex: valueStart);
+            return string.Concat(line.AsSpan(start: 0, length: idx + 2), "inttoptr ",
+                line.AsSpan(start: valueStart));
         if (fromIsPtr && toIsInt)
-            return line.Substring(startIndex: 0, length: idx + 2) + "ptrtoint " +
-                   line.Substring(startIndex: valueStart);
+            return string.Concat(line.AsSpan(start: 0, length: idx + 2), "ptrtoint ",
+                line.AsSpan(start: valueStart));
         return line;
     }
 

@@ -88,124 +88,22 @@ public partial class LlvmCodeGenerator
         if (!ShouldEmitDebugInfo || _debugSubprograms.Count == 0)
             return ir;
 
-        // Metadata ids must not collide with any already in the IR (TBAA hardcodes !0..!22).
-        int nextId = MaxMetadataId(ir: ir) + 1;
-
-        var meta = new StringBuilder();
-        var fileIds = new Dictionary<string, int>(comparer: StringComparer.Ordinal);
-        var subIds = new Dictionary<string, int>(comparer: StringComparer.Ordinal);
-        var locIds = new Dictionary<(int, int, int), int>();
-
-        int subroutineTypeId = nextId++;
-        meta.Append(value: $"!{subroutineTypeId} = !DISubroutineType(types: !{{null}})\n");
-
-        int GetFile(string file, string dir)
-        {
-            string key = dir + "|" + file;
-            if (fileIds.TryGetValue(key: key, out int id))
-                return id;
-            id = nextId++;
-            fileIds[key: key] = id;
-            meta.Append(
-                value: $"!{id} = !DIFile(filename: \"{EscapeDi(s: file)}\", directory: \"{EscapeDi(s: dir)}\")\n");
-            return id;
-        }
-
-        DebugSubprogram firstSp = _debugSubprograms.Values.First();
-        int cuFileId = GetFile(file: firstSp.File, dir: firstSp.Directory);
-        int cuId = nextId++;
-
-        int GetSub(string funcName)
-        {
-            if (subIds.TryGetValue(key: funcName, out int id))
-                return id;
-            DebugSubprogram d = _debugSubprograms[key: funcName];
-            int fileId = GetFile(file: d.File, dir: d.Directory);
-            id = nextId++;
-            subIds[key: funcName] = id;
-            meta.Append(value:
-                $"!{id} = distinct !DISubprogram(name: \"{EscapeDi(s: funcName)}\", scope: !{fileId}, " +
-                $"file: !{fileId}, line: {d.Line}, type: !{subroutineTypeId}, scopeLine: {d.Line}, " +
-                $"spFlags: DISPFlagDefinition, unit: !{cuId})\n");
-            return id;
-        }
-
-        int GetLoc(int scope, int line, int col)
-        {
-            (int, int, int) key = (scope, line, col);
-            if (locIds.TryGetValue(key: key, out int id))
-                return id;
-            id = nextId++;
-            locIds[key: key] = id;
-            meta.Append(value: $"!{id} = !DILocation(line: {line}, column: {col}, scope: !{scope})\n");
-            return id;
-        }
+        var registry = new DebugMetaRegistry(
+            startId: MaxMetadataId(ir: ir) + 1,
+            subprograms: _debugSubprograms);
 
         var outSb = new StringBuilder(capacity: ir.Length + 8192);
         int curSub = -1, curLine = 0, curCol = 1;
 
         foreach (string line in ir.Split(separator: '\n'))
         {
-            // Layer-2 fine-grained location markers: update the cursor and strip them from output.
-            if (TryParseLocMarker(line: line, line2: out int ml, col: out int mc))
-            {
-                if (curSub >= 0)
-                {
-                    curLine = ml;
-                    curCol = mc;
-                }
-
-                continue;
-            }
-
-            if (line.StartsWith(value: "define ", comparisonType: StringComparison.Ordinal))
-            {
-                string? sym = ExtractDefineSymbol(line: line);
-                if (sym != null && _debugSubprograms.TryGetValue(key: sym, out DebugSubprogram sp))
-                {
-                    curSub = GetSub(funcName: sym);
-                    curLine = sp.Line;
-                    curCol = 1;
-                    outSb.Append(value: AttachDbgToDefine(line: line, sub: curSub)).Append(value: '\n');
-                }
-                else
-                {
-                    curSub = -1;
-                    outSb.Append(value: line).Append(value: '\n');
-                }
-
-                continue;
-            }
-
-            if (curSub >= 0 && line.StartsWith(value: "}", comparisonType: StringComparison.Ordinal))
-            {
-                curSub = -1;
-                outSb.Append(value: line).Append(value: '\n');
-                continue;
-            }
-
-            if (curSub >= 0)
-            {
-                if (TryParseTraceLoc(line: line, line2: out int l, col: out int c))
-                {
-                    curLine = l;
-                    curCol = c;
-                }
-
-                if (IsInstructionLine(line: line))
-                {
-                    int loc = GetLoc(scope: curSub, line: curLine, col: curCol);
-                    outSb.Append(value: line).Append(value: $", !dbg !{loc}").Append(value: '\n');
-                    continue;
-                }
-            }
-
-            outSb.Append(value: line).Append(value: '\n');
+            ProcessDebugInfoLine(line: line, registry: registry, outSb: outSb,
+                curSub: ref curSub, curLine: ref curLine, curCol: ref curCol);
         }
 
-        int flagsId = nextId++;
-        AppendDebugMetadataTrailer(outSb: outSb, meta: meta, cuId: cuId, cuFileId: cuFileId,
-            flagsId: flagsId);
+        int flagsId = registry.AllocId();
+        AppendDebugMetadataTrailer(outSb: outSb, meta: registry.Meta, cuId: registry.CuId,
+            cuFileId: registry.CuFileId, flagsId: flagsId);
         return outSb.ToString();
     }
 
@@ -228,11 +126,14 @@ public partial class LlvmCodeGenerator
 
     // ---- helpers -------------------------------------------------------------------------------
 
+    [GeneratedRegex(@"!(\d+)\b")]
+    private static partial Regex MetadataIdPattern();
+
     /// <summary>Largest existing <c>!N</c> metadata id in the IR (defs or refs); -1 if none.</summary>
     private static int MaxMetadataId(string ir)
     {
         int max = -1;
-        foreach (Match m in Regex.Matches(input: ir, pattern: @"!(\d+)\b"))
+        foreach (Match m in MetadataIdPattern().Matches(input: ir))
             if (int.TryParse(s: m.Groups[1].Value, result: out int v) && v > max)
                 max = v;
         return max;
@@ -279,8 +180,8 @@ public partial class LlvmCodeGenerator
                int.TryParse(s: parts[1], result: out col);
     }
 
-    private static readonly Regex TraceLocPattern =
-        new(pattern: @"i32 (-?\d+), i32 (-?\d+)\)", options: RegexOptions.Compiled);
+    [GeneratedRegex(@"i32 (-?\d+), i32 (-?\d+)\)")]
+    private static partial Regex TraceLocPattern();
 
     /// <summary>Reads the current source (line, col) from an <c>@_rf_trace_push</c>/<c>update_loc</c> call.</summary>
     private static bool TryParseTraceLoc(string line, out int line2, out int col)
@@ -289,7 +190,7 @@ public partial class LlvmCodeGenerator
         col = 0;
         if (!line.Contains(value: "@_rf_trace_"))
             return false;
-        Match m = TraceLocPattern.Match(input: line);
+        Match m = TraceLocPattern().Match(input: line);
         if (!m.Success)
             return false;
         line2 = int.Parse(s: m.Groups[1].Value);
@@ -314,10 +215,8 @@ public partial class LlvmCodeGenerator
             return false; // '[' opens a multi-line switch
         if (t[0] == '%')
             return t.Contains(value: " = "); // "%x = <op> ..."
-        foreach (string kw in InstructionOpcodes)
-            if (t.StartsWith(value: kw, comparisonType: StringComparison.Ordinal))
-                return true;
-        return false; // notably excludes "switch " (multi-line) and switch case rows ("i64 …")
+        return InstructionOpcodes.Any(kw => t.StartsWith(value: kw, comparisonType: StringComparison.Ordinal));
+        // notably excludes "switch " (multi-line) and switch case rows ("i64 …")
     }
 
     private static readonly string[] InstructionOpcodes =
@@ -326,9 +225,154 @@ public partial class LlvmCodeGenerator
         "fence", "resume ", "cleanupret", "catchret", "indirectbr"
     ];
 
+    /// <summary>
+    /// Processes one IR line during debug-info annotation, updating the current subprogram / line cursor
+    /// and appending the (possibly annotated) line to <paramref name="outSb"/>.
+    /// </summary>
+    private static void ProcessDebugInfoLine(string line, DebugMetaRegistry registry,
+        StringBuilder outSb, ref int curSub, ref int curLine, ref int curCol)
+    {
+        // Layer-2 fine-grained location markers: update the cursor and strip them from output.
+        if (TryParseLocMarker(line: line, line2: out int ml, col: out int mc))
+        {
+            if (curSub >= 0)
+            {
+                curLine = ml;
+                curCol = mc;
+            }
+            return;
+        }
+
+        if (line.StartsWith(value: "define ", comparisonType: StringComparison.Ordinal))
+        {
+            ProcessDefineLine(line: line, registry: registry, outSb: outSb,
+                curSub: ref curSub, curLine: ref curLine, curCol: ref curCol);
+            return;
+        }
+
+        if (curSub >= 0 && line.StartsWith(value: '}'))
+        {
+            curSub = -1;
+            outSb.Append(value: line).Append(value: '\n');
+            return;
+        }
+
+        if (curSub >= 0)
+        {
+            if (TryParseTraceLoc(line: line, line2: out int l, col: out int c))
+            {
+                curLine = l;
+                curCol = c;
+            }
+
+            if (IsInstructionLine(line: line))
+            {
+                int loc = registry.GetLoc(scope: curSub, line: curLine, col: curCol);
+                outSb.Append(value: line).Append(value: $", !dbg !{loc}").Append(value: '\n');
+                return;
+            }
+        }
+
+        outSb.Append(value: line).Append(value: '\n');
+    }
+
+    /// <summary>Handles a <c>define</c> header line: looks up the DISubprogram and attaches <c>!dbg</c>.</summary>
+    private static void ProcessDefineLine(string line, DebugMetaRegistry registry,
+        StringBuilder outSb, ref int curSub, ref int curLine, ref int curCol)
+    {
+        string? sym = ExtractDefineSymbol(line: line);
+        if (sym != null && registry.TryGetSubprogram(funcName: sym, out DebugSubprogram sp))
+        {
+            curSub = registry.GetSub(funcName: sym);
+            curLine = sp.Line;
+            curCol = 1;
+            outSb.Append(value: AttachDbgToDefine(line: line, sub: curSub)).Append(value: '\n');
+        }
+        else
+        {
+            curSub = -1;
+            outSb.Append(value: line).Append(value: '\n');
+        }
+    }
+
     private static string StripQuotes(string sym) =>
         sym.Length >= 2 && sym[0] == '"' && sym[^1] == '"' ? sym[1..^1] : sym;
 
     private static string EscapeDi(string s) =>
         s.Replace(oldValue: "\\", newValue: "/").Replace(oldValue: "\"", newValue: "\\22");
+
+    /// <summary>
+    /// Accumulates DWARF metadata descriptors (DIFile, DISubprogram, DILocation) during debug-info
+    /// annotation, allocating monotonically-increasing metadata IDs and recording them in
+    /// <see cref="Meta"/> for appending at module end.
+    /// </summary>
+    private sealed class DebugMetaRegistry
+    {
+        private int _nextId;
+        private readonly Dictionary<string, int> _fileIds = new(comparer: StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _subIds = new(comparer: StringComparer.Ordinal);
+        private readonly Dictionary<(int, int, int), int> _locIds = new();
+        private readonly Dictionary<string, DebugSubprogram> _subprograms;
+        private readonly int _subroutineTypeId;
+        private int _cuId;
+
+        internal StringBuilder Meta { get; } = new();
+        internal int CuId => _cuId;
+        internal int CuFileId { get; }
+
+        internal DebugMetaRegistry(int startId, Dictionary<string, DebugSubprogram> subprograms)
+        {
+            _nextId = startId;
+            _subprograms = subprograms;
+            _subroutineTypeId = _nextId++;
+            Meta.Append(value: $"!{_subroutineTypeId} = !DISubroutineType(types: !{{null}})\n");
+
+            DebugSubprogram firstSp = subprograms.Values.First();
+            CuFileId = GetFile(file: firstSp.File, dir: firstSp.Directory);
+            _cuId = _nextId++;
+        }
+
+        internal int AllocId() => _nextId++;
+
+        internal bool TryGetSubprogram(string funcName, out DebugSubprogram sp) =>
+            _subprograms.TryGetValue(key: funcName, out sp);
+
+        internal int GetFile(string file, string dir)
+        {
+            string key = dir + "|" + file;
+            if (_fileIds.TryGetValue(key: key, out int id))
+                return id;
+            id = _nextId++;
+            _fileIds[key: key] = id;
+            Meta.Append(
+                value: $"!{id} = !DIFile(filename: \"{EscapeDi(s: file)}\", directory: \"{EscapeDi(s: dir)}\")\n");
+            return id;
+        }
+
+        internal int GetSub(string funcName)
+        {
+            if (_subIds.TryGetValue(key: funcName, out int id))
+                return id;
+            DebugSubprogram d = _subprograms[key: funcName];
+            int fileId = GetFile(file: d.File, dir: d.Directory);
+            id = _nextId++;
+            _subIds[key: funcName] = id;
+            Meta.Append(value:
+                $"!{id} = distinct !DISubprogram(name: \"{EscapeDi(s: funcName)}\", scope: !{fileId}, " +
+                $"file: !{fileId}, line: {d.Line}, type: !{_subroutineTypeId}, scopeLine: {d.Line}, " +
+                $"spFlags: DISPFlagDefinition, unit: !{_cuId})\n");
+            return id;
+        }
+
+        internal int GetLoc(int scope, int line, int col)
+        {
+            (int, int, int) key = (scope, line, col);
+            if (_locIds.TryGetValue(key: key, out int id))
+                return id;
+            id = _nextId++;
+            _locIds[key: key] = id;
+            Meta.Append(value: $"!{id} = !DILocation(line: {line}, column: {col}, scope: !{scope})\n");
+            return id;
+        }
+    }
 }

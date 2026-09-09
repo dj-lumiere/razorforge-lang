@@ -403,9 +403,7 @@ public class TypeResolutionTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.True(condition: result.Errors.Count > 0);
         Assert.Contains(collection: result.Errors,
-            filter: e =>
-                e.Message.Contains(value: "X",
-                    comparisonType: StringComparison.OrdinalIgnoreCase));
+            filter: e => e.Message.Contains('X'));
     }
 
     #endregion

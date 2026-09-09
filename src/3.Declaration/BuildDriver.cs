@@ -125,8 +125,8 @@ public sealed class BuildDriver
     public BuildResult CompileFiles(List<string> sourceFiles)
     {
         // Pre-register all stdlib files so imports resolve without filesystem probing. A daemon supplies a
-        // cached index (built once by BuildStdlibIndex) so warm requests skip the per-request stdlib re-parse;
-        // a cold build has no cache and parses as before.
+        // cached index — built once at startup — so warm requests skip stdlib re-parsing; a cold build
+        // has no cache and parses as before.
         if (_cachedStdlibIndex != null)
             _resolver.SeedIndex(entries: _cachedStdlibIndex);
         else
@@ -398,16 +398,11 @@ public sealed class BuildDriver
             return false;
         }
 
-        var matched = new List<string>();
-        foreach (string candidate in candidates)
-        {
-            // Cheap `module` line scan (no full parse) so an unrelated or broken file living in the
-            // directory is neither parsed nor pulled in.
-            if (ReadDeclaredModule(filePath: candidate) == moduleName)
-            {
-                matched.Add(item: candidate);
-            }
-        }
+        // Cheap `module` line scan (no full parse) so an unrelated or broken file living in the
+        // directory is neither parsed nor pulled in.
+        List<string> matched = candidates
+            .Where(predicate: candidate => ReadDeclaredModule(filePath: candidate) == moduleName)
+            .ToList();
 
         if (matched.Count == 0)
         {
@@ -616,7 +611,7 @@ public sealed class BuildDriver
     ///   - `Numerics` — SF's unsuffixed integer literals default to `Integer` (RF defaults to S64),
     ///     and Integer/Real/Complex live in `Numerics` (NOT Core), so a bare `6` fails to resolve
     ///     (RF-S002) without it. (Real/Complex riding along relaxes #1's "import-only" for now;
-    ///     TODO: narrow to Integer.)
+    ///     Note: narrowing this to Integer only is future work.)
     ///   - `IO/Console`, `IO/File` — always-available I/O in SF, so `show(...)` / file access need
     ///     no ceremony import.
     /// (Historical: a `Suflae` overlay module was prelude-injected here so a bare `List` shadowed
@@ -813,39 +808,50 @@ public sealed class BuildDriver
         foreach (string libraryRoot in _libraryRoots)
         {
             if (!Directory.Exists(path: libraryRoot))
-            {
                 continue;
-            }
 
-            foreach (string pattern in (string[])["*.rf", "*.sf"])
+            PreRegisterLibraryRoot(libraryRoot: libraryRoot);
+        }
+    }
+
+    /// <summary>
+    /// Scans one library root directory for <c>*.rf</c> and <c>*.sf</c> sources and registers
+    /// each file that declares a <c>module</c> header into the resolver index.
+    /// </summary>
+    private void PreRegisterLibraryRoot(string libraryRoot)
+    {
+        foreach (string pattern in (string[])["*.rf", "*.sf"])
+        {
+            foreach (string filePath in Directory.GetFiles(path: libraryRoot,
+                         searchPattern: pattern,
+                         searchOption: SearchOption.AllDirectories)
+                     .OrderBy(keySelector: p => p, comparer: StringComparer.Ordinal))
             {
-                foreach (string filePath in Directory.GetFiles(path: libraryRoot,
-                             searchPattern: pattern,
-                             searchOption: SearchOption.AllDirectories)
-                         .OrderBy(keySelector: p => p, comparer: StringComparer.Ordinal))
-                {
-                    // File-granularity conditional compilation: skip files gated out for this target.
-                    if (!Compiler.Targeting.TargetGate.ShouldCompile(filePath: filePath))
-                    {
-                        continue;
-                    }
+                TryRegisterLibraryFile(filePath: filePath);
+            }
+        }
+    }
 
-                    Program? ast = ParseAstOnly(filePath: filePath);
-                    if (ast is null)
-                    {
-                        continue;
-                    }
+    /// <summary>
+    /// Parses a single library source file and registers it in the resolver index when it
+    /// declares a <c>module</c> header and passes the build-target gate.
+    /// </summary>
+    private void TryRegisterLibraryFile(string filePath)
+    {
+        // File-granularity conditional compilation: skip files gated out for this target.
+        if (!Compiler.Targeting.TargetGate.ShouldCompile(filePath: filePath))
+            return;
 
-                    foreach (ISyntaxTreeNode node in ast.Declarations)
-                    {
-                        if (node is ModuleDeclaration md)
-                        {
-                            _resolver.RegisterFile(filePath: filePath, moduleName: md.Path,
-                                ast: ast);
-                            break;
-                        }
-                    }
-                }
+        Program? ast = ParseAstOnly(filePath: filePath);
+        if (ast is null)
+            return;
+
+        foreach (ISyntaxTreeNode node in ast.Declarations)
+        {
+            if (node is ModuleDeclaration md)
+            {
+                _resolver.RegisterFile(filePath: filePath, moduleName: md.Path, ast: ast);
+                break;
             }
         }
     }

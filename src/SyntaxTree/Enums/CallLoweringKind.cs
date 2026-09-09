@@ -1,3 +1,5 @@
+namespace SyntaxTree;
+
 /// <summary>
 /// Semantic-owned classification for call-like lowering before backend entry.
 /// This lets later phases branch on explicit intent instead of rediscovering meaning from AST shape.

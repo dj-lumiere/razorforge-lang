@@ -37,13 +37,10 @@ public sealed partial class SemanticVerifier
     {
         foreach (WiredEntry e in WiredRoutineCatalog.All.Where(predicate: e => e.Name == wiredName))
         {
-            foreach (string p in e.Protocols)
+            foreach (string p in e.Protocols.Where(predicate: p => ProtocolIsEverywhereGated(protocol: p)))
             {
-                if (ProtocolIsEverywhereGated(protocol: p))
-                {
-                    protocol = p;
-                    return true;
-                }
+                protocol = p;
+                return true;
             }
         }
 

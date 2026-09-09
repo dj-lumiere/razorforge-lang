@@ -32,6 +32,9 @@ namespace Compiler.Desugaring.Passes;
 /// </summary>
 internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewriter
 {
+    /// <summary>The bare name of the element-access member routine (no failable suffix).</summary>
+    private const string GetItemMemberRoutine = "getitem";
+
     public void Run(Program program)
         => BodyDispatch.RunOnProgram(program, lower: r => VisitStatement(r.Body));
 
@@ -42,15 +45,15 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// <see cref="ExpressionPattern"/> guard (e.g. a <see cref="ChainedComparisonExpression"/>)
     /// in each clause — the base only recurses into the subject and clause bodies.
     /// </summary>
-    protected override Statement VisitWhen(WhenStatement w)
+    protected override Statement VisitWhen(WhenStatement s)
     {
-        Expression subj = VisitExpression(w.Expression);
-        var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
+        Expression subj = VisitExpression(s.Expression);
+        var clauses = new List<WhenClause>(capacity: s.Clauses.Count);
         bool clauseChanged = false;
-        foreach (WhenClause c in w.Clauses)
+        foreach (WhenClause c in s.Clauses)
         {
             Statement lBody = VisitStatement(c.Body);
-            // Also lower expression patterns (e.g. ChainedComparisonExpression guards)
+            // Also lower expression patterns (ChainedComparisonExpression guards, etc.)
             Pattern lPattern = c.Pattern is ExpressionPattern ep
                 ? ep with { Expression = VisitExpression(ep.Expression) }
                 : c.Pattern;
@@ -66,8 +69,8 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
             }
         }
 
-        bool changed = !ReferenceEquals(subj, w.Expression) || clauseChanged;
-        return changed ? w with { Expression = subj, Clauses = clauses } : w;
+        bool changed = !ReferenceEquals(subj, s.Expression) || clauseChanged;
+        return changed ? s with { Expression = subj, Clauses = clauses } : s;
     }
 
     /// <summary>
@@ -76,10 +79,10 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// <see cref="IndexExpression"/> so codegen's <c>EmitAssignment</c> can dispatch to <c>setitem!</c>;
     /// lowering the target would convert it to a <c>getitem!</c> call.
     /// </summary>
-    protected override Statement VisitAssignment(AssignmentStatement asgn)
+    protected override Statement VisitAssignment(AssignmentStatement s)
     {
-        Expression val = VisitExpression(asgn.Value);
-        return ReferenceEquals(val, asgn.Value) ? asgn : asgn with { Value = val };
+        Expression val = VisitExpression(s.Value);
+        return ReferenceEquals(val, s.Value) ? s : s with { Value = val };
     }
 
     //  Expression lowering
@@ -161,58 +164,56 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     ///   <item>no type-args -> a plain <see cref="MemberExpression"/> (object lowered).</item>
     /// </list>
     /// </summary>
-    protected override Expression VisitGenericMember(GenericMemberExpression gme)
+    protected override Expression VisitGenericMember(GenericMemberExpression e)
     {
-        //  GenericMemberExpression -> member + index ??getitem!
         // Parser quirk: obj.field[i] is parsed as GenericMemberExpression(obj, "field", [i]).
         // TypeArguments are index expressions in disguise; lower to IndexExpression then recurse.
         //
-        // Exception: `Ident[T]` (type-with-type-args, e.g. `NumericSumAdd[T].identity_lazy()`)
+        // Exception: Ident[T] (type-with-type-args, e.g. NumericSumAdd[T].identity_lazy())
         // is parsed as GenericMemberExpression(Ident, Ident.Name, [T]) — Object.Name == MemberName.
         // Those are real type args, not indices; lower to a plain MemberExpression so the
         // typewise receiver flows through codegen normally.
-        if (gme is { TypeArguments.Count: > 0 } &&
-            !(gme.Object is IdentifierExpression idObj && idObj.Name == gme.MemberName))
+        if (e is { TypeArguments.Count: > 0 } &&
+            !(e.Object is IdentifierExpression idObj && idObj.Name == e.MemberName))
         {
-            return LowerGenericMemberIndex(gme: gme);
+            return LowerGenericMemberIndex(gme: e);
         }
 
-        // Typewise receiver `Ident[T]` parsed as GenericMemberExpression(Ident, Ident.Name, [T]).
+        // Typewise receiver Ident[T] parsed as GenericMemberExpression(Ident, Ident.Name, [T]).
         // Collapse to a bare IdentifierExpression carrying the resolved type so the outer
-        // MemberExpression (e.g. `.identity_lazy()`) sees an identifier with ResolvedType set
-        // — that is how codegen detects typewise/common calls.
-        if (gme is { TypeArguments.Count: > 0, Object: IdentifierExpression typeIdent } &&
-            typeIdent.Name == gme.MemberName)
+        // MemberExpression (e.g. .identity_lazy()) sees an identifier with ResolvedType set —
+        // that is how codegen detects typewise/common calls.
+        if (e is { TypeArguments.Count: > 0, Object: IdentifierExpression typeIdent } &&
+            typeIdent.Name == e.MemberName)
         {
             return new IdentifierExpression(
-                Name: gme.MemberName,
-                Location: gme.Location)
+                Name: e.MemberName,
+                Location: e.Location)
             {
-                ResolvedType = gme.ResolvedType ?? typeIdent.ResolvedType
+                ResolvedType = e.ResolvedType ?? typeIdent.ResolvedType
             };
         }
 
-        // No type arguments -> plain member access; just lower the object.
-        Expression loweredObj = VisitExpression(gme.Object);
-        return ReferenceEquals(loweredObj, gme.Object)
-            ? gme
+        // No type arguments: plain member access; just lower the object.
+        Expression loweredObj = VisitExpression(e.Object);
+        return ReferenceEquals(loweredObj, e.Object)
+            ? e
             : new MemberExpression(
                 Object: loweredObj,
-                MemberName: gme.MemberName,
-                Location: gme.Location)
+                MemberName: e.MemberName,
+                Location: e.Location)
             {
-                ResolvedType = gme.ResolvedType
+                ResolvedType = e.ResolvedType
             };
     }
 
-    //  ChainedComparisonExpression -> AND-chain of pairwise comparisons
-    // e.g. a < b < c ??(a < b) and (b < c)
+    // ChainedComparisonExpression is lowered to an AND-chain of pairwise comparisons.
     // Middle operands may be evaluated twice; acceptable here since chained
     // comparisons in stdlib bodies use trivially pure expressions (identifiers/literals).
     protected override Expression VisitChainedComparison(ChainedComparisonExpression e) =>
         LowerChainedComparison(chain: e);
 
-    //  BinaryExpression -> receiver.MemberRoutine(you: arg)
+    // BinaryExpression is lowered to a member-routine call receiver.MemberRoutine(you: arg).
     // Operators with GetMemberRoutineName() == null (And, Or, Is, Identical, But, ...)
     // are not overloadable and stay as BinaryExpression for codegen.
     protected override Expression VisitBinary(BinaryExpression e) =>
@@ -225,17 +226,15 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// </summary>
     protected override Expression VisitUnary(UnaryExpression e)
     {
-        //  ForceUnwrap (!!) -> operand.unwrap()
-        // Always lower to a CallExpression -> never fall back to UnaryExpression.
-        // This runs for both user code (where ExpressionLoweringPass has already
-        // run but no longer handles ForceUnwrap) and stdlib bodies (which bypass
-        // ExpressionLoweringPass).  ResolvedType may be null for stdlib bodies;
-        // codegen infers the return type from the unwrap memberRoutine definition.
+        // ForceUnwrap (!!) is always lowered to an unwrap member-routine call, never left as UnaryExpression.
+        // This runs for both user code (where ExpressionLoweringPass has already run but no
+        // longer handles ForceUnwrap) and stdlib bodies (which bypass ExpressionLoweringPass).
+        // ResolvedType may be null for stdlib bodies; codegen infers the return type from
+        // the unwrap member-routine definition.
         if (e.Operator == UnaryOperator.ForceUnwrap)
             return LowerForceUnwrap(forceUnwrap: e);
 
-        //  UnaryExpression -> operand.MemberRoutine()
-        // Not, Steal -> no wired memberRoutine, stay as UnaryExpression.
+        // Other unary operators (Not, Steal) have no wired member routine and stay as UnaryExpression.
         return LowerUnaryExpression(expr: e, unary: e);
     }
 
@@ -244,12 +243,12 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// true/false branches are left untouched (this is a subexpression form; the top-level
     /// conditional lives elsewhere). Narrower than the base hook, which lowers all three parts.
     /// </summary>
-    protected override Expression VisitConditional(ConditionalExpression cond)
+    protected override Expression VisitConditional(ConditionalExpression e)
     {
-        Expression condExpr = VisitExpression(cond.Condition);
-        return ReferenceEquals(condExpr, cond.Condition)
-            ? cond
-            : cond with { Condition = condExpr };
+        Expression condExpr = VisitExpression(e.Condition);
+        return ReferenceEquals(condExpr, e.Condition)
+            ? e
+            : e with { Condition = condExpr };
     }
 
     /// <summary>
@@ -339,18 +338,14 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// Lowers a <c>!!</c> (<see cref="UnaryOperator.ForceUnwrap"/>) to <c>operand.unwrap()</c>.
     /// Extracted from the expression-lowering dispatch.
     /// </summary>
-    private Expression LowerForceUnwrap(UnaryExpression forceUnwrap)
+    private CallExpression LowerForceUnwrap(UnaryExpression forceUnwrap)
     {
         Expression operand = VisitExpression(forceUnwrap.Operand);
         TypeInfo? operandType = operand.ResolvedType;
         RoutineInfo? unwrapMemberRoutine = operandType != null
             ? ctx.Registry.LookupMemberRoutine(type: operandType, memberRoutineName: "unwrap")
             : null;
-        CallLoweringKind unwrapKind = unwrapMemberRoutine != null
-            ? ClassifyMemberRoutine(unwrapMemberRoutine)
-            : operandType != null
-                ? CallLoweringKind.DirectMemberRoutine
-                : CallLoweringKind.Unknown;
+        CallLoweringKind unwrapKind = ClassifyCallLoweringKind(unwrapMemberRoutine, operandType);
         return new CallExpression(
             Callee: new MemberExpression(
                 Object: operand,
@@ -413,11 +408,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
             MemberName: memberRoutineName,
             Location: unary.Location) { IsFailable = unaryFailable };
 
-        CallLoweringKind unaryKind = resolvedUnaryMemberRoutine != null
-            ? ClassifyMemberRoutine(resolvedUnaryMemberRoutine)
-            : operandType != null
-                ? CallLoweringKind.DirectMemberRoutine
-                : CallLoweringKind.Unknown;
+        CallLoweringKind unaryKind = ClassifyCallLoweringKind(resolvedUnaryMemberRoutine, operandType);
 
         return new CallExpression(
             Callee: unaryCallee,
@@ -475,85 +466,30 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// </summary>
     private Expression LowerIndexExpression(IndexExpression idx)
     {
-        // Typewise type-receiver: `NumericSumAdd[T].MemberRoutine()` parses as
-        // IndexExpression(Ident("NumericSumAdd"), Ident("T")) because the parser only
-        // treats `Ident[...]` as a generic-memberRoutine form when `]` is immediately followed
-        // by `(`. SA recognizes the pattern and resolves the IndexExpression to the
-        // generic resolution type — collapse to a bare typed identifier so MemberExpression
-        // codegen sees a typewise receiver.
-        string? GendefName(TypeInfo? t) => t switch
-        {
-            RecordTypeInfo { GenericDefinition: { } d } => d.Name,
-            EntityTypeInfo { GenericDefinition: { } d } => d.Name,
-            ProtocolTypeInfo { GenericDefinition: { } d } => d.Name,
-            _ => null
-        };
-        if (idx is { Object: IdentifierExpression typeObjId, ResolvedType: { IsGenericResolution: true } resolvedTy } &&
-            (resolvedTy.Name == typeObjId.Name
-             || GendefName(resolvedTy) == typeObjId.Name))
-        {
-            return new IdentifierExpression(
-                Name: typeObjId.Name,
-                Location: idx.Location)
-            {
-                ResolvedType = resolvedTy
-            };
-        }
+        // Typewise type-receiver: IndexExpression(Ident("NumericSumAdd"), Ident("T")) — SA has
+        // already resolved this to a generic resolution type. Collapse to a bare typed identifier
+        // so MemberExpression codegen sees a typewise receiver.
+        if (TryLowerTypewiseReceiver(idx, out Expression typewiseIdent))
+            return typewiseIdent;
 
         Expression loweredObj = VisitExpression(idx.Object);
         Expression loweredIdx = VisitExpression(idx.Index);
-
-        // Failability is a property, not part of the name — the property name is always
-        // the bare `getitem`; codegen dispatches via ResolvedRoutine (which carries
-        // IsFailable). Resolve the memberRoutine to set ResolvedRoutine / lowering kind.
-        const string propertyName = "getitem";
-        RoutineInfo? resolvedGetItem = null;
         TypeInfo? targetType = idx.Object.ResolvedType;
 
-        // End-relative SLICE bounds: `xs[a til ^0]`. By this pass the range index is already a
-        // `Range[U64]` CreatorExpression (ExpressionLoweringPass ran first) whose start/end may
-        // still be a `^n` `BackIndexExpression` marker. Rewrite each such bound to the forward
-        // position `count - n` via the free routine `back_resolve(count:, offset:)` (returns
-        // `count` for `^0`; throws only when the offset n exceeds count).
-        if (targetType != null && loweredIdx is CreatorExpression { TypeName: "Range" } rangeCtor &&
-            rangeCtor.MemberVariables.Any(predicate: mv =>
-                mv.Name is "start" or "end" && mv.Value is BackIndexExpression))
-        {
-            // ONLY the start/end bounds carry a `^n`; the step/inclusive members must be left
-            // untouched (wrapping a numeric `step` in back_resolve would corrupt the stride).
-            var rewrittenMembers = rangeCtor.MemberVariables.Select(selector: mv =>
-                mv.Name is "start" or "end" && mv.Value is BackIndexExpression backBound
-                    ? (mv.Name, BuildBackIndexResolve(loweredObj: loweredObj, backIndex: backBound,
-                        targetType: targetType, location: mv.Value.Location))
-                    : mv).ToList();
-            loweredIdx = rangeCtor with { MemberVariables = rewrittenMembers };
-        }
+        // Desugar end-relative back-index bounds on range slices and scalar subscripts.
+        loweredIdx = LowerBackIndexBounds(loweredObj, loweredIdx, targetType, idx.Location);
 
-        // Back-index desugaring: `coll[^n]` has a `^n` `BackIndexExpression` index. Collections
-        // only expose `getitem!(index: U64)`, so rewrite the index to a forward U64 position via
-        // `back_resolve(count: coll.count(), offset: n)` (throws IndexOutOfBoundsError on
-        // out-of-range). The object is referenced twice — acceptable for the common `var[^n]`
-        // case; a side-effecting receiver would evaluate twice.
-        if (targetType != null && loweredIdx is BackIndexExpression backIdx)
-        {
-            loweredIdx = BuildBackIndexResolve(loweredObj: loweredObj,
-                backIndex: backIdx, targetType: targetType, location: idx.Location);
-        }
-
+        RoutineInfo? resolvedGetItem = null;
         if (targetType != null)
         {
             TypeInfo? indexType = loweredIdx.ResolvedType ?? idx.Index.ResolvedType;
             resolvedGetItem = ResolveGetItemRoutine(targetType: targetType, indexType: indexType);
         }
 
-        CallLoweringKind getitemKind = resolvedGetItem != null
-            ? ClassifyMemberRoutine(resolvedGetItem)
-            : targetType != null
-                ? CallLoweringKind.DirectMemberRoutine
-                : CallLoweringKind.Unknown;
+        CallLoweringKind getitemKind = ClassifyCallLoweringKind(resolvedGetItem, targetType);
         var member = new MemberExpression(
             Object: loweredObj,
-            MemberName: propertyName,
+            MemberName: GetItemMemberRoutine,
             Location: idx.Location);
         var getitemCall = new CallExpression(
             Callee: member,
@@ -564,13 +500,93 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
             ResolvedType = idx.ResolvedType,
             LoweringKind = getitemKind
         };
-        // `a[i]` reads an element the container STILL owns. Make it appear as a fresh owned value by
-        // applying the element type's `store` — a retaining copy (Text/Integer/variant) so the read
-        // no longer aliases the buffer's live element (which would double-free on teardown). A
-        // trivially-copyable element has no retaining store (GetLifecycle.Store == null) and its
-        // bitwise read is already independent, so it is left bare. A bare `entity` element likewise
-        // has no store — reading one out to KEEP it is rejected at SA (single-owner), so it never
-        // needs a copy here.
+        return WrapGetItemWithStore(getitemCall: getitemCall, idx: idx);
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="idx"/> is a typewise type-receiver of the form
+    /// <c>Ident[T]</c> resolved to a generic resolution — and sets <paramref name="result"/> to
+    /// the collapsed bare <see cref="IdentifierExpression"/> carrying the resolved type. Returns
+    /// false for all other index expressions.
+    /// </summary>
+    private static bool TryLowerTypewiseReceiver(IndexExpression idx, out Expression result)
+    {
+        if (idx is { Object: IdentifierExpression typeObjId, ResolvedType: { IsGenericResolution: true } resolvedTy } &&
+            (resolvedTy.Name == typeObjId.Name || GetGenericDefName(resolvedTy) == typeObjId.Name))
+        {
+            result = new IdentifierExpression(Name: typeObjId.Name, Location: idx.Location)
+            {
+                ResolvedType = resolvedTy
+            };
+            return true;
+        }
+        result = idx;
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the name of the generic definition for a resolved generic type, or null for non-generic types.
+    /// Used to match typewise receivers of the form <c>GenericType[T]</c>.
+    /// </summary>
+    private static string? GetGenericDefName(TypeInfo? t) => t switch
+    {
+        RecordTypeInfo { GenericDefinition: { } d } => d.Name,
+        EntityTypeInfo { GenericDefinition: { } d } => d.Name,
+        ProtocolTypeInfo { GenericDefinition: { } d } => d.Name,
+        _ => null
+    };
+
+    /// <summary>
+    /// Desugars back-index (<c>^n</c>) bounds in <paramref name="loweredIdx"/>: rewrites each
+    /// <see cref="BackIndexExpression"/> marker on a range slice's start/end members, or a scalar
+    /// subscript, to a forward U64 position via <c>back_resolve</c>. Returns the (possibly rewritten)
+    /// index expression unchanged when no back-index is present.
+    /// </summary>
+    private Expression LowerBackIndexBounds(Expression loweredObj, Expression loweredIdx,
+        TypeInfo? targetType, SourceLocation location)
+    {
+        // End-relative SLICE bounds: `xs[a til ^0]`. By this pass the range index is already a
+        // Range[U64] CreatorExpression (ExpressionLoweringPass ran first) whose start/end may
+        // still be a BackIndexExpression marker. Rewrite each such bound to the forward position
+        // via back_resolve. ONLY the start/end bounds carry a back-index; the step/inclusive
+        // members must be left untouched (rewriting a numeric step would corrupt the stride).
+        if (targetType != null && loweredIdx is CreatorExpression { TypeName: "Range" } rangeCtor &&
+            rangeCtor.MemberVariables.Any(predicate: mv =>
+                mv.Name is "start" or "end" && mv.Value is BackIndexExpression))
+        {
+            var rewrittenMembers = rangeCtor.MemberVariables.Select(selector: mv =>
+                mv.Name is "start" or "end" && mv.Value is BackIndexExpression backBound
+                    ? (mv.Name, (Expression)BuildBackIndexResolve(loweredObj: loweredObj,
+                        backIndex: backBound, targetType: targetType, location: mv.Value.Location))
+                    : mv).ToList();
+            return rangeCtor with { MemberVariables = rewrittenMembers };
+        }
+
+        // Scalar back-index: `coll[^n]` — rewrite the single BackIndexExpression to a forward U64.
+        // The object is referenced twice — acceptable for the common `var[^n]` case; a
+        // side-effecting receiver would evaluate twice.
+        if (targetType != null && loweredIdx is BackIndexExpression backIdx)
+        {
+            return BuildBackIndexResolve(loweredObj: loweredObj,
+                backIndex: backIdx, targetType: targetType, location: location);
+        }
+
+        return loweredIdx;
+    }
+
+    /// <summary>
+    /// Wraps a <c>getitem!</c> call in the element type's <c>store</c> member routine when the
+    /// element type owns its data (Text, Integer, variant wrappers). A trivially-copyable or
+    /// entity element passes through unwrapped. Extracted from <see cref="LowerIndexExpression"/>.
+    /// </summary>
+    private Expression WrapGetItemWithStore(CallExpression getitemCall, IndexExpression idx)
+    {
+        // `a[i]` reads an element the container still owns. Apply the element type's store
+        // (a retaining copy for Text/Integer/variant) so the read no longer aliases the
+        // buffer's live element and avoids a double-free on teardown. A trivially-copyable
+        // element has no retaining store (GetLifecycle.Store == null) and is left bare.
+        // A bare entity element likewise has no store — reading one out to keep it is rejected
+        // at SA (single-owner), so it never needs a copy here.
         TypeInfo? elemType = idx.ResolvedType;
         RoutineInfo? elemStore = elemType != null
             ? ctx.Registry.GetLifecycle(type: elemType).Store
@@ -629,14 +645,14 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         if (indexType != null)
         {
             RoutineInfo? byIndex = ctx.Registry.LookupMemberRoutineOverload(type: targetType,
-                memberRoutineName: "getitem", argTypes: [indexType]);
+                memberRoutineName: GetItemMemberRoutine, argTypes: [indexType]);
             if (byIndex != null) return byIndex;
             if (ctx.Registry.LookupType(name: "U64") is { } u64
                 && ctx.Registry.LookupMemberRoutineOverload(type: targetType,
-                    memberRoutineName: "getitem", argTypes: [u64]) is { } byU64)
+                    memberRoutineName: GetItemMemberRoutine, argTypes: [u64]) is { } byU64)
                 return byU64;
         }
-        return ctx.Registry.LookupMemberRoutine(type: targetType, memberRoutineName: "getitem");
+        return ctx.Registry.LookupMemberRoutine(type: targetType, memberRoutineName: GetItemMemberRoutine);
     }
 
     /// <summary>
@@ -647,30 +663,8 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     private Expression LowerBinaryExpression(Expression expr, BinaryExpression bin)
     {
         string? memberRoutineName = bin.Operator.GetMemberRoutineName();
-
         if (memberRoutineName == null)
-        {
-            // For Assign: lower the right side, and lower the INTERIOR of the left side
-            // (e.g., the Object of a MemberExpression, or the Object/Index of an
-            // IndexExpression).  The outermost left-side node must stay as-is so that
-            // EmitBinaryAssign can dispatch on its type (MemberExpression -> field write,
-            // IndexExpression ??setitem!).  Lowering the entire left would convert
-            // IndexExpression -> CallExpression(getitem!), breaking setitem dispatch.
-            if (bin.Operator == BinaryOperator.Assign)
-            {
-                Expression rhs = VisitExpression(bin.Right);
-                Expression lhs = LowerAssignTarget(bin.Left);
-                return ReferenceEquals(rhs, bin.Right) && ReferenceEquals(lhs, bin.Left)
-                    ? expr
-                    : bin with { Left = lhs, Right = rhs };
-            }
-
-            Expression left0 = VisitExpression(bin.Left);
-            Expression right0 = VisitExpression(bin.Right);
-            return ReferenceEquals(left0, bin.Left) && ReferenceEquals(right0, bin.Right)
-                ? expr
-                : bin with { Left = left0, Right = right0 };
-        }
+            return LowerNonOverloadableBinary(expr: expr, bin: bin);
 
         Expression left = VisitExpression(bin.Left);
         Expression right = VisitExpression(bin.Right);
@@ -680,10 +674,6 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         Expression receiver = isReversed ? right : left;
         Expression argument = isReversed ? left : right;
 
-        // Look up the exact overload (by arg type) to get failable suffix, param name, and
-        // ResolvedRoutine. LookupMemberRoutineOverload disambiguates e.g. Moment.sub(Moment)->Duration
-        // from Moment.sub(Duration)->Moment. Setting ResolvedRoutine tells codegen which
-        // overload to call without performing its own (potentially ambiguous) lookup.
         TypeInfo? receiverType = receiver.ResolvedType;
         TypeInfo? argType = argument.ResolvedType;
         RoutineInfo? resolvedMemberRoutine = ResolveBinaryOperatorRoutine(
@@ -692,54 +682,19 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         // Mixed fixed-width integer comparisons have no direct cross-width overloads in the
         // stdlib. Normalize both sides to a common width here so we lower to a concrete
         // same-type comparison instead of letting codegen fall back to an arbitrary overload.
-        if (resolvedMemberRoutine == null &&
-            receiverType != null &&
-            argType != null &&
-            bin.Operator is BinaryOperator.Equal or BinaryOperator.NotEqual
-                or BinaryOperator.Less or BinaryOperator.LessEqual
-                or BinaryOperator.Greater or BinaryOperator.GreaterEqual &&
-            TryResolveCommonIntegerComparisonType(left: receiverType,
-                right: argType,
-                out TypeInfo? commonType))
-        {
-            resolvedMemberRoutine = NormalizeToCommonIntegerComparison(
-                memberRoutineName: memberRoutineName, commonType: commonType!,
-                receiver: ref receiver, argument: ref argument);
-            receiverType = commonType;
-            argType = commonType;
-        }
+        TryNormalizeMixedIntegerComparison(bin: bin, memberRoutineName: memberRoutineName,
+            receiverType: ref receiverType, argType: ref argType,
+            receiver: ref receiver, argument: ref argument,
+            resolvedMemberRoutine: ref resolvedMemberRoutine);
 
-        if (resolvedMemberRoutine is { Parameters.Count: > 0 } &&
-            bin.Operator is BinaryOperator.ArithmeticLeftShift
-                or BinaryOperator.ArithmeticRightShift
-                or BinaryOperator.LogicalLeftShift
-                or BinaryOperator.LogicalRightShift)
-        {
-            TypeInfo paramType = resolvedMemberRoutine.Parameters[index: 0].Type;
-            if (argType != null &&
-                argType.FullName != paramType.FullName &&
-                TryGetFixedWidthIntegerInfo(type: argType, out _, out _) &&
-                TryGetFixedWidthIntegerInfo(type: paramType, out _, out _))
-            {
-                argument = WrapNumericOperand(expr: argument, targetType: paramType);
-            }
-        }
+        // Shift operators require the shift-amount operand to match the parameter's exact width.
+        argument = TryNarrowShiftOperand(bin: bin, resolvedMemberRoutine: resolvedMemberRoutine,
+            argType: argType, argument: argument);
 
-        // Flags bitand/bitor/bitxor/eq/ne ARE lowered to memberRoutine calls: WiredRoutinePass
-        // synthesizes those bodies as @llvm_ir intrinsic calls on the underlying i64 repr
-        // (bit_or/bit_and/bit_xor/int_eq/int_ne), so lowering `a | b` to `a.bitor(b)` cannot
-        // recurse — the body uses the intrinsic, not the surface operator. (bitnot stays
-        // unlowered; its unary path below still passes through for codegen's EmitBitwiseNot.)
-
-        // Choice eq/ne bodies use BinaryOperator.Is (not Equal), so they never reach
-        // this point. No skip needed for choice types.
-
-        // Always lower to a memberRoutine call -> even when the memberRoutine isn't in the registry
-        // (e.g., stdlib bodies where ResolvedType is null).  When ResolvedRoutine is null,
-        // codegen's EmitMemberRoutineCall resolves the memberRoutine at emission time using the receiver's
-        // LLVM-inferred type; it will also retry with isFailable:null to find add! etc.
-        // Failability is structural on the callee — no `!` in the name. When the memberRoutine is
-        // unknown, IsFailable stays false and codegen's EmitMemberRoutineCall retries either form.
+        // Always lower to a memberRoutine call — even when the memberRoutine is not in the registry
+        // (e.g. stdlib bodies where ResolvedType is null). When ResolvedRoutine is null, codegen's
+        // EmitMemberRoutineCall resolves at emission time and retries the failable form as needed.
+        // Failability is structural on the callee (no '!' in the name).
         bool binFailable = resolvedMemberRoutine?.IsFailable ?? false;
         string paramName = resolvedMemberRoutine?.Parameters.Count > 0
             ? resolvedMemberRoutine.Parameters[0].Name
@@ -750,16 +705,94 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
             MemberName: memberRoutineName,
             Location: bin.Location) { IsFailable = binFailable };
 
-        CallLoweringKind lk = resolvedMemberRoutine != null
-            ? ClassifyMemberRoutine(resolvedMemberRoutine)
-            : receiverType != null ? CallLoweringKind.DirectMemberRoutine
-            : CallLoweringKind.Unknown;
+        CallLoweringKind lk = ClassifyCallLoweringKind(resolvedMemberRoutine, receiverType);
 
         return new CallExpression(
             Callee: binCallee,
             Arguments: [new NamedArgumentExpression(Name: paramName, Value: argument, Location: bin.Location)],
             Location: bin.Location)
         { ResolvedType = bin.ResolvedType, ResolvedRoutine = resolvedMemberRoutine, LoweringKind = lk };
+    }
+
+    /// <summary>
+    /// Lowers a non-overloadable <see cref="BinaryExpression"/> (one whose operator has no member-routine
+    /// name): for <see cref="BinaryOperator.Assign"/>, lowers the RHS and the interior of the LHS
+    /// (preserving the outer LHS shape so codegen can dispatch setitem); for all others, lowers both
+    /// operands normally. Extracted from <see cref="LowerBinaryExpression"/>.
+    /// </summary>
+    private Expression LowerNonOverloadableBinary(Expression expr, BinaryExpression bin)
+    {
+        if (bin.Operator == BinaryOperator.Assign)
+        {
+            // For assignment: lower the RHS and the INTERIOR of the LHS. The outermost LHS node
+            // must stay as-is so EmitBinaryAssign can dispatch on its type (MemberExpression →
+            // field write, IndexExpression → setitem!). Lowering the entire LHS would convert an
+            // IndexExpression to a getitem! call, breaking setitem dispatch.
+            Expression rhs = VisitExpression(bin.Right);
+            Expression lhs = LowerAssignTarget(bin.Left);
+            return ReferenceEquals(rhs, bin.Right) && ReferenceEquals(lhs, bin.Left)
+                ? expr
+                : bin with { Left = lhs, Right = rhs };
+        }
+
+        Expression left0 = VisitExpression(bin.Left);
+        Expression right0 = VisitExpression(bin.Right);
+        return ReferenceEquals(left0, bin.Left) && ReferenceEquals(right0, bin.Right)
+            ? expr
+            : bin with { Left = left0, Right = right0 };
+    }
+
+    /// <summary>
+    /// When a comparison operator is unresolved and both operands are fixed-width integers of
+    /// different widths, normalizes them to a common type. Updates <paramref name="resolvedMemberRoutine"/>,
+    /// <paramref name="receiver"/>, <paramref name="argument"/>, <paramref name="receiverType"/>, and
+    /// <paramref name="argType"/> in place. No-op when the conditions do not apply.
+    /// </summary>
+    private void TryNormalizeMixedIntegerComparison(BinaryExpression bin, string memberRoutineName,
+        ref TypeInfo? receiverType, ref TypeInfo? argType,
+        ref Expression receiver, ref Expression argument,
+        ref RoutineInfo? resolvedMemberRoutine)
+    {
+        if (resolvedMemberRoutine != null || receiverType == null || argType == null)
+            return;
+        if (bin.Operator is not (BinaryOperator.Equal or BinaryOperator.NotEqual
+            or BinaryOperator.Less or BinaryOperator.LessEqual
+            or BinaryOperator.Greater or BinaryOperator.GreaterEqual))
+            return;
+        if (!TryResolveCommonIntegerComparisonType(left: receiverType, right: argType,
+                out TypeInfo? commonType))
+            return;
+        resolvedMemberRoutine = NormalizeToCommonIntegerComparison(
+            memberRoutineName: memberRoutineName, commonType: commonType!,
+            receiver: ref receiver, argument: ref argument);
+        receiverType = commonType;
+        argType = commonType;
+    }
+
+    /// <summary>
+    /// When a shift operator's argument type differs from the expected parameter type, wraps the
+    /// argument in a numeric conversion to match the parameter. Returns the (possibly wrapped)
+    /// argument. No-op when the operator is not a shift or the types already match.
+    /// </summary>
+    private static Expression TryNarrowShiftOperand(BinaryExpression bin,
+        RoutineInfo? resolvedMemberRoutine, TypeInfo? argType, Expression argument)
+    {
+        if (resolvedMemberRoutine is not { Parameters.Count: > 0 })
+            return argument;
+        if (bin.Operator is not (BinaryOperator.ArithmeticLeftShift
+            or BinaryOperator.ArithmeticRightShift
+            or BinaryOperator.LogicalLeftShift
+            or BinaryOperator.LogicalRightShift))
+            return argument;
+        TypeInfo paramType = resolvedMemberRoutine.Parameters[index: 0].Type;
+        if (argType != null &&
+            argType.FullName != paramType.FullName &&
+            TryGetFixedWidthIntegerInfo(type: argType, out _, out _) &&
+            TryGetFixedWidthIntegerInfo(type: paramType, out _, out _))
+        {
+            return WrapNumericOperand(expr: argument, targetType: paramType);
+        }
+        return argument;
     }
 
     /// <summary>
@@ -964,6 +997,19 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     }
 
     /// <summary>
+    /// Returns the <see cref="CallLoweringKind"/> for a call site: classifies via the resolved
+    /// routine when available; falls back to <see cref="CallLoweringKind.DirectMemberRoutine"/> when
+    /// the receiver type is known but the routine is unresolved; otherwise
+    /// <see cref="CallLoweringKind.Unknown"/>.
+    /// </summary>
+    private static CallLoweringKind ClassifyCallLoweringKind(RoutineInfo? routine, TypeInfo? receiverType)
+    {
+        if (routine != null)
+            return ClassifyMemberRoutine(routine);
+        return receiverType != null ? CallLoweringKind.DirectMemberRoutine : CallLoweringKind.Unknown;
+    }
+
+    /// <summary>
     /// Builds the forward-index expression for a back-index subscript: given a receiver and a `^n`
     /// <c>BackIndexExpression</c> marker, produces <c>back_resolve(count: receiver.count(), offset: n)</c>
     /// — a resolved <c>U64</c> position. `^` carries no runtime type; this call-site desugaring is what
@@ -983,10 +1029,10 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         _ => null
     };
 
-    private Expression BuildBackIndexResolve(Expression loweredObj, BackIndexExpression backIndex,
+    private CallExpression BuildBackIndexResolve(Expression loweredObj, BackIndexExpression backIndex,
         TypeInfo targetType, SourceLocation location)
     {
-        // receiver.count() -> U64
+        // Resolve the count member routine on the receiver; its return type is U64.
         RoutineInfo? countRoutine = ctx.Registry.LookupMemberRoutine(type: targetType, memberRoutineName: Declaration.RuntimeContract.Collection.Count);
         var countCall = new CallExpression(
             Callee: new MemberExpression(Object: loweredObj, MemberName: Declaration.RuntimeContract.Collection.Count,
@@ -1103,15 +1149,5 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     }
 
     private static int NextSignedWidth(int minExclusive)
-    {
-        foreach (int candidate in new[] { 8, 16, 32, 64, 128 })
-        {
-            if (candidate > minExclusive)
-            {
-                return candidate;
-            }
-        }
-
-        return 0;
-    }
+        => new[] { 8, 16, 32, 64, 128 }.FirstOrDefault(c => c > minExclusive);
 }

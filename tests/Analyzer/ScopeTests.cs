@@ -487,7 +487,7 @@ public class ScopeTests
         Assert.True(condition: result.Errors.Count > 0);
         Assert.Contains(collection: result.Errors,
             filter: e =>
-                e.Message.Contains(value: "z", comparisonType: StringComparison.OrdinalIgnoreCase) ||
+                e.Message.Contains(value: 'z', comparisonType: StringComparison.OrdinalIgnoreCase) ||
                 e.Message.Contains(value: "not defined", comparisonType: StringComparison.OrdinalIgnoreCase) ||
                 e.Message.Contains(value: "unknown", comparisonType: StringComparison.OrdinalIgnoreCase));
     }
@@ -564,7 +564,7 @@ public class ScopeTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.True(condition: result.Errors.Count > 0);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Message.Contains(value: "b", comparisonType: StringComparison.OrdinalIgnoreCase)
+            filter: e => e.Message.Contains(value: 'b', comparisonType: StringComparison.OrdinalIgnoreCase)
                       && e.Message.Contains(value: "given", comparisonType: StringComparison.OrdinalIgnoreCase));
     }
 

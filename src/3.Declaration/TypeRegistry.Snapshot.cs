@@ -127,7 +127,7 @@ partial class TypeRegistry
     public TypeRegistry(Language language, StdlibSnapshot snapshot)
     {
         Language = language;
-        _ambient = this;
+        RegisterAsAmbient(registry: this);
         GlobalScope = new Scope(kind: ScopeKind.Global);
         _currentScope = GlobalScope;
 

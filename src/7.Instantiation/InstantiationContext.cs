@@ -148,24 +148,48 @@ public sealed class InstantiationContext
     /// <summary>
     /// Initializes shared state for Phase 7 generic reachability and monomorphization.
     /// </summary>
+    /// <param name="registry">The semantic type registry for the current compilation.</param>
+    /// <param name="userPrograms">User program triples that seed generic discovery.</param>
+    /// <param name="routineBodies">Verified routine bodies keyed by registry key.</param>
+    /// <param name="options">Optional tuning values; defaults apply when null.</param>
     public InstantiationContext(TypeRegistry registry,
         List<(Program Program, string FilePath, string Module)> userPrograms,
         IReadOnlyDictionary<string, Statement> routineBodies,
-        Dictionary<string, Statement>? variantBodies = null,
-        Dictionary<string, MonomorphizedBody>? instantiatedGenericBodies = null,
-        TargetConfig? target = null,
-        RfBuildMode buildMode = RfBuildMode.Debug,
-        Dictionary<RoutineDeclaration, RoutineBodyScan>? bodyScanCache = null,
-        IReadOnlyDictionary<string, Statement>? stdlibTemplateBodies = null)
+        InstantiationOptions? options = null)
     {
         Registry = registry;
         UserPrograms = userPrograms;
         RoutineBodies = routineBodies;
-        StdlibTemplateBodies = stdlibTemplateBodies ?? new Dictionary<string, Statement>();
-        VariantBodies = variantBodies ?? [];
-        InstantiatedGenericBodies = instantiatedGenericBodies ?? [];
-        Target = target ?? TargetConfig.ForCurrentHost();
-        BuildMode = buildMode;
-        BodyScanCache = bodyScanCache;
+        StdlibTemplateBodies = options?.StdlibTemplateBodies ?? new Dictionary<string, Statement>();
+        VariantBodies = options?.VariantBodies ?? [];
+        InstantiatedGenericBodies = options?.InstantiatedGenericBodies ?? [];
+        Target = options?.Target ?? TargetConfig.ForCurrentHost();
+        BuildMode = options?.BuildMode ?? RfBuildMode.Debug;
+        BodyScanCache = options?.BodyScanCache;
     }
+}
+
+/// <summary>
+/// Optional configuration bundle for <see cref="InstantiationContext"/>. Groups the six optional
+/// construction-time inputs so the constructor stays under the parameter-count limit.
+/// </summary>
+public sealed class InstantiationOptions
+{
+    /// <summary>Synthesized error-handling variant bodies that may contain reachable generic calls.</summary>
+    public Dictionary<string, Statement>? VariantBodies { get; init; }
+
+    /// <summary>Concrete generic bodies produced by prior instantiation runs.</summary>
+    public Dictionary<string, MonomorphizedBody>? InstantiatedGenericBodies { get; init; }
+
+    /// <summary>Target platform; defaults to the host platform when null.</summary>
+    public TargetConfig? Target { get; init; }
+
+    /// <summary>Build mode used when generic expansion depends on compile-time configuration.</summary>
+    public RfBuildMode BuildMode { get; init; } = RfBuildMode.Debug;
+
+    /// <summary>Daemon-lifetime per-body reachability scan cache; null disables caching.</summary>
+    public Dictionary<RoutineDeclaration, RoutineBodyScan>? BodyScanCache { get; init; }
+
+    /// <summary>WARM-ONLY lookup source for stdlib routine template bodies; empty on a cold compile.</summary>
+    public IReadOnlyDictionary<string, Statement>? StdlibTemplateBodies { get; init; }
 }

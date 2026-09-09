@@ -72,8 +72,8 @@ public partial class LlvmCodeGenerator
                 return EmitWhen(sb: sb, whenStmt: whenStmt);
 
             case DiscardStatement discard:
-                // TODO(C43): for creator expressions, skip evaluation entirely -> creators have no
-                // observable side effects and their result is being discarded, so the allocation is wasted.
+                // Note: creator expressions could skip evaluation entirely (creators have no observable
+                // side effects and their result is being discarded, so the allocation is wasted) — not yet implemented.
                 EmitExpression(sb: sb, expr: discard.Expression);
                 return false;
 
@@ -112,15 +112,7 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private bool EmitBlock(StringBuilder sb, BlockStatement block)
     {
-        foreach (Statement stmt in block.Statements)
-        {
-            if (EmitStatement(sb: sb, stmt: stmt))
-            {
-                return true; // Block terminated early
-            }
-        }
-
-        return false;
+        return block.Statements.Any(stmt => EmitStatement(sb: sb, stmt: stmt));
     }
 
     #endregion
@@ -493,7 +485,9 @@ public partial class LlvmCodeGenerator
                 // EmitEntityMemberVariableWrite), so the RHS is NOT moved into the field — it keeps its
                 // own reference and tears down normally. Consuming it here (move semantics, for the
                 // strict Retained/Tracked wrappers) would drop a ref the field just retained → underflow.
-                if (GetGenericBaseName(type: GetExpressionType(expr: member)) is not { } targetBase
+                TypeInfo? memberType = GetExpressionType(expr: member);
+                if (memberType == null
+                    || GetGenericBaseName(type: memberType) is not { } targetBase
                     || targetBase != Declaration.RuntimeContract.Roamed)
                 {
                     ConsumeTransferredLocalOwnership(expr: assign.Value);
@@ -515,9 +509,8 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private void ConsumeTransferredLocalOwnership(Expression expr)
     {
-        // `store` synthesis is gone — borrowed-reference values reach here as bare
-        // identifiers / member accesses or wrapped in `steal`. Both are handled below.
-        // Named arguments wrap their value (`value: steal new_node` → NamedArgumentExpression);
+        // Borrowed-reference values reach here as bare identifiers / member accesses or
+        // wrapped in a steal expression. Named arguments also wrap their inner value, so
         // peek through the wrapper to reach the underlying identifier.
         Expression unwrapped = expr is NamedArgumentExpression named ? named.Value : expr;
         string? sourceName = unwrapped switch
@@ -605,14 +598,7 @@ public partial class LlvmCodeGenerator
             return false;
         }
         if (op is not ("add" or "sub")) return false;
-        // Same singleton field on both sides (`__globals__.field`).
-        if (tm.MemberName != vm.MemberName
-            || tm.Object is not IdentifierExpression ti
-            || vm.Object is not IdentifierExpression vi
-            || ti.Name != vi.Name)
-        {
-            return false;
-        }
+        if (!IsSameSingletonField(tm: tm, vm: vm)) return false;
 
         Expression d = deltaArg is NamedArgumentExpression nad ? nad.Value : deltaArg;
         // A field-free delta is a literal / local / atomic snapshot — safe to read unlocked. If it read a
@@ -620,9 +606,23 @@ public partial class LlvmCodeGenerator
         if (ReferencesModuleGlobalField(e: d)) return false;
 
         fieldMember = tm;
-        atomicOp = isFloat ? op == "add" ? "fadd" : "fsub" : op == "add" ? "add" : "sub";
+        atomicOp = isFloat switch
+        {
+            true  => op == "add" ? "fadd" : "fsub",
+            false => op == "add" ? "add"  : "sub"
+        };
         delta = d;
         return true;
+    }
+
+    /// <summary>Returns true when the left-hand <paramref name="tm"/> and right-hand <paramref name="vm"/>
+    /// member expressions both name the same field on the same <c>__globals__</c> singleton identifier.</summary>
+    private static bool IsSameSingletonField(MemberExpression tm, MemberExpression vm)
+    {
+        return tm.MemberName == vm.MemberName
+            && tm.Object is IdentifierExpression ti
+            && vm.Object is IdentifierExpression vi
+            && ti.Name == vi.Name;
     }
 
     /// <summary>The <c>__ModuleGlobals</c> entity inside a <c>Roamed[__ModuleGlobals]</c> handle type,
@@ -819,8 +819,7 @@ public partial class LlvmCodeGenerator
                  wrapperRecord.TypeArguments[index: 0] is EntityTypeInfo innerEntity)
         {
             EmitWrapperForwardingMemberVariableWrite(sb: sb, member: member, value: value,
-                valueType: valueType, target: target, wrapperRecord: wrapperRecord,
-                wrapBaseName: wrapBaseName, innerEntity: innerEntity);
+                valueType: valueType, ctx: new WrapperWriteContext(target, wrapperRecord, wrapBaseName, innerEntity));
         }
         else
         {
@@ -897,97 +896,87 @@ public partial class LlvmCodeGenerator
     /// <summary>Forwards a field write through a wrapper (Modifying[T], Retained[T], Roamed[T], …) to
     /// the inner entity, projecting through the controller's <c>data</c> where needed.</summary>
     private void EmitWrapperForwardingMemberVariableWrite(StringBuilder sb, MemberExpression member,
-        string value, TypeInfo? valueType, string target, RecordTypeInfo wrapperRecord,
-        string wrapBaseName, EntityTypeInfo innerEntity)
+        string value, TypeInfo? valueType, WrapperWriteContext ctx)
     {
-        // For @llvm("ptr") wrappers, the value IS the pointer directly
-        // For struct wrappers, extract the inner Hijacked[T] (ptr) from field 0
-        string innerPtr;
-        // Retained[T] / Tracked[T] are `@llvm("ptr")` but the pointer targets a
-        // RetainController[T] struct, NOT the entity directly. The entity ptr lives in the
-        // controller's `data` field. Mirrors the read-path handling at
-        // LLVMCodeGenerator.Expressions.Entities.cs:441-465 — without this branch, writes
-        // to `me.head!!.prev = ...` etc. on Retained/Tracked would store into the
-        // controller's strong_count slot instead of the wrapped entity's field.
-        if (wrapperRecord.BackendType != null &&
-            (wrapBaseName == Declaration.RuntimeContract.Retained || wrapBaseName == Declaration.RuntimeContract.Tracked))
+        // Roamed[T] projects through RoamController.data and writes directly — handled separately
+        // because the access-lock bracket is already inserted around the whole statement by
+        // RoamedLockBracketLoweringPass; codegen just projects + stores here.
+        if (ctx.WrapperRecord.BackendType != null && ctx.WrapBaseName == Declaration.RuntimeContract.Roamed)
         {
-            TypeInfo? controllerType = _registry.LookupType(
-                name: $"RetainController[{innerEntity.FullName}]")
-                ?? _registry.LookupType(name: $"Core.RetainController[{innerEntity.FullName}]");
-            if (controllerType is EntityTypeInfo controllerEntity)
-            {
-                innerPtr = EmitEntityMemberVariableRead(sb: sb,
-                    entityPtr: target,
-                    entity: controllerEntity,
-                    memberVariableName: "data");
-            }
-            else
-            {
-                innerPtr = target;
-            }
-        }
-        else if (wrapperRecord.BackendType != null &&
-            wrapBaseName == Declaration.RuntimeContract.Roamed)
-        {
-            // Roamed[T] handle: project the WRITE through RoamController.data. The access-lock
-            // bracket (lock_enter/lock_exit) is inserted as real AST calls around the enclosing
-            // statement by RoamedLockBracketLoweringPass — codegen just projects + stores here.
-            TypeInfo? controllerType = _registry.LookupType(
-                name: $"RoamController[{innerEntity.FullName}]")
-                ?? _registry.LookupType(name: $"Core.RoamController[{innerEntity.FullName}]");
-            string roamEntPtr = controllerType is EntityTypeInfo controllerEntity
-                ? EmitEntityMemberVariableRead(sb: sb, entityPtr: target, entity: controllerEntity, memberVariableName: "data")
-                : target;
-            EmitEntityMemberVariableWrite(sb: sb, entityPtr: roamEntPtr, entity: innerEntity,
-                memberVariableName: member.MemberName, value: value, valueType: valueType);
+            EmitRoamedWrapperMemberVariableWrite(sb: sb, member: member, value: value,
+                valueType: valueType, ctx: ctx);
             return;
         }
-        else if (wrapperRecord.BackendType != null)
-        {
-            innerPtr = target;
-        }
-        else
-        {
-            string recordTypeName = GetRecordTypeName(record: wrapperRecord);
-            innerPtr = NextTemp();
-            // Find the Hijacked[T] field holding the inner entity pointer.
-            // e.g. Retained[T] has controller=0, data=1 -> must use data index.
-            int dataFieldIndex = 0;
-            for (int fi = 0; fi < wrapperRecord.MemberVariables.Count; fi++)
-            {
-                if (wrapperRecord.MemberVariables[index: fi].Type is WrapperTypeInfo
-                    {
-                        Name: Declaration.RuntimeContract.Hijacked, TypeArguments.Count: > 0
-                    } hijacked &&
-                    hijacked.TypeArguments![index: 0] is EntityTypeInfo fieldInner &&
-                    fieldInner.FullName == innerEntity.FullName)
-                {
-                    dataFieldIndex = fi;
-                    break;
-                }
-            }
 
-            EmitLine(sb: sb,
-                line:
-                $"  {innerPtr} = extractvalue {recordTypeName} {target}, {dataFieldIndex}");
-        }
-
+        string innerPtr = ResolveWrapperInnerEntityPtr(sb: sb, ctx: ctx);
         EmitEntityMemberVariableWrite(sb: sb,
             entityPtr: innerPtr,
-            entity: innerEntity,
+            entity: ctx.InnerEntity,
             memberVariableName: member.MemberName,
             value: value,
             valueType: valueType);
     }
+
+    /// <summary>Emits a Roamed[T] wrapper field write by projecting through <c>RoamController.data</c>.</summary>
+    private void EmitRoamedWrapperMemberVariableWrite(StringBuilder sb, MemberExpression member,
+        string value, TypeInfo? valueType, WrapperWriteContext ctx)
+    {
+        TypeInfo? controllerType = _registry.LookupType(
+            name: $"RoamController[{ctx.InnerEntity.FullName}]")
+            ?? _registry.LookupType(name: $"Core.RoamController[{ctx.InnerEntity.FullName}]");
+        string roamEntPtr = controllerType is EntityTypeInfo controllerEntity
+            ? EmitEntityMemberVariableRead(sb: sb, entityPtr: ctx.Target, entity: controllerEntity, memberVariableName: "data")
+            : ctx.Target;
+        EmitEntityMemberVariableWrite(sb: sb, entityPtr: roamEntPtr, entity: ctx.InnerEntity,
+            memberVariableName: member.MemberName, value: value, valueType: valueType);
+    }
+
+    /// <summary>
+    /// Resolves the inner entity pointer from a wrapper target — projecting through the controller's
+    /// <c>data</c> field for Retained/Tracked, or extracting the Hijacked field for struct wrappers.
+    /// </summary>
+    private string ResolveWrapperInnerEntityPtr(StringBuilder sb, WrapperWriteContext ctx)
+    {
+        string target = ctx.Target;
+        RecordTypeInfo wrapperRecord = ctx.WrapperRecord;
+        EntityTypeInfo innerEntity = ctx.InnerEntity;
+
+        // Retained[T] / Tracked[T]: pointer targets a RetainController[T]; the entity lives in
+        // its `data` field. Without this, writes would store into the controller's strong_count.
+        if (wrapperRecord.BackendType != null &&
+            (ctx.WrapBaseName == Declaration.RuntimeContract.Retained || ctx.WrapBaseName == Declaration.RuntimeContract.Tracked))
+        {
+            TypeInfo? controllerType = _registry.LookupType(
+                name: $"RetainController[{innerEntity.FullName}]")
+                ?? _registry.LookupType(name: $"Core.RetainController[{innerEntity.FullName}]");
+            return controllerType is EntityTypeInfo controllerEntity
+                ? EmitEntityMemberVariableRead(sb: sb, entityPtr: target, entity: controllerEntity, memberVariableName: "data")
+                : target;
+        }
+
+        // Other @llvm("ptr") wrappers: the pointer IS the inner entity directly.
+        if (wrapperRecord.BackendType != null)
+        {
+            return target;
+        }
+
+        // Struct wrapper: extract the Hijacked[T] field that holds the inner entity pointer.
+        string recordTypeName = GetRecordTypeName(record: wrapperRecord);
+        string innerPtr = NextTemp();
+        int dataFieldIndex = FindHijackedFieldIndex(wrapperRecord: wrapperRecord, innerEntity: innerEntity);
+        EmitLine(sb: sb, line: $"  {innerPtr} = extractvalue {recordTypeName} {target}, {dataFieldIndex}");
+        return innerPtr;
+    }
+
 
     /// <summary>
     /// Emits a store to an indexed location.
     /// </summary>
     private void EmitIndexAssignment(StringBuilder sb, IndexExpression index, Expression rhs)
     {
-        // TODO: Record setitem is a hack and should be following setitem member routine.
-        // TODO: Also, the setitem routine should be just called through anyway and handled not here.
+        // Note: the inline record setitem path below is a known workaround — the receiver must be the
+        // alloca pointer so mutations persist, whereas EmitMemberRoutineCall would load a value copy.
+        // Both paths are intentional; the inline path is tracked for future cleanup.
         TypeInfo? targetType = GetExpressionType(expr: index.Object);
         targetType = MarkerProtocolInner(type: targetType) ?? targetType;
 
@@ -1236,7 +1225,7 @@ public partial class LlvmCodeGenerator
     /// Emits release calls for all tracked RC record variables at scope exit.
     /// Called at return, throw, and absent -> before EmitEntityCleanup.
     /// </summary>
-    private void EmitRcRecordCleanup(StringBuilder sb)
+    private static void EmitRcRecordCleanup(StringBuilder sb)
     {
         // Teardown is now lowered into the AST as explicit `local.destroy()` calls by
         // ScopeTeardownLoweringPass (Phase 8) — RC wrapper vars and RC-field records get their
@@ -1435,3 +1424,13 @@ public partial class LlvmCodeGenerator
         EmitLine(sb: sb, line: $"  br label %{continueLabel}");
     }
 }
+
+/// <summary>
+/// Bundles the wrapper-related arguments for <see cref="LlvmCodeGenerator.EmitWrapperForwardingMemberVariableWrite"/>
+/// so the method stays within the parameter-count limit.
+/// </summary>
+internal sealed record WrapperWriteContext(
+    string Target,
+    RecordTypeInfo WrapperRecord,
+    string WrapBaseName,
+    EntityTypeInfo InnerEntity);

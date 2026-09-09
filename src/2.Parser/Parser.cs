@@ -65,7 +65,7 @@ public partial class Parser
     /// <summary>
     /// The source file name for error reporting.
     /// </summary>
-    public string FileName = "";
+    public string FileName { get; set; } = "";
 
     /// <summary>
     /// The language being parsed (RazorForge or Suflae).
@@ -135,8 +135,9 @@ public partial class Parser
     private bool _inWhenConditionContext;
 
     /// <summary>
-    /// The reserved parameter name a single-hole `_` lambda desugars to. `xs.map(_ * 2)` parses the
-    /// `_` as a reference to this name and wraps the whole argument in `LambdaExpression([<hole>], _*2)`.
+    /// The reserved parameter name a single-hole <c>_</c> lambda desugars to. <c>xs.map(_ * 2)</c> parses the
+    /// <c>_</c> as a reference to this name and wraps the whole argument in
+    /// <c>LambdaExpression([hole], _*2)</c>.
     /// </summary>
     internal const string HoleParamName = "__rf_hole";
 
@@ -248,17 +249,7 @@ public partial class Parser
     private List<ISyntaxTreeNode> WrapScriptStatementsIntoStart(List<ISyntaxTreeNode> nodes)
     {
         // Trigger only on a loose top-level STATEMENT — a pure module file (declarations only) is untouched.
-        bool hasLooseStatement = false;
-        foreach (ISyntaxTreeNode n in nodes)
-        {
-            if (n is Statement)
-            {
-                hasLooseStatement = true;
-                break;
-            }
-        }
-
-        if (!hasLooseStatement)
+        if (!nodes.Any(n => n is Statement))
         {
             return nodes;
         }
@@ -386,56 +377,10 @@ public partial class Parser
     /// <exception cref="GrammarException">Thrown when no valid declaration or statement can be parsed.</exception>
     private ISyntaxTreeNode ParseDeclaration()
     {
-        // ═══════════════════════════════════════════════════════════════════════════
-        // SKIP DOC COMMENTS (### comment lines before declarations)
-        // ═══════════════════════════════════════════════════════════════════════════
-        // Doc comments are preserved in the token stream but currently not attached
-        // to declarations. Skip them to prevent "Unexpected token" errors.
-        while (Match(type: TokenType.DocComment))
-        {
-            // Skip any newlines after doc comments
-            while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
-        }
+        SkipDocCommentsAndTargetAnnotation();
 
-        // A leading `@target(...)` build directive (file-granularity conditional compilation) precedes
-        // `module`. It is read PRE-PARSE by the build's file gate to decide whether to compile this file
-        // at all; by the time the parser sees it the file is already selected, so here it is consumed and
-        // discarded (its effect happened earlier). Keeping it a real `@`-annotation — not a comment — is
-        // what gives it editor highlighting.
-        if (Check(type: TokenType.At) && PeekToken(offset: 1).Type == TokenType.Identifier
-            && PeekToken(offset: 1).Text == "target")
-        {
-            ParseAnnotations();
-            while (Match(type: TokenType.Newline)) { } // NOSONAR S108
-        }
-
-        // ═══════════════════════════════════════════════════════════════════════════
-        // FILE-LEVEL DECLARATIONS (must appear at top of file)
-        // ═══════════════════════════════════════════════════════════════════════════
-
-        // Module declaration (must appear at top of file)
-        if (Match(type: TokenType.Module))
-        {
-            return ParseModuleDeclaration();
-        }
-
-        // Import declaration
-        if (Match(type: TokenType.Import))
-        {
-            return ParseImportDeclaration();
-        }
-
-        // Redefinition
-        if (Match(type: TokenType.Define))
-        {
-            return ParseDefineDeclaration();
-        }
-
-        // Preset (build-time constant)
-        if (Match(type: TokenType.Preset))
-        {
-            return ParsePresetDeclaration();
-        }
+        ISyntaxTreeNode? fileLevelDecl = TryParseFileLevelDeclaration();
+        if (fileLevelDecl != null) return fileLevelDecl;
 
         // ═══════════════════════════════════════════════════════════════════════════
         // PARSE MODIFIERS (annotations, visibility, storage class)
@@ -463,39 +408,73 @@ public partial class Parser
             return ParseDefineDeclaration(annotations: annotations);
         }
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // RF-ONLY: DANGEROUS MODIFIER
-        // ═══════════════════════════════════════════════════════════════════════════
-
         // Check for dangerous modifier: dangerous routine foo(), dangerous external("C") routine bar()
         // (RazorForge only)
-        bool isDangerous = false;
-        if (_language == Language.RazorForge)
+        bool isDangerous = _language == Language.RazorForge && Match(type: TokenType.Dangerous);
+
+        ISyntaxTreeNode? varOrField = TryParseTypeBodyOrVariableDeclaration(
+            visibility: visibility, annotations: annotations);
+        if (varOrField != null) return varOrField;
+
+        return ParseRoutineOrTypeDeclaration(
+            visibility: visibility, annotations: annotations,
+            isCommon: isCommon, isDangerous: isDangerous);
+    }
+
+    /// <summary>
+    /// Skips leading doc-comment tokens (and their trailing newlines) and the optional file-granularity
+    /// <c>@target(...)</c> build directive, which was already consumed by the build's file gate and only
+    /// needs to be discarded by the parser.
+    /// </summary>
+    private void SkipDocCommentsAndTargetAnnotation()
+    {
+        // Doc comments are preserved in the token stream but currently not attached to declarations.
+        // Skip them to prevent "Unexpected token" errors.
+        while (Match(type: TokenType.DocComment))
         {
-            isDangerous = Match(type: TokenType.Dangerous);
+            while (Match(type: TokenType.Newline)) { }
         }
 
-        // Foreign routines are declared via realm-qualified names — `routine C::name(...)` /
-        // `routine LLVM::name(...)` (handled in the routine-declaration dispatch below), which produce an
-        // ExternalDeclaration. The old `external("C"|"llvm")` keyword form (incl. the block form) was
-        // removed in favor of that spelling.
+        // The @target(...) annotation is read pre-parse by the build's file gate; discard it here.
+        // Keeping it a real @-annotation (not a comment) gives it editor highlighting.
+        if (Check(type: TokenType.At) && PeekToken(offset: 1).Type == TokenType.Identifier
+            && PeekToken(offset: 1).Text == "target")
+        {
+            ParseAnnotations();
+            while (Match(type: TokenType.Newline)) { }
+        }
+    }
 
+    /// <summary>
+    /// Attempts to parse a file-level declaration (module/import/define/preset) that requires no
+    /// leading modifiers. Returns the parsed node when matched, or null to signal the caller to
+    /// continue with modifier-prefixed declaration parsing.
+    /// </summary>
+    private ISyntaxTreeNode? TryParseFileLevelDeclaration()
+    {
+        if (Match(type: TokenType.Module)) return ParseModuleDeclaration();
+        if (Match(type: TokenType.Import)) return ParseImportDeclaration();
+        if (Match(type: TokenType.Define)) return ParseDefineDeclaration();
+        if (Match(type: TokenType.Preset)) return ParsePresetDeclaration();
+        return null;
+    }
+
+    /// <summary>
+    /// Attempts to parse a type-body field, variable, or pass declaration. Returns the parsed node when
+    /// matched, or null to signal the caller to continue with routine/type declaration parsing.
+    /// </summary>
+    private ISyntaxTreeNode? TryParseTypeBodyOrVariableDeclaration(VisibilityModifier visibility,
+        List<string> annotations)
+    {
         // Decl-position expand: `expand m in allmemvarof(T)` inside a record/entity body generates one
-        // member-variable column per member of the (concrete-at-instantiation) source type. Used by the
-        // struct-of-arrays collections SplitArray/SplitList.
+        // member-variable column per member of the (concrete-at-instantiation) source type.
         if (_parsingTypeBody && Check(type: TokenType.Expand))
-        {
             return ParseExpandMemberDeclaration();
-        }
 
-        // Field declaration in type bodies: name: Type
-        // Detected by identifier followed by colon (no var keyword needed)
-        // Only allowed inside type bodies (record, entity)
-        if (_parsingTypeBody && Check(type: TokenType.Identifier) && PeekToken(offset: 1)
-               .Type == TokenType.Colon)
-        {
+        // Field declaration in type bodies: name: Type — identifier followed by colon, no var keyword.
+        if (_parsingTypeBody && Check(type: TokenType.Identifier)
+            && PeekToken(offset: 1).Type == TokenType.Colon)
             return ParseTypeBodyFieldDeclaration(visibility: visibility);
-        }
 
         // Variable declarations — optionally prefixed with `lateinit`
         bool declLateInit = false;
@@ -504,25 +483,17 @@ public partial class Parser
             Advance(); // consume 'lateinit'
             declLateInit = true;
         }
-        // `secret preset NAME` (visibility-prefixed preset) — route to the dedicated preset parser so
-        // it becomes a PresetDeclaration carrying its secret (file-private) flag, not a VariableDeclaration.
+
+        // `secret preset NAME` — route to preset parser so it carries the secret flag.
         if (Check(type: TokenType.Preset))
-        {
             return ParsePresetInDeclarationPosition(visibility: visibility);
-        }
-        // `global NAME: Type = value` — module-level mutable global. SUFLAE-ONLY: SF's GC + single-thread
-        // + REPL model makes a session-lifetime global honest, whereas RazorForge's deterministic
-        // scope-anchored teardown has no owning scope for one (so RF has no module-level mutable state).
-        // Also not allowed inside a type body (member variables use bare `name: Type`).
+
+        // `global NAME: Type = value` — module-level mutable global (Suflae only).
         if (Check(type: TokenType.Global))
-        {
-            return ParseGlobalInDeclarationPosition(visibility: visibility,
-                annotations: annotations);
-        }
+            return ParseGlobalInDeclarationPosition(visibility: visibility, annotations: annotations);
+
         if (Match(TokenType.Var))
         {
-            // In type bodies (record, entity), var/preset are not allowed
-            // MemberVariables use 'name: Type' syntax without var keywords
             if (_parsingTypeBody)
             {
                 throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
@@ -533,34 +504,33 @@ public partial class Parser
                     column: CurrentToken.Column,
                     language: _language);
             }
-
             return ParseVariableDeclaration(visibility: visibility,
                 annotations: annotations, isLateInit: declLateInit);
         }
 
-        // Pass statement/declaration (empty placeholder)
-        // Inside type bodies, returns PassDeclaration (a Declaration subtype)
-        // Outside type bodies, returns PassStatement (a Statement subtype)
+        // Pass statement/declaration (empty placeholder, RazorForge only).
         if (_language == Language.RazorForge && Match(type: TokenType.Pass))
         {
             ConsumeStatementTerminator();
-
-            // Inside type bodies, return a PassDeclaration (extends Declaration)
-            if (_parsingTypeBody)
-            {
-                return new PassDeclaration(Location: GetLocation());
-            }
-
-            return new PassStatement(Location: GetLocation());
+            return _parsingTypeBody
+                ? new PassDeclaration(Location: GetLocation())
+                : (ISyntaxTreeNode)new PassStatement(Location: GetLocation());
         }
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // ROUTINE DECLARATION (with async status modifiers)
-        // ═══════════════════════════════════════════════════════════════════════════
+        return null;
+    }
 
+    /// <summary>
+    /// Parses a routine declaration (with optional async modifiers) or a named type declaration
+    /// (entity/record/choice/flags/crashable/variant/protocol), falling through to statement parsing
+    /// when no keyword matches and no modifiers were consumed. Validates that any consumed visibility
+    /// or annotation modifiers are not left dangling.
+    /// </summary>
+    private ISyntaxTreeNode ParseRoutineOrTypeDeclaration(VisibilityModifier visibility,
+        List<string> annotations, bool isCommon, bool isDangerous)
+    {
         AsyncStatus asyncStatus = ParseAsyncStatusModifier();
 
-        // Routine (function) declaration
         if (Match(type: TokenType.Routine))
         {
             return ParseRoutineOrForeignDeclaration(visibility: visibility,
@@ -570,7 +540,6 @@ public partial class Parser
                 isDangerous: isDangerous);
         }
 
-        // If we consumed async modifiers but no 'routine' follows, that's an error
         if (asyncStatus != AsyncStatus.None)
         {
             string modifier = asyncStatus switch
@@ -587,57 +556,25 @@ public partial class Parser
                 language: _language);
         }
 
-        // Validate: storage class modifiers are not valid for type declarations
         RejectCommonOnTypeDeclaration(isCommon: isCommon);
 
-        // Entity/Record/Choice declarations
-        if (Match(type: TokenType.Entity))
-        {
-            return ParseEntityDeclaration(visibility: visibility);
-        }
+        if (Match(type: TokenType.Entity))   return ParseEntityDeclaration(visibility: visibility);
+        if (Match(type: TokenType.Record))   return ParseRecordDeclaration(visibility: visibility, annotations: annotations);
+        if (Match(type: TokenType.Choice))   return ParseChoiceDeclaration(visibility: visibility);
+        if (Match(type: TokenType.Flags))    return ParseFlagsDeclaration(visibility: visibility);
+        if (Match(type: TokenType.Crashable)) return ParseCrashableDeclaration(visibility: visibility);
+        if (Match(type: TokenType.Variant))  return ParseVariantDeclaration();
+        if (Match(type: TokenType.Protocol)) return ParseProtocolDeclaration(visibility: visibility);
 
-        if (Match(type: TokenType.Record))
-        {
-            return ParseRecordDeclaration(visibility: visibility, annotations: annotations);
-        }
-
-        if (Match(type: TokenType.Choice))
-        {
-            return ParseChoiceDeclaration(visibility: visibility);
-        }
-
-        if (Match(type: TokenType.Flags))
-        {
-            return ParseFlagsDeclaration(visibility: visibility);
-        }
-
-        if (Match(type: TokenType.Crashable))
-        {
-            return ParseCrashableDeclaration(visibility: visibility);
-        }
-
-        if (Match(type: TokenType.Variant))
-        {
-            return ParseVariantDeclaration();
-        }
-
-        if (Match(type: TokenType.Protocol))
-        {
-            return ParseProtocolDeclaration(visibility: visibility);
-        }
-
-        // If we parsed a visibility modifier but no declaration follows, it's an error (unless
-        // it is an record or protocol)
         if (visibility != VisibilityModifier.Open)
         {
-            string validDeclarations =
+            const string validDeclarations =
                 "routine, entity, record, choice, variant, protocol, preset, or var";
             throw ThrowParseError(code: GrammarDiagnosticCode.VisibilityWithoutDeclaration,
                 message: $"Visibility modifier '{visibility}' must be followed by a declaration " +
                          $"({validDeclarations})");
         }
 
-        // If we have annotations but no declaration, that's an error
         if (annotations.Count > 0)
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.AnnotationsWithoutDeclaration,
@@ -645,7 +582,6 @@ public partial class Parser
                 "Annotations must be followed by a declaration (routine, entity, record, etc.)");
         }
 
-        // Otherwise parse as statement
         return ParseStatement();
     }
 
@@ -654,7 +590,7 @@ public partial class Parser
     /// leading identifier+colon has been detected. Rejects the <c>external</c> visibility inside a
     /// strict record body.
     /// </summary>
-    private ISyntaxTreeNode ParseTypeBodyFieldDeclaration(VisibilityModifier visibility)
+    private VariableDeclaration ParseTypeBodyFieldDeclaration(VisibilityModifier visibility)
     {
         // In record bodies, external is not allowed
         if (_parsingStrictRecordBody && visibility is VisibilityModifier.External)
@@ -677,7 +613,7 @@ public partial class Parser
     /// <c>preset</c> inside a type body and routes to <see cref="ParsePresetDeclaration"/>, carrying the
     /// secret (file-private) flag from the visibility modifier.
     /// </summary>
-    private ISyntaxTreeNode ParsePresetInDeclarationPosition(VisibilityModifier visibility)
+    private PresetDeclaration ParsePresetInDeclarationPosition(VisibilityModifier visibility)
     {
         if (_parsingTypeBody)
         {
@@ -699,7 +635,7 @@ public partial class Parser
     /// RazorForge (no module-level mutable state) and inside a type body, then routes to
     /// <see cref="ParseGlobalDeclaration"/>.
     /// </summary>
-    private ISyntaxTreeNode ParseGlobalInDeclarationPosition(VisibilityModifier visibility,
+    private VariableDeclaration ParseGlobalInDeclarationPosition(VisibilityModifier visibility,
         List<string> annotations)
     {
         if (_language == Language.RazorForge)

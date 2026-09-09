@@ -8,7 +8,7 @@ namespace Compiler.Verification;
 /// Used by the semantic analyzer to parse types without C# equivalents:
 /// f128, d32, d64, d128, Integer, Decimal.
 /// </summary>
-public static class NumericLiteralParser
+public static partial class NumericLiteralParser
 {
     private const string RuntimeLib = "razorforge_runtime";
 
@@ -42,11 +42,10 @@ public static class NumericLiteralParser
     /// </summary>
     /// <param name="str">The string representation of the number.</param>
     /// <returns>The parsed f128 value.</returns>
-    [DllImport(dllName: RuntimeLib,
-        CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "rf_f128_from_string")]
-    public static extern F128
-        ParseF128([MarshalAs(unmanagedType: UnmanagedType.LPStr)] string str);
+    public static F128 ParseF128(string str) => ParseF128Native(str);
+
+    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_f128_from_string", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial F128 ParseF128Native(string str);
 
     #endregion
 
@@ -111,30 +110,14 @@ public static class NumericLiteralParser
         }
     }
 
-    /// <summary>
-    /// Parses a string to IEEE decimal32 (d32) using Intel DFP library.
-    /// </summary>
-    [DllImport(dllName: RuntimeLib,
-        CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "rf_d32_from_string")]
-    public static extern D32 ParseD32([MarshalAs(unmanagedType: UnmanagedType.LPStr)] string str);
+    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_d32_from_string", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial D32 ParseD32(string str);
 
-    /// <summary>
-    /// Parses a string to IEEE decimal64 (d64) using Intel DFP library.
-    /// </summary>
-    [DllImport(dllName: RuntimeLib,
-        CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "rf_d64_from_string")]
-    public static extern D64 ParseD64([MarshalAs(unmanagedType: UnmanagedType.LPStr)] string str);
+    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_d64_from_string", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial D64 ParseD64(string str);
 
-    /// <summary>
-    /// Parses a string to IEEE decimal128 (d128) using Intel DFP library.
-    /// </summary>
-    [DllImport(dllName: RuntimeLib,
-        CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "rf_d128_from_string")]
-    public static extern D128
-        ParseD128([MarshalAs(unmanagedType: UnmanagedType.LPStr)] string str);
+    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_d128_from_string", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial D128 ParseD128(string str);
 
     #endregion
 
@@ -325,7 +308,10 @@ public static class NumericLiteralParser
 
     private static int ClampZeroExp(int exp10, int bias, int qMin, int qMax)
     {
-        int q = exp10 < qMin ? qMin : exp10 > qMax ? qMax : exp10;
+        int q;
+        if (exp10 < qMin) q = qMin;
+        else if (exp10 > qMax) q = qMax;
+        else q = exp10;
         return q + bias;
     }
 
@@ -494,26 +480,19 @@ public static class NumericLiteralParser
     }
 
     /// <summary>A raw 256-bit value as four little-endian 64-bit words (W0 = bits 0..63).</summary>
+    [StructLayout(layoutKind: LayoutKind.Sequential)]
     public struct Decimal256
     {
         /// <summary>Bits 0..63.</summary>
-        public ulong W0;
+        public ulong W0 { get; set; }
         /// <summary>Bits 64..127.</summary>
-        public ulong W1;
+        public ulong W1 { get; set; }
         /// <summary>Bits 128..191.</summary>
-        public ulong W2;
+        public ulong W2 { get; set; }
         /// <summary>Bits 192..255.</summary>
-        public ulong W3;
+        public ulong W3 { get; set; }
     }
 
-    /// <summary>
-    /// Encodes a decimal literal into the software 70-digit <c>Core.Decimal</c> (decimal256) BID bit
-    /// pattern, matching <c>SoftFloat/DecimalA.rf</c> <c>decode()</c>/<c>decimalfixed_of_parts</c>:
-    /// bit255 = sign, bits254..233 = biased exponent (22 bits, q + 1572932), bits232..0 = coefficient
-    /// as a plain binary integer (&lt; 10^70 &lt; 2^233). Single-form (no combination field for finite
-    /// values). Pmax 70, stored exponent q in [-1572932, 1572795]. Throws on overflow (compile-time
-    /// literal range error); explicit inf/nan are handled before this is reached.
-    /// </summary>
     /// <summary>
     /// Canonicalizes a <c>Core.Decimal</c> (decimal256) coefficient/exponent pair — stripping
     /// fractional trailing zeros so equal values share bits (2.50 and 2.5 → 25*10^-1), while
@@ -535,6 +514,16 @@ public static class NumericLiteralParser
         return (coeff, exp + decBias);
     }
 
+    /// <summary>
+    /// Encodes a decimal literal into the software 70-digit <c>Core.Decimal</c> (decimal256) BID bit
+    /// pattern, matching <c>SoftFloat/DecimalA.rf</c> <c>decode()</c>/<c>decimalfixed_of_parts</c>:
+    /// bit255 = sign, bits254..233 = biased exponent (22 bits, q + 1572932), bits232..0 = coefficient
+    /// as a plain binary integer (&lt; 10^70 &lt; 2^233). Single-form (no combination field for finite
+    /// values). Pmax 70, stored exponent q in [-1572932, 1572795]. Throws on overflow (compile-time
+    /// literal range error); explicit inf/nan are handled before this is reached.
+    /// </summary>
+    /// <param name="str">The decimal literal string, with optional type suffix.</param>
+    /// <returns>The encoded 256-bit decimal value as four 64-bit words.</returns>
     public static Decimal256 EncodeDecimal(string str)
     {
         DecimalLiteralParts p = ParseDecimalLiteral(str);
@@ -564,55 +553,23 @@ public static class NumericLiteralParser
 
     #region Arbitrary precision Integer (LibBF)
 
-    /// <summary>
-    /// Parses a string to an arbitrary precision integer using LibBF.
-    /// Returns an opaque handle that must be freed with FreeInteger.
-    /// </summary>
-    [DllImport(dllName: RuntimeLib,
-        CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "rf_cs_integer_from_string")]
-    public static extern nint ParseInteger(
-        [MarshalAs(unmanagedType: UnmanagedType.LPStr)] string str);
+    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_from_string", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial nint ParseInteger(string str);
 
-    /// <summary>
-    /// Frees an arbitrary precision integer handle.
-    /// </summary>
-    [DllImport(dllName: RuntimeLib,
-        CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "rf_cs_integer_free")]
-    public static extern void FreeInteger(nint handle);
+    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_free")]
+    private static partial void FreeInteger(nint handle);
 
-    /// <summary>
-    /// Gets the byte size needed to store the integer as raw limbs.
-    /// </summary>
-    [DllImport(dllName: RuntimeLib,
-        CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "rf_cs_integer_byte_size")]
-    public static extern nuint GetIntegerByteSize(nint handle);
+    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_byte_size")]
+    private static partial nuint GetIntegerByteSize(nint handle);
 
-    /// <summary>
-    /// Copies integer limbs to a buffer.
-    /// </summary>
-    [DllImport(dllName: RuntimeLib,
-        CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "rf_cs_integer_to_bytes")]
-    public static extern nuint IntegerToBytes(nint handle, byte[] buffer, nuint bufferSize);
+    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_to_bytes")]
+    private static partial nuint IntegerToBytes(nint handle, byte[] buffer, nuint bufferSize);
 
-    /// <summary>
-    /// Gets the sign of the integer (0 = positive, 1 = negative).
-    /// </summary>
-    [DllImport(dllName: RuntimeLib,
-        CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "rf_cs_integer_sign")]
-    public static extern int GetIntegerSign(nint handle);
+    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_sign")]
+    private static partial int GetIntegerSign(nint handle);
 
-    /// <summary>
-    /// Gets the exponent of the integer.
-    /// </summary>
-    [DllImport(dllName: RuntimeLib,
-        CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "rf_cs_integer_exponent")]
-    public static extern long GetIntegerExponent(nint handle);
+    [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_exponent")]
+    private static partial long GetIntegerExponent(nint handle);
 
     #endregion
 

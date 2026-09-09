@@ -116,47 +116,14 @@ public partial class Parser
                 Location: location);
         }
 
-        // Numeric literals (integers and floats)
-        if (TryParseNumericLiteral(location: location, result: out Expression? numericExpr))
+        // Numeric, text, character, byte-size, and duration literals
+        if (TryParseLiteralPrimary(location: location, result: out Expression? literalExpr))
         {
-            return numericExpr!;
-        }
-
-        // Inserted text (f-strings)
-        if (TryParseInsertedText(location: location, result: out Expression? insertedTextExpr))
-        {
-            return insertedTextExpr!;
-        }
-
-        // Text literals
-        if (TryParseTextLiteral(location: location, result: out Expression? textExpr))
-        {
-            return textExpr!;
-        }
-
-        // Character literals
-        if (TryParseCharacterLiteral(location: location, result: out Expression? letterExpr))
-        {
-            return letterExpr!;
-        }
-
-        // ByteSize literals
-        if (TryParseByteSizeLiteral(location: location, result: out Expression? memoryExpr))
-        {
-            return memoryExpr!;
-        }
-
-        // Duration/time literals
-        if (TryParseDurationLiteral(location: location, result: out Expression? durationExpr))
-        {
-            return durationExpr!;
+            return literalExpr!;
         }
 
         // Arrow lambda expression: x => expr or x given y => expr (single parameter, no parens)
-        if (!_inWhenPatternContext && !_inWhenConditionContext &&
-            Check(type: TokenType.Identifier) && (PeekToken(offset: 1)
-               .Type == TokenType.FatArrow || PeekToken(offset: 1)
-               .Type == TokenType.Given))
+        if (IsArrowLambdaStart())
         {
             return ParseArrowLambdaExpression(location: location);
         }
@@ -206,7 +173,7 @@ public partial class Parser
     /// the <c>me</c> receiver, a single-hole <c>_</c> lambda placeholder, a realm-qualified reference
     /// (<c>RF::Core.List</c>), or a plain identifier.
     /// </summary>
-    private Expression ParseIdentifierPrimary(SourceLocation location)
+    private IdentifierExpression ParseIdentifierPrimary(SourceLocation location)
     {
         string text = PeekToken(offset: -1)
            .Text;
@@ -237,8 +204,17 @@ public partial class Parser
                 ConsumeIdentifier(errorMessage: "Expected name after realm qualifier '::'"));
             while (Check(type: TokenType.Dot) || Check(type: TokenType.Slash))
             {
-                realmSb.Append(Match(type: TokenType.Dot) ? '.'
-                    : (Match(type: TokenType.Slash) ? '/' : '.'));
+                char segSep;
+                if (Match(type: TokenType.Dot))
+                {
+                    segSep = '.';
+                }
+                else
+                {
+                    Match(type: TokenType.Slash);
+                    segSep = '/';
+                }
+                realmSb.Append(segSep);
                 realmSb.Append(ConsumeIdentifier(
                     errorMessage: "Expected name component after '.'/'/' in realm-qualified reference"));
             }
@@ -410,43 +386,12 @@ public partial class Parser
 
         if (Match(type: TokenType.Is))
         {
-            _inWhenPatternContext = true;
-            Pattern pattern;
-            if (Check(type: TokenType.Identifier) && PeekToken(offset: 1).Type is TokenType.And or TokenType.Or or TokenType.But)
-            {
-                pattern = ParseFlagsIsWhenPattern();
-            }
-            else if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
-            {
-                pattern = ParseTypePattern();
-            }
-            else
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                    message: $"'is' must be followed by a type name. For value comparisons, use '== {CurrentToken.Text}' instead of 'is {CurrentToken.Text}'.");
-            }
-
-            _inWhenPatternContext = false;
-            return pattern;
+            return ParseIsWhenPattern();
         }
 
         if (Match(type: TokenType.IsNot))
         {
-            _inWhenPatternContext = true;
-            Pattern pattern;
-            if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
-            {
-                TypeExpression type = ParseType();
-                pattern = new NegatedTypePattern(Type: type, Location: clauseLocation);
-            }
-            else
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                    message: "'isnot' must be followed by a type name.");
-            }
-
-            _inWhenPatternContext = false;
-            return pattern;
+            return ParseIsNotWhenPattern(clauseLocation: clauseLocation);
         }
 
         if (IsComparisonOperator(tokenType: CurrentToken.Type))
@@ -513,5 +458,84 @@ public partial class Parser
         _inWhenClauseBody = false;
         return body;
     }
+
+    /// <summary>
+    /// Tries to parse any of the typed literal primary forms at the current token position: numeric
+    /// (integer and float), inserted text (f-strings), text, character, byte-size, and duration
+    /// literals. Returns <c>true</c> and sets <paramref name="result"/> when one is consumed; returns
+    /// <c>false</c> when the current token does not start a literal.
+    /// </summary>
+    private bool TryParseLiteralPrimary(SourceLocation location, out Expression? result)
+    {
+        if (TryParseNumericLiteral(location: location, result: out result)) return true;
+        if (TryParseInsertedText(location: location, result: out result)) return true;
+        if (TryParseTextLiteral(location: location, result: out result)) return true;
+        if (TryParseCharacterLiteral(location: location, result: out result)) return true;
+        if (TryParseByteSizeLiteral(location: location, result: out result)) return true;
+        if (TryParseDurationLiteral(location: location, result: out result)) return true;
+        result = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Parses the pattern body of an <c>is</c> when-clause after the <c>is</c> keyword has been consumed:
+    /// either a flags-combined pattern (<c>is A and B</c>) or a simple type pattern (<c>is TypeName</c>).
+    /// </summary>
+    private Pattern ParseIsWhenPattern()
+    {
+        _inWhenPatternContext = true;
+        Pattern pattern;
+        if (Check(type: TokenType.Identifier) &&
+            PeekToken(offset: 1).Type is TokenType.And or TokenType.Or or TokenType.But)
+        {
+            pattern = ParseFlagsIsWhenPattern();
+        }
+        else if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
+        {
+            pattern = ParseTypePattern();
+        }
+        else
+        {
+            throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
+                message: $"'is' must be followed by a type name. For value comparisons, use '== {CurrentToken.Text}' instead of 'is {CurrentToken.Text}'.");
+        }
+
+        _inWhenPatternContext = false;
+        return pattern;
+    }
+
+    /// <summary>
+    /// Parses the pattern body of an <c>isnot</c> when-clause after the <c>isnot</c> keyword has been consumed:
+    /// a negated type pattern (<c>isnot TypeName</c>).
+    /// </summary>
+    private Pattern ParseIsNotWhenPattern(SourceLocation clauseLocation)
+    {
+        _inWhenPatternContext = true;
+        Pattern pattern;
+        if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
+        {
+            TypeExpression type = ParseType();
+            pattern = new NegatedTypePattern(Type: type, Location: clauseLocation);
+        }
+        else
+        {
+            throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
+                message: "'isnot' must be followed by a type name.");
+        }
+
+        _inWhenPatternContext = false;
+        return pattern;
+    }
+
+    /// <summary>
+    /// Returns true when the current token position looks like the start of a bare arrow lambda
+    /// (<c>x =&gt; expr</c> or <c>x given y =&gt; expr</c>): an identifier followed by
+    /// <c>=&gt;</c> or <c>given</c>, outside any when-pattern or when-condition context.
+    /// </summary>
+    private bool IsArrowLambdaStart() =>
+        !_inWhenPatternContext && !_inWhenConditionContext &&
+        Check(type: TokenType.Identifier) &&
+        (PeekToken(offset: 1).Type == TokenType.FatArrow ||
+         PeekToken(offset: 1).Type == TokenType.Given);
 
 }

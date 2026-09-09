@@ -23,9 +23,13 @@ public class ParserErrorTests
                           y: F32
                         """;
 
-        // Should either throw ParseException or recover with incomplete AST
-        Record.Exception(testCode: () => Parse(source: source));
-        // Parser may recover or throw - either is acceptable for incomplete input
+        // Parser either throws on the malformed input or recovers and reports errors — both are acceptable.
+        Exception? thrownEx = null;
+        Compiler.Parser.Parser? recoveredParser = null;
+        try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
+        catch (Exception e) { thrownEx = e; }
+        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
+            userMessage: "Expected parse to throw or report errors for a record missing its closing brace.");
     }
     /// <summary>
     /// Verifies that the parser accepts record missing member variable type throws or recovers.
@@ -40,8 +44,13 @@ public class ParserErrorTests
                           y: F32
                         """;
 
-        Record.Exception(testCode: () => Parse(source: source));
-        // Should not parse cleanly - missing type after colon
+        // Should not parse cleanly - missing type after colon: either throw or recover with errors.
+        Exception? thrownEx = null;
+        Compiler.Parser.Parser? recoveredParser = null;
+        try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
+        catch (Exception e) { thrownEx = e; }
+        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
+            userMessage: "Expected parse to throw or report errors for a member variable with a missing type.");
     }
     /// <summary>
     /// Verifies that the parser accepts record var keyword as invalid input for later validation.
@@ -221,8 +230,13 @@ public class ParserErrorTests
                         variant Empty
                         """;
 
-        // Empty variant should either throw or produce error
-        Record.Exception(testCode: () => Parse(source: source));
+        // Empty variant should either throw or produce a parse error.
+        Exception? thrownEx = null;
+        Compiler.Parser.Parser? recoveredParser = null;
+        try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
+        catch (Exception e) { thrownEx = e; }
+        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
+            userMessage: "Expected parse to throw or report errors for an empty variant body.");
     }
     /// <summary>
     /// Verifies that the parser accepts variant follows protocol and fails in the expected way.
@@ -237,8 +251,13 @@ public class ParserErrorTests
                           Rect: F32
                         """;
 
-        // Variants cannot obey protocols — parser does not support 'obeys' on variants
-        Record.Exception(testCode: () => Parse(source: source));
+        // Variants cannot obey protocols — parser does not support 'obeys' on variants: expect throw or parse error.
+        Exception? thrownEx = null;
+        Compiler.Parser.Parser? recoveredParser = null;
+        try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
+        catch (Exception e) { thrownEx = e; }
+        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
+            userMessage: "Expected parse to throw or report errors when a variant uses 'obeys'.");
     }
 
     #endregion
@@ -392,8 +411,13 @@ public class ParserErrorTests
                             return 1
                         """;
 
-        Record.Exception(testCode: () => Parse(source: source));
-        // Missing closing brace for if statement
+        // Missing closing brace for if statement: parser should throw or recover with errors.
+        Exception? thrownEx = null;
+        Compiler.Parser.Parser? recoveredParser = null;
+        try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
+        catch (Exception e) { thrownEx = e; }
+        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
+            userMessage: "Expected parse to throw or report errors for mismatched braces.");
     }
     /// <summary>
     /// Verifies that the parser accepts mismatched parens and fails in the expected way.
@@ -407,8 +431,13 @@ public class ParserErrorTests
                           return bar(1, 2
                         """;
 
-        Record.Exception(testCode: () => Parse(source: source));
-        // Missing closing paren for call
+        // Missing closing paren for call: parser should throw or recover with errors.
+        Exception? thrownEx = null;
+        Compiler.Parser.Parser? recoveredParser = null;
+        try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
+        catch (Exception e) { thrownEx = e; }
+        Assert.True(thrownEx != null || recoveredParser!.HasErrors,
+            userMessage: "Expected parse to throw or report errors for a mismatched parenthesis.");
     }
 
     #endregion

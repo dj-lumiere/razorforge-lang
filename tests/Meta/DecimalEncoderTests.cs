@@ -42,6 +42,7 @@ public sealed class DecimalEncoderTests
         (bool sign, int exp, BigInteger coeff) = Decode(enc);
 
         Assert.Equal(wantSign, sign);
+        Assert.Equal(wantExpHint, exp);
 
         // Reconstruct value = (sign) coeff * 10^exp and compare to the literal num/den exactly
         // (these inputs all have <= 70 significant digits, so encoding is exact).

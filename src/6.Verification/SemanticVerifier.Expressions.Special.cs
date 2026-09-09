@@ -110,116 +110,137 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Substitutes type parameters using a mapping.
+    /// Substitutes type parameters using a mapping. Dispatches to type-specific helpers so each
+    /// structural case (projection, generic resolution, routine type, tuple) remains focused.
     /// </summary>
     private TypeSymbol SubstituteWithMapping(TypeSymbol type,
         Dictionary<string, TypeSymbol> substitutions)
     {
         // Associated-type projection (`S/Iter`): substitute the base, then resolve via its binding.
-        // Done at the call site so a memberRoutine return like `?EnumerateEmitter[T, S/Iter]` resolves to
-        // the CONCRETE emitter (EnumerateEmitter[Text, ListEmitter[Text]]) — otherwise reachability
-        // marks the unresolved-projection emitter's memberRoutines and the concrete ones never generate.
         if (type is AssociatedProjectionTypeInfo proj)
-        {
-            TypeSymbol newBase = SubstituteWithMapping(type: proj.Base, substitutions: substitutions);
-            TypeInfo? bound = RecordTypeInfo.ProjectAssociatedBinding(baseType: newBase,
-                slot: proj.SlotName);
-            if (bound != null)
-            {
-                return SubstituteWithMapping(type: bound, substitutions: substitutions);
-            }
-            return ReferenceEquals(objA: newBase, objB: proj.Base)
-                ? proj
-                : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: proj.SlotName);
-        }
+            return SubstituteProjection(proj: proj, substitutions: substitutions);
 
         // Direct type parameter replacement (covers ProtocolSelf via its Name "Me").
         if (substitutions.TryGetValue(key: type.Name, value: out TypeSymbol? replacement))
-        {
             return replacement;
-        }
 
-        // For generic resolutions, recursively substitute in type arguments
+        // For generic resolutions, recursively substitute in type arguments.
         if (type is { IsGenericResolution: true, TypeArguments: not null })
         {
-            var substitutedArgs = new List<TypeSymbol>();
-            bool anyChanged = false;
-
-            foreach (TypeSymbol arg in type.TypeArguments)
-            {
-                TypeSymbol substitutedArg =
-                    SubstituteWithMapping(type: arg, substitutions: substitutions);
-                substitutedArgs.Add(item: substitutedArg);
-                if (!ReferenceEquals(objA: substitutedArg, objB: arg))
-                {
-                    anyChanged = true;
-                }
-            }
-
-            if (anyChanged)
-            {
-                // Create a new resolution with substituted arguments
-                TypeSymbol? baseDef = GetGenericDefinition(resolution: type);
-                if (baseDef != null)
-                {
-                    return _registry.GetOrCreateResolution(genericDef: baseDef,
-                        typeArguments: substitutedArgs);
-                }
-            }
+            TypeSymbol? resolved = SubstituteGenericResolution(type: type, substitutions: substitutions);
+            if (resolved != null) return resolved;
         }
 
-        // Routine types (callback parameters): substitute inside parameter and return types
-        // so `Routine[(T, T), Bool]` becomes `Routine[(S64, S64), Bool]` for target-typing
-        // lambda arguments.
+        // Routine types: substitute inside parameter and return types.
         if (type is RoutineTypeInfo routineType)
         {
-            var newParams = new List<TypeInfo>(capacity: routineType.ParameterTypes.Count);
-            bool anyChanged = false;
-            foreach (TypeInfo p in routineType.ParameterTypes)
-            {
-                var substituted = (TypeInfo)SubstituteWithMapping(type: p,
-                    substitutions: substitutions);
-                newParams.Add(item: substituted);
-                if (!ReferenceEquals(objA: substituted, objB: p)) anyChanged = true;
-            }
-            TypeInfo? newReturn = routineType.ReturnType;
-            if (newReturn != null)
-            {
-                var substitutedRet = (TypeInfo)SubstituteWithMapping(type: newReturn,
-                    substitutions: substitutions);
-                if (!ReferenceEquals(objA: substitutedRet, objB: newReturn))
-                {
-                    newReturn = substitutedRet;
-                    anyChanged = true;
-                }
-            }
-            if (anyChanged)
-            {
-                return _registry.GetOrCreateRoutineType(parameterTypes: newParams,
-                    returnType: newReturn,
-                    isFailable: routineType.IsFailable);
-            }
+            TypeSymbol? resolved = SubstituteRoutineType(routineType: routineType, substitutions: substitutions);
+            if (resolved != null) return resolved;
         }
 
         // Tuple types: substitute inside element types.
         if (type is TupleTypeInfo tupleType)
         {
-            var newElems = new List<TypeInfo>(capacity: tupleType.ElementTypes.Count);
-            bool anyChanged = false;
-            foreach (TypeInfo el in tupleType.ElementTypes)
-            {
-                var substituted = (TypeInfo)SubstituteWithMapping(type: el,
-                    substitutions: substitutions);
-                newElems.Add(item: substituted);
-                if (!ReferenceEquals(objA: substituted, objB: el)) anyChanged = true;
-            }
-            if (anyChanged)
-            {
-                return _registry.GetOrCreateTupleType(elementTypes: newElems);
-            }
+            TypeSymbol? resolved = SubstituteTupleType(tupleType: tupleType, substitutions: substitutions);
+            if (resolved != null) return resolved;
         }
 
         return type;
+    }
+
+    /// <summary>
+    /// Substitutes through an <see cref="AssociatedProjectionTypeInfo"/>: substitutes the base,
+    /// then resolves the associated binding if one is now available, or rebuilds the projection.
+    /// Done at the call site so a member-routine return like <c>?EnumerateEmitter[T, S/Iter]</c>
+    /// resolves to the CONCRETE emitter — otherwise reachability marks the unresolved-projection
+    /// emitter's member routines and the concrete ones never generate.
+    /// </summary>
+    private TypeSymbol SubstituteProjection(AssociatedProjectionTypeInfo proj,
+        Dictionary<string, TypeSymbol> substitutions)
+    {
+        TypeSymbol newBase = SubstituteWithMapping(type: proj.Base, substitutions: substitutions);
+        TypeInfo? bound = RecordTypeInfo.ProjectAssociatedBinding(baseType: newBase,
+            slot: proj.SlotName);
+        if (bound != null)
+            return SubstituteWithMapping(type: bound, substitutions: substitutions);
+        return ReferenceEquals(objA: newBase, objB: proj.Base)
+            ? proj
+            : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: proj.SlotName);
+    }
+
+    /// <summary>
+    /// Substitutes into the type arguments of a generic resolution. Returns the new resolution
+    /// when any argument changed, or null when no substitution was needed.
+    /// </summary>
+    private TypeSymbol? SubstituteGenericResolution(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitutions)
+    {
+        var substitutedArgs = new List<TypeSymbol>();
+        bool anyChanged = false;
+        foreach (TypeSymbol arg in type.TypeArguments!)
+        {
+            TypeSymbol substitutedArg = SubstituteWithMapping(type: arg, substitutions: substitutions);
+            substitutedArgs.Add(item: substitutedArg);
+            if (!ReferenceEquals(objA: substitutedArg, objB: arg))
+                anyChanged = true;
+        }
+        if (!anyChanged) return null;
+        TypeSymbol? baseDef = GetGenericDefinition(resolution: type);
+        return baseDef != null
+            ? _registry.GetOrCreateResolution(genericDef: baseDef, typeArguments: substitutedArgs)
+            : null;
+    }
+
+    /// <summary>
+    /// Substitutes inside a routine type's parameter and return types so
+    /// <c>Routine[(T, T), Bool]</c> becomes <c>Routine[(S64, S64), Bool]</c> for
+    /// target-typing lambda arguments. Returns the new routine type when any slot changed,
+    /// or null when no substitution was needed.
+    /// </summary>
+    private TypeSymbol? SubstituteRoutineType(RoutineTypeInfo routineType,
+        Dictionary<string, TypeSymbol> substitutions)
+    {
+        var newParams = new List<TypeInfo>(capacity: routineType.ParameterTypes.Count);
+        bool anyChanged = false;
+        foreach (TypeInfo p in routineType.ParameterTypes)
+        {
+            var substituted = SubstituteWithMapping(type: p, substitutions: substitutions);
+            newParams.Add(item: substituted);
+            if (!ReferenceEquals(objA: substituted, objB: p)) anyChanged = true;
+        }
+        TypeInfo? newReturn = routineType.ReturnType;
+        if (newReturn != null)
+        {
+            var substitutedRet = SubstituteWithMapping(type: newReturn, substitutions: substitutions);
+            if (!ReferenceEquals(objA: substitutedRet, objB: newReturn))
+            {
+                newReturn = substitutedRet;
+                anyChanged = true;
+            }
+        }
+        return anyChanged
+            ? _registry.GetOrCreateRoutineType(parameterTypes: newParams,
+                returnType: newReturn,
+                isFailable: routineType.IsFailable)
+            : null;
+    }
+
+    /// <summary>
+    /// Substitutes inside a tuple type's element types. Returns the new tuple type when any
+    /// element changed, or null when no substitution was needed.
+    /// </summary>
+    private TypeSymbol? SubstituteTupleType(TupleTypeInfo tupleType,
+        Dictionary<string, TypeSymbol> substitutions)
+    {
+        var newElems = new List<TypeInfo>(capacity: tupleType.ElementTypes.Count);
+        bool anyChanged = false;
+        foreach (TypeInfo el in tupleType.ElementTypes)
+        {
+            var substituted = SubstituteWithMapping(type: el, substitutions: substitutions);
+            newElems.Add(item: substituted);
+            if (!ReferenceEquals(objA: substituted, objB: el)) anyChanged = true;
+        }
+        return anyChanged ? _registry.GetOrCreateTupleType(elementTypes: newElems) : null;
     }
 
     /// <summary>

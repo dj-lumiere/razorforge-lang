@@ -26,8 +26,13 @@ namespace Compiler.Serialization;
 /// </summary>
 public static class ModularStdlibCache
 {
+    /// <summary>Pseudo-module label for monomorphized (instantiated) generic symbols.</summary>
     public const string Inst = "«inst»";
+
+    /// <summary>Pseudo-module label for structural/builtin types that have no explicit module.</summary>
     public const string Builtin = "«builtin»";
+
+    /// <summary>Pseudo-module label for body entries whose routine key cannot be attributed to any known module.</summary>
     public const string Misc = "«misc»"; // body entries whose routine key resolves to no known module
 
     private const string IndexFile = "index.pbrf";
@@ -63,41 +68,120 @@ public static class ModularStdlibCache
 
     /// <summary>One module's slice of every partitionable dictionary. Serialized as the artifact's container
     /// root; symbol values become externs, body values stay local. Reassembly is a plain union across all
-    /// modules' slices, so any per-entry partition reproduces the exact original state.</summary>
+    /// modules' slices, so any per-entry partition reproduces the exact original state.
+    ///
+    /// <para>Fields are intentionally public (not properties) because <see cref="PbrfSerializer"/> serializes
+    /// via field reflection; converting to auto-properties would change the wire-format field names.</para></summary>
     public sealed class ModuleSlice
     {
+        /// <summary>All types owned by this module, keyed by their full name.</summary>
         public Dictionary<string, TypeInfo> Types = new();
+
+        /// <summary>Type resolution table (alias/short-name → canonical TypeInfo) for this module's types.</summary>
         public Dictionary<string, TypeInfo> Resolutions = new();
+
+        /// <summary>RC wrapper type resolutions (name → WrapperTypeInfo) for this module.</summary>
         public Dictionary<string, WrapperTypeInfo> WrapperResolutions = new();
+
+        /// <summary>Entity specialization overrides (key → TypeInfo) belonging to this module.</summary>
         public Dictionary<string, TypeInfo> EntitySpecializations = new();
+
+        /// <summary>Short-name → TypeInfo lookup table for this module's types.</summary>
         public Dictionary<string, TypeInfo> TypesByShortName = new();
+
+        /// <summary>All routines owned by this module, keyed by their full qualified name.</summary>
         public Dictionary<string, RoutineInfo> Routines = new();
+
+        /// <summary>Routines indexed by their fully-qualified name (used for fast exact-name lookup).</summary>
         public Dictionary<string, RoutineInfo> RoutinesByQualifiedName = new();
+
+        /// <summary>Routines grouped by owner type name, then by routine name, as a list of overloads.</summary>
         public Dictionary<string, Dictionary<string, List<RoutineInfo>>> RoutinesByOwner = new();
+
+        /// <summary>Routine resolution table (short/alias key → RoutineInfo) for this module.</summary>
         public Dictionary<string, RoutineInfo> RoutineResolutions = new();
+
+        /// <summary>Preset (constant/inline) variable declarations owned by this module.</summary>
         public Dictionary<string, VariableInfo> Presets = new();
+
+        /// <summary>Presets indexed by their fully-qualified name.</summary>
         public Dictionary<string, VariableInfo> PresetsByQualifiedName = new();
+
+        /// <summary>Stdlib program AST entries (one per source file) attributed to this module.</summary>
         public List<ProgramEntry> StdlibPrograms = new();
+
+        /// <summary>Synthesized routine bodies (wired/$represent/$diagnose/derive) produced for this module's types.</summary>
         public Dictionary<string, SynthEntry> SynthesizedBodies = new();
+
+        /// <summary>Error-variant routine bodies (try_/check_/lookup_ wrappers) attributed to this module.</summary>
         public Dictionary<string, Statement> VariantBodies = new();
+
+        /// <summary>Monomorphized generic routine bodies attributed to the inst pseudo-module.</summary>
         public Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies = new();
+
+        /// <summary>Regular routine bodies attributed to this module.</summary>
         public Dictionary<string, Statement> RoutineBodies = new();
+
+        /// <summary>Deferred error-variant base bodies awaiting specialization, attributed to this module.</summary>
         public Dictionary<string, DeferredEntry> DeferredVariantBases = new();
     }
 
     // ValueTuples serialize via reflection (boxed struct) which is slow + fragile for records; use plain
     // classes for the tuple-shaped entries so they go through the fast compiled-field path.
-    public sealed class ProgramEntry { public Program Program = null!; public string FilePath = ""; public string Module = ""; }
-    public sealed class SynthEntry { public RoutineInfo Routine = null!; public Statement Body = null!; }
-    public sealed class DeferredEntry { public RoutineInfo BaseRoutine = null!; public Statement Body = null!; public bool Pessimistic; }
+    // Fields are intentionally public (not properties): PbrfSerializer uses field reflection for the wire format.
+
+    /// <summary>Holds the parsed AST and metadata for one stdlib source file.</summary>
+    public sealed class ProgramEntry
+    {
+        /// <summary>The parsed program AST for the stdlib source file.</summary>
+        public Program Program = null!;
+
+        /// <summary>Absolute path of the stdlib source file on disk.</summary>
+        public string FilePath = "";
+
+        /// <summary>Module label that owns this source file (e.g. "Core", "Collections/List").</summary>
+        public string Module = "";
+    }
+
+    /// <summary>Holds a synthesized routine body together with its owning routine descriptor.</summary>
+    public sealed class SynthEntry
+    {
+        /// <summary>The routine descriptor that owns this synthesized body.</summary>
+        public RoutineInfo Routine = null!;
+
+        /// <summary>The synthesized body statement (a block or lowered form).</summary>
+        public Statement Body = null!;
+    }
+
+    /// <summary>Holds a deferred error-variant base body awaiting per-concrete-type specialization.</summary>
+    public sealed class DeferredEntry
+    {
+        /// <summary>The base routine descriptor from which the variant is specialized.</summary>
+        public RoutineInfo BaseRoutine = null!;
+
+        /// <summary>The unspecialized body statement carried until specialization time.</summary>
+        public Statement Body = null!;
+
+        /// <summary>True if this deferred body was produced under pessimistic (check_) semantics.</summary>
+        public bool Pessimistic;
+    }
 
     /// <summary>Top-level index: global (non-sliced) metadata + the module label list.</summary>
     public sealed class Index
     {
+        /// <summary>The realm/language (RazorForge or Suflae) that these stdlib artifacts were compiled for.</summary>
         public Language Language;
+
+        /// <summary>Set of module labels that were loaded during the compilation that produced these artifacts.</summary>
         public HashSet<string> LoadedModules = new();
+
+        /// <summary>Mapping from module path to canonical module name, as recorded at analysis time.</summary>
         public Dictionary<string, string> ModuleNames = new();
+
+        /// <summary>Absolute path to the stdlib root directory used when these artifacts were produced.</summary>
         public string? StdlibRootPath;
+
+        /// <summary>Artifact labels present in this cache directory (each maps to a &lt;label&gt;.pbrf file).</summary>
         public List<string> Modules = new(); // artifact labels (each → <label>.pbrf)
     }
 
@@ -168,40 +252,55 @@ public static class ModularStdlibCache
             return s;
         }
 
-        foreach (var kv in reg.Types) Slice(ModuleOf(kv.Value)).Types[kv.Key] = kv.Value;
-        foreach (var kv in reg.Resolutions) Slice(ModuleOf(kv.Value)).Resolutions[kv.Key] = kv.Value;
-        foreach (var kv in reg.WrapperResolutions) Slice(ModuleOf(kv.Value)).WrapperResolutions[kv.Key] = kv.Value;
-        foreach (var kv in reg.EntitySpecializations) Slice(ModuleOf(kv.Value)).EntitySpecializations[kv.Key] = kv.Value;
-        foreach (var kv in reg.TypesByShortName) Slice(ModuleOf(kv.Value)).TypesByShortName[kv.Key] = kv.Value;
-        foreach (var kv in reg.Routines) Slice(ModuleOf(kv.Value)).Routines[kv.Key] = kv.Value;
-        foreach (var kv in reg.RoutinesByQualifiedName) Slice(ModuleOf(kv.Value)).RoutinesByQualifiedName[kv.Key] = kv.Value;
-        foreach (var kv in reg.RoutineResolutions) Slice(ModuleOf(kv.Value)).RoutineResolutions[kv.Key] = kv.Value;
-        foreach (var kv in reg.Presets) Slice(Builtin).Presets[kv.Key] = kv.Value;
-        foreach (var kv in reg.PresetsByQualifiedName) Slice(Builtin).PresetsByQualifiedName[kv.Key] = kv.Value;
+        SliceRegistryDictionaries(reg, Slice);
+        SliceBodyDictionaries(state, keyToModule, Slice);
+    }
+
+    /// <summary>Slices the type-registry symbol dictionaries from <paramref name="reg"/> into per-module slices
+    /// using the <paramref name="getSlice"/> factory.</summary>
+    private static void SliceRegistryDictionaries(TypeRegistry.StdlibSnapshot reg,
+        Func<string, ModuleSlice> getSlice)
+    {
+        foreach (var kv in reg.Types) getSlice(ModuleOf(kv.Value)).Types[kv.Key] = kv.Value;
+        foreach (var kv in reg.Resolutions) getSlice(ModuleOf(kv.Value)).Resolutions[kv.Key] = kv.Value;
+        foreach (var kv in reg.WrapperResolutions) getSlice(ModuleOf(kv.Value)).WrapperResolutions[kv.Key] = kv.Value;
+        foreach (var kv in reg.EntitySpecializations) getSlice(ModuleOf(kv.Value)).EntitySpecializations[kv.Key] = kv.Value;
+        foreach (var kv in reg.TypesByShortName) getSlice(ModuleOf(kv.Value)).TypesByShortName[kv.Key] = kv.Value;
+        foreach (var kv in reg.Routines) getSlice(ModuleOf(kv.Value)).Routines[kv.Key] = kv.Value;
+        foreach (var kv in reg.RoutinesByQualifiedName) getSlice(ModuleOf(kv.Value)).RoutinesByQualifiedName[kv.Key] = kv.Value;
+        foreach (var kv in reg.RoutineResolutions) getSlice(ModuleOf(kv.Value)).RoutineResolutions[kv.Key] = kv.Value;
+        foreach (var kv in reg.Presets) getSlice(Builtin).Presets[kv.Key] = kv.Value;
+        foreach (var kv in reg.PresetsByQualifiedName) getSlice(Builtin).PresetsByQualifiedName[kv.Key] = kv.Value;
         foreach (var kv in reg.RoutinesByOwner)
         {
             string m = kv.Value.Values.SelectMany(l => l).Select(ModuleOf).FirstOrDefault() ?? Misc;
-            Slice(m).RoutinesByOwner[kv.Key] = kv.Value;
+            getSlice(m).RoutinesByOwner[kv.Key] = kv.Value;
         }
-
-        foreach (var e in state.StdlibPrograms)
-            Slice(string.IsNullOrEmpty(e.Module) ? Misc : e.Module)
-                .StdlibPrograms.Add(new ProgramEntry { Program = e.Program, FilePath = e.FilePath, Module = e.Module });
-        foreach (var kv in state.SynthesizedBodies)
-            Slice(ModuleOf(kv.Value.Routine)).SynthesizedBodies[kv.Key] =
-                new SynthEntry { Routine = kv.Value.Routine, Body = kv.Value.Body };
-        foreach (var kv in state.VariantBodies)
-            Slice(keyToModule.GetValueOrDefault(kv.Key, Misc)).VariantBodies[kv.Key] = kv.Value;
-        foreach (var kv in state.RoutineBodies)
-            Slice(keyToModule.GetValueOrDefault(kv.Key, Misc)).RoutineBodies[kv.Key] = kv.Value;
-        foreach (var kv in state.InstantiatedGenericBodies)
-            Slice(Inst).InstantiatedGenericBodies[kv.Key] = kv.Value;
         foreach (var kv in reg.DeferredVariantBases)
-            Slice(ModuleOf(kv.Value.baseRoutine)).DeferredVariantBases[kv.Key] =
+            getSlice(ModuleOf(kv.Value.baseRoutine)).DeferredVariantBases[kv.Key] =
                 new DeferredEntry
                 {
                     BaseRoutine = kv.Value.baseRoutine, Body = kv.Value.body, Pessimistic = kv.Value.pessimistic
                 };
+    }
+
+    /// <summary>Slices the body dictionaries from <paramref name="state"/> into per-module slices
+    /// using the <paramref name="getSlice"/> factory.</summary>
+    private static void SliceBodyDictionaries(SemanticVerifier.CompiledStdlibState state,
+        Dictionary<string, string> keyToModule, Func<string, ModuleSlice> getSlice)
+    {
+        foreach (var e in state.StdlibPrograms)
+            getSlice(string.IsNullOrEmpty(e.Module) ? Misc : e.Module)
+                .StdlibPrograms.Add(new ProgramEntry { Program = e.Program, FilePath = e.FilePath, Module = e.Module });
+        foreach (var kv in state.SynthesizedBodies)
+            getSlice(ModuleOf(kv.Value.Routine)).SynthesizedBodies[kv.Key] =
+                new SynthEntry { Routine = kv.Value.Routine, Body = kv.Value.Body };
+        foreach (var kv in state.VariantBodies)
+            getSlice(keyToModule.GetValueOrDefault(kv.Key, Misc)).VariantBodies[kv.Key] = kv.Value;
+        foreach (var kv in state.RoutineBodies)
+            getSlice(keyToModule.GetValueOrDefault(kv.Key, Misc)).RoutineBodies[kv.Key] = kv.Value;
+        foreach (var kv in state.InstantiatedGenericBodies)
+            getSlice(Inst).InstantiatedGenericBodies[kv.Key] = kv.Value;
     }
 
     /// <summary>Writes one <c>.pbrf</c> artifact per module label under <paramref name="dir"/>: each holds the
@@ -304,17 +403,35 @@ public static class ModularStdlibCache
 
     private static void MergeInto(ModuleSlice dst, ModuleSlice src)
     {
+        MergeTypeDictionaries(dst, src);
+        MergeRoutineDictionaries(dst, src);
+        MergeBodyDictionaries(dst, src);
+    }
+
+    /// <summary>Merges type-related dictionary slices from <paramref name="src"/> into <paramref name="dst"/>.</summary>
+    private static void MergeTypeDictionaries(ModuleSlice dst, ModuleSlice src)
+    {
         foreach (var kv in src.Types) dst.Types[kv.Key] = kv.Value;
         foreach (var kv in src.Resolutions) dst.Resolutions[kv.Key] = kv.Value;
         foreach (var kv in src.WrapperResolutions) dst.WrapperResolutions[kv.Key] = kv.Value;
         foreach (var kv in src.EntitySpecializations) dst.EntitySpecializations[kv.Key] = kv.Value;
         foreach (var kv in src.TypesByShortName) dst.TypesByShortName[kv.Key] = kv.Value;
+        foreach (var kv in src.Presets) dst.Presets[kv.Key] = kv.Value;
+        foreach (var kv in src.PresetsByQualifiedName) dst.PresetsByQualifiedName[kv.Key] = kv.Value;
+    }
+
+    /// <summary>Merges routine-related dictionary slices from <paramref name="src"/> into <paramref name="dst"/>.</summary>
+    private static void MergeRoutineDictionaries(ModuleSlice dst, ModuleSlice src)
+    {
         foreach (var kv in src.Routines) dst.Routines[kv.Key] = kv.Value;
         foreach (var kv in src.RoutinesByQualifiedName) dst.RoutinesByQualifiedName[kv.Key] = kv.Value;
         foreach (var kv in src.RoutinesByOwner) dst.RoutinesByOwner[kv.Key] = kv.Value;
         foreach (var kv in src.RoutineResolutions) dst.RoutineResolutions[kv.Key] = kv.Value;
-        foreach (var kv in src.Presets) dst.Presets[kv.Key] = kv.Value;
-        foreach (var kv in src.PresetsByQualifiedName) dst.PresetsByQualifiedName[kv.Key] = kv.Value;
+    }
+
+    /// <summary>Merges body and program-entry slices from <paramref name="src"/> into <paramref name="dst"/>.</summary>
+    private static void MergeBodyDictionaries(ModuleSlice dst, ModuleSlice src)
+    {
         dst.StdlibPrograms.AddRange(src.StdlibPrograms);
         foreach (var kv in src.SynthesizedBodies) dst.SynthesizedBodies[kv.Key] = kv.Value;
         foreach (var kv in src.VariantBodies) dst.VariantBodies[kv.Key] = kv.Value;
@@ -356,6 +473,7 @@ public static class ModularStdlibCache
     }
 
     private static readonly Dictionary<Type, FieldInfo[]> _fields = new();
+
     private static FieldInfo[] Fields(Type t)
     {
         if (_fields.TryGetValue(t, out var c)) return c;
@@ -375,29 +493,46 @@ public static class ModularStdlibCache
     {
         Type t = o.GetType();
         if (o is string || t.IsPrimitive || t.IsEnum || t == typeof(decimal)) yield break;
+
         if (o is Array arr)
         {
-            foreach (object? e in arr) if (e != null && !IsInline(e)) yield return e;
-            yield break;
-        }
-        if (o is IDictionary dict)
-        {
-            foreach (DictionaryEntry e in dict)
+            foreach (object? e in arr)
             {
-                if (e.Key != null && !IsInline(e.Key)) yield return e.Key;
-                if (e.Value != null && !IsInline(e.Value)) yield return e.Value;
+                if (e != null && !IsInline(e)) yield return e;
             }
             yield break;
         }
-        if (o is IEnumerable seq)
+
+        if (o is IDictionary dict)
         {
-            foreach (object? e in seq) if (e != null && !IsInline(e)) yield return e;
+            foreach (object neighbor in NeighborsDictionary(dict))
+                yield return neighbor;
             yield break;
         }
+
+        if (o is IEnumerable seq)
+        {
+            foreach (object? e in seq)
+            {
+                if (e != null && !IsInline(e)) yield return e;
+            }
+            yield break;
+        }
+
         foreach (FieldInfo f in Fields(t))
         {
             object? v = f.GetValue(o);
             if (v != null && !IsInline(v)) yield return v;
+        }
+    }
+
+    /// <summary>Yields non-inline keys and values from a dictionary for graph traversal.</summary>
+    private static IEnumerable<object> NeighborsDictionary(IDictionary dict)
+    {
+        foreach (DictionaryEntry e in dict)
+        {
+            if (e.Key != null && !IsInline(e.Key)) yield return e.Key;
+            if (e.Value != null && !IsInline(e.Value)) yield return e.Value;
         }
     }
 }

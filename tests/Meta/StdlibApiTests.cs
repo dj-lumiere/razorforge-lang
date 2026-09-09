@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace RazorForge.Tests.Meta;
 
@@ -9,7 +10,7 @@ namespace RazorForge.Tests.Meta;
 /// end-to-end behavior coverage for stdlib types/routines that <c>validate-stdlib</c>
 /// (parse-and-typecheck only) does not catch.
 /// </summary>
-public sealed class StdlibApiTests
+public sealed partial class StdlibApiTests
 {
     private static readonly string RepoRoot = LocateRepoRoot();
 
@@ -43,8 +44,11 @@ public sealed class StdlibApiTests
 
     private const string SuflaeHarnessModule = "SuflaeHarness";
 
-    private static readonly System.Text.RegularExpressions.Regex ModuleRe =
-        new(@"^\s*module\s+(\S+)\s*$");
+    [GeneratedRegex(@"^\s*module\s+(\S+)\s*$")]
+    private static partial Regex ModuleRe();
+
+    [GeneratedRegex(@"error\[RF-|Warning:|Codegen bug|Synthesized body codegen failed|Unresolved generic|Error type found|undefined symbol|never defined|MARKER-LEAK|Unhandled exception|\bE0\d")]
+    private static partial Regex StderrDiagnosticRe();
 
     /// <summary>
     /// Single-compile stdlib e2e test: generates <c>all_stdlib.rf</c> + <c>razorforge.toml</c> from
@@ -200,8 +204,7 @@ public sealed class StdlibApiTests
         string[] offending = run.Stderr
             .Split('\n')
             .Select(selector: l => l.TrimEnd('\r'))
-            .Where(predicate: l => System.Text.RegularExpressions.Regex.IsMatch(l,
-                @"error\[RF-|Warning:|Codegen bug|Synthesized body codegen failed|Unresolved generic|Error type found|undefined symbol|never defined|MARKER-LEAK|Unhandled exception|\bE0\d"))
+            .Where(predicate: l => StderrDiagnosticRe().IsMatch(l))
             .ToArray();
         Assert.True(offending.Length == 0,
             $"Harness stderr was not clean — {offending.Length} diagnostic line(s):\n" +
@@ -240,7 +243,7 @@ public sealed class StdlibApiTests
     {
         foreach (string line in File.ReadLines(rfPath))
         {
-            System.Text.RegularExpressions.Match m = ModuleRe.Match(line);
+            Match m = ModuleRe().Match(line);
             if (m.Success) return m.Groups[1].Value;
             string stripped = line.Trim();
             if (stripped.Length > 0 && !stripped.StartsWith('#')) return null;

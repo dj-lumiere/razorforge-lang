@@ -265,6 +265,31 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         _meType = frame.Routine.OwnerType;
         _currentFrameSubs = frame.TypeSubs;
 
+        List<object> calls = CollectFrameCalls(frame: frame);
+        AppendDefaultParamCalls(decl: frame.Decl, calls: calls);
+
+        foreach (object node in calls)
+            ProcessFrameCallNode(node: node, frame: frame);
+
+        // Variant bodies (synthesized represent / try_emit / wrapper forwarders) for this routine —
+        // walk if present, using the same typeSubs.
+        if (ctx.VariantBodies.TryGetValue(key: frame.Routine.RegistryKey, out Statement? variantBody))
+        {
+            var variantCalls = new List<object>();
+            CollectCalls(node: variantBody, sink: variantCalls);
+            foreach (object node in variantCalls)
+                ProcessFrameVariantCallNode(node: node, frame: frame);
+        }
+    }
+
+    /// <summary>
+    /// Collects (and caches) the call-like nodes from a frame's routine body. Returns the list ready
+    /// for per-frame resolution. Handles the stdlib body-scan cache: hits merge cached var-decl types
+    /// into <c>_localTypes</c> and return a copy of the cached call list; misses walk the body,
+    /// populate <c>_localTypes</c>, and store the result in the cache for future frames.
+    /// </summary>
+    private List<object> CollectFrameCalls(Frame frame)
+    {
         // Collect the body's call-like nodes AND its var-decl types. Both are INVARIANT (computed
         // without the frame's typeSubs — see CollectCallsAndLocalVarTypes), so for a stdlib body we cache
         // the result by decl reference and reuse it across every frame/warm-run that reaches this body,
@@ -273,30 +298,37 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // (from BuildLocalTypes); we merge the (invariant) var-decl types on top, exactly as the single
         // fused walk did. The cached call list is COPIED before param-default calls are appended, so the
         // shared cache is never mutated.
-        List<object> calls;
         Dictionary<RoutineDeclaration, RoutineBodyScan>? scanCache = ctx.BodyScanCache;
         if (scanCache != null && scanCache.TryGetValue(key: frame.Decl, value: out RoutineBodyScan? cachedScan))
         {
             // Merge the cached (invariant) var-decl types on top of the frame's params, exactly as the
             // fused walk did; copy the cached call list so appending param-default calls can't mutate it.
             foreach (KeyValuePair<string, TypeInfo> kv in cachedScan.VarDeclTypes) _localTypes[key: kv.Key] = kv.Value;
-            calls = new List<object>(collection: cachedScan.Calls);
-        }
-        else
-        {
-            // Walk into `_localTypes` directly (so InferExpressionType sees earlier vars mid-walk — the
-            // original behavior) while ALSO capturing just the var-decl entries for the cache.
-            calls = new List<object>();
-            Dictionary<string, TypeInfo>? captured =
-                scanCache != null && _stdlibDecls.Contains(item: frame.Decl)
-                    ? new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal)
-                    : null;
-            CollectCallsAndLocalVarTypes(node: frame.Decl.Body, sink: calls, map: _localTypes, captured: captured);
-            if (captured != null)
-                scanCache![key: frame.Decl] =
-                    new RoutineBodyScan(Calls: new List<object>(collection: calls), VarDeclTypes: captured);
+            return new List<object>(collection: cachedScan.Calls);
         }
 
+        // Walk into `_localTypes` directly (so InferExpressionType sees earlier vars mid-walk — the
+        // original behavior) while ALSO capturing just the var-decl entries for the cache.
+        var calls = new List<object>();
+        Dictionary<string, TypeInfo>? captured =
+            scanCache != null && _stdlibDecls.Contains(item: frame.Decl)
+                ? new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal)
+                : null;
+        CollectCallsAndLocalVarTypes(node: frame.Decl.Body, sink: calls, map: _localTypes, captured: captured);
+        if (captured != null)
+            scanCache![key: frame.Decl] =
+                new RoutineBodyScan(Calls: new List<object>(collection: calls), VarDeclTypes: captured);
+        return calls;
+    }
+
+    /// <summary>
+    /// Appends call-like nodes from each parameter's default-value expression into <paramref name="calls"/>.
+    /// Collection-literal defaults (List/Set/Dict) have their <c>ResolvedType</c> stamped from the
+    /// parameter's declared type so <see cref="EnqueueImplicitLoweringCallees"/> can seed the
+    /// collection's <c>create</c>.
+    /// </summary>
+    private static void AppendDefaultParamCalls(RoutineDeclaration decl, List<object> calls)
+    {
         // Parameter default values never appear in any routine body (they are filled at call sites),
         // so walk them here too. A collection-literal default (e.g. `d: Dict[K,V] = {:}`) must seed
         // the collection's create/add, since codegen constructs it inline at the call site
@@ -304,7 +336,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // values are never SA-analyzed, so a collection-literal default has a null ResolvedType —
         // stamp it from the parameter's resolved type so EnqueueImplicitLoweringCallees can resolve
         // the collection's create.
-        foreach (var defParam in frame.Decl.Parameters)
+        foreach (var defParam in decl.Parameters)
         {
             if (defParam.DefaultValue == null) continue;
             if (defParam.DefaultValue is ListLiteralExpression or SetLiteralExpression
@@ -315,23 +347,6 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
                 defParam.DefaultValue.ResolvedType = defParam.Type.ResolvedType;
             }
             CollectCalls(node: defParam.DefaultValue, sink: calls);
-        }
-
-        foreach (object node in calls)
-        {
-            ProcessFrameCallNode(node: node, frame: frame);
-        }
-
-        // Variant bodies (synthesized represent / try_emit / wrapper forwarders) for this routine —
-        // walk if present, using the same typeSubs.
-        if (ctx.VariantBodies.TryGetValue(key: frame.Routine.RegistryKey, out Statement? variantBody))
-        {
-            var variantCalls = new List<object>();
-            CollectCalls(node: variantBody, sink: variantCalls);
-            foreach (object node in variantCalls)
-            {
-                ProcessFrameVariantCallNode(node: node, frame: frame);
-            }
         }
     }
 
@@ -487,19 +502,8 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         switch (node)
         {
             case ListLiteralExpression:
-            {
-                string baseName = GetCollectionBaseNameForReachability(collectionType);
-                // Array/BitArray are pure inline IR — no add memberRoutine synthesized.
-                if (baseName is "Array" or "BitArray") return;
-                // List/CircularList/BitList → add_last; everything else → add (mirrors
-                // ExpressionLoweringPass.LowerListLiteral).
-                string addMemberRoutine = baseName is "List" or "CircularList" or "BitList"
-                    ? RuntimeContract.Collection.AddLast
-                    : RuntimeContract.Collection.Add;
-                EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: addMemberRoutine);
-                EnqueueZeroArgCreateIfPresent(owner: collectionType);
+                EnqueueListLiteralCallees(collectionType: collectionType);
                 break;
-            }
             case SetLiteralExpression or DictLiteralExpression:
                 EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: RuntimeContract.Collection.Add);
                 EnqueueZeroArgCreateIfPresent(owner: collectionType);
@@ -515,18 +519,42 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
                 EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: "unwrap");
                 break;
             case UsingStatement usingNode:
-                // `using r.view() as v` lowers (in Phase 8 — after this pass) to
-                // `__uf.enter()` ... `__uf.exit()`. Seed both on the resource type so they
-                // make it into the live set; codegen later emits calls to the same symbols.
-                // Either memberRoutine may be absent on a given resource type — EnqueueMemberRoutineIfPresent
-                // is a no-op when LookupMemberRoutine returns null.
-                EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: "enter");
-                EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: "exit");
-                // A `fallback` branch lowers the entry to `__uf.try_enter()` instead of `enter`.
-                if (usingNode.FallbackBody != null)
-                    EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: "try_enter");
+                EnqueueUsingStatementCallees(collectionType: collectionType, usingNode: usingNode);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Seeds the <c>add_last</c>/<c>add</c> member and zero-arg <c>create</c> for a list-literal
+    /// lowering. Array/BitArray are pure inline IR — no add member synthesized. List/CircularList/BitList
+    /// use <c>add_last</c>; all others use <c>add</c> (mirrors ExpressionLoweringPass.LowerListLiteral).
+    /// </summary>
+    private void EnqueueListLiteralCallees(TypeInfo collectionType)
+    {
+        string baseName = GetCollectionBaseNameForReachability(collectionType);
+        if (baseName is "Array" or "BitArray") return;
+        string addMemberRoutine = baseName is "List" or "CircularList" or "BitList"
+            ? RuntimeContract.Collection.AddLast
+            : RuntimeContract.Collection.Add;
+        EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: addMemberRoutine);
+        EnqueueZeroArgCreateIfPresent(owner: collectionType);
+    }
+
+    /// <summary>
+    /// Seeds the <c>enter</c>, <c>exit</c> (and optionally <c>try_enter</c>) members that a
+    /// <c>using</c> statement lowers into (Phase 8, after this pass). Either member may be absent
+    /// on a given resource type — <see cref="EnqueueMemberRoutineIfPresent"/> is a no-op in that case.
+    /// </summary>
+    private void EnqueueUsingStatementCallees(TypeInfo collectionType, UsingStatement usingNode)
+    {
+        // `using r.view() as v` lowers (in Phase 8 — after this pass) to
+        // `__uf.enter()` ... `__uf.exit()`. Seed both on the resource type so they
+        // make it into the live set; codegen later emits calls to the same symbols.
+        EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: "enter");
+        EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: "exit");
+        // A `fallback` branch lowers the entry to `__uf.try_enter()` instead of `enter`.
+        if (usingNode.FallbackBody != null)
+            EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: "try_enter");
     }
 
     /// <summary>
@@ -614,9 +642,8 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         var candidates = new List<RoutineInfo>();
         ctx.Registry.CollectMemberRoutineCandidates(type: owner, memberRoutineName: memberRoutineName,
             candidates: candidates);
-        foreach (RoutineInfo routine in candidates)
-            if (routine.OwnerType is not { IsGenericDefinition: true })
-                EnqueueCallee(callee: routine);
+        foreach (RoutineInfo routine in candidates.Where(r => r.OwnerType is not { IsGenericDefinition: true }))
+            EnqueueCallee(callee: routine);
     }
 
     /// <summary>
@@ -684,15 +711,13 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         };
         if (genDef != null && !ReferenceEquals(objA: genDef, objB: owner))
         {
-            foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: genDef))
+            foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: genDef)
+                         .Where(m => m is { IsCreator: true, Parameters.Count: 0 }))
             {
-                if (m is { IsCreator: true, Parameters.Count: 0 })
-                {
-                    RoutineInfo substituted = ctx.Registry.SubstituteMemberRoutineForOwner(
-                        memberRoutine: m, resolvedOwner: owner)!;
-                    EnqueueCallee(callee: substituted);
-                    return;
-                }
+                RoutineInfo substituted = ctx.Registry.SubstituteMemberRoutineForOwner(
+                    memberRoutine: m, resolvedOwner: owner)!;
+                EnqueueCallee(callee: substituted);
+                return;
             }
         }
     }
@@ -734,33 +759,13 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     {
         int paramCount = inputRoutine.Parameters.Count;
         bool isFailable = inputRoutine.IsFailable;
-        var inputSigs = new string[paramCount];
-        for (int i = 0; i < paramCount; i++)
-        {
-            TypeInfo? pt = inputRoutine.Parameters[index: i].Type;
-            if (pt == null) return null;
-            TypeInfo subbed = RoutineInfo.SubstituteType(type: pt, substitution: typeSubs);
-            inputSigs[i] = subbed.FullName ?? subbed.Name;
-        }
+        string[]? inputSigs = BuildInputParamSigs(inputRoutine: inputRoutine, paramCount: paramCount, typeSubs: typeSubs);
+        if (inputSigs == null) return null;
 
-        bool Matches(RoutineInfo m)
-        {
-            if (m.Name != memberRoutineName) return false;
-            if (m.Parameters.Count != paramCount) return false;
-            if (m.IsFailable != isFailable) return false;
-            for (int i = 0; i < paramCount; i++)
-            {
-                TypeInfo? pt = m.Parameters[index: i].Type;
-                if (pt == null) return false;
-                TypeInfo subbed = RoutineInfo.SubstituteType(type: pt, substitution: typeSubs);
-                string sig = subbed.FullName ?? subbed.Name;
-                if (sig != inputSigs[i]) return false;
-            }
-            return true;
-        }
-
-        foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: owner))
-            if (Matches(m: m)) return m;
+        RoutineInfo? ownerMatch = ctx.Registry.GetMemberRoutinesForType(type: owner)
+            .FirstOrDefault(m => MatchesParamSigs(m: m, memberRoutineName: memberRoutineName,
+                paramCount: paramCount, isFailable: isFailable, inputSigs: inputSigs, typeSubs: typeSubs));
+        if (ownerMatch != null) return ownerMatch;
 
         TypeInfo? genDef = owner switch
         {
@@ -770,11 +775,52 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         };
         if (genDef != null)
         {
-            foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: genDef))
-                if (Matches(m: m))
-                    return BuildOwnerSubstitutedRoutine(genericMemberRoutine: m, concreteOwner: owner, genDef: genDef);
+            RoutineInfo? defMatch = ctx.Registry.GetMemberRoutinesForType(type: genDef)
+                .FirstOrDefault(m => MatchesParamSigs(m: m, memberRoutineName: memberRoutineName,
+                    paramCount: paramCount, isFailable: isFailable, inputSigs: inputSigs, typeSubs: typeSubs));
+            if (defMatch != null)
+                return BuildOwnerSubstitutedRoutine(genericMemberRoutine: defMatch, concreteOwner: owner, genDef: genDef);
         }
         return null;
+    }
+
+    /// <summary>
+    /// Builds the serialized parameter-type signature array for <paramref name="inputRoutine"/>
+    /// under <paramref name="typeSubs"/>. Returns null if any parameter type is missing.
+    /// </summary>
+    private static string[]? BuildInputParamSigs(RoutineInfo inputRoutine, int paramCount,
+        Dictionary<string, TypeInfo> typeSubs)
+    {
+        var inputSigs = new string[paramCount];
+        for (int i = 0; i < paramCount; i++)
+        {
+            TypeInfo? pt = inputRoutine.Parameters[index: i].Type;
+            if (pt == null) return null;
+            TypeInfo subbed = RoutineInfo.SubstituteType(type: pt, substitution: typeSubs);
+            inputSigs[i] = subbed.FullName ?? subbed.Name;
+        }
+        return inputSigs;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="m"/> matches the given name, param count, failability, and
+    /// serialized parameter-type signatures (computed under <paramref name="typeSubs"/>).
+    /// </summary>
+    private static bool MatchesParamSigs(RoutineInfo m, string memberRoutineName, int paramCount,
+        bool isFailable, string[] inputSigs, Dictionary<string, TypeInfo> typeSubs)
+    {
+        if (m.Name != memberRoutineName) return false;
+        if (m.Parameters.Count != paramCount) return false;
+        if (m.IsFailable != isFailable) return false;
+        for (int i = 0; i < paramCount; i++)
+        {
+            TypeInfo? pt = m.Parameters[index: i].Type;
+            if (pt == null) return false;
+            TypeInfo subbed = RoutineInfo.SubstituteType(type: pt, substitution: typeSubs);
+            string sig = subbed.FullName ?? subbed.Name;
+            if (sig != inputSigs[i]) return false;
+        }
+        return true;
     }
 
     private RoutineInfo? LookupMemberRoutineMatchingSignature(TypeInfo owner, string memberRoutineName,
@@ -1090,40 +1136,42 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         if (genericDefRoutine != null)
             ctx.VariantBodies.TryGetValue(key: genericDefRoutine.RegistryKey, out synthBody);
 
-        // Fallback for try_/check_/lookup_ variants: ErrorHandlingVariantPass keys the
-        // synthesized body by `variant.Routine.RegistryKey`, which depends on the
-        // owner's generic-def shape AND the variant's signature. The lookup above can
-        // miss when the variant body wasn't keyed under the generic-def form we
-        // reconstructed. Use `callee.OriginalName` to find the underlying failable
-        // routine (`emit!`) and walk its body from `ctx.RoutineBodies` — the variant
-        // body is just a transformed copy of the same statements, so the calls it
-        // makes are identical.
         if (synthBody == null && callee.OriginalName is { } origName)
-        {
-            RoutineInfo? original = ctx.Registry.LookupMemberRoutine(
-                type: callee.OwnerType!, memberRoutineName: origName, isFailable: true);
-            if (original != null)
-                ctx.RoutineBodies.TryGetValue(key: original.RegistryKey, out synthBody);
-            // Also try the generic-def owner form for monomorphized callees.
-            if (synthBody == null && callee.OwnerType is { } cOwner)
-            {
-                TypeInfo? genericOwner = cOwner switch
-                {
-                    EntityTypeInfo { GenericDefinition: { } d } => d,
-                    RecordTypeInfo { GenericDefinition: { } d } => d,
-                    _ => null
-                };
-                if (genericOwner != null)
-                {
-                    RoutineInfo? originalOnGenDef = ctx.Registry.LookupMemberRoutine(
-                        type: genericOwner, memberRoutineName: origName, isFailable: true);
-                    if (originalOnGenDef != null)
-                        ctx.RoutineBodies.TryGetValue(key: originalOnGenDef.RegistryKey, out synthBody);
-                }
-            }
-        }
+            synthBody = ResolveVariantFallbackBody(callee: callee, origName: origName);
 
         return synthBody;
+    }
+
+    /// <summary>
+    /// Fallback for try_/check_/lookup_ variants: ErrorHandlingVariantPass keys the synthesized body
+    /// by <c>variant.Routine.RegistryKey</c>, which depends on the owner's generic-def shape AND the
+    /// variant's signature. The primary lookup can miss when the variant body wasn't keyed under the
+    /// generic-def form reconstructed by <see cref="ResolveGenericDefRoutine"/>. Uses
+    /// <c>callee.OriginalName</c> to find the underlying failable routine and walks its body from
+    /// <c>ctx.RoutineBodies</c> — the variant body is a transformed copy of the same statements.
+    /// </summary>
+    private Statement? ResolveVariantFallbackBody(RoutineInfo callee, string origName)
+    {
+        RoutineInfo? original = ctx.Registry.LookupMemberRoutine(
+            type: callee.OwnerType!, memberRoutineName: origName, isFailable: true);
+        if (original != null && ctx.RoutineBodies.TryGetValue(key: original.RegistryKey, out Statement? synthBody))
+            return synthBody;
+
+        // Also try the generic-def owner form for monomorphized callees.
+        if (callee.OwnerType is not { } cOwner) return null;
+        TypeInfo? genericOwner = cOwner switch
+        {
+            EntityTypeInfo { GenericDefinition: { } d } => d,
+            RecordTypeInfo { GenericDefinition: { } d } => d,
+            _ => null
+        };
+        if (genericOwner == null) return null;
+        RoutineInfo? originalOnGenDef = ctx.Registry.LookupMemberRoutine(
+            type: genericOwner, memberRoutineName: origName, isFailable: true);
+        if (originalOnGenDef != null
+            && ctx.RoutineBodies.TryGetValue(key: originalOnGenDef.RegistryKey, out Statement? genDefBody))
+            return genDefBody;
+        return null;
     }
 
     /// <summary>
@@ -1239,11 +1287,11 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // emitted. Recurses naturally: a member's destroy going live seeds ITS members' destroys.
         if (name == DestroyMemberRoutineName)
         {
-            foreach (MemberVariableInfo mv in MemberVariablesOf(type: owner))
+            foreach (MemberVariableInfo mv in MemberVariablesOf(type: owner)
+                         .Where(mv => mv.Type is not null and not GenericParameterTypeInfo))
             {
-                if (mv.Type is null or GenericParameterTypeInfo) continue;
                 RoutineInfo? memberDestroy =
-                    ctx.Registry.LookupMemberRoutine(type: mv.Type, memberRoutineName: DestroyMemberRoutineName);
+                    ctx.Registry.LookupMemberRoutine(type: mv.Type!, memberRoutineName: DestroyMemberRoutineName);
                 if (memberDestroy != null) EnqueueCallee(callee: memberDestroy);
             }
         }
@@ -1263,11 +1311,11 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // naturally: a member's serialize going live seeds ITS members' serializes.
         if (name == SerializeMemberRoutineName)
         {
-            foreach (MemberVariableInfo mv in MemberVariablesOf(type: owner))
+            foreach (MemberVariableInfo mv in MemberVariablesOf(type: owner)
+                         .Where(mv => mv.Type is not null and not GenericParameterTypeInfo))
             {
-                if (mv.Type is null or GenericParameterTypeInfo) continue;
                 RoutineInfo? memberSerialize =
-                    ctx.Registry.LookupMemberRoutine(type: mv.Type, memberRoutineName: SerializeMemberRoutineName);
+                    ctx.Registry.LookupMemberRoutine(type: mv.Type!, memberRoutineName: SerializeMemberRoutineName);
                 if (memberSerialize != null) EnqueueCallee(callee: memberSerialize);
             }
         }
@@ -1288,7 +1336,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // display routines here instead. Mirrors rule (2) but keyed on type-arguments
         // instead of the owner type.
         //
-        // FIXME: this is a heuristic workaround, not a real fix. The proper fix is to
+        // Note: this is a heuristic workaround, not a root fix. The proper resolution is to
         // teach reachability to resolve `value.represent()` on a generic-param receiver
         // by substituting through the frame's TypeSubs (groundwork added via
         // _currentFrameSubs in ResolveMemberCall, but the CallExpression for
@@ -1298,14 +1346,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // routines on type-arguments to keep the false-positive surface tiny.
         if (callee.OwnerType == null && callee.TypeArguments is { Count: > 0 } typeArgs)
         {
-            foreach (TypeInfo arg in typeArgs)
-            {
-                if (arg is GenericParameterTypeInfo) continue;
-                RoutineInfo? argRep = ctx.Registry.LookupMemberRoutine(type: arg, memberRoutineName: RepresentMemberRoutineName);
-                if (argRep != null) EnqueueCallee(callee: argRep);
-                RoutineInfo? argDiag = ctx.Registry.LookupMemberRoutine(type: arg, memberRoutineName: DiagnoseMemberRoutineName);
-                if (argDiag != null) EnqueueCallee(callee: argDiag);
-            }
+            EnqueueTypeArgDisplayRoutines(typeArgs: typeArgs);
 
             // (3) Wrapper transparency: forward to inner T's same-named memberRoutine.
             if (owner is WrapperTypeInfo { InnerType: not null } wrapper)
@@ -1317,11 +1358,28 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     }
 
     /// <summary>
+    /// Seeds the <c>represent</c> and <c>diagnose</c> member routines for each concrete type
+    /// argument in <paramref name="typeArgs"/>. Generic-parameter arguments are skipped (they have
+    /// no registered members). Mirrors rule (2) but keyed on type-arguments instead of the owner.
+    /// </summary>
+    private void EnqueueTypeArgDisplayRoutines(IReadOnlyList<TypeInfo> typeArgs)
+    {
+        foreach (TypeInfo arg in typeArgs)
+        {
+            if (arg is GenericParameterTypeInfo) continue;
+            RoutineInfo? argRep = ctx.Registry.LookupMemberRoutine(type: arg, memberRoutineName: RepresentMemberRoutineName);
+            if (argRep != null) EnqueueCallee(callee: argRep);
+            RoutineInfo? argDiag = ctx.Registry.LookupMemberRoutine(type: arg, memberRoutineName: DiagnoseMemberRoutineName);
+            if (argDiag != null) EnqueueCallee(callee: argDiag);
+        }
+    }
+
+    /// <summary>
     /// The member variables of a record/entity owner (concrete instances carry substituted member
     /// types via <c>CreateInstance</c>), used to seed per-member teardown in rule (2b). Other type
     /// kinds (variants, tuples, @llvm leaves, generic defs) yield none.
     /// </summary>
-    private static IReadOnlyList<MemberVariableInfo> MemberVariablesOf(TypeInfo type) => type switch
+    private static List<MemberVariableInfo> MemberVariablesOf(TypeInfo type) => type switch
     {
         RecordTypeInfo r => r.MemberVariables,
         EntityTypeInfo e => e.MemberVariables,
@@ -1362,50 +1420,9 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // an unrelated overload then drags its `.iter` etc. into the live set on programs
         // that never reference that type, producing LINKERR across the playground.
         var argLabels = cre.MemberVariables.Select(static mv => mv.Name).ToList();
-        bool MatchesLabels(RoutineInfo m)
-        {
-            if (m.Parameters.Count != argCount) return false;
-            for (int i = 0; i < argCount; i++)
-            {
-                if (m.Parameters[i].Name != argLabels[i]) return false;
-            }
-            return true;
-        }
-        bool found = false;
-        RoutineInfo? matched = null;
-        foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: ct))
-        {
-            if (m.IsCreator && MatchesLabels(m))
-            {
-                EnqueueCallee(callee: m);
-                if (matched == null) matched = m;
-                found = true;
-            }
-        }
-        TypeInfo? genDef = ct switch
-        {
-            RecordTypeInfo r => r.GenericDefinition,
-            EntityTypeInfo e => e.GenericDefinition,
-            _ => null
-        };
-        if (genDef != null && !ReferenceEquals(objA: genDef, objB: ct))
-        {
-            foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: genDef))
-            {
-                if (m.IsCreator && MatchesLabels(m))
-                {
-                    // Substitute generic params onto the concrete owner so GMP can monomorphize.
-                    // Without this, EnqueueCallee gets a routine with OwnerType = generic-def and
-                    // can't build a {T → concrete} substitution map — body never emitted.
-                    RoutineInfo substituted = ct.IsGenericResolution
-                        ? ctx.Registry.SubstituteMemberRoutineForOwner(memberRoutine: m, resolvedOwner: ct)!
-                        : m;
-                    EnqueueCallee(callee: substituted);
-                    if (matched == null) matched = substituted;
-                    found = true;
-                }
-            }
-        }
+        (bool found, RoutineInfo? matched) = EnqueueLabelMatchedCreators(ct: ct, argCount: argCount, argLabels: argLabels);
+        (found, matched) = EnqueueGenDefLabelMatchedCreators(ct: ct, argCount: argCount, argLabels: argLabels, foundSoFar: found, matchedSoFar: matched);
+
         if (!found && argCount == 0)
         {
             // Fallback for no-arg constructors that codegen calls by mangled name
@@ -1419,6 +1436,72 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // matching create overload at all. Such field-init creators are emitted inline by
         // codegen and don't need a routine seeded.
         return matched;
+    }
+
+    /// <summary>
+    /// Enqueues creator overloads on <paramref name="ct"/> whose parameter labels match
+    /// <paramref name="argLabels"/>, returning whether any were found and the first match.
+    /// </summary>
+    private (bool Found, RoutineInfo? Matched) EnqueueLabelMatchedCreators(TypeInfo ct, int argCount,
+        List<string> argLabels)
+    {
+        bool found = false;
+        RoutineInfo? matched = null;
+        foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: ct))
+        {
+            if (!m.IsCreator || !LabelsMatch(m: m, argCount: argCount, argLabels: argLabels)) continue;
+            EnqueueCallee(callee: m);
+            matched ??= m;
+            found = true;
+        }
+        return (found, matched);
+    }
+
+    /// <summary>
+    /// Enqueues creator overloads from the generic-def of <paramref name="ct"/> whose labels match,
+    /// substituting the owner so GMP can monomorphize. Returns whether any were found and the first match.
+    /// </summary>
+    private (bool Found, RoutineInfo? Matched) EnqueueGenDefLabelMatchedCreators(TypeInfo ct, int argCount,
+        List<string> argLabels, bool foundSoFar, RoutineInfo? matchedSoFar)
+    {
+        TypeInfo? genDef = ct switch
+        {
+            RecordTypeInfo r => r.GenericDefinition,
+            EntityTypeInfo e => e.GenericDefinition,
+            _ => null
+        };
+        if (genDef == null || ReferenceEquals(objA: genDef, objB: ct)) return (foundSoFar, matchedSoFar);
+
+        bool found = foundSoFar;
+        RoutineInfo? matched = matchedSoFar;
+        foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: genDef))
+        {
+            if (!m.IsCreator || !LabelsMatch(m: m, argCount: argCount, argLabels: argLabels)) continue;
+            // Substitute generic params onto the concrete owner so GMP can monomorphize.
+            // Without this, EnqueueCallee gets a routine with OwnerType = generic-def and
+            // can't build a {T → concrete} substitution map — body never emitted.
+            RoutineInfo substituted = ct.IsGenericResolution
+                ? ctx.Registry.SubstituteMemberRoutineForOwner(memberRoutine: m, resolvedOwner: ct)!
+                : m;
+            EnqueueCallee(callee: substituted);
+            matched ??= substituted;
+            found = true;
+        }
+        return (found, matched);
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="m"/>'s parameter count and labels match
+    /// <paramref name="argCount"/> and <paramref name="argLabels"/>.
+    /// </summary>
+    private static bool LabelsMatch(RoutineInfo m, int argCount, List<string> argLabels)
+    {
+        if (m.Parameters.Count != argCount) return false;
+        for (int i = 0; i < argCount; i++)
+        {
+            if (m.Parameters[i].Name != argLabels[i]) return false;
+        }
+        return true;
     }
 
     /// <summary>
@@ -1469,11 +1552,8 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     /// <summary>Returns the zero-arg <c>create</c> overload on <paramref name="ct"/>, or null.</summary>
     private RoutineInfo? FindZeroArgCreate(TypeInfo ct)
     {
-        foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: ct))
-        {
-            if (m is { IsCreator: true, Parameters.Count: 0 }) return m;
-        }
-        return null;
+        return ctx.Registry.GetMemberRoutinesForType(type: ct)
+            .FirstOrDefault(m => m is { IsCreator: true, Parameters.Count: 0 });
     }
 
     /// <summary>
@@ -1629,39 +1709,15 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         if (ce.Arguments.Count == 0) return null; // ResolveNoArgConstructor handles those
         TypeInfo? ct = ce.ConstructedType;
         if (ct == null && ce.Callee is IdentifierExpression idCallee)
-        {
             ct = ctx.Registry.LookupType(name: idCallee.Name);
-        }
         if (ct == null) return null;
         int argCount = ce.Arguments.Count;
 
-        // Infer arg types so we can disambiguate overloads like Byte.create(Byte)
-        // vs Byte.create(U8).
-        var argTypes = new TypeInfo?[argCount];
-        for (int i = 0; i < argCount; i++)
-            argTypes[i] = InferExpressionType(e: ce.Arguments[index: i]);
+        // Infer arg types so we can disambiguate overloads like Byte.create(Byte) vs Byte.create(U8).
+        var argTypes = InferCallArgTypes(ce: ce, argCount: argCount);
 
-        RoutineInfo? PickOverload(IEnumerable<RoutineInfo> memberRoutines)
-        {
-            RoutineInfo? countOnly = null;
-            foreach (RoutineInfo m in memberRoutines)
-            {
-                if (!m.IsCreator || m.Parameters.Count != argCount) continue;
-                countOnly ??= m;
-                bool typesMatch = true;
-                for (int i = 0; i < argCount; i++)
-                {
-                    TypeInfo? at = argTypes[i];
-                    if (at == null) continue; // unknown — accept
-                    if (m.Parameters[index: i].Type?.Name != at.Name)
-                    { typesMatch = false; break; }
-                }
-                if (typesMatch) return m;
-            }
-            return countOnly;
-        }
-
-        RoutineInfo? match = PickOverload(memberRoutines: ctx.Registry.GetMemberRoutinesForType(type: ct));
+        RoutineInfo? match = PickCreateOverload(
+            memberRoutines: ctx.Registry.GetMemberRoutinesForType(type: ct), argCount: argCount, argTypes: argTypes);
         if (match == null)
         {
             TypeInfo? genDef = ct switch
@@ -1671,7 +1727,8 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
                 _ => null
             };
             if (genDef != null && !ReferenceEquals(objA: genDef, objB: ct))
-                match = PickOverload(memberRoutines: ctx.Registry.GetMemberRoutinesForType(type: genDef));
+                match = PickCreateOverload(
+                    memberRoutines: ctx.Registry.GetMemberRoutinesForType(type: genDef), argCount: argCount, argTypes: argTypes);
         }
 
         // Direct named-field construction has no `create` routine — codegen synthesizes a struct
@@ -1681,10 +1738,43 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // live-owner set directly when we recognise this construction pattern. Affects user records
         // like Point that obey Equatable/Comparable and rely on synthesised ne/lt/le/gt/ge bodies.
         if (match == null && ct is RecordTypeInfo or EntityTypeInfo)
-        {
             _liveOwnerTypes.Add(item: ct);
-        }
         return match;
+    }
+
+    /// <summary>
+    /// Infers the argument types for a call-style constructor from its argument expressions.
+    /// </summary>
+    private TypeInfo?[] InferCallArgTypes(CallExpression ce, int argCount)
+    {
+        var argTypes = new TypeInfo?[argCount];
+        for (int i = 0; i < argCount; i++)
+            argTypes[i] = InferExpressionType(e: ce.Arguments[index: i]);
+        return argTypes;
+    }
+
+    /// <summary>
+    /// Picks the best-matching creator overload from <paramref name="memberRoutines"/> with the given
+    /// <paramref name="argCount"/>. Prefers an exact type-name match; falls back to count-only.
+    /// </summary>
+    private static RoutineInfo? PickCreateOverload(IEnumerable<RoutineInfo> memberRoutines, int argCount,
+        TypeInfo?[] argTypes)
+    {
+        RoutineInfo? countOnly = null;
+        foreach (RoutineInfo m in memberRoutines)
+        {
+            if (!m.IsCreator || m.Parameters.Count != argCount) continue;
+            countOnly ??= m;
+            bool typesMatch = true;
+            for (int i = 0; i < argCount; i++)
+            {
+                TypeInfo? at = argTypes[i];
+                if (at == null) continue; // unknown — accept
+                if (m.Parameters[index: i].Type?.Name != at.Name) { typesMatch = false; break; }
+            }
+            if (typesMatch) return m;
+        }
+        return countOnly;
     }
 
     /// <summary>
@@ -1733,8 +1823,8 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     }
 
     /// <summary>
-    /// Builds the parameter portion of the local-type map. Var-decl types are added later by
-    /// <see cref="CollectLocalVarTypes"/> after a full body walk.
+    /// Builds the parameter portion of the local-type map. Var-decl types are merged in by
+    /// <see cref="CollectCallsAndLocalVarTypes"/> during the full body walk.
     /// </summary>
     private Dictionary<string, TypeInfo> BuildLocalTypes(RoutineDeclaration decl,
         Dictionary<string, TypeInfo> typeSubs)
@@ -1767,9 +1857,13 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         {
             if (n is VariableDeclaration vd)
             {
-                TypeInfo? t = vd.Type != null
-                    ? ResolveTypeExpression(typeExpr: vd.Type, typeSubs: null)
-                    : (vd.Initializer != null ? InferExpressionType(e: vd.Initializer) : null);
+                TypeInfo? t;
+                if (vd.Type != null)
+                    t = ResolveTypeExpression(typeExpr: vd.Type, typeSubs: null);
+                else if (vd.Initializer != null)
+                    t = InferExpressionType(e: vd.Initializer);
+                else
+                    t = null;
                 if (t != null)
                 {
                     map[key: vd.Name] = t;
@@ -2041,57 +2135,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // Standalone generic routine (e.g. hijacked_from[T]). Build the concrete instantiation
         // and add its registry key directly to _live, so GMP picks it up via LiveRoutineKeys.
         if (routine.OwnerType == null)
-        {
-            // Case A: pure generic def — substitute by GenericParameters.
-            if (routine.IsGenericDefinition)
-            {
-                List<string>? rgParams = routine.GenericParameters;
-                if (rgParams != null)
-                {
-                    var concreteTypeArgs = new List<TypeInfo>(capacity: rgParams.Count);
-                    bool allOk = true;
-                    foreach (string p in rgParams)
-                    {
-                        if (typeSubs.TryGetValue(key: p, value: out TypeInfo? sub))
-                            concreteTypeArgs.Add(item: sub);
-                        else { allOk = false; break; }
-                    }
-                    if (allOk)
-                    {
-                        RoutineInfo resolved = ctx.Registry.GetOrCreateRoutineResolution(
-                            genericDef: routine, typeArguments: concreteTypeArgs);
-                        _live.Add(item: resolved.RegistryKey);
-                        return resolved;
-                    }
-                }
-            }
-            // Case B: SA produced a "resolved" instance whose TypeArguments contain unresolved
-            // generic parameters — either bare (e.g. `hijacked_from[T]` where T comes from the
-            // enclosing `List[T]`) OR nested inside another generic type (e.g.
-            // `hijacked_from[RetainController[T]]` inside `Tracked[T].release`). Substitute
-            // recursively via SubstituteIncludingGenericDef so both shapes work.
-            if (routine.TypeArguments is { Count: > 0 } tArgs
-                && tArgs.Any(predicate: ContainsAnyGenericParameter))
-            {
-                var substArgs = new List<TypeInfo>(capacity: tArgs.Count);
-                bool allOk = true;
-                foreach (TypeInfo a in tArgs)
-                {
-                    TypeInfo subbed = SubstituteIncludingGenericDef(type: a, typeSubs: typeSubs);
-                    if (ContainsAnyGenericParameter(type: subbed)) { allOk = false; break; }
-                    substArgs.Add(item: subbed);
-                }
-                if (allOk)
-                {
-                    RoutineInfo? genDef = routine.GenericDefinition ?? routine;
-                    RoutineInfo resolved = ctx.Registry.GetOrCreateRoutineResolution(
-                        genericDef: genDef, typeArguments: substArgs);
-                    _live.Add(item: resolved.RegistryKey);
-                    return resolved;
-                }
-            }
-            return routine;
-        }
+            return SubstituteStandaloneRoutine(routine: routine, typeSubs: typeSubs);
 
         TypeInfo owner = routine.OwnerType;
 
@@ -2105,80 +2149,20 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
             && typeSubs.TryGetValue(key: gpOwner.Name, value: out TypeInfo? concreteRecv)
             && !ContainsAnyGenericParameter(type: concreteRecv))
         {
-            _liveOwnerTypes.Add(item: concreteRecv);
-            RoutineInfo? concreteDerive = ctx.Registry.LookupMemberRoutine(
-                type: concreteRecv, memberRoutineName: routine.Name, isFailable: routine.IsFailable);
-            if (concreteDerive is { OwnerType: not GenericParameterTypeInfo and not { IsGenericDefinition: true } })
-                return concreteDerive;
-            // Concrete derive not registered as a distinct member yet — marking the owner live above lets
-            // ProcessConcreteType materialize it from the generic def; keep the universal routine for now.
-            return routine;
+            return SubstituteUniversalDerive(routine: routine, concreteRecv: concreteRecv);
         }
 
         // Owner like ListEmitter[T] or Hijacked[BTreeSetNode[T]] — stored as a resolution whose
         // TypeArguments contain GenericParameterTypeInfo, possibly nested inside another generic
-        // resolution. Substitute the params (recursively, via RoutineInfo.SubstituteType) to get
-        // a concrete owner. The `ContainsAnyGenericParameter` check is needed for two-level
-        // wrappers like `Hijacked[BTreeListNode[T]]` — the immediate arg `BTreeListNode[T]` is
-        // an EntityTypeInfo (not a bare param), so a shallow `Any(t is GenericParameterTypeInfo)`
-        // misses them and leaves `Hijacked[BTreeListNode[T]]` un-monomorphised.
+        // resolution.
         if (owner.TypeArguments is { Count: > 0 } ownerTArgs
             && ownerTArgs.Any(predicate: ContainsAnyGenericParameter))
         {
-            TypeInfo? ownerGenDef = owner switch
-            {
-                RecordTypeInfo r => r.GenericDefinition,
-                EntityTypeInfo e => e.GenericDefinition,
-                WrapperTypeInfo w => ctx.Registry.LookupType(name: w.Name),
-                _ => null
-            };
-            if (ownerGenDef != null)
-            {
-                var substArgs = new List<TypeInfo>(capacity: ownerTArgs.Count);
-                bool allOk = true;
-                foreach (TypeInfo arg in ownerTArgs)
-                {
-                    // Recursive substitution: handles `BTreeListNode[T]` -> `BTreeListNode[S64]`,
-                    // the bare `T` case, AND the bare-generic-def case (e.g. SA-emitted
-                    // `Hijacked[BTreeListNode]` whose inner `BTreeListNode` is the generic-def
-                    // itself rather than `BTreeListNode[T]`). `SubstituteIncludingGenericDef`
-                    // adds the generic-def → instance step that plain SubstituteType skips.
-                    TypeInfo substituted = SubstituteIncludingGenericDef(type: arg, typeSubs: typeSubs);
-                    if (ContainsAnyGenericParameter(type: substituted)) { allOk = false; break; }
-                    substArgs.Add(item: substituted);
-                }
-                if (allOk)
-                {
-                    TypeInfo concreteOwner = ctx.Registry.GetOrCreateResolution(
-                        genericDef: ownerGenDef, typeArguments: substArgs);
-                    _liveOwnerTypes.Add(item: concreteOwner);
-                    // Use param-count + failability to disambiguate overloads — LookupMemberRoutine's
-                    // first-match heuristic picks the wrong overload when the routine name has
-                    // both failable and non-failable variants (e.g. SortedDict.get_by_rank!(U64)
-                    // vs SortedDict.get_by_rank(BTreeDictNode, U64)). Without this, reach marks
-                    // the failable 1-arg version live while codegen call sites need the
-                    // non-failable 2-arg version.
-                    RoutineInfo? resolved = LookupMemberRoutineMatchingParamTypes(
-                        owner: concreteOwner, memberRoutineName: routine.Name,
-                        inputRoutine: routine, typeSubs: typeSubs)
-                        ?? LookupMemberRoutineMatchingSignature(
-                            owner: concreteOwner, memberRoutineName: routine.Name,
-                            paramCount: routine.Parameters.Count, isFailable: routine.IsFailable)
-                        ?? ctx.Registry.LookupMemberRoutine(type: concreteOwner, memberRoutineName: routine.Name);
-                    if (resolved != null) return TransferSubstitutedTypeArguments(input: routine, resolved: resolved, typeSubs: typeSubs);
-                    // Fallback: synthesized routine, mark substituted RegistryKey live
-                    var synthSubs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
-                    List<string>? defParams = ownerGenDef.GenericParameters;
-                    if (defParams != null)
-                    {
-                        for (int i = 0; i < defParams.Count && i < substArgs.Count; i++)
-                            synthSubs[key: defParams[index: i]] = substArgs[index: i];
-                    }
-                    string concreteKey = ComputeConcreteRegistryKey(routine: routine, concreteOwner: concreteOwner, subs: synthSubs);
-                    _live.Add(item: concreteKey);
-                }
-            }
+            RoutineInfo? fromOwnerArgs = SubstituteOwnerWithGenericArgs(routine: routine, owner: owner,
+                ownerTArgs: ownerTArgs, typeSubs: typeSubs);
+            if (fromOwnerArgs != null) return fromOwnerArgs;
         }
+
         // If owner is itself a generic param T and frame has T -> ConcreteType, substitute.
         if (owner is GenericParameterTypeInfo gp && typeSubs.TryGetValue(key: gp.Name, value: out TypeInfo? concrete))
         {
@@ -2187,49 +2171,182 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
                 ? TransferSubstitutedTypeArguments(input: routine, resolved: resolved, typeSubs: typeSubs)
                 : routine;
         }
+
         // If owner is a generic def (e.g. List[T]) referencing T from the frame, build the
         // concrete instantiation List[ConcreteT] and look up the memberRoutine on it.
-        List<string>? gParams = owner.GenericParameters;
-        if (gParams is { Count: > 0 } && owner.IsGenericDefinition)
+        if (owner.GenericParameters is { Count: > 0 } gParams && owner.IsGenericDefinition)
         {
-            var concreteArgs = new List<TypeInfo>(capacity: gParams.Count);
-            bool allResolved = true;
-            foreach (string p in gParams)
+            RoutineInfo? fromGenDef = SubstituteOwnerGenericDef(routine: routine, owner: owner,
+                gParams: gParams, typeSubs: typeSubs);
+            if (fromGenDef != null) return fromGenDef;
+        }
+
+        return routine;
+    }
+
+    /// <summary>
+    /// Substitutes a standalone (owner-less) generic routine through <paramref name="typeSubs"/>.
+    /// Case A: pure generic def — substitute by GenericParameters.
+    /// Case B: SA-resolved instance with unresolved TypeArguments — substitute recursively.
+    /// </summary>
+    private RoutineInfo SubstituteStandaloneRoutine(RoutineInfo routine, Dictionary<string, TypeInfo> typeSubs)
+    {
+        // Case A: pure generic def — substitute by GenericParameters.
+        if (routine.IsGenericDefinition && routine.GenericParameters is { } rgParams)
+        {
+            var concreteTypeArgs = new List<TypeInfo>(capacity: rgParams.Count);
+            bool allOk = true;
+            foreach (string p in rgParams)
             {
-                if (!typeSubs.TryGetValue(key: p, value: out TypeInfo? a))
-                {
-                    allResolved = false;
-                    break;
-                }
-                concreteArgs.Add(item: a);
+                if (typeSubs.TryGetValue(key: p, value: out TypeInfo? sub)) concreteTypeArgs.Add(item: sub);
+                else { allOk = false; break; }
             }
-            if (allResolved)
+            if (allOk)
             {
-                TypeInfo concreteOwner = ctx.Registry.GetOrCreateResolution(
-                    genericDef: owner, typeArguments: concreteArgs);
-                _liveOwnerTypes.Add(item: concreteOwner);
-                // Disambiguate overloads by parameter signature. LookupMemberRoutine's first-match heuristic
-                // picks the wrong overload when multiple share name + count + failability — e.g.
-                // List[T] has several 1-arg non-failable `create` overloads (create(capacity: U64),
-                // create(from: Set[T]), etc.). Match on substituted parameter type names so
-                // `List[T].create#U64` substitutes to `List[S64].create(capacity: U64)` instead of
-                // dragging an unrelated overload's `.iter` into the live set.
-                RoutineInfo? resolved = LookupMemberRoutineMatchingParamTypes(
-                    owner: concreteOwner, memberRoutineName: routine.Name,
-                    inputRoutine: routine, typeSubs: typeSubs)
-                    ?? LookupMemberRoutineMatchingSignature(
-                        owner: concreteOwner, memberRoutineName: routine.Name,
-                        paramCount: routine.Parameters.Count, isFailable: routine.IsFailable)
-                    ?? ctx.Registry.LookupMemberRoutine(type: concreteOwner, memberRoutineName: routine.Name);
-                if (resolved != null) return TransferSubstitutedTypeArguments(input: routine, resolved: resolved, typeSubs: typeSubs);
-                // Synthesized routines (try_emit, represent, diagnose, wrapper forwarders) live
-                // only on the generic-def. Manually mark the substituted RegistryKey live so the
-                // codegen Phase B/C gates emit the concrete-form symbol that callers reference.
-                string concreteKey = ComputeConcreteRegistryKey(routine: routine, concreteOwner: concreteOwner, subs: typeSubs);
-                _live.Add(item: concreteKey);
+                RoutineInfo resolved = ctx.Registry.GetOrCreateRoutineResolution(
+                    genericDef: routine, typeArguments: concreteTypeArgs);
+                _live.Add(item: resolved.RegistryKey);
+                return resolved;
+            }
+        }
+        // Case B: SA produced a "resolved" instance whose TypeArguments contain unresolved
+        // generic parameters — either bare (e.g. `hijacked_from[T]` where T comes from the
+        // enclosing `List[T]`) OR nested inside another generic type (e.g.
+        // `hijacked_from[RetainController[T]]` inside `Tracked[T].release`). Substitute
+        // recursively via SubstituteIncludingGenericDef so both shapes work.
+        if (routine.TypeArguments is { Count: > 0 } tArgs && tArgs.Any(predicate: ContainsAnyGenericParameter))
+        {
+            var substArgs = new List<TypeInfo>(capacity: tArgs.Count);
+            bool allOk = true;
+            foreach (TypeInfo a in tArgs)
+            {
+                TypeInfo subbed = SubstituteIncludingGenericDef(type: a, typeSubs: typeSubs);
+                if (ContainsAnyGenericParameter(type: subbed)) { allOk = false; break; }
+                substArgs.Add(item: subbed);
+            }
+            if (allOk)
+            {
+                RoutineInfo genDef = routine.GenericDefinition ?? routine;
+                RoutineInfo resolved = ctx.Registry.GetOrCreateRoutineResolution(
+                    genericDef: genDef, typeArguments: substArgs);
+                _live.Add(item: resolved.RegistryKey);
+                return resolved;
             }
         }
         return routine;
+    }
+
+    /// <summary>
+    /// Handles substitution for a "universal everywhere-derive" where the owner is a bare generic
+    /// parameter. Marks the concrete receiver a live owner and returns the concrete derive (or the
+    /// original routine if not yet materialized).
+    /// </summary>
+    private RoutineInfo SubstituteUniversalDerive(RoutineInfo routine, TypeInfo concreteRecv)
+    {
+        _liveOwnerTypes.Add(item: concreteRecv);
+        RoutineInfo? concreteDerive = ctx.Registry.LookupMemberRoutine(
+            type: concreteRecv, memberRoutineName: routine.Name, isFailable: routine.IsFailable);
+        if (concreteDerive is { OwnerType: not GenericParameterTypeInfo and not { IsGenericDefinition: true } })
+            return concreteDerive;
+        // Concrete derive not registered as a distinct member yet — marking the owner live above lets
+        // ProcessConcreteType materialize it from the generic def; keep the universal routine for now.
+        return routine;
+    }
+
+    /// <summary>
+    /// Handles an owner whose TypeArguments contain unresolved generic parameters (e.g.
+    /// <c>ListEmitter[T]</c> or <c>Hijacked[BTreeSetNode[T]]</c>). Substitutes the args
+    /// recursively, resolves the concrete owner, and looks up or marks live the concrete routine.
+    /// Returns the resolved routine when one is found, or null when the args aren't fully concrete
+    /// or the routine is synthesized (marked live by key only).
+    /// </summary>
+    private RoutineInfo? SubstituteOwnerWithGenericArgs(RoutineInfo routine, TypeInfo owner,
+        IReadOnlyList<TypeInfo> ownerTArgs, Dictionary<string, TypeInfo> typeSubs)
+    {
+        TypeInfo? ownerGenDef = owner switch
+        {
+            RecordTypeInfo r => r.GenericDefinition,
+            EntityTypeInfo e => e.GenericDefinition,
+            WrapperTypeInfo w => ctx.Registry.LookupType(name: w.Name),
+            _ => null
+        };
+        if (ownerGenDef == null) return null;
+
+        // Recursive substitution: handles `BTreeListNode[T]` -> `BTreeListNode[S64]`,
+        // the bare `T` case, AND the bare-generic-def case. `SubstituteIncludingGenericDef`
+        // adds the generic-def → instance step that plain SubstituteType skips.
+        var substArgs = new List<TypeInfo>(capacity: ownerTArgs.Count);
+        foreach (TypeInfo arg in ownerTArgs)
+        {
+            TypeInfo substituted = SubstituteIncludingGenericDef(type: arg, typeSubs: typeSubs);
+            if (ContainsAnyGenericParameter(type: substituted)) return null; // not fully concrete yet
+            substArgs.Add(item: substituted);
+        }
+
+        TypeInfo concreteOwner = ctx.Registry.GetOrCreateResolution(genericDef: ownerGenDef, typeArguments: substArgs);
+        _liveOwnerTypes.Add(item: concreteOwner);
+
+        // Use param-count + failability to disambiguate overloads — LookupMemberRoutine's
+        // first-match heuristic picks the wrong overload when the routine name has both failable
+        // and non-failable variants (e.g. SortedDict.get_by_rank!(U64) vs SortedDict.get_by_rank(BTreeDictNode, U64)).
+        RoutineInfo? resolved = LookupMemberRoutineMatchingParamTypes(
+            owner: concreteOwner, memberRoutineName: routine.Name, inputRoutine: routine, typeSubs: typeSubs)
+            ?? LookupMemberRoutineMatchingSignature(owner: concreteOwner, memberRoutineName: routine.Name,
+                paramCount: routine.Parameters.Count, isFailable: routine.IsFailable)
+            ?? ctx.Registry.LookupMemberRoutine(type: concreteOwner, memberRoutineName: routine.Name);
+        if (resolved != null)
+            return TransferSubstitutedTypeArguments(input: routine, resolved: resolved, typeSubs: typeSubs);
+
+        // Fallback: synthesized routine, mark substituted RegistryKey live.
+        var synthSubs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
+        List<string>? defParams = ownerGenDef.GenericParameters;
+        if (defParams != null)
+        {
+            for (int i = 0; i < defParams.Count && i < substArgs.Count; i++)
+                synthSubs[key: defParams[index: i]] = substArgs[index: i];
+        }
+        string concreteKey = ComputeConcreteRegistryKey(routine: routine, concreteOwner: concreteOwner, subs: synthSubs);
+        _live.Add(item: concreteKey);
+        return null;
+    }
+
+    /// <summary>
+    /// Handles an owner that is a generic definition (e.g. <c>List[T]</c>) whose parameters are
+    /// present in <paramref name="typeSubs"/>. Builds the concrete instantiation, looks up the
+    /// concrete routine, and marks the key live. Returns the resolved routine when found, or null
+    /// when not all params are resolved or the routine is synthesized (marked live by key only).
+    /// </summary>
+    private RoutineInfo? SubstituteOwnerGenericDef(RoutineInfo routine, TypeInfo owner, List<string> gParams,
+        Dictionary<string, TypeInfo> typeSubs)
+    {
+        var concreteArgs = new List<TypeInfo>(capacity: gParams.Count);
+        foreach (string p in gParams)
+        {
+            if (!typeSubs.TryGetValue(key: p, value: out TypeInfo? a)) return null; // not all resolved
+            concreteArgs.Add(item: a);
+        }
+
+        TypeInfo concreteOwner = ctx.Registry.GetOrCreateResolution(genericDef: owner, typeArguments: concreteArgs);
+        _liveOwnerTypes.Add(item: concreteOwner);
+
+        // Disambiguate overloads by parameter signature. LookupMemberRoutine's first-match heuristic
+        // picks the wrong overload when multiple share name + count + failability — e.g.
+        // List[T] has several 1-arg non-failable `create` overloads (create(capacity: U64),
+        // create(from: Set[T]), etc.). Match on substituted parameter type names.
+        RoutineInfo? resolved = LookupMemberRoutineMatchingParamTypes(
+            owner: concreteOwner, memberRoutineName: routine.Name, inputRoutine: routine, typeSubs: typeSubs)
+            ?? LookupMemberRoutineMatchingSignature(owner: concreteOwner, memberRoutineName: routine.Name,
+                paramCount: routine.Parameters.Count, isFailable: routine.IsFailable)
+            ?? ctx.Registry.LookupMemberRoutine(type: concreteOwner, memberRoutineName: routine.Name);
+        if (resolved != null)
+            return TransferSubstitutedTypeArguments(input: routine, resolved: resolved, typeSubs: typeSubs);
+
+        // Synthesized routines (try_emit, represent, diagnose, wrapper forwarders) live only on
+        // the generic-def. Manually mark the substituted RegistryKey live so the codegen Phase B/C
+        // gates emit the concrete-form symbol that callers reference.
+        string concreteKey = ComputeConcreteRegistryKey(routine: routine, concreteOwner: concreteOwner, subs: typeSubs);
+        _live.Add(item: concreteKey);
+        return null;
     }
 
     private static bool ContainsAnyGenericParameter(TypeInfo type)
@@ -2397,11 +2514,13 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
 
     private static string ComputeConcreteRegistryKey(RoutineInfo routine, TypeInfo concreteOwner, Dictionary<string, TypeInfo> subs)
     {
-        string ownerKey = concreteOwner.TypeArguments is { Count: > 0 }
-            ? $"{concreteOwner.Module}.{concreteOwner.Name}[{string.Join(",", concreteOwner.TypeArguments.Select(t => t.FullName))}]"
-            : string.IsNullOrEmpty(value: concreteOwner.Module)
-                ? concreteOwner.Name
-                : $"{concreteOwner.Module}.{concreteOwner.Name}";
+        string ownerKey;
+        if (concreteOwner.TypeArguments is { Count: > 0 })
+            ownerKey = $"{concreteOwner.Module}.{concreteOwner.Name}[{string.Join(",", concreteOwner.TypeArguments.Select(t => t.FullName))}]";
+        else if (string.IsNullOrEmpty(value: concreteOwner.Module))
+            ownerKey = concreteOwner.Name;
+        else
+            ownerKey = $"{concreteOwner.Module}.{concreteOwner.Name}";
         string baseName = $"{ownerKey}.{routine.Name}";
         if (routine.Parameters.Count == 0) return baseName;
         string paramTypes = string.Join(",", routine.Parameters.Select(p =>

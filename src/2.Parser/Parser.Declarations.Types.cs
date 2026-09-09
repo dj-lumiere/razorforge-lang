@@ -38,25 +38,7 @@ public partial class Parser
             ParseGenericConstraints(genericParams: genericParams,
                 existingConstraints: inlineConstraints);
 
-
-        // Allow a line break before 'obeys' in the type header.
-        while (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Obeys)
-        {
-            Advance();
-        }
-
-        // Parse interfaces/protocols the entity obeys
-        var interfaces = new List<TypeExpression>();
-        if (Match(type: TokenType.Obeys))
-        {
-            do
-            {
-                while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
-
-                interfaces.Add(item: ParseObeysProtocol());
-                // Newlines between comma-separated protocols are handled by the 'before' skip
-            } while (Match(type: TokenType.Comma));
-        }
+        List<TypeExpression> interfaces = ParseObeysProtocolList();
 
         // Try constraints again after obeys (supports needs on next line)
         constraints = ParseGenericConstraints(genericParams: genericParams,
@@ -66,71 +48,14 @@ public partial class Parser
         List<AssociatedTypeDeclaration>? associatedTypes = ParseRelatesClauses();
 
         var members = new List<SyntaxTree.Declaration>();
-        bool hasPass = false;
 
-        // Parse entity body as indented block
         Consume(type: TokenType.Newline, errorMessage: "Expected newline after entity header");
 
-        // Enable member variable declaration syntax inside entity body
-        // Entities allow modifiers on member variables (unlike records)
-        bool wasParsingTypeBody = _parsingTypeBody;
-        bool wasParsingStrictRecordBody = _parsingStrictRecordBody;
-        _parsingTypeBody = true;
-        _parsingStrictRecordBody = false; // Entities allow modifiers
-
-        // Parse indented members
-        if (Check(type: TokenType.Indent))
-        {
-            ProcessIndentToken();
-
-            while (!Check(type: TokenType.Dedent) && !IsAtEnd)
-            {
-                if (Match(TokenType.Newline, TokenType.DocComment))
-                {
-                    continue;
-                }
-
-                // Allow 'pass' to indicate empty body
-                if (Match(type: TokenType.Pass))
-                {
-                    hasPass = true;
-                    Match(type: TokenType.Newline);
-                    continue;
-                }
-
-                ISyntaxTreeNode node = ParseDeclaration();
-                if (node is RoutineDeclaration)
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                        message: "Routines cannot be declared inside entity bodies. Use 'routine EntityName.MemberRoutine()' syntax instead.");
-                }
-
-                if (node is SyntaxTree.Declaration member)
-                {
-                    members.Add(item: member);
-                }
-                else
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                        message:
-                        $"Expected declaration inside entity body, got {node.GetType().Name}");
-                }
-            }
-
-            if (Check(type: TokenType.Dedent))
-            {
-                ProcessDedentTokens();
-            }
-            else if (!IsAtEnd)
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedDedentAfterBody,
-                    message: "Expected dedent after entity body");
-            }
-        }
-
-        _parsingTypeBody = wasParsingTypeBody;
-        _parsingStrictRecordBody = wasParsingStrictRecordBody;
-
+        // Entities allow modifiers on member variables (unlike records).
+        bool hasPass = ParseIndentedTypeMembers(
+            members: members,
+            typeName: "entity",
+            strictRecord: false);
 
         return new EntityDeclaration(Name: name,
             GenericParameters: genericParams,
@@ -183,25 +108,7 @@ public partial class Parser
             ParseGenericConstraints(genericParams: genericParams,
                 existingConstraints: inlineConstraints);
 
-
-        // Allow a line break before 'obeys' in the type header.
-        while (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Obeys)
-        {
-            Advance();
-        }
-
-        // Parse interfaces/protocols the record obeys
-        var interfaces = new List<TypeExpression>();
-        if (Match(type: TokenType.Obeys))
-        {
-            do
-            {
-                while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
-
-                interfaces.Add(item: ParseObeysProtocol());
-                // Newlines between comma-separated protocols are handled by the 'before' skip
-            } while (Match(type: TokenType.Comma));
-        }
+        List<TypeExpression> interfaces = ParseObeysProtocolList();
 
         // Try constraints again after obeys (supports needs on next line)
         constraints = ParseGenericConstraints(genericParams: genericParams,
@@ -211,70 +118,14 @@ public partial class Parser
         List<AssociatedTypeDeclaration>? associatedTypes = ParseRelatesClauses();
 
         var members = new List<SyntaxTree.Declaration>();
-        bool hasPass = false;
 
-        // Parse record body as indented block
         Consume(type: TokenType.Newline, errorMessage: "Expected newline after record header");
 
-        // Enable member variable declaration syntax inside record body
-        // Records are strict: no modifiers allowed on member variables
-        bool wasParsingTypeBody = _parsingTypeBody;
-        bool wasParsingStrictRecordBody = _parsingStrictRecordBody;
-        _parsingTypeBody = true;
-        _parsingStrictRecordBody = true; // Records disallow modifiers on member variables
-
-        if (Check(type: TokenType.Indent))
-        {
-            ProcessIndentToken();
-
-            while (!Check(type: TokenType.Dedent) && !IsAtEnd)
-            {
-                if (Match(TokenType.Newline, TokenType.DocComment))
-                {
-                    continue;
-                }
-
-                // Allow 'pass' to indicate empty body
-                if (Match(type: TokenType.Pass))
-                {
-                    hasPass = true;
-                    Match(type: TokenType.Newline);
-                    continue;
-                }
-
-                ISyntaxTreeNode node = ParseDeclaration();
-                if (node is RoutineDeclaration)
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                        message: "Routines cannot be declared inside record bodies. Use 'routine RecordName.MemberRoutine()' syntax instead.");
-                }
-
-                if (node is SyntaxTree.Declaration member)
-                {
-                    members.Add(item: member);
-                }
-                else
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                        message:
-                        $"Expected declaration inside record body, got {node.GetType().Name}");
-                }
-            }
-
-            if (Check(type: TokenType.Dedent))
-            {
-                ProcessDedentTokens();
-            }
-            else if (!IsAtEnd)
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedDedentAfterBody,
-                    message: "Expected dedent after record body");
-            }
-        }
-
-        _parsingTypeBody = wasParsingTypeBody;
-        _parsingStrictRecordBody = wasParsingStrictRecordBody;
-
+        // Records are strict: no modifiers allowed on member variables.
+        bool hasPass = ParseIndentedTypeMembers(
+            members: members,
+            typeName: "record",
+            strictRecord: true);
 
         return new RecordDeclaration(Name: name,
             GenericParameters: genericParams,
@@ -500,6 +351,117 @@ public partial class Parser
     }
 
     /// <summary>
+    /// Skips an optional line-break before <c>obeys</c>, then parses the comma-separated protocol list
+    /// that follows an <c>obeys</c> keyword (if present). Returns the list (empty when no <c>obeys</c>).
+    /// When <paramref name="allowOnlyIf"/> is <see langword="true"/> (the default for entity/record),
+    /// each item is parsed via <see cref="ParseObeysProtocol"/> (which handles <c>onlyif</c> conditions);
+    /// when <see langword="false"/> (for protocol parent-protocol lists), each item is a plain
+    /// <see cref="ParseType"/> call. Newlines between comma-separated items are consumed silently.
+    /// </summary>
+    private List<TypeExpression> ParseObeysProtocolList(bool allowOnlyIf = true)
+    {
+        // Allow a line break before 'obeys' in the type header.
+        while (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Obeys)
+        {
+            Advance();
+        }
+
+        var interfaces = new List<TypeExpression>();
+        if (!Match(type: TokenType.Obeys))
+        {
+            return interfaces;
+        }
+
+        do
+        {
+            // Skip intermediate newlines between comma-separated protocol names.
+            while (Match(type: TokenType.Newline))
+            {
+                // Consume newline; continue to the next protocol name.
+            }
+
+            interfaces.Add(item: allowOnlyIf ? ParseObeysProtocol() : ParseType());
+        } while (Match(type: TokenType.Comma));
+
+        return interfaces;
+    }
+
+    /// <summary>
+    /// Parses an indented member-declaration body (entity or record) after the header newline is already
+    /// consumed. Saves and restores the <see cref="_parsingTypeBody"/> and
+    /// <see cref="_parsingStrictRecordBody"/> flags around the loop. Returns whether a <c>pass</c> token
+    /// was encountered (used to mark an intentionally empty body).
+    /// <para><paramref name="typeName"/> is used in diagnostic messages (e.g. <c>"entity"</c> or
+    /// <c>"record"</c>); <paramref name="typeNamePascal"/> is the PascalCase form used in usage hints
+    /// (e.g. <c>"Entity"</c> or <c>"Record"</c>).</para>
+    /// </summary>
+    private bool ParseIndentedTypeMembers(
+        List<SyntaxTree.Declaration> members,
+        string typeName,
+        bool strictRecord,
+        string? typeNamePascal = null)
+    {
+        string pascal = typeNamePascal ?? (char.ToUpperInvariant(typeName[0]) + typeName[1..]);
+        bool wasParsingTypeBody = _parsingTypeBody;
+        bool wasParsingStrictRecordBody = _parsingStrictRecordBody;
+        _parsingTypeBody = true;
+        _parsingStrictRecordBody = strictRecord;
+
+        bool hasPass = false;
+
+        if (Check(type: TokenType.Indent))
+        {
+            ProcessIndentToken();
+
+            while (!Check(type: TokenType.Dedent) && !IsAtEnd)
+            {
+                if (Match(TokenType.Newline, TokenType.DocComment))
+                {
+                    continue;
+                }
+
+                if (Match(type: TokenType.Pass))
+                {
+                    hasPass = true;
+                    Match(type: TokenType.Newline);
+                    continue;
+                }
+
+                ISyntaxTreeNode node = ParseDeclaration();
+                if (node is RoutineDeclaration)
+                {
+                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                        message: $"Routines cannot be declared inside {typeName} bodies. Use 'routine {pascal}Name.MemberRoutine()' syntax instead.");
+                }
+
+                if (node is SyntaxTree.Declaration member)
+                {
+                    members.Add(item: member);
+                }
+                else
+                {
+                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                        message: $"Expected declaration inside {typeName} body, got {node.GetType().Name}");
+                }
+            }
+
+            if (Check(type: TokenType.Dedent))
+            {
+                ProcessDedentTokens();
+            }
+            else if (!IsAtEnd)
+            {
+                throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedDedentAfterBody,
+                    message: $"Expected dedent after {typeName} body");
+            }
+        }
+
+        _parsingTypeBody = wasParsingTypeBody;
+        _parsingStrictRecordBody = wasParsingStrictRecordBody;
+        return hasPass;
+    }
+
+    /// <summary>
     /// Parses a variant (tagged union) declaration.
     /// Syntax: <c>variant Name</c> followed by indented cases with optional associated types.
     /// Variants are sum types where each case can carry different data.
@@ -621,25 +583,9 @@ public partial class Parser
             ParseGenericConstraints(genericParams: genericParams,
                 existingConstraints: inlineConstraints);
 
-
-        // Allow a line break before 'obeys' in the protocol header.
-        while (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Obeys)
-        {
-            Advance();
-        }
-
-        // Parse parent protocols (protocol X obeys Y, Z)
-        var parentProtocols = new List<TypeExpression>();
-        if (Match(type: TokenType.Obeys))
-        {
-            do
-            {
-                while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
-
-                parentProtocols.Add(item: ParseType());
-                // Newlines between comma-separated protocols are handled by the 'before' skip
-            } while (Match(type: TokenType.Comma));
-        }
+        // Parse parent protocols (protocol X obeys Y, Z) using shared helper.
+        // Protocol parent-protocol items are plain types (no onlyif conditions here).
+        List<TypeExpression> parentProtocols = ParseObeysProtocolList(allowOnlyIf: false);
 
         // Try constraints again after obeys (supports needs on next line)
         constraints = ParseGenericConstraints(genericParams: genericParams,
@@ -671,72 +617,9 @@ public partial class Parser
 
         while (!Check(type: TokenType.Dedent) && !IsAtEnd)
         {
-            if (Match(TokenType.Newline, TokenType.DocComment))
-            {
-                continue;
-            }
-
-            // 'pass' is valid in a protocol body that defines no memberRoutines (marker protocol)
-            if (Match(type: TokenType.Pass))
-            {
-                Match(type: TokenType.Newline);
-                continue;
-            }
-
-            // Parse optional annotations on routine signatures (e.g., @readonly)
-            List<string> memberRoutineAnnotations = ParseAnnotations();
-
-            // Skip newlines between annotations and routine keyword
-            while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
-
-            // Optional `common` storage-class qualifier — type-level (static) protocol memberRoutine,
-            // e.g. `common routine Me.identity() -> V`. Strips down to a regular `routine` parse
-            // afterwards, with the `common` flag pushed into the annotations list so downstream
-            // resolution (TypeBodyResolver) can promote it to `IsInstanceMemberRoutine = false`.
-            bool memberRoutineIsCommon = false;
-            if (Match(type: TokenType.Common))
-            {
-                memberRoutineIsCommon = true;
-            }
-
-            // Optional `dangerous` qualifier — marks the protocol memberRoutine as requiring a `danger`
-            // block at the call site (mirrors the impl-side `dangerous routine` syntax).
-            bool memberRoutineIsDangerous = false;
-            if (Match(type: TokenType.Dangerous))
-            {
-                memberRoutineIsDangerous = true;
-            }
-
-            // Allow either qualifier order: `dangerous common routine` is just as valid as
-            // `common dangerous routine`.
-            if (!memberRoutineIsCommon && Match(type: TokenType.Common))
-            {
-                memberRoutineIsCommon = true;
-            }
-
-            // Associated-type slot declaration inside protocol body: `relates Key` or `relates Key obeys Hashable`
-            if (Match(type: TokenType.Relates))
-            {
-                associatedTypes ??= [];
-                associatedTypes.Add(item: ParseProtocolRelatesSlot());
-                Match(type: TokenType.Newline);
-                continue;
-            }
-
-            // Parse routine signature
-            if (Match(type: TokenType.Routine))
-            {
-                memberRoutines.Add(item: ParseProtocolRoutineSignature(
-                    memberRoutineAnnotations: memberRoutineAnnotations,
-                    memberRoutineIsCommon: memberRoutineIsCommon,
-                    memberRoutineIsDangerous: memberRoutineIsDangerous));
-                Match(type: TokenType.Newline);
-            }
-            else
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                    message: $"Unexpected '{CurrentToken.Text}' in protocol body. Only 'routine' signatures are allowed.");
-            }
+            ParseProtocolBodyItem(
+                memberRoutines: memberRoutines,
+                associatedTypes: ref associatedTypes);
         }
 
         if (Check(type: TokenType.Dedent))
@@ -749,7 +632,6 @@ public partial class Parser
                 message: "Expected dedent after protocol body");
         }
 
-
         return new ProtocolDeclaration(Name: name,
             GenericParameters: genericParams,
             ParentProtocols: parentProtocols,
@@ -760,6 +642,78 @@ public partial class Parser
         {
             AssociatedTypes = associatedTypes
         };
+    }
+
+    /// <summary>
+    /// Processes one item in a protocol body loop. Handles newlines/doc-comments, <c>pass</c>,
+    /// annotations, <c>common</c>/<c>dangerous</c> qualifiers, <c>relates</c> slot declarations, and
+    /// <c>routine</c> signatures. Mutates <paramref name="memberRoutines"/> and
+    /// <paramref name="associatedTypes"/> in place.
+    /// </summary>
+    private void ParseProtocolBodyItem(
+        List<RoutineSignature> memberRoutines,
+        ref List<AssociatedTypeDeclaration>? associatedTypes)
+    {
+        if (Match(TokenType.Newline, TokenType.DocComment))
+        {
+            return;
+        }
+
+        // 'pass' is valid in a protocol body that defines no memberRoutines (marker protocol)
+        if (Match(type: TokenType.Pass))
+        {
+            Match(type: TokenType.Newline);
+            return;
+        }
+
+        // Parse optional annotations on routine signatures (e.g., @readonly)
+        List<string> memberRoutineAnnotations = ParseAnnotations();
+
+        // Skip newlines between annotations and routine keyword.
+        while (Match(type: TokenType.Newline))
+        {
+            // Consume intermediate newlines before the routine keyword.
+        }
+
+        // Optional `common` storage-class qualifier — type-level (static) protocol memberRoutine,
+        // e.g. `common routine Me.identity() -> V`. The `common` flag is propagated downstream so
+        // TypeBodyResolver can set IsInstanceMemberRoutine = false.
+        bool memberRoutineIsCommon = Match(type: TokenType.Common);
+
+        // Optional `dangerous` qualifier — marks the protocol memberRoutine as requiring a `danger`
+        // block at the call site (mirrors the impl-side `dangerous routine` syntax).
+        bool memberRoutineIsDangerous = Match(type: TokenType.Dangerous);
+
+        // Allow either qualifier order: `dangerous common routine` is just as valid as
+        // `common dangerous routine`.
+        if (!memberRoutineIsCommon && Match(type: TokenType.Common))
+        {
+            memberRoutineIsCommon = true;
+        }
+
+        // Associated-type slot declaration inside protocol body: `relates Key` or `relates Key obeys Hashable`
+        if (Match(type: TokenType.Relates))
+        {
+            associatedTypes ??= [];
+            associatedTypes.Add(item: ParseProtocolRelatesSlot());
+            Match(type: TokenType.Newline);
+            return;
+        }
+
+        // Parse routine signature
+        if (Match(type: TokenType.Routine))
+        {
+            memberRoutines.Add(item: ParseProtocolRoutineSignature(
+                memberRoutineAnnotations: memberRoutineAnnotations,
+                memberRoutineIsCommon: memberRoutineIsCommon,
+                memberRoutineIsDangerous: memberRoutineIsDangerous));
+            Match(type: TokenType.Newline);
+        }
+        else
+        {
+            throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                message: $"Unexpected '{CurrentToken.Text}' in protocol body. Only 'routine' signatures are allowed.");
+        }
     }
 
     /// <summary>

@@ -221,7 +221,7 @@ public sealed class PbrfPartitionAnalysis
         public Dictionary<string, List<object>> ByModule = new();
     }
 
-    private TypeRegistrySnapshotRoots CollectRoots(SemanticVerifier.CompiledStdlibState warm)
+    private static TypeRegistrySnapshotRoots CollectRoots(SemanticVerifier.CompiledStdlibState warm)
     {
         var r = new TypeRegistrySnapshotRoots();
         void Add(object sym)

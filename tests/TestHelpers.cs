@@ -90,7 +90,7 @@ public static class TestHelpers
 
         if (parser.HasErrors)
         {
-            IReadOnlyList<string> errors = parser.GetErrors();
+            List<string> errors = parser.GetErrors();
             string errorMessages = string.Join(separator: "\n",
                 values: errors.Select(selector: e => $"  - {e}"));
             Assert.Fail(
@@ -231,7 +231,7 @@ public static class TestHelpers
 
         if (parser.HasErrors)
         {
-            IReadOnlyList<string> errors = parser.GetErrors();
+            List<string> errors = parser.GetErrors();
             string errorMessages = string.Join(separator: "\n",
                 values: errors.Select(selector: e => $"  - {e}"));
             Assert.Fail(

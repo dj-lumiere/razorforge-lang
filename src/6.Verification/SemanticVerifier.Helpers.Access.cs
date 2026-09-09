@@ -119,16 +119,12 @@ public sealed partial class SemanticVerifier
                 continue;
             }
 
-            if (seenExclusiveTokens.Contains(value: exprKey))
+            if (!seenExclusiveTokens.Add(item: exprKey))
             {
                 ReportError(code: SemanticDiagnosticCode.ExclusiveTokenDuplicate,
                     message:
                     $"Cannot pass the same {baseName} token '{exprKey}' multiple times in a single call. Exclusive tokens require unique access.",
                     location: location);
-            }
-            else
-            {
-                seenExclusiveTokens.Add(item: exprKey);
             }
         }
     }
@@ -357,6 +353,9 @@ public sealed partial class SemanticVerifier
     /// </summary>
     /// <param name="routine">The routine being accessed.</param>
     /// <param name="accessLocation">Source location of the access site.</param>
+    /// <param name="isCompilerSynthesized">When true, suppresses the dangerous-outside-danger-block
+    /// check for compiler-injected calls (e.g. <c>local.destroy()</c> from teardown lowering)
+    /// that are not user-written and must not be gated by a danger block.</param>
     private void ValidateRoutineAccess(RoutineInfo routine, SourceLocation accessLocation,
         bool isCompilerSynthesized = false)
     {

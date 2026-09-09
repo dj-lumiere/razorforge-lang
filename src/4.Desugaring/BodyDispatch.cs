@@ -7,7 +7,7 @@ namespace Compiler.Desugaring;
 /// The single home for the four body-collection walks every Phase-8 lowering pass would otherwise
 /// re-hand-roll: the per-program declaration sweep, the variant-body map, and the instantiated
 /// generic-body map. Each walk owns ONLY the mechanical skeleton — iterate the collection, hand each
-/// body to the pass's own <paramref name="lower"/> callback, and write the result back via a
+/// body to the pass's own <c>lower</c> callback, and write the result back via a
 /// <c>with</c> expression ONLY when the callback returned a different reference. The callback supplies
 /// the per-body logic (which core lowering method to call, plus any per-item preamble a stateful pass
 /// needs — see <c>RecordCopyLoweringPass</c>'s copy-verb/borrow-param setup).

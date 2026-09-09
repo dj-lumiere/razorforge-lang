@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Compiler.Declaration;
 using Compiler.Tokenizer;
 using SyntaxTree;
@@ -14,8 +15,11 @@ namespace RazorForge.Tests.Perf;
 /// reused via the registry snapshot, versus the cold path that reprocesses the stdlib every run.
 /// Not a correctness assertion — it prints timings via test output and always passes.
 /// </summary>
-public sealed class WarmCompileBenchmark
+public sealed partial class WarmCompileBenchmark
 {
+    [GeneratedRegex(@" !dbg ![0-9]+")]
+    private static partial Regex DebugMetaRefPattern();
+
     private readonly ITestOutputHelper _out;
     public WarmCompileBenchmark(ITestOutputHelper output) => _out = output;
 
@@ -98,11 +102,14 @@ public sealed class WarmCompileBenchmark
         var gen = new Compiler.CodeGen.LlvmCodeGenerator(
             userPrograms: r.Registry.UserPrograms,
             registry: r.Registry,
-            stdlibPrograms: r.Registry.StdlibPrograms,
-            synthesizedBodies: r.SynthesizedBodies,
-            instantiatedGenericBodies: r.InstantiatedGenericBodies,
-            liveRoutineKeys: r.LiveRoutineKeys,
-            maySuspendRoutineKeys: r.MaySuspendRoutineKeys);
+            options: new Compiler.CodeGen.LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = r.Registry.StdlibPrograms,
+                SynthesizedBodies = r.SynthesizedBodies,
+                InstantiatedGenericBodies = r.InstantiatedGenericBodies,
+                LiveRoutineKeys = r.LiveRoutineKeys,
+                MaySuspendRoutineKeys = r.MaySuspendRoutineKeys
+            });
         return gen.Generate();
     }
 
@@ -161,8 +168,7 @@ public sealed class WarmCompileBenchmark
         static System.Collections.Generic.HashSet<string> Defines(string ll) =>
             ll.Split('\n')
               .Where(l => l.StartsWith("define ", System.StringComparison.Ordinal))
-              .Select(l => System.Text.RegularExpressions.Regex.Replace(
-                  l.Split(" {", 2)[0], @" !dbg ![0-9]+", ""))
+              .Select(l => DebugMetaRefPattern().Replace(l.Split(" {", 2)[0], ""))
               .ToHashSet(System.StringComparer.Ordinal);
         var coldDefs = Defines(coldLl);
         var warmDefs = Defines(warmLl);
@@ -178,8 +184,7 @@ public sealed class WarmCompileBenchmark
     private static System.Collections.Generic.HashSet<string> DefineSet(string ll) =>
         ll.Split('\n')
           .Where(l => l.StartsWith("define ", System.StringComparison.Ordinal))
-          .Select(l => System.Text.RegularExpressions.Regex.Replace(
-              l.Split(" {", 2)[0], @" !dbg ![0-9]+", ""))
+          .Select(l => DebugMetaRefPattern().Replace(l.Split(" {", 2)[0], ""))
           .ToHashSet(System.StringComparer.Ordinal);
 
     /// <summary>

@@ -1,3 +1,4 @@
+using System.Linq;
 using TypeModel.Enums;
 
 namespace TypeModel.Types;
@@ -46,15 +47,12 @@ public sealed class VariantTypeInfo : RecordTypeInfo
         // Layout: { i64 type_id, [max-payload bytes] }, aligned to max(tag, payload).
         int maxPayloadSize = 0;
         int maxPayloadAlignment = 1;
-        foreach (VariantMemberInfo member in Members)
+        foreach (VariantMemberInfo member in Members.Where(predicate: m => m is { IsNone: false, Type: not null }))
         {
-            if (member is { IsNone: false, Type: not null })
-            {
-                int payloadSize = member.Type.SizeBytes(pointerSize: pointerSize);
-                int payloadAlignment = Math.Max(val1: Math.Min(val1: payloadSize, val2: 16), val2: 1);
-                maxPayloadSize = Math.Max(val1: maxPayloadSize, val2: payloadSize);
-                maxPayloadAlignment = Math.Max(val1: maxPayloadAlignment, val2: payloadAlignment);
-            }
+            int payloadSize = member.Type!.SizeBytes(pointerSize: pointerSize);
+            int payloadAlignment = Math.Max(val1: Math.Min(val1: payloadSize, val2: 16), val2: 1);
+            maxPayloadSize = Math.Max(val1: maxPayloadSize, val2: payloadSize);
+            maxPayloadAlignment = Math.Max(val1: maxPayloadAlignment, val2: payloadAlignment);
         }
         const int tagSize = 8;
         int structAlignment = Math.Max(val1: tagSize, val2: maxPayloadAlignment);

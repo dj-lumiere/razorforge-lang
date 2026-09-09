@@ -337,9 +337,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "insertvalue", actualString: llvmIr);
@@ -366,9 +369,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "PriorityQueue", actualString: llvmIr);
@@ -413,9 +419,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "Core.List[Core.List[Core.S64]].create",
@@ -452,9 +461,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         // Before the fix this threw: `GenericParameterTypeInfo 'T' reached GetLlvmType` (the numeric
         // helper monomorphized `T.to_width` onto the user record `T`).
@@ -486,9 +498,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         // Wired-ness is NOT part of the mangled symbol name (it is a routine PROPERTY, not an
@@ -529,9 +544,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "__lambda_", actualString: llvmIr);
@@ -564,9 +582,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "define void @\"[member] Collections.BitList.add_last(",
@@ -595,9 +616,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "call i64 @rf_allocate_dynamic_uninit(i64 ",
@@ -632,9 +656,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "add i64", actualString: llvmIr);
@@ -666,9 +693,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         string body = ExtractFunctionDefinition(llvmIr: llvmIr,
@@ -710,9 +740,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         string tryToU8Body = ExtractFunctionDefinition(llvmIr: llvmIr,
@@ -797,9 +830,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.DoesNotContain(expectedSubstring: "call void @$create", actualString: llvmIr);
@@ -825,9 +861,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.DoesNotContain(expectedSubstring: "call ptr @Core.hijacked_from(",
@@ -865,9 +904,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "define i32 @\"[independent] test()\"", actualString: llvmIr);
@@ -893,9 +935,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "define i64 @\"[dangerous, independent] test(ptr: Core.Hijacked[Core.S64])\"(ptr %ptr)",
@@ -930,9 +975,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "define i32 @\"[independent] test(text: Core.Text)\"(", actualString: llvmIr);
@@ -1022,9 +1070,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         TextWriter originalError = Console.Error;
         var errorWriter = new StringWriter();
@@ -1259,9 +1310,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "define i8 @\"[independent] start(", actualString: llvmIr);
@@ -1288,9 +1342,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         // ByteSize is a single-field record flattened to its i64 backing scalar, and
@@ -1325,9 +1382,12 @@ public class CompilerPipelineLoweringTests
 
         var generator = new LlvmCodeGenerator(program: program,
             registry: result.Registry,
-            stdlibPrograms: result.Registry.StdlibPrograms,
-            synthesizedBodies: result.SynthesizedBodies,
-            instantiatedGenericBodies: result.InstantiatedGenericBodies);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = result.Registry.StdlibPrograms,
+                SynthesizedBodies = result.SynthesizedBodies,
+                InstantiatedGenericBodies = result.InstantiatedGenericBodies
+            });
 
         string llvmIr = generator.Generate();
         Assert.Contains(expectedSubstring: "define ptr @\"[dangerous, independent] wrap_addr(S64)(addr: Core.Address)\"(i64 %addr)",

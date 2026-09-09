@@ -53,9 +53,8 @@ public sealed partial class SemanticVerifier
             }
 
             case VariableDeclaration { IsGlobal: true } globalDecl:
-                // Suflae module-level `global` — already registered in Phase 3 (CollectGlobalDeclaration);
-                // here we only type-check the initializer against the declared type so codegen has a
-                // resolved repr for the stored value.
+                // Suflae module-level global: registered in Phase 3; here we type-check the initializer
+                // against the declared type so codegen has a resolved repr for the stored value.
                 if (globalDecl.Initializer != null)
                 {
                     TypeSymbol declaredType = ResolveType(typeExpr: globalDecl.Type!);
@@ -140,52 +139,13 @@ public sealed partial class SemanticVerifier
             routineOwnerType = resolvedInfoOwner;
         }
 
-        // Look up by RegistryKey (BaseName + param types) for overload disambiguation,
-        // then fall back to BaseName for the first-overload-wins entry.
-        // Set up generic parameter context so ResolveType recognizes T, U, etc.
-        // (mirrors Phase 4.1 registration in Signatures.cs)
-        // Set OwnerType so `Me` in param types resolves to the concrete owner
-        // (e.g. `routine SumS64.combine(you: Me) -> Me` needs Me → SumS64 during param-type
-        // resolution at line 137, which happens before routineInfo is looked up).
-        RoutineInfo? routineInfo = ResolveRoutineInfoByRegistryKey(routine: routine,
-            baseName: baseName,
-            routineOwnerType: routineOwnerType,
+        RoutineInfo? routineInfo = ResolveRoutineInfoWithFallbacks(routine: routine,
+            baseName: baseName, routineOwnerType: routineOwnerType,
             isConstructorDecl: isConstructorDecl);
-
-        // Prefer the overload whose failability matches the routine being analyzed, so
-        // bodies of failable variants don't get matched against a non-failable first-wins entry.
-        routineInfo ??= _registry.LookupRoutine(fullName: baseName,
-            isFailable: routine.IsFailable);
-        routineInfo ??= _registry.LookupRoutine(fullName: baseName);
-
-        // Fall back to the original concrete-specialization name (e.g., "Core.List[U16].decode_as_utf16")
-        // for extension memberRoutines registered under the concrete owner type rather than the generic def.
-        if (routineInfo == null && routine.Name.Contains(value: '['))
-        {
-            string? module = GetCurrentModuleName();
-            string concreteName = string.IsNullOrEmpty(value: module)
-                ? routine.Name
-                : $"{module}.{routine.Name}";
-            routineInfo = _registry.LookupRoutine(fullName: concreteName)
-                ?? _registry.LookupRoutineByQualifiedName(qualifiedName: concreteName);
-        }
-
-        // Final fallback: the exact decl→info binding pinned at registration (RoutineDeclaration.
-        // ResolvedInfo — set for every registered routine in StdlibLoader.Registration /
-        // SignatureResolver, and already used directly by codegen). A registered routine binds to
-        // EXACTLY ONE RoutineInfo, so use it verbatim instead of a module-blind name scan that could
-        // bind an arbitrary same-named overload's body to the WRONG owner — e.g. under the removed
-        // scan, `Integer.from_digit_bytes`'s body was analyzed with `S64.from_digit_bytes`'s
-        // RoutineInfo (first-registered by that name), mixing up the receiver type in the try_ variant.
-        // (Left null only for capability-default derive templates on a bare `T` owner, which carry no
-        // ResolvedInfo and are handled by the @innate / unresolved-body paths below.)
-        routineInfo ??= routine.ResolvedInfo;
 
         if (routineInfo == null)
         {
-            // @innate routines may be intentionally skipped at registration
-            // (e.g., BuilderQuery closure-cascading stubs synthesized per-type).
-            // (_currentRoutine was already restored by ResolveRoutineInfoByRegistryKey.)
+            // @innate routines may be intentionally skipped at registration.
             if (routine.Annotations.Contains(item: "innate"))
             {
                 return;
@@ -200,30 +160,13 @@ public sealed partial class SemanticVerifier
 
         RoutineInfo? previousRoutine = _currentRoutine;
         _currentRoutine = routineInfo;
-
-        // Deadref tracking is per-routine — clear carries from previous routines.
         _deadrefVariables.Clear();
 
         _registry.EnterScope(kind: ScopeKind.Function, name: routine.Name);
+        DeclareParametersInScope(routine: routine, routineInfo: routineInfo);
 
-        // Declare parameters in scope. Pair each with its AST parameter (same order) so the binding
-        // carries the source location the language server needs for go-to-definition / rename.
-        for (int pi = 0; pi < routineInfo.Parameters.Count; pi++)
-        {
-            ParameterInfo param = routineInfo.Parameters[index: pi];
-            SourceLocation? paramLoc = pi < routine.Parameters.Count
-                ? routine.Parameters[index: pi].Location
-                : null;
-            _registry.DeclareVariable(name: param.Name, type: param.Type, location: paramLoc);
-        }
-
-        // #169: dangerous routine implicit danger context
-        bool wasDangerImplicit = false;
-        if (routineInfo.IsDangerous && _dangerBlockDepth == 0)
-        {
-            _dangerBlockDepth = 1;
-            wasDangerImplicit = true;
-        }
+        bool wasDangerImplicit = routineInfo.IsDangerous && _dangerBlockDepth == 0;
+        if (wasDangerImplicit) _dangerBlockDepth = 1;
 
         // @innate routines have compiler-supplied bodies — skip analysis entirely.
         if (routine.Annotations.Contains(item: "innate"))
@@ -234,14 +177,72 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        // Analyze body statement
         AnalyzeStatement(statement: routine.Body);
 
-        if (wasDangerImplicit)
+        if (wasDangerImplicit) _dangerBlockDepth = 0;
+
+        ValidateRoutineBodyPostAnalysis(routine: routine, routineInfo: routineInfo);
+
+        _registry.ExitScope();
+        _currentRoutine = previousRoutine;
+    }
+
+    /// <summary>
+    /// Resolves the <see cref="RoutineInfo"/> for a routine declaration via a multi-level fallback:
+    /// registry-key lookup, failability-matched lookup, bare-name lookup, concrete-specialization
+    /// name lookup, and finally the declaration's own pinned <see cref="RoutineDeclaration.ResolvedInfo"/>.
+    /// Returns null only when no registration exists (e.g., an @innate unregistered stub).
+    /// </summary>
+    private RoutineInfo? ResolveRoutineInfoWithFallbacks(RoutineDeclaration routine,
+        string baseName, TypeSymbol? routineOwnerType, bool isConstructorDecl)
+    {
+        RoutineInfo? routineInfo = ResolveRoutineInfoByRegistryKey(routine: routine,
+            baseName: baseName, routineOwnerType: routineOwnerType,
+            isConstructorDecl: isConstructorDecl);
+
+        routineInfo ??= _registry.LookupRoutine(fullName: baseName,
+            isFailable: routine.IsFailable);
+        routineInfo ??= _registry.LookupRoutine(fullName: baseName);
+
+        // Extension routines registered under a concrete owner (e.g. Core.List[U16].decode_as_utf16).
+        if (routineInfo == null && routine.Name.Contains(value: '['))
         {
-            _dangerBlockDepth = 0;
+            string? module = GetCurrentModuleName();
+            string concreteName = string.IsNullOrEmpty(value: module)
+                ? routine.Name
+                : $"{module}.{routine.Name}";
+            routineInfo = _registry.LookupRoutine(fullName: concreteName)
+                ?? _registry.LookupRoutineByQualifiedName(qualifiedName: concreteName);
         }
 
+        // Final fallback: the exact decl→info binding pinned at registration.
+        routineInfo ??= routine.ResolvedInfo;
+        return routineInfo;
+    }
+
+    /// <summary>
+    /// Declares all parameters of <paramref name="routineInfo"/> in the current scope, pairing each
+    /// with the matching AST parameter's source location for language-server go-to-definition support.
+    /// </summary>
+    private void DeclareParametersInScope(RoutineDeclaration routine, RoutineInfo routineInfo)
+    {
+        for (int pi = 0; pi < routineInfo.Parameters.Count; pi++)
+        {
+            ParameterInfo param = routineInfo.Parameters[index: pi];
+            SourceLocation? paramLoc = pi < routine.Parameters.Count
+                ? routine.Parameters[index: pi].Location
+                : null;
+            _registry.DeclareVariable(name: param.Name, type: param.Type, location: paramLoc);
+        }
+    }
+
+    /// <summary>
+    /// Validates a routine body after analysis: infers return type, checks termination, validates
+    /// failable-without-failure, stores the body for error-handling variant generation, reports
+    /// undismantled Lookup variables, and snapshots stolen variable names for teardown.
+    /// </summary>
+    private void ValidateRoutineBodyPostAnalysis(RoutineDeclaration routine, RoutineInfo routineInfo)
+    {
         // Infer None return type if no annotation was given and no return value was found.
         // null is a transient "not yet inferred" state — after body analysis it must be resolved.
         routineInfo.ReturnType ??= _registry.LookupType(name: "None");
@@ -278,7 +279,7 @@ public sealed partial class SemanticVerifier
             StoreRoutineBody(routine: routineInfo, body: routine.Body);
         }
 
-        // #161: Report undismantled Lookup variables at routine scope exit
+        // Report undismantled Lookup variables at routine scope exit (#161).
         foreach ((string Name, SourceLocation Location) pending in _pendingLookupVars)
         {
             ReportError(code: SemanticDiagnosticCode.LookupNotDismantled,
@@ -291,14 +292,8 @@ public sealed partial class SemanticVerifier
         _pendingLookupVars.Clear();
 
         // Snapshot the per-routine "out of scope via steal/consumption" set onto the declaration so
-        // the scope-exit teardown pass can exclude these bindings from `destroy` — `steal` takes the
-        // variable out of scope (the callee kills the content), and this deadref record survives even
-        // after the `steal` AST wrapper is normalized away during arg lowering.
+        // the scope-exit teardown pass can exclude these bindings from `destroy`.
         routine.StolenVariableNames = [.. _deadrefVariables];
-
-        _registry.ExitScope();
-
-        _currentRoutine = previousRoutine;
     }
 
     /// <summary>
@@ -626,7 +621,6 @@ public sealed partial class SemanticVerifier
                 or BreakStatement or ContinueStatement;
         }
 
-        _lastDeclaredVariantVar = null;
         _registry.ExitScope();
     }
 
@@ -818,9 +812,8 @@ public sealed partial class SemanticVerifier
                 location: varDecl.Location);
         }
 
-        // Post-Owned-retirement: bare entity-typed `var x: T = ...` is the normal bound form.
-        // Bound `T` is record-shaped pointer storage with entity-ownership semantics layered on;
-        // the no-duplicate-handle rule is enforced separately at copy sites (block above).
+        // After Owned retirement: a bare entity-typed variable is the normal bound form.
+        // Duplicate-handle prohibition is enforced at copy sites (the block above).
 
         // Variant copy prohibition: `var box2 = box1` is not allowed
         // Variants must be dismantled immediately with pattern matching
@@ -868,28 +861,37 @@ public sealed partial class SemanticVerifier
                 $"Use it inline (e.g. 'expr.member'), or open a scope with 'using expr as {varDecl.Name}'.",
                 location: varDecl.Location);
         }
-        // Phase 1: warn when the initializer is a "borrowed reference" (identifier or member
-        // access chain) and the source type is not trivially copyable. Reference-count bumps,
-        // ownership transfers, and weak-handle clones must each appear at the copy site as an
-        // explicit verb. See RazorForge-Wiki/docs/Records.md#copy-semantics. Promoted to a
-        // hard error once stdlib migration completes (Phase 2).
-        else if (_registry.Language == Language.RazorForge &&
-            varDecl.Initializer is IdentifierExpression or MemberExpression &&
-            !IsTriviallyAssignable(type: varType))
+        else
         {
-            var hint = FindNonTriviallyAssignableWrapper(type: varType);
-            if (hint != null)
-            {
-                string verb = NonTriviallyAssignableWrappers[key: hint.Value.Wrapper];
-                string fieldNote = hint.Value.Path == "<value>"
-                    ? $"type '{varType.Name}' is a '{hint.Value.Wrapper}[…]' wrapper"
-                    : $"field '{hint.Value.Path}' of type '{hint.Value.Wrapper}[…]'";
-                ReportError(code: SemanticDiagnosticCode.ImplicitWrapperCopy,
-                    message:
-                    $"Implicit copy of '{varDecl.Name}': {fieldNote} requires an explicit copy verb. " +
-                    $"Spell out '{verb}' at the copy site, or reconstruct the record with each field's verb.",
-                    location: varDecl.Location);
-            }
+            CheckImplicitWrapperCopyOnInit(varDecl: varDecl, varType: varType);
+        }
+    }
+
+    /// <summary>
+    /// Phase 1 check: reports an error when the initializer is an identifier or member expression and the
+    /// type is not trivially assignable (contains a managed leaf that requires an explicit copy verb).
+    /// </summary>
+    private void CheckImplicitWrapperCopyOnInit(VariableDeclaration varDecl, TypeSymbol varType)
+    {
+        if (_registry.Language != Language.RazorForge)
+            return;
+        if (varDecl.Initializer is not (IdentifierExpression or MemberExpression))
+            return;
+        if (IsTriviallyAssignable(type: varType))
+            return;
+
+        var hint = FindNonTriviallyAssignableWrapper(type: varType);
+        if (hint != null)
+        {
+            string verb = NonTriviallyAssignableWrappers[key: hint.Value.Wrapper];
+            string fieldNote = hint.Value.Path == "<value>"
+                ? $"type '{varType.Name}' is a '{hint.Value.Wrapper}[…]' wrapper"
+                : $"field '{hint.Value.Path}' of type '{hint.Value.Wrapper}[…]'";
+            ReportError(code: SemanticDiagnosticCode.ImplicitWrapperCopy,
+                message:
+                $"Implicit copy of '{varDecl.Name}': {fieldNote} requires an explicit copy verb. " +
+                $"Spell out '{verb}' at the copy site, or reconstruct the record with each field's verb.",
+                location: varDecl.Location);
         }
     }
 

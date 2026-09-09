@@ -14,6 +14,10 @@ namespace Compiler.Instantiation;
 /// </summary>
 internal static class GenericAstRewriter
 {
+    // Projection name shared by FoldHandleProjection, RewriteExpression member-arm, FoldMetadataIntrinsic,
+    // and the BuilderQuery splice, to avoid the S1192 duplicate-literal warning.
+    private const string TypeIdProjection = "type_id";
+
     /// <summary>
     /// Rewrites a generic routine declaration by substituting all type parameter references
     /// with concrete type names. Returns a deep clone -> the original is not modified.
@@ -160,7 +164,7 @@ internal static class GenericAstRewriter
         /// Resolves a <see cref="TypeInfo"/> through the substitution map. Returns null
         /// when the registry is not available or the type has no substitution.
         /// </summary>
-        public TypeInfo? ResolveType(TypeInfo? original)
+        public TypeInfo? ResolveType(TypeInfo? original) // NOSONAR S3776
         {
             if (original == null || TypeSubs == null || Registry == null)
                 return null;
@@ -924,7 +928,7 @@ internal static class GenericAstRewriter
 
     #region Expression Rewriting
 
-    private static Expression RewriteExpression(Expression expr,
+    private static Expression RewriteExpression(Expression expr, // NOSONAR S3776
         RewriteContext ctx)
     {
         Expression result = expr switch
@@ -1067,7 +1071,7 @@ internal static class GenericAstRewriter
                 when ctx.ActiveExpandHandle != null &&
                      handleId.Name == ctx.ActiveExpandHandle &&
                      handleMember.MemberName is "name" or "id" or "is_secret" or "is_routine"
-                         or "value" or "is_inert" or "is_retaining" or "type_id" or "type"
+                         or "value" or "is_inert" or "is_retaining" or TypeIdProjection or "type"
                 => FoldHandleProjection(projection: handleMember.MemberName, ctx: ctx,
                     location: handleMember.Location),
 
@@ -1273,105 +1277,100 @@ internal static class GenericAstRewriter
     /// </summary>
     private static void AnnotateRewrittenExpression(Expression result, Expression expr, RewriteContext ctx)
     {
+        TypeInfo? resolvedType = RefineResolvedType(
+            initial: ctx.ResolveType(original: expr.ResolvedType) ?? expr.ResolvedType,
+            result: result, expr: expr, ctx: ctx);
+
+        result.ResolvedType = resolvedType;
+
+        TypeInfo? routineResultType = resolvedType ?? result.ResolvedType ?? expr.ResolvedType;
+        RebindRewrittenNode(result: result, expr: expr, routineResultType: routineResultType, ctx: ctx);
+
+        // Stdlib bodies are processed by SA on the generic definition, so some
+        // intermediate call expressions (e.g. me.address() inside cmp or diagnose)
+        // may arrive with ResolvedType=null when the SA annotation on the generic
+        // body's call was not preserved through cloning.  If GMP resolved the routine
+        // after the switch, propagate its ReturnType so downstream chained calls
+        // (outer .MemberRoutine() or CallOverloadResolutionPass) can see the receiver type.
+        if (result.ResolvedType == null &&
+            result is CallExpression { ResolvedRoutine.ReturnType: { } inferredReturnType })
         {
-            TypeInfo? resolvedType = ctx.ResolveType(original: expr.ResolvedType) ?? expr.ResolvedType;
-
-            // Const-generic identifiers (e.g. N in Array[T, N]) have ResolvedType=null in the
-            // generic body because SA doesn't run on stdlib bodies before Phase 6.  After GMP
-            // substitutes N -> ConstGenericValueTypeInfo("63"), annotate the rewritten identifier
-            // so CallOverloadResolutionPass can resolve operator calls like N.sub!(1u64).
-            if (resolvedType == null &&
-                result is IdentifierExpression cgIdent &&
-                ctx.TypeSubs?.TryGetValue(key: cgIdent.Name, value: out TypeInfo? cgSub) == true &&
-                cgSub is ConstGenericValueTypeInfo)
-            {
-                resolvedType = cgSub;
-            }
-
-            // `me` (the receiver) in a re-homed protocol-default-impl body must be the concrete
-            // implementer (ParamTypes["me"]), not the protocol's substituted element type. Without
-            // this, `me.hijack()` etc. dispatch on the abstract `Iterable[Text]` (undefined symbol)
-            // instead of `List[Text]`. Must run before the member-call re-dispatch below.
-            if (result is IdentifierExpression { Name: "me" } &&
-                ctx.ParamTypes.TryGetValue(key: "me", value: out TypeInfo? meReceiverType))
-            {
-                resolvedType = meReceiverType;
-            }
-
-            // An `branchof` arm payload binding (`x` in `is ${m.type} x => …`) has no SA annotation on
-            // the generic template — supply the concrete arm type so the chained call re-resolves.
-            if ((resolvedType is null or ErrorTypeInfo) &&
-                result is IdentifierExpression bindingRef &&
-                ctx.ActiveBindingTypes.TryGetValue(key: bindingRef.Name, value: out TypeInfo? bindType))
-            {
-                resolvedType = bindType;
-            }
-
-            // Concretize a reference to a local whose type was re-inferred from a re-dispatched
-            // initializer (see RewriteContext.LocalReinferredTypes). Guarded to only replace a stale
-            // PROTOCOL type, so concrete-typed references are left untouched. This must run before the
-            // member-call re-dispatch below so the receiver type drives concrete memberRoutine resolution.
-            if (result is IdentifierExpression localRef &&
-                resolvedType is ProtocolTypeInfo &&
-                ctx.LocalReinferredTypes.TryGetValue(key: localRef.Name, value: out TypeInfo? concreteLocal))
-            {
-                resolvedType = concreteLocal;
-            }
-
-            // A `${m.name}` splice on a SoA CONTAINER (`me.${m.name}` where `me` is a `SplitArray[T,N]`)
-            // resolves to the COLUMN type (`Array[F32, N]`), which DIFFERS from the expand source's
-            // member type. RewriteSpliceMember computed that column type; the original splice node's own
-            // ResolvedType is a deferred ErrorType placeholder (SA can't resolve a splice pre-monomorph),
-            // so overwriting with it here would clobber the column type and leave a following
-            // `[index]`/`.count()` unable to resolve `getitem`/`count` post-monomorph. Preserve the
-            // splice-computed type ONLY when the object is an SoA container (a type carrying decl-position
-            // `expand` templates). The derive-template case (`me` IS the walked record — NO ExpandTemplates)
-            // keeps the normal overwrite: its members' types must stay deferred so recursively-typed fields
-            // (`BTreeListNode[BTreeListNode[…]]`) don't spawn unbounded concrete instantiations.
-            if (expr is SpliceMemberExpression &&
-                result is MemberExpression spliceMember &&
-                result.ResolvedType is not (null or ErrorTypeInfo) &&
-                IsSoAContainerType(type: ResolveSpliceObjectType(obj: spliceMember.Object, ctx: ctx)))
-            {
-                resolvedType = result.ResolvedType;
-            }
-
-            // A folded comptime type projection yields a TYPEWISE IdentifierExpression carrying the
-            // concrete member type; it must keep that concrete type. The source node — the legacy
-            // `${m.type}` (a SpliceExpression wrapping the `m.type` MemberExpression) OR the new
-            // `$typeof(m)` / bare `typeof(m)` (a metadata-intrinsic CallExpression) — carries a deferred
-            // `ErrorTypeInfo` placeholder (SA can't resolve it pre-monomorph), which would otherwise
-            // clobber the folded type here, breaking a following `.data_size()`/`.type_id()` fold (the
-            // BuilderQuery pass reads the receiver's ResolvedType). Only fires when the rewrite genuinely
-            // produced a concrete type from an error placeholder, so real error nodes are untouched.
-            bool exprFoldsTypewise = expr is SpliceExpression
-                or MemberExpression { Object: IdentifierExpression }
-                || (expr is CallExpression { Callee: IdentifierExpression ofCallId }
-                    && Compiler.Verification.SemanticVerifier.IsMetadataIntrinsic(name: ofCallId.Name));
-            if (resolvedType is null or ErrorTypeInfo
-                && result.ResolvedType is not (null or ErrorTypeInfo)
-                && exprFoldsTypewise)
-            {
-                resolvedType = result.ResolvedType;
-            }
-
-            result.ResolvedType = resolvedType;
-
-            TypeInfo? routineResultType = resolvedType ?? result.ResolvedType ?? expr.ResolvedType;
-            RebindRewrittenNode(result: result, expr: expr, routineResultType: routineResultType, ctx: ctx);
-
-            // Stdlib bodies are processed by SA on the generic definition, so some
-            // intermediate call expressions (e.g. me.address() inside cmp or diagnose)
-            // may arrive with ResolvedType=null when the SA annotation on the generic
-            // body's call was not preserved through cloning.  If GMP resolved the routine
-            // after the switch, propagate its ReturnType so downstream chained calls
-            // (outer .MemberRoutine() or CallOverloadResolutionPass) can see the receiver type.
-            if (result.ResolvedType == null &&
-                result is CallExpression { ResolvedRoutine.ReturnType: { } inferredReturnType })
-            {
-                result.ResolvedType = inferredReturnType;
-            }
+            result.ResolvedType = inferredReturnType;
         }
+    }
+
+    /// <summary>
+    /// Applies a chain of special-case overrides to the initial resolved type, in priority order:
+    /// const-generic identifier, <c>me</c> receiver, branchof binding, stale-protocol local,
+    /// SoA splice column, and typewise fold.
+    /// </summary>
+    private static TypeInfo? RefineResolvedType(TypeInfo? initial, Expression result, Expression expr,
+        RewriteContext ctx)
+    {
+        TypeInfo? resolvedType = initial;
+
+        // Const-generic identifiers (e.g. N in Array[T, N]) have ResolvedType=null in the
+        // generic body because SA doesn't run on stdlib bodies before Phase 6.  After GMP
+        // substitutes N -> ConstGenericValueTypeInfo("63"), annotate the rewritten identifier
+        // so CallOverloadResolutionPass can resolve operator calls like N.sub!(1u64).
+        if (resolvedType == null &&
+            result is IdentifierExpression cgIdent &&
+            ctx.TypeSubs?.TryGetValue(key: cgIdent.Name, value: out TypeInfo? cgSub) == true &&
+            cgSub is ConstGenericValueTypeInfo)
+        {
+            resolvedType = cgSub;
+        }
+
+        // `me` (the receiver) in a re-homed protocol-default-impl body must be the concrete
+        // implementer (ParamTypes["me"]), not the protocol's substituted element type.
+        if (result is IdentifierExpression { Name: "me" } &&
+            ctx.ParamTypes.TryGetValue(key: "me", value: out TypeInfo? meReceiverType))
+        {
+            resolvedType = meReceiverType;
+        }
+
+        // An `branchof` arm payload binding (`x` in `is ${m.type} x => …`) has no SA annotation on
+        // the generic template — supply the concrete arm type so the chained call re-resolves.
+        if ((resolvedType is null or ErrorTypeInfo) &&
+            result is IdentifierExpression bindingRef &&
+            ctx.ActiveBindingTypes.TryGetValue(key: bindingRef.Name, value: out TypeInfo? bindType))
+        {
+            resolvedType = bindType;
+        }
+
+        // Concretize a reference to a local whose type was re-inferred from a re-dispatched
+        // initializer. Guarded to only replace a stale PROTOCOL type so concrete references are left untouched.
+        if (result is IdentifierExpression localRef &&
+            resolvedType is ProtocolTypeInfo &&
+            ctx.LocalReinferredTypes.TryGetValue(key: localRef.Name, value: out TypeInfo? concreteLocal))
+        {
+            resolvedType = concreteLocal;
+        }
+
+        // A `${m.name}` splice on a SoA container resolves to the COLUMN type, not the source member
+        // type. Preserve the splice-computed type when the object is an SoA container.
+        if (expr is SpliceMemberExpression &&
+            result is MemberExpression spliceMember &&
+            result.ResolvedType is not (null or ErrorTypeInfo) &&
+            IsSoAContainerType(type: ResolveSpliceObjectType(obj: spliceMember.Object, ctx: ctx)))
+        {
+            resolvedType = result.ResolvedType;
+        }
+
+        // A folded comptime type projection yields a TYPEWISE IdentifierExpression; it must keep that
+        // concrete type rather than being overwritten with the source's deferred ErrorTypeInfo placeholder.
+        bool exprFoldsTypewise = expr is SpliceExpression
+            or MemberExpression { Object: IdentifierExpression }
+            || (expr is CallExpression { Callee: IdentifierExpression ofCallId }
+                && Compiler.Verification.SemanticVerifier.IsMetadataIntrinsic(name: ofCallId.Name));
+        if (resolvedType is null or ErrorTypeInfo
+            && result.ResolvedType is not (null or ErrorTypeInfo)
+            && exprFoldsTypewise)
+        {
+            resolvedType = result.ResolvedType;
+        }
+
+        return resolvedType;
     }
 
     /// <summary>
@@ -1688,7 +1687,7 @@ internal static class GenericAstRewriter
                     BuilderQueryInliningPass.CalculateDataSizeForType(typeInfo),
                     u64Type, byteSizeType, location),
 
-            "type_id" when u64Type != null =>
+            TypeIdProjection when u64Type != null =>
                 new LiteralExpression(
                     Value: TypeIdHelper.ComputeTypeId(typeInfo.FullName),
                     LiteralType: TokenType.U64Literal,
@@ -2109,7 +2108,7 @@ internal static class GenericAstRewriter
     /// folded to literals. A choice case's value is its computed discriminant; a flags member's value
     /// is <c>1 &lt;&lt; bitPosition</c>.
     /// </summary>
-    private static Statement RewriteCaseExpand(ExpandStatement expand, TypeInfo? source,
+    private static BlockStatement RewriteCaseExpand(ExpandStatement expand, TypeInfo? source,
         RewriteContext ctx)
     {
         List<(string Name, long Value)>? cases = source switch
@@ -2219,7 +2218,7 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>A folded <c>true</c>/<c>false</c> literal (with a resolved <c>Bool</c> type when available).</summary>
-    private static Expression MakeBoolLiteral(bool value, RewriteContext ctx, SourceLocation loc) =>
+    private static LiteralExpression MakeBoolLiteral(bool value, RewriteContext ctx, SourceLocation loc) =>
         new LiteralExpression(
             Value: value,
             LiteralType: value ? TokenType.True : TokenType.False,
@@ -2228,7 +2227,7 @@ internal static class GenericAstRewriter
             ResolvedType = ctx.Registry?.LookupType(name: "Bool")
         };
 
-    private static Statement RewriteWhenArmExpansion(WhenStatement ws, RewriteContext ctx)
+    private static WhenStatement RewriteWhenArmExpansion(WhenStatement ws, RewriteContext ctx)
     {
         WhenArmExpansion arm = ws.ArmExpansion!;
         Expression subject = RewriteExpression(expr: ws.Expression, ctx: ctx);
@@ -2324,7 +2323,7 @@ internal static class GenericAstRewriter
             "name" => FoldProjectionName(ctx: ctx, location: location),
             "is_secret" => FoldProjectionIsSecret(ctx: ctx, location: location),
             "value" => FoldProjectionValue(ctx: ctx, location: location),
-            "type_id" => FoldProjectionTypeId(ctx: ctx, location: location),
+            TypeIdProjection => FoldProjectionTypeId(ctx: ctx, location: location),
             "is_inert" => FoldProjectionIsInert(ctx: ctx, location: location),
             "is_retaining" => FoldProjectionIsRetaining(ctx: ctx, location: location),
             "type" => FoldProjectionType(ctx: ctx, location: location),
@@ -2333,7 +2332,7 @@ internal static class GenericAstRewriter
         };
     }
 
-    private static Expression FoldProjectionName(RewriteContext ctx, SourceLocation location) =>
+    private static LiteralExpression FoldProjectionName(RewriteContext ctx, SourceLocation location) =>
         new LiteralExpression(Value: ctx.ActiveMemberName ?? "",
             LiteralType: TokenType.TextLiteral,
             Location: location)
@@ -2341,7 +2340,7 @@ internal static class GenericAstRewriter
             ResolvedType = ctx.Registry?.LookupType(name: "Text")
         };
 
-    private static Expression FoldProjectionIsSecret(RewriteContext ctx, SourceLocation location) =>
+    private static LiteralExpression FoldProjectionIsSecret(RewriteContext ctx, SourceLocation location) =>
         new LiteralExpression(Value: ctx.ActiveMemberIsSecret,
             LiteralType: ctx.ActiveMemberIsSecret ? TokenType.True : TokenType.False,
             Location: location)
@@ -2349,7 +2348,7 @@ internal static class GenericAstRewriter
             ResolvedType = ctx.Registry?.LookupType(name: "Bool")
         };
 
-    private static Expression FoldProjectionValue(RewriteContext ctx, SourceLocation location)
+    private static LiteralExpression FoldProjectionValue(RewriteContext ctx, SourceLocation location)
     {
         // caseof `c.value`: a choice's S32 discriminant or a flags member's U64 bit value.
         return ctx.ActiveCaseIsFlags
@@ -2365,7 +2364,7 @@ internal static class GenericAstRewriter
             };
     }
 
-    private static Expression FoldProjectionTypeId(RewriteContext ctx, SourceLocation location)
+    private static LiteralExpression FoldProjectionTypeId(RewriteContext ctx, SourceLocation location)
     {
         // The current arm/member type's stable type id (branchof `m.type_id`), matching the C#
         // `TypeIdHelper.ComputeTypeId(FullName)` used by variant `diagnose`.
@@ -2379,7 +2378,7 @@ internal static class GenericAstRewriter
         };
     }
 
-    private static Expression FoldProjectionIsInert(RewriteContext ctx, SourceLocation location)
+    private static LiteralExpression FoldProjectionIsInert(RewriteContext ctx, SourceLocation location)
     {
         // "뒷끝 없다" — the member's type tears down to nothing (owns no entity / RC / managed leaf /
         // raw pointer needing release): its `destroy` is a transitive no-op, and may not even be
@@ -2394,7 +2393,7 @@ internal static class GenericAstRewriter
         };
     }
 
-    private static Expression FoldProjectionIsRetaining(RewriteContext ctx, SourceLocation location)
+    private static LiteralExpression FoldProjectionIsRetaining(RewriteContext ctx, SourceLocation location)
     {
         // The member's type has a RETAINING copy hook — a resolvable `store` (the managed-leaf
         // refcount bump, e.g. Text/Decimal, or a record owning one). A bitwise alias of such a
@@ -2414,7 +2413,7 @@ internal static class GenericAstRewriter
         };
     }
 
-    private static Expression FoldProjectionType(RewriteContext ctx, SourceLocation location)
+    private static IdentifierExpression FoldProjectionType(RewriteContext ctx, SourceLocation location)
     {
         // `${m.type}` in EXPRESSION position folds to a TYPEWISE receiver: an identifier naming the
         // concrete member/arm type, annotated with that type so a following static call
@@ -2430,7 +2429,7 @@ internal static class GenericAstRewriter
         };
     }
 
-    private static Expression FoldProjectionIsRoutine(RewriteContext ctx, SourceLocation location)
+    private static LiteralExpression FoldProjectionIsRoutine(RewriteContext ctx, SourceLocation location)
     {
         // A routine-typed member (only entities may hold one; records are barred by RF-S412) has
         // neither `serialize` nor `represent`, so a derive skips it (boxes a `<routine>` placeholder).
@@ -2443,7 +2442,7 @@ internal static class GenericAstRewriter
         };
     }
 
-    private static Expression FoldProjectionId(RewriteContext ctx, SourceLocation location) =>
+    private static LiteralExpression FoldProjectionId(RewriteContext ctx, SourceLocation location) =>
         new LiteralExpression(Value: (ulong)ctx.ActiveMemberIndex,
             LiteralType: TokenType.U64Literal,
             Location: location)
@@ -2506,7 +2505,7 @@ internal static class GenericAstRewriter
             case "orderof":
                 return FoldHandleProjection(projection: "id", ctx: ctx, location: location);
             case "typeidof":
-                return FoldHandleProjection(projection: "type_id", ctx: ctx, location: location);
+                return FoldHandleProjection(projection: TypeIdProjection, ctx: ctx, location: location);
             case "visibilityof":
             {
                 // Fold to the matching `Visibility` choice case (OPEN/POSTED/SECRET), a bare case
@@ -2556,7 +2555,7 @@ internal static class GenericAstRewriter
     /// <c>represent</c>) — the enclosing <c>if</c> then comptime-prunes so the untaken branch (an
     /// invalid call for this member) never reaches codegen (see <see cref="RewriteIf"/>).
     /// </summary>
-    private static Expression FoldHandleObeys(CallExpression call, RewriteContext ctx)
+    private static LiteralExpression FoldHandleObeys(CallExpression call, RewriteContext ctx)
     {
         string? protocolName =
             call.Arguments is [IdentifierExpression protoId] ? protoId.Name : null;
@@ -2614,7 +2613,7 @@ internal static class GenericAstRewriter
     /// current member (<c>x.field</c>), annotated with the member's static type so the chained call
     /// (e.g. <c>.represent()</c>) re-resolves against the concrete field type.
     /// </summary>
-    private static Expression RewriteSpliceMember(SpliceMemberExpression sm, RewriteContext ctx)
+    private static MemberExpression RewriteSpliceMember(SpliceMemberExpression sm, RewriteContext ctx)
     {
         Expression obj = RewriteExpression(expr: sm.Object, ctx: ctx);
         string memberName = ctx.ActiveMemberName ?? "";

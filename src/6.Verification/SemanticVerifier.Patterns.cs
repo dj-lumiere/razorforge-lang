@@ -336,29 +336,23 @@ public sealed partial class SemanticVerifier
         }
 
         // Validate each flag name exists
-        foreach (string flagName in flagsPat.FlagNames)
+        foreach (string flagName in flagsPat.FlagNames.Where(fn => flagsTypeForPat.Members.All(m => m.Name != fn)))
         {
-            if (flagsTypeForPat.Members.All(predicate: m => m.Name != flagName))
-            {
-                ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
-                    message:
-                    $"Flags type '{flagsTypeForPat.Name}' does not have a member named '{flagName}'.",
-                    location: flagsPat.Location);
-            }
+            ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
+                message:
+                $"Flags type '{flagsTypeForPat.Name}' does not have a member named '{flagName}'.",
+                location: flagsPat.Location);
         }
 
         // Validate excluded flags
         if (flagsPat.ExcludedFlags != null)
         {
-            foreach (string flagName in flagsPat.ExcludedFlags)
+            foreach (string flagName in flagsPat.ExcludedFlags.Where(fn => flagsTypeForPat.Members.All(m => m.Name != fn)))
             {
-                if (flagsTypeForPat.Members.All(predicate: m => m.Name != flagName))
-                {
-                    ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
-                        message:
-                        $"Flags type '{flagsTypeForPat.Name}' does not have a member named '{flagName}'.",
-                        location: flagsPat.Location);
-                }
+                ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
+                    message:
+                    $"Flags type '{flagsTypeForPat.Name}' does not have a member named '{flagName}'.",
+                    location: flagsPat.Location);
             }
         }
     }
@@ -464,9 +458,9 @@ public sealed partial class SemanticVerifier
         if (pattern.Bindings.Count == 1 && pattern.Bindings[index: 0].MemberVariableName == null)
         {
             DestructuringBinding binding = pattern.Bindings[index: 0];
-            if (binding.NestedPattern != null)
+            if (binding.NestedPattern is { } nestedPattern)
             {
-                AnalyzePattern(pattern: binding.NestedPattern, matchedType: payloadType);
+                AnalyzePattern(pattern: nestedPattern, matchedType: payloadType);
             }
             else if (binding.BindingName != null)
             {
@@ -556,12 +550,9 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        foreach (DestructuringBinding binding in bindings)
+        foreach (string bindingName in bindings.Select(b => b.BindingName).OfType<string>())
         {
-            if (binding.BindingName != null)
-            {
-                _registry.DeclareVariable(name: binding.BindingName, type: ErrorTypeInfo.Instance);
-            }
+            _registry.DeclareVariable(name: bindingName, type: ErrorTypeInfo.Instance);
         }
     }
 
@@ -573,59 +564,37 @@ public sealed partial class SemanticVerifier
     {
         // Same type - always compatible
         if (matchedType.Name == patternType.Name)
-        {
             return true;
-        }
-
         // If either is a type parameter, we can't know at analysis time
-        if (matchedType.Category == TypeCategory.TypeParameter ||
-            patternType.Category == TypeCategory.TypeParameter)
-        {
+        if (matchedType.Category == TypeCategory.TypeParameter || patternType.Category == TypeCategory.TypeParameter)
             return true;
-        }
-
         // If matched type is a protocol, any concrete type could conform
         if (matchedType.Category == TypeCategory.Protocol)
-        {
             return true;
-        }
-
-        // Carrier types (Maybe<T>, Result<T>, Lookup<T>) can be matched against any
-        // type/protocol — their inner value, Crashable errors, None/None are all valid arms.
+        // Carrier types (Maybe<T>, Result<T>, Lookup<T>) can be matched against any type/protocol
         if (IsCarrierType(type: matchedType))
-        {
             return true;
-        }
-
-        // Variant: `is <MemberType>` matches if MemberType is one of the variant's members.
-        if (matchedType is VariantTypeInfo variantMatched)
-        {
-            foreach (VariantMemberInfo member in variantMatched.Members)
-            {
-                if (member.Type != null &&
-                    (member.Type.Name == patternType.Name ||
-                     member.Type.FullName == patternType.FullName))
-                {
-                    return true;
-                }
-            }
-        }
-
+        // Variant: `is <MemberType>` matches if MemberType is one of the variant's members
+        if (matchedType is VariantTypeInfo variantMatched && VariantHasMemberOfType(variant: variantMatched, patternType: patternType))
+            return true;
         // If pattern type is a protocol, check if matched type implements it
         if (patternType.Category == TypeCategory.Protocol)
-        {
             return ImplementsProtocol(type: matchedType, protocolName: patternType.Name);
-        }
-
         // IsAssignableTo in either direction covers subtyping
-        if (IsAssignableTo(source: matchedType, target: patternType) ||
-            IsAssignableTo(source: patternType, target: matchedType))
-        {
-            return true;
-        }
+        return IsAssignableTo(source: matchedType, target: patternType) ||
+               IsAssignableTo(source: patternType, target: matchedType);
+    }
 
-        // Provably incompatible
-        return false;
+    /// <summary>
+    /// Returns true when any member of <paramref name="variant"/> carries the given <paramref name="patternType"/>
+    /// by name or full name — used by <see cref="IsTypePatternCompatible"/> to determine whether an
+    /// <c>is MemberType</c> pattern can ever match the variant.
+    /// </summary>
+    private static bool VariantHasMemberOfType(VariantTypeInfo variant, TypeSymbol patternType)
+    {
+        return variant.Members.Any(m =>
+            m.Type != null &&
+            (m.Type.Name == patternType.Name || m.Type.FullName == patternType.FullName));
     }
 
     #endregion
@@ -646,12 +615,9 @@ public sealed partial class SemanticVerifier
         TypeSymbol matchedType)
     {
         // If any clause is a catch-all pattern, it's always exhaustive
-        foreach (WhenClause clause in clauses)
+        if (clauses.Any(clause => clause.Pattern is WildcardPattern or ElsePattern or IdentifierPattern))
         {
-            if (clause.Pattern is WildcardPattern or ElsePattern or IdentifierPattern)
-            {
-                return new ExhaustivenessResult(IsExhaustive: true, MissingCases: []);
-            }
+            return new ExhaustivenessResult(IsExhaustive: true, MissingCases: []);
         }
 
         if (matchedType is ChoiceTypeInfo choice)
@@ -691,16 +657,10 @@ public sealed partial class SemanticVerifier
     private static ExhaustivenessResult CheckChoiceExhaustiveness(
         List<WhenClause> clauses, ChoiceTypeInfo choice)
     {
-        var coveredCases = new HashSet<string>();
-
-        foreach (WhenClause clause in clauses)
-        {
-            string? caseName = ExtractChoiceCaseName(pattern: clause.Pattern);
-            if (caseName != null)
-            {
-                coveredCases.Add(item: caseName);
-            }
-        }
+        var coveredCases = clauses
+            .Select(clause => ExtractChoiceCaseName(pattern: clause.Pattern))
+            .OfType<string>()
+            .ToHashSet();
 
         var missingCases = choice.Cases
                                  .Where(predicate: c => !coveredCases.Contains(item: c.Name))
@@ -780,17 +740,10 @@ public sealed partial class SemanticVerifier
         List<WhenClause> clauses, List<VariantMemberInfo> members,
         string typeName)
     {
-        var coveredMembers = new HashSet<string>();
-
-        foreach (WhenClause clause in clauses)
-        {
-            string? memberName =
-                ExtractVariantMemberName(pattern: clause.Pattern, typeName: typeName);
-            if (memberName != null)
-            {
-                coveredMembers.Add(item: memberName);
-            }
-        }
+        var coveredMembers = clauses
+            .Select(clause => ExtractVariantMemberName(pattern: clause.Pattern, typeName: typeName))
+            .OfType<string>()
+            .ToHashSet();
 
         var missingMembers = members.Where(predicate: m => !coveredMembers.Contains(item: m.Name))
                                     .Select(selector: m => m.Name)

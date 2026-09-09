@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 using Compiler.Instantiation;
 using Compiler.Declaration;
@@ -8,6 +9,30 @@ using TypeModel.Symbols;
 using TypeModel.Types;
 
 namespace Compiler.CodeGen;
+
+/// <summary>
+/// Optional configuration for <see cref="LlvmCodeGenerator"/>. Bundles the parameters that are
+/// rarely all supplied at once so neither constructor overload exceeds seven parameters.
+/// </summary>
+public sealed class LlvmCodeGeneratorOptions
+{
+    /// <summary>Optional stdlib programs for intrinsic routine definitions.</summary>
+    public List<(Program Program, string FilePath, string Module)>? StdlibPrograms { get; init; }
+    /// <summary>Target platform configuration (defaults to current host when null).</summary>
+    public TargetConfig? Target { get; init; }
+    /// <summary>Build optimization mode (defaults to Debug).</summary>
+    public RfBuildMode BuildMode { get; init; } = RfBuildMode.Debug;
+    /// <summary>AST bodies for compiler-generated derived operators.</summary>
+    public IReadOnlyDictionary<string, Statement>? SynthesizedBodies { get; init; }
+    /// <summary>Instantiated generic bodies from GenericMonomorphizationPass.</summary>
+    public IReadOnlyDictionary<string, MonomorphizedBody>? InstantiatedGenericBodies { get; init; }
+    /// <summary>Reachable routine keys; empty disables reachability filtering.</summary>
+    public IReadOnlyCollection<string>? LiveRoutineKeys { get; init; }
+    /// <summary>Routine keys that may suspend (used for coroutine frame layout).</summary>
+    public IReadOnlyCollection<string>? MaySuspendRoutineKeys { get; init; }
+    /// <summary>Mangled symbols already defined in the resident base dylib; empty = full emission.</summary>
+    public IReadOnlyCollection<string>? ResidentSymbols { get; init; }
+}
 
 /// <summary>
 /// LLVM IR code generator for RazorForge and Suflae.
@@ -37,7 +62,7 @@ public partial class LlvmCodeGenerator
         new Dictionary<string, MonomorphizedBody>();
 
     /// <summary>
-    /// Reachable routine RegistryKeys produced by <see cref="RoutineReachabilityPass"/>.
+    /// Reachable routine RegistryKeys produced by <c>RoutineReachabilityPass</c>.
     /// When non-empty, Phase A's stdlib body emission gates by this set in addition to
     /// <see cref="_generatedRoutines"/>, preventing the lazy-declaration cascade from
     /// emitting bodies for unreachable routines.
@@ -70,7 +95,7 @@ public partial class LlvmCodeGenerator
     private bool _baseMode;
 
     /// <summary>Wrapper type base names for member forwarding in codegen.</summary>
-    // TODO: It shouldn't know about all these types because they are going to be llvm ptr anyway.
+    // These types will eventually all map to an opaque llvm ptr; until then codegen needs this list.
     private static readonly IReadOnlySet<string> WrapperTypeNames = RuntimeContract.WrapperTypes;
 
     /// <summary>The user program ASTs to generate code for (single-file or multi-file).</summary>
@@ -179,7 +204,7 @@ public partial class LlvmCodeGenerator
         _localRetainedVars = [];
 
     /// <summary>Set of already-generated function definitions to avoid duplicates.</summary>
-    // TODO: this should be routine info, not string.
+    // Keyed by mangled name string; a future refactor could key by RoutineInfo instead.
     private readonly HashSet<string> _generatedRoutineDefs = [];
 
     /// <summary>
@@ -201,15 +226,14 @@ public partial class LlvmCodeGenerator
     public int EmittedRoutineCount => _generatedRoutineDefs.Count;
 
     /// <summary>
-    /// The mangled LLVM symbol names this generator actually emitted a <c>define</c> for (a snapshot of
-    /// <see cref="_generatedRoutineDefs"/>). This is the PRODUCER side of the resident/delta split
-    /// (resident-JIT incremental, see <c>internal-wiki/RESIDENT-JIT-INCREMENTAL-V0.5.md</c> §2A/C4/Phase 0):
-    /// when a base module is codegen'd + JIT'd into the resident dylib, its emitted symbols become the
-    /// <c>residentSymbols</c> set fed to the delta build's generator, which then emits those as extern
-    /// <c>declare</c>s instead of re-defining them. Decision-independent of §3 (whatever process holds the
-    /// resident base captures this in-process or ships it over IPC). Valid after <see cref="Generate"/>.
+    /// Returns a snapshot of the mangled LLVM symbol names this generator actually emitted a
+    /// <c>define</c> for. This is the PRODUCER side of the resident/delta split (resident-JIT
+    /// incremental): when a base module is codegen'd + JIT'd into the resident dylib, its emitted
+    /// symbols become the <c>residentSymbols</c> set fed to the delta build's generator, which then
+    /// emits those as extern <c>declare</c>s instead of re-defining them. Valid after
+    /// <see cref="Generate"/>.
     /// </summary>
-    public IReadOnlyCollection<string> EmittedRoutineSymbols =>
+    public IReadOnlyCollection<string> GetEmittedRoutineSymbols() =>
         new HashSet<string>(collection: _generatedRoutineDefs, comparer: StringComparer.Ordinal);
 
     /// <summary>The return type of the current function being generated.</summary>
@@ -273,34 +297,14 @@ public partial class LlvmCodeGenerator
     /// </summary>
     /// <param name="program">The program AST to generate code for.</param>
     /// <param name="registry">The type registry from semantic analysis.</param>
-    /// <param name="stdlibPrograms">Optional stdlib programs for intrinsic routine definitions.</param>
-    /// <param name="target">Target platform configuration (defaults to current host).</param>
-    /// <param name="buildMode">Build optimization mode (defaults to Debug).</param>
-    /// <param name="instantiatedGenericBodies">The instantiated generic bodies.</param>
-    /// <param name="synthesizedBodies">The synthesized bodies.</param>
-    /// <param name="liveRoutineKeys">Reachable routine keys from RoutineReachabilityPass; empty disables filtering.</param>
-    /// <param name="maySuspendRoutineKeys">Routine keys that may suspend (used for coroutine frame layout).</param>
-    /// <param name="residentSymbols">Mangled symbols already defined in the resident base dylib (resident-JIT incremental); empty = full emission (cold/AOT).</param>
+    /// <param name="options">Optional generation settings (stdlib, target, build mode, bodies, keys).</param>
     public LlvmCodeGenerator(Program program, TypeRegistry registry,
-        List<(Program Program, string FilePath, string Module)>? stdlibPrograms = null,
-        TargetConfig? target = null, RfBuildMode buildMode = RfBuildMode.Debug,
-        IReadOnlyDictionary<string, Statement>? synthesizedBodies = null,
-        IReadOnlyDictionary<string, MonomorphizedBody>? instantiatedGenericBodies = null,
-        IReadOnlyCollection<string>? liveRoutineKeys = null,
-        IReadOnlyCollection<string>? maySuspendRoutineKeys = null,
-        IReadOnlyCollection<string>? residentSymbols = null) :
+        LlvmCodeGeneratorOptions? options = null) :
         this(userPrograms:
             [(program, program.Location.FileName,
                 program.Declarations.OfType<ModuleDeclaration>().FirstOrDefault()?.Path ?? "")],
             registry: registry,
-            stdlibPrograms: stdlibPrograms,
-            target: target,
-            buildMode: buildMode,
-            synthesizedBodies: synthesizedBodies,
-            instantiatedGenericBodies: instantiatedGenericBodies,
-            liveRoutineKeys: liveRoutineKeys,
-            maySuspendRoutineKeys: maySuspendRoutineKeys,
-            residentSymbols: residentSymbols)
+            options: options)
     {
     }
 
@@ -309,47 +313,35 @@ public partial class LlvmCodeGenerator
     /// </summary>
     /// <param name="userPrograms">The user program ASTs with file paths and module names.</param>
     /// <param name="registry">The type registry from semantic analysis.</param>
-    /// <param name="stdlibPrograms">Optional stdlib programs for intrinsic routine definitions.</param>
-    /// <param name="target">Target platform configuration (defaults to current host).</param>
-    /// <param name="buildMode">Build optimization mode (defaults to Debug).</param>
-    /// <param name="instantiatedGenericBodies">The instantiated generic bodies.</param>
-    /// <param name="synthesizedBodies">The synthesized bodies.</param>
-    /// <param name="liveRoutineKeys">Reachable routine keys from RoutineReachabilityPass; empty disables filtering.</param>
-    /// <param name="maySuspendRoutineKeys">Routine keys that may suspend (used for coroutine frame layout).</param>
-    /// <param name="residentSymbols">Mangled symbols already defined in the resident base dylib (resident-JIT incremental); empty = full emission (cold/AOT).</param>
+    /// <param name="options">Optional generation settings (stdlib, target, build mode, bodies, keys).</param>
     public LlvmCodeGenerator(
         List<(Program Program, string FilePath, string Module)> userPrograms,
         TypeRegistry registry,
-        List<(Program Program, string FilePath, string Module)>? stdlibPrograms = null,
-        TargetConfig? target = null, RfBuildMode buildMode = RfBuildMode.Debug,
-        IReadOnlyDictionary<string, Statement>? synthesizedBodies = null,
-        IReadOnlyDictionary<string, MonomorphizedBody>? instantiatedGenericBodies = null,
-        IReadOnlyCollection<string>? liveRoutineKeys = null,
-        IReadOnlyCollection<string>? maySuspendRoutineKeys = null,
-        IReadOnlyCollection<string>? residentSymbols = null)
+        LlvmCodeGeneratorOptions? options = null)
     {
-        _target = target ?? TargetConfig.ForCurrentHost();
+        options ??= new LlvmCodeGeneratorOptions();
+        _target = options.Target ?? TargetConfig.ForCurrentHost();
         if (_target.PointerBitWidth != 64)
         {
             throw new ArgumentException(
                 message:
                 $"Only 64-bit targets are currently supported (got {_target.PointerBitWidth}).",
-                paramName: nameof(target));
+                paramName: nameof(options));
         }
 
         _userPrograms = userPrograms;
         _registry = registry;
-        _stdlibPrograms = stdlibPrograms ?? [];
-        if (synthesizedBodies != null) _synthesizedBodies = synthesizedBodies;
-        if (instantiatedGenericBodies != null)
-            _instantiatedGenericBodies = instantiatedGenericBodies;
-        if (liveRoutineKeys is { Count: > 0 })
-            _liveRoutineKeys = new HashSet<string>(collection: liveRoutineKeys,
+        _stdlibPrograms = options.StdlibPrograms ?? [];
+        if (options.SynthesizedBodies != null) _synthesizedBodies = options.SynthesizedBodies;
+        if (options.InstantiatedGenericBodies != null)
+            _instantiatedGenericBodies = options.InstantiatedGenericBodies;
+        if (options.LiveRoutineKeys is { Count: > 0 })
+            _liveRoutineKeys = new HashSet<string>(collection: options.LiveRoutineKeys,
                 comparer: StringComparer.Ordinal);
-        if (residentSymbols is { Count: > 0 })
-            _residentSymbols = new HashSet<string>(collection: residentSymbols,
+        if (options.ResidentSymbols is { Count: > 0 })
+            _residentSymbols = new HashSet<string>(collection: options.ResidentSymbols,
                 comparer: StringComparer.Ordinal);
-        _buildMode = buildMode;
+        _buildMode = options.BuildMode;
         _pointerBitWidth = _target.PointerBitWidth;
         _pointerSizeBytes = _target.PointerBitWidth / 8;
         _targetTriple = _target.Triple;
@@ -497,7 +489,7 @@ public partial class LlvmCodeGenerator
     {
         _baseMode = true;
         string ir = Generate();
-        return (ir, EmittedRoutineSymbols);
+        return (ir, GetEmittedRoutineSymbols());
     }
 
     #endregion
@@ -722,14 +714,11 @@ public partial class LlvmCodeGenerator
         // Build set of routine names that have bodies (in user programs or stdlib)
         HashSet<string> routinesWithBodies = CollectRoutinesWithBodies();
 
-        foreach (RoutineInfo routine in _registry.GetAllRoutines())
+        foreach (RoutineInfo routine in _registry.GetAllRoutines()
+            .Where(r => !ShouldSkipRoutineDeclaration(routine: r, routinesWithBodies: routinesWithBodies)))
         {
-            if (!ShouldSkipRoutineDeclaration(routine: routine,
-                    routinesWithBodies: routinesWithBodies))
-            {
-                // Only emit 'declare' for truly external routines
-                GenerateRoutineDeclaration(routine: routine);
-            }
+            // Only emit 'declare' for truly external routines
+            GenerateRoutineDeclaration(routine: routine);
         }
     }
 
@@ -828,7 +817,7 @@ public partial class LlvmCodeGenerator
         // no per-body liveness gate, no `_referencedKeys` fixpoint, no per-owner synthesis at emission.
         // The only checks below are correctness bookkeeping (don't define a symbol twice; a resident body
         // lives in the base dylib; an empty sentinel is not a real body) — not decisions about WHAT exists.
-        foreach ((string mapKey, MonomorphizedBody body) in _instantiatedGenericBodies)
+        foreach ((string _, MonomorphizedBody body) in _instantiatedGenericBodies)
         {
             string instFuncName = MangleRoutineName(routine: body.Info);
             if (_generatedRoutineDefs.Contains(item: instFuncName)

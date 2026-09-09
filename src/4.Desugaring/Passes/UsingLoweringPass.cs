@@ -252,41 +252,13 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
                     : stmt;
 
             case BlockStatement b:
-            {
-                bool changed = false;
-                var stmts = new List<Statement>(capacity: b.Statements.Count);
-                foreach (Statement s in b.Statements)
-                {
-                    Statement n = InjectExitBeforeEscapes(s, exitStmt, loopDepth);
-                    stmts.Add(n);
-                    if (!ReferenceEquals(n, s)) changed = true;
-                }
-                return changed ? b with { Statements = stmts } : b;
-            }
+                return InjectIntoBlock(b, exitStmt, loopDepth);
 
             case IfStatement ifs:
-            {
-                Statement then = InjectExitBeforeEscapes(ifs.ThenStatement, exitStmt, loopDepth);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? InjectExitBeforeEscapes(ifs.ElseStatement, exitStmt, loopDepth)
-                    : null;
-                bool changed = !ReferenceEquals(then, ifs.ThenStatement)
-                               || !ReferenceEquals(elseS, ifs.ElseStatement);
-                return changed ? ifs with { ThenStatement = then, ElseStatement = elseS } : ifs;
-            }
+                return InjectIntoIf(ifs, exitStmt, loopDepth);
 
             case WhenStatement w:
-            {
-                bool changed = false;
-                var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
-                foreach (WhenClause c in w.Clauses)
-                {
-                    Statement body = InjectExitBeforeEscapes(c.Body, exitStmt, loopDepth);
-                    clauses.Add(!ReferenceEquals(body, c.Body) ? c with { Body = body } : c);
-                    if (!ReferenceEquals(body, c.Body)) changed = true;
-                }
-                return changed ? w with { Clauses = clauses } : w;
-            }
+                return InjectIntoWhen(w, exitStmt, loopDepth);
 
             case LoopStatement loop:
             {
@@ -305,6 +277,43 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
             default:
                 return stmt;
         }
+    }
+
+    private static Statement InjectIntoBlock(BlockStatement b, ExpressionStatement exitStmt, int loopDepth)
+    {
+        bool changed = false;
+        var stmts = new List<Statement>(capacity: b.Statements.Count);
+        foreach (Statement s in b.Statements)
+        {
+            Statement n = InjectExitBeforeEscapes(s, exitStmt, loopDepth);
+            stmts.Add(n);
+            if (!ReferenceEquals(n, s)) changed = true;
+        }
+        return changed ? b with { Statements = stmts } : b;
+    }
+
+    private static Statement InjectIntoIf(IfStatement ifs, ExpressionStatement exitStmt, int loopDepth)
+    {
+        Statement then = InjectExitBeforeEscapes(ifs.ThenStatement, exitStmt, loopDepth);
+        Statement? elseS = ifs.ElseStatement != null
+            ? InjectExitBeforeEscapes(ifs.ElseStatement, exitStmt, loopDepth)
+            : null;
+        bool changed = !ReferenceEquals(then, ifs.ThenStatement)
+                       || !ReferenceEquals(elseS, ifs.ElseStatement);
+        return changed ? ifs with { ThenStatement = then, ElseStatement = elseS } : ifs;
+    }
+
+    private static Statement InjectIntoWhen(WhenStatement w, ExpressionStatement exitStmt, int loopDepth)
+    {
+        bool changed = false;
+        var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
+        foreach (WhenClause c in w.Clauses)
+        {
+            Statement body = InjectExitBeforeEscapes(c.Body, exitStmt, loopDepth);
+            clauses.Add(!ReferenceEquals(body, c.Body) ? c with { Body = body } : c);
+            if (!ReferenceEquals(body, c.Body)) changed = true;
+        }
+        return changed ? w with { Clauses = clauses } : w;
     }
 
     private static BlockStatement MakeBlock(IEnumerable<Statement> stmts, SourceLocation loc)

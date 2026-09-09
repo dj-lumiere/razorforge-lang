@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Compiler.Diagnostics;
 using SyntaxTree;
 using TypeModel.Enums;
@@ -32,13 +33,7 @@ public sealed partial class SemanticVerifier
     /// member access — `param.member` falls through to the inner T.
     /// </summary>
     private static bool HasOnlyMarkerCoercionMemberRoutines(ProtocolTypeInfo proto)
-    {
-        foreach (ProtocolMemberRoutineInfo m in proto.MemberRoutines)
-        {
-            if (m.Name != "access" && m.Name != "control") return false;
-        }
-        return true;
-    }
+        => proto.MemberRoutines.All(predicate: m => m.Name == "access" || m.Name == "control");
 
     private static bool IsReadOnlyTransparentProtocol(TypeSymbol type)
     {
@@ -58,10 +53,11 @@ public sealed partial class SemanticVerifier
         foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: gp.Name))
         {
             if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null }) continue;
-            foreach (TypeExpression protoExpr in c.ConstraintTypes)
+            IEnumerable<string> protoNames = c.ConstraintTypes.Select(selector: protoExpr => protoExpr.Name);
+            foreach (string protoName in protoNames)
             {
-                if (protoExpr.Name == Compiler.Declaration.RuntimeContract.Controlling) return false;
-                if (protoExpr.Name == Compiler.Declaration.RuntimeContract.Accessing) sawMarker = true;
+                if (protoName == Compiler.Declaration.RuntimeContract.Controlling) return false;
+                if (protoName == Compiler.Declaration.RuntimeContract.Accessing) sawMarker = true;
             }
         }
         return sawMarker;
@@ -80,27 +76,40 @@ public sealed partial class SemanticVerifier
     {
         if (TryGetTransparentProtocolTarget(type: type, targetType: out innerType))
             return true;
-        if (type is GenericParameterTypeInfo gp)
+        if (type is GenericParameterTypeInfo gp
+            && TryUnwrapMarkerBoundParam(gp: gp, innerType: out innerType))
         {
-            foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: gp.Name))
+            return true;
+        }
+        innerType = type;
+        return false;
+    }
+
+    /// <summary>
+    /// Scans the active Obeys-constraints of a generic parameter for a marker-protocol bound
+    /// (<c>Accessing[X]</c> or <c>Controlling[X]</c>) and resolves the inner type <c>X</c>.
+    /// Returns true and sets <paramref name="innerType"/> when a bound is found; false otherwise.
+    /// </summary>
+    private bool TryUnwrapMarkerBoundParam(GenericParameterTypeInfo gp, out TypeSymbol innerType)
+    {
+        foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: gp.Name))
+        {
+            if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null }) continue;
+            foreach (TypeExpression protoExpr in c.ConstraintTypes)
             {
-                if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null }) continue;
-                foreach (TypeExpression protoExpr in c.ConstraintTypes)
+                if (protoExpr.Name is not (Compiler.Declaration.RuntimeContract.Accessing
+                        or Compiler.Declaration.RuntimeContract.Controlling))
+                    continue;
+                if (protoExpr.GenericArguments is not { Count: 1 }) continue;
+                TypeSymbol resolved = _typeResolver.ResolveType(typeExpr: protoExpr.GenericArguments[index: 0]);
+                if (resolved is not (null or ErrorTypeInfo))
                 {
-                    if (protoExpr.Name is not (Compiler.Declaration.RuntimeContract.Accessing
-                            or Compiler.Declaration.RuntimeContract.Controlling))
-                        continue;
-                    if (protoExpr.GenericArguments is not { Count: 1 }) continue;
-                    TypeSymbol resolved = _typeResolver.ResolveType(typeExpr: protoExpr.GenericArguments[index: 0]);
-                    if (resolved is not (null or ErrorTypeInfo))
-                    {
-                        innerType = resolved;
-                        return true;
-                    }
+                    innerType = resolved;
+                    return true;
                 }
             }
         }
-        innerType = type;
+        innerType = ErrorTypeInfo.Instance;
         return false;
     }
 
@@ -112,7 +121,7 @@ public sealed partial class SemanticVerifier
     /// generic-body expressions. The real "does this field have that member?" check runs on the
     /// unrolled member access at instantiation.
     /// </summary>
-    private TypeSymbol AnalyzeSpliceMemberExpression(SpliceMemberExpression spliceMember)
+    private ErrorTypeInfo AnalyzeSpliceMemberExpression(SpliceMemberExpression spliceMember)
     {
         AnalyzeExpression(expression: spliceMember.Object);
         AnalyzeExpression(expression: spliceMember.Selector);
@@ -124,7 +133,7 @@ public sealed partial class SemanticVerifier
     /// selector-position splice must name a field (fold to <c>Text</c>). The splice's own value is
     /// comptime-only, so it types as <see cref="ErrorTypeInfo"/> (deferred to monomorphization).
     /// </summary>
-    private TypeSymbol AnalyzeSpliceExpression(SpliceExpression splice)
+    private ErrorTypeInfo AnalyzeSpliceExpression(SpliceExpression splice)
     {
         TypeSymbol innerType = AnalyzeExpression(expression: splice.Inner);
         if (splice.RequiredKind == SpliceKind.Selector
@@ -186,11 +195,12 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void ReportNullableEntityDeref(MemberExpression member)
     {
-        string receiver = member.Object is IdentifierExpression idRecv
-            ? $"'{idRecv.Name}'"
-            : member.Object is MemberExpression mRecv
-                ? $"'{mRecv.MemberName}'"
-                : "the value";
+        string receiver = member.Object switch
+        {
+            IdentifierExpression idRecv => $"'{idRecv.Name}'",
+            MemberExpression mRecv => $"'{mRecv.MemberName}'",
+            _ => "the value"
+        };
         string hint = member.Object is IdentifierExpression idHint
             ? $"Null-check it first (e.g. 'if {idHint.Name} isnot None' or 'if {idHint.Name} is None: return')."
             : "Bind it to a local and null-check that local first (e.g. 'var v = …' then 'if v isnot None').";
@@ -229,69 +239,13 @@ public sealed partial class SemanticVerifier
             ReportNullableEntityDeref(member: member);
         }
 
-        bool hasTransparentTarget = TryUnwrapMarkerReceiver(type: objectType,
+        TryUnwrapMarkerReceiver(type: objectType,
             innerType: out TypeSymbol lookupType);
 
         // Look up the member variable/property on the type
-        if (lookupType is RecordTypeInfo record)
+        if (TryResolveMemberVariableAccess(lookupType: lookupType, member: member) is { } resolved)
         {
-            MemberVariableInfo? memberVariable =
-                record.LookupMemberVariable(memberVariableName: member.MemberName);
-            if (memberVariable != null)
-            {
-                // Validate member variable access (read access)
-                ValidateMemberVariableAccess(memberVariable: memberVariable,
-                    isWrite: false,
-                    accessLocation: member.Location);
-                return memberVariable.Type;
-            }
-
-            // Wrapper type forwarding for record-based wrappers (Viewing[T], Modifying[T], etc.)
-            if (IsWrapperType(type: lookupType)
-                && TryForwardWrapperMemberAccess(lookupType: lookupType, member: member) is { } forwarded)
-            {
-                return forwarded;
-            }
-        }
-        else if (lookupType is TupleTypeInfo tupleType)
-        {
-            MemberVariableInfo? memberVariable =
-                tupleType.GetField(memberVariableName: member.MemberName);
-            if (memberVariable != null)
-            {
-                return memberVariable.Type;
-            }
-        }
-        else if (lookupType is EntityTypeInfo entity)
-        {
-            MemberVariableInfo? memberVariable =
-                entity.LookupMemberVariable(memberVariableName: member.MemberName);
-            if (memberVariable != null)
-            {
-                // Validate member variable access (read access)
-                ValidateMemberVariableAccess(memberVariable: memberVariable,
-                    isWrite: false,
-                    accessLocation: member.Location);
-                return memberVariable.Type;
-            }
-        }
-        else if (lookupType is CrashableTypeInfo crashable)
-        {
-            MemberVariableInfo? memberVariable =
-                crashable.LookupMemberVariable(memberVariableName: member.MemberName);
-            if (memberVariable != null)
-            {
-                ValidateMemberVariableAccess(memberVariable: memberVariable,
-                    isWrite: false,
-                    accessLocation: member.Location);
-                return memberVariable.Type;
-            }
-        }
-        // Wrapper type forwarding: Viewing<T>, Modifying<T>, Guarded<T>, etc.
-        else if (IsWrapperType(type: lookupType)
-                 && TryForwardWrapperMemberAccess(lookupType: lookupType, member: member) is { } forwarded)
-        {
-            return forwarded;
+            return resolved;
         }
 
         // Choice case member access: Color.RED -> ChoiceTypeInfo
@@ -344,8 +298,7 @@ public sealed partial class SemanticVerifier
         // Currently only Tuple[...] supports destructuring. Record breakdown is planned for the future.
         // When the element type is not a tuple, this means the user wrote `for (a, b) in non_tuple`.
         if (lookupType is not TupleTypeInfo &&
-            System.Text.RegularExpressions.Regex.IsMatch(input: member.MemberName,
-                pattern: @"^item\d+$"))
+            TupleDestructureFieldRegex().IsMatch(input: member.MemberName))
         {
             ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
                 message:
@@ -360,6 +313,64 @@ public sealed partial class SemanticVerifier
                 location: member.Location);
         }
         return ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// Attempts to resolve a bare member-variable access on the lookup type: checks record, tuple, entity,
+    /// crashable, and wrapper types in priority order. Returns the member's declared type when found (after
+    /// access validation), or <c>null</c> when the member is not a field on any of those types.
+    /// </summary>
+    private TypeSymbol? TryResolveMemberVariableAccess(TypeSymbol lookupType, MemberExpression member)
+    {
+        if (lookupType is RecordTypeInfo record)
+        {
+            MemberVariableInfo? memberVariable =
+                record.LookupMemberVariable(memberVariableName: member.MemberName);
+            if (memberVariable != null)
+            {
+                ValidateMemberVariableAccess(memberVariable: memberVariable,
+                    isWrite: false, accessLocation: member.Location);
+                return memberVariable.Type;
+            }
+            if (IsWrapperType(type: lookupType)
+                && TryForwardWrapperMemberAccess(lookupType: lookupType, member: member) is { } fwd)
+            {
+                return fwd;
+            }
+        }
+        else if (lookupType is TupleTypeInfo tupleType)
+        {
+            return tupleType.GetField(memberVariableName: member.MemberName)?.Type;
+        }
+        else if (lookupType is EntityTypeInfo entity)
+        {
+            MemberVariableInfo? memberVariable =
+                entity.LookupMemberVariable(memberVariableName: member.MemberName);
+            if (memberVariable != null)
+            {
+                ValidateMemberVariableAccess(memberVariable: memberVariable,
+                    isWrite: false, accessLocation: member.Location);
+                return memberVariable.Type;
+            }
+        }
+        else if (lookupType is CrashableTypeInfo crashable)
+        {
+            MemberVariableInfo? memberVariable =
+                crashable.LookupMemberVariable(memberVariableName: member.MemberName);
+            if (memberVariable != null)
+            {
+                ValidateMemberVariableAccess(memberVariable: memberVariable,
+                    isWrite: false, accessLocation: member.Location);
+                return memberVariable.Type;
+            }
+        }
+        else if (IsWrapperType(type: lookupType)
+                 && TryForwardWrapperMemberAccess(lookupType: lookupType, member: member) is { } forwarded)
+        {
+            return forwarded;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -429,7 +440,7 @@ public sealed partial class SemanticVerifier
         if (getItem is not { Parameters.Count: >= 1 }) return null;
         TypeSymbol paramType = getItem.Parameters[index: 0].Type;
         paramType = SubstituteOwnerGenerics(paramType: paramType, lookupType: lookupType,
-            ownerType: getItem.OwnerType);
+            ownerType: getItem.OwnerType) ?? paramType;
 
         // The index param is frequently a by-reference marker wrapper — `Dict.getitem!(key:
         // Accessing[K])` / `Controlling[K]` — the `refer`/`control` coercion the container declares on
@@ -1157,35 +1168,68 @@ public sealed partial class SemanticVerifier
         TypeSymbol startType = AnalyzeExpression(expression: range.Start, expectedType: endpointExpected);
         TypeSymbol endType = AnalyzeExpression(expression: range.End, expectedType: endpointExpected);
 
-        // Bare-literal bound adaptation (RF-S767): with no forced `Range[T]` context, a bare integer
-        // literal bound conforms to the OTHER, concrete numeric bound — `0 til me.count()` where
-        // `count()` is U64 makes `0` a U64, not the S64 literal default (so an `each i` index is U64).
-        if (endpointExpected == null)
-        {
-            bool startIsLiteral = range.Start is LiteralExpression;
-            bool endIsLiteral = range.End is LiteralExpression;
-            if (startIsLiteral && !endIsLiteral && IsNumericType(type: endType) && startType != endType)
-            {
-                startType = AnalyzeExpression(expression: range.Start, expectedType: endType);
-            }
-            else if (endIsLiteral && !startIsLiteral && IsNumericType(type: startType) && startType != endType)
-            {
-                endType = AnalyzeExpression(expression: range.End, expectedType: startType);
-            }
-        }
+        (startType, endType) = AdaptLiteralRangeBounds(
+            range: range, endpointExpected: endpointExpected, startType: startType, endType: endType);
 
         if (range.Step != null)
         {
             AnalyzeExpression(expression: range.Step, expectedType: endpointExpected);
         }
 
+        bool startIsBack = range.Start is BackIndexExpression;
+        bool endIsBack = range.End is BackIndexExpression;
+        ValidateRangeBounds(range: range, endpointExpected: endpointExpected,
+            startType: startType, endType: endType, startIsBack: startIsBack, endIsBack: endIsBack);
+
+        // Element type: a subscript forces it (U64); otherwise the non-BackIndex start (or end) drives
+        // it. Return the resolved `Range[T]`.
+        TypeSymbol elementType = endpointExpected ?? (startIsBack ? endType : startType);
+        TypeInfo? rangeGenericDef = _registry.LookupType(name: "Range");
+        if (rangeGenericDef != null && elementType is not ErrorTypeInfo)
+        {
+            return _registry.GetOrCreateResolution(genericDef: rangeGenericDef,
+                typeArguments: new List<TypeInfo> { elementType });
+        }
+
+        return rangeGenericDef ?? ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// Adapts bare-literal range bounds to match the other concrete numeric endpoint type when no forced
+    /// <c>Range[T]</c> context is present (RF-S767): <c>0 til me.count()</c> where <c>count()</c> is U64
+    /// makes <c>0</c> a U64, not the S64 literal default. Returns the (possibly re-analyzed) start/end types.
+    /// </summary>
+    private (TypeSymbol StartType, TypeSymbol EndType) AdaptLiteralRangeBounds(
+        RangeExpression range, TypeSymbol? endpointExpected, TypeSymbol startType, TypeSymbol endType)
+    {
+        if (endpointExpected != null) return (startType, endType);
+
+        bool startIsLiteral = range.Start is LiteralExpression;
+        bool endIsLiteral = range.End is LiteralExpression;
+        if (startIsLiteral && !endIsLiteral && IsNumericType(type: endType) && startType != endType)
+        {
+            startType = AnalyzeExpression(expression: range.Start, expectedType: endType);
+        }
+        else if (endIsLiteral && !startIsLiteral && IsNumericType(type: startType) && startType != endType)
+        {
+            endType = AnalyzeExpression(expression: range.End, expectedType: startType);
+        }
+
+        return (startType, endType);
+    }
+
+    /// <summary>
+    /// Validates BackIndex endpoint placement and numeric bound types for a range expression,
+    /// reporting diagnostics for violations.
+    /// </summary>
+    private void ValidateRangeBounds(RangeExpression range, TypeSymbol? endpointExpected,
+        TypeSymbol startType, TypeSymbol endType, bool startIsBack, bool endIsBack)
+    {
         // BackIndex (^n) endpoints are valid ONLY inside a subscript slice (`s[a til ^0]`), where the
         // element type is forced (U64) — a `^n` there lowers to `count - n` (see OperatorLoweringPass).
         // `inSubscript` is exactly "an expected Range[T] flowed in", which only the subscript path does.
         // Outside a subscript a `^n` bound is meaningless (there is no collection to count from).
         bool inSubscript = endpointExpected != null;
-        bool startIsBack = range.Start is BackIndexExpression;
-        bool endIsBack = range.End is BackIndexExpression;
         if ((startIsBack || endIsBack) && !inSubscript)
         {
             ReportError(code: SemanticDiagnosticCode.BackIndexOutsideSubscript,
@@ -1205,18 +1249,6 @@ public sealed partial class SemanticVerifier
                 message: "Range bounds must be numeric types.",
                 location: range.Location);
         }
-
-        // Element type: a subscript forces it (U64); otherwise the non-BackIndex start (or end) drives
-        // it. Return the resolved `Range[T]`.
-        TypeSymbol elementType = endpointExpected ?? (startIsBack ? endType : startType);
-        TypeInfo? rangeGenericDef = _registry.LookupType(name: "Range");
-        if (rangeGenericDef != null && elementType is not ErrorTypeInfo)
-        {
-            return _registry.GetOrCreateResolution(genericDef: rangeGenericDef,
-                typeArguments: new List<TypeInfo> { elementType });
-        }
-
-        return rangeGenericDef ?? ErrorTypeInfo.Instance;
     }
 
     private TypeSymbol AnalyzeCreatorExpression(CreatorExpression creator)
@@ -1327,15 +1359,14 @@ public sealed partial class SemanticVerifier
             }
         }
 
-        // Prefer a user-defined (non-synthesized) `create`. Entities/records also get an
-        // auto-synthesized all-args `create` (AutoWiredRegistrationPass) whose only job is inline
-        // field-init ("stuffing") — when that's the sole match we fall through to inline
-        // construction below. A user `create` with the same signature as the all-args creator
-        // (e.g. `Resource.create(tag:)` where `tag` is the only field) is the real constructor
-        // and must be called so its body/side-effects run.
-        // Dedupe by registry key — CollectMemberRoutineCandidates can surface the same overload
-        // through more than one path (owner table + protocol/universal walk), which would make a
-        // single user `create` look ambiguous and wrongly fall back to inline construction.
+        // Prefer a user-defined (non-synthesized) creator. Entities/records also get an
+        // auto-synthesized all-args creator whose only job is inline field-init — when that is the
+        // sole match we fall through to inline construction below. A user creator with the same
+        // signature as the all-args creator is the real constructor and must be called so its
+        // body/side-effects run.
+        // Dedupe by registry key: CollectMemberRoutineCandidates can surface the same overload
+        // through more than one path (owner table + protocol walk), which would make a single
+        // user creator look ambiguous and wrongly fall back to inline construction.
         var userMatches = nameMatches.Where(predicate: m => !m.IsSynthesized)
             .GroupBy(keySelector: m => m.RegistryKey)
             .Select(selector: g => g.First())
@@ -1490,4 +1521,12 @@ public sealed partial class SemanticVerifier
             }
         }
     }
+
+    /// <summary>
+    /// Matches a for-loop destructuring field name produced by the lowering pass: <c>item0</c>,
+    /// <c>item1</c>, etc. Used to distinguish a real missing-member error from a wrong-element-type
+    /// destructuring error (the user wrote <c>for (a, b) in nonTuple</c>).
+    /// </summary>
+    [GeneratedRegex(pattern: @"^item\d+$")]
+    private static partial Regex TupleDestructureFieldRegex();
 }

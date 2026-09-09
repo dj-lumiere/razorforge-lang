@@ -66,10 +66,10 @@ internal sealed class BecomesLoweringPass(PostprocessingContext _) : AstRewriter
     /// target. All structural recursion is supplied by <see cref="AstRewriter"/>; the base rewrites
     /// the child statements FIRST (matching the original order), then the pairwise scan runs.
     /// </summary>
-    protected override Statement VisitBlock(BlockStatement block)
+    protected override Statement VisitBlock(BlockStatement s)
     {
         // Recurse into children first (base returns the same reference when nothing changed).
-        var lowered = (BlockStatement)base.VisitBlock(s: block);
+        var lowered = (BlockStatement)base.VisitBlock(s: s);
 
         List<Statement>? loweredStatements = null;
         for (int i = 0; i < lowered.Statements.Count - 1; i++)

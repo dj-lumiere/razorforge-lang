@@ -28,9 +28,19 @@ public sealed partial class TypeRegistry
         new();
 
     /// <summary>
+    /// Keys currently being computed by <see cref="HasCapability"/> — used for cycle detection.
+    /// A self-referential type (record containing itself via a wrapper) that re-enters
+    /// <see cref="HasCapability"/> for its own key is assumed to be capable (conservative seed)
+    /// so the recursion terminates. Written ONLY while the computation is in progress, never
+    /// while the final result is being cached.
+    /// </summary>
+    private readonly HashSet<(string FullName, string Protocol)> _capabilityInProgress =
+        new();
+
+    /// <summary>
     /// Wired routine name -> (protocol it requires the owner to obey, canonical wired-routine name
     /// to look up on the owner). Derived from the single source of truth
-    /// <see cref="WiredRoutineCatalog"/> (entries flagged <see cref="WiredView.Capability"/>); used
+    /// <see cref="WiredRoutineCatalog"/> (entries flagged <see cref="WiredViews.Capability"/>); used
     /// by both the constraint walker (which receives a `T obeys P` constraint and must check T) and
     /// the routine-applicability gate (which receives a routine and must check its owner). To add a
     /// wired routine, edit <see cref="WiredRoutineCatalog"/>, not this projection.
@@ -81,16 +91,22 @@ public sealed partial class TypeRegistry
         var cacheKey = (type.FullName, protocol);
         if (_capabilityCache.TryGetValue(key: cacheKey, value: out bool cached))
             return cached;
-        // Seed the cache with `true` before recursing so a self-referential type
-        // (record containing itself via a wrapper) terminates rather than looping.
-        // The conservative seed cannot produce a false-positive cycle: if any
-        // step below proves the type lacks the capability, we overwrite to false.
-        _capabilityCache[key: cacheKey] = true;
-        bool result = ComputeCapability(type: type,
-            protocol: protocol,
-            wiredName: wiredName);
-        _capabilityCache[key: cacheKey] = result;
-        return result;
+        // Cycle-breaking: if this key is already on the call stack (a self-referential type,
+        // e.g. a record containing itself via a wrapper), return `true` conservatively so the
+        // recursion terminates. The conservative assumption cannot produce false positives because
+        // any step that proves the type LACKS the capability overwrites the cache before returning.
+        if (!_capabilityInProgress.Add(item: cacheKey))
+            return true;
+        try
+        {
+            bool result = ComputeCapability(type: type, protocol: protocol, wiredName: wiredName);
+            _capabilityCache[key: cacheKey] = result;
+            return result;
+        }
+        finally
+        {
+            _capabilityInProgress.Remove(item: cacheKey);
+        }
     }
 
     private bool ComputeCapability(TypeInfo type, string protocol, string wiredName)
@@ -163,29 +179,40 @@ public sealed partial class TypeRegistry
         {
             if (c.ConstraintType != ConstraintKind.Obeys ||
                 c.ConstraintTypes is not { Count: > 0 } protos) continue;
-            int idx = -1;
-            for (int i = 0; i < gParams.Count; i++)
-                if (gParams[index: i] == c.ParameterName) { idx = i; break; }
+
+            int idx = FindParamSlot(gParams: gParams, paramName: c.ParameterName);
             if (idx < 0) continue;
 
-            TypeInfo argType = typeArgs[index: idx];
-            foreach (TypeExpression protoExpr in protos)
-            {
-                // Each `T obeys P` constraint demands that the corresponding type
-                // arg has P's underlying capability. Look up the canonical wired
-                // routine for P from the central map; unknown protocols (e.g.
-                // marker traits without a wired routine) are skipped.
-                if (!_protocolToWired.TryGetValue(key: protoExpr.Name,
-                        value: out string? requiredWired))
-                    continue;
-                if (!HasCapability(type: argType,
-                        protocol: protoExpr.Name,
-                        wiredName: requiredWired))
-                    return false;
-            }
+            if (!ProtocolsHoldForArg(protos: protos, argType: typeArgs[index: idx]))
+                return false;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Finds the zero-based slot of <paramref name="paramName"/> in <paramref name="gParams"/>,
+    /// or -1 when not present.
+    /// </summary>
+    private static int FindParamSlot(List<string> gParams, string paramName)
+    {
+        for (int i = 0; i < gParams.Count; i++)
+            if (gParams[index: i] == paramName) return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// Returns false as soon as one of <paramref name="protos"/> names a protocol whose wired
+    /// routine <paramref name="argType"/> does not satisfy. Unknown protocols (marker traits with
+    /// no canonical wired routine) are skipped — they carry no wired capability to verify.
+    /// </summary>
+    private bool ProtocolsHoldForArg(List<TypeExpression> protos, TypeInfo argType)
+    {
+        return protos
+            .Select(selector: protoExpr => protoExpr.Name)
+            .Where(predicate: name => _protocolToWired.ContainsKey(key: name))
+            .All(predicate: name => HasCapability(type: argType, protocol: name,
+                wiredName: _protocolToWired[key: name]));
     }
 
     /// <summary>
@@ -445,7 +472,7 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>The registry's single CANONICAL object for the protocol <paramref name="t"/> names — its
-    /// generic definition, re-fetched through <see cref="LookupType"/> so two references to the "same"
+    /// generic definition, re-fetched through <see cref="LookupType(string)"/> so two references to the "same"
     /// protocol (one stored on a type's <c>ImplementedProtocols</c>, one freshly resolved) collapse to ONE
     /// object that reference-identity can compare. Returns the type unchanged when it is not a protocol.</summary>
     private TypeInfo? CanonicalProtocolDef(TypeInfo? t)

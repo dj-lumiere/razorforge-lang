@@ -36,6 +36,19 @@ public static class LspServer
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
+    // Repeated JSON property name constants (avoids repeated string literals flagged by S1192).
+    private const string PropParams = "params";
+    private const string PropTextDocument = "textDocument";
+    private const string PropMarkdown = "markdown";
+    private const string PropValue = "value";
+    private const string PropRange = "range";
+    private const string PropStart = "start";
+    private const string PropCharacter = "character";
+    private const string PropLabel = "label";
+    private const string PropDocumentation = "documentation";
+    private const string SuffixDeclaration = "Declaration";
+    private const string NodeRoutineDeclaration = "RoutineDeclaration";
+
     // One pre-analyzed stdlib snapshot per language, captured on first use.
     private static readonly Lazy<TypeRegistry.StdlibSnapshot> RfSnapshot =
         new(valueFactory: () => SemanticVerifier.CaptureStdlibSnapshot(language: Language.RazorForge));
@@ -49,6 +62,12 @@ public static class LspServer
     // Open documents by URI: their most recent typed AST + token stream (for hover).
     private static readonly Dictionary<string, DocState> Docs = new();
 
+    /// <summary>
+    /// Runs the LSP server, reading JSON-RPC 2.0 messages from stdin and writing responses to
+    /// stdout. Redirects all pipeline <c>Console.Write</c> output to stderr so it cannot corrupt
+    /// the LSP framing. Returns 0 on a clean shutdown (client sent <c>shutdown</c> then
+    /// <c>exit</c>), or 1 if <c>exit</c> arrives without a prior <c>shutdown</c>.
+    /// </summary>
     public static int Run()
     {
         // The protocol owns the real stdout; send stray pipeline output to stderr instead.
@@ -223,17 +242,24 @@ public static class LspServer
 
     private static void HandleDidOpenOrChange(Stream stdout, JsonElement root, bool isOpen)
     {
-        if (!root.TryGetProperty(propertyName: "params", value: out JsonElement p) ||
-            !p.TryGetProperty(propertyName: "textDocument", value: out JsonElement td) ||
+        if (!root.TryGetProperty(propertyName: PropParams, value: out JsonElement p) ||
+            !p.TryGetProperty(propertyName: PropTextDocument, value: out JsonElement td) ||
             !td.TryGetProperty(propertyName: "uri", value: out JsonElement uriEl))
         {
             return;
         }
 
         string uri = uriEl.GetString() ?? "";
-        string? text = isOpen
-            ? (td.TryGetProperty(propertyName: "text", value: out JsonElement t) ? t.GetString() : null)
-            : ExtractFullChangeText(paramsEl: p);
+        string? text;
+        if (isOpen)
+        {
+            text = td.TryGetProperty(propertyName: "text", value: out JsonElement t) ? t.GetString() : null;
+        }
+        else
+        {
+            text = ExtractFullChangeText(paramsEl: p);
+        }
+
         if (text == null)
         {
             return;
@@ -245,8 +271,8 @@ public static class LspServer
 
     private static void HandleDidClose(Stream stdout, JsonElement root)
     {
-        if (root.TryGetProperty(propertyName: "params", value: out JsonElement p) &&
-            p.TryGetProperty(propertyName: "textDocument", value: out JsonElement td) &&
+        if (root.TryGetProperty(propertyName: PropParams, value: out JsonElement p) &&
+            p.TryGetProperty(propertyName: PropTextDocument, value: out JsonElement td) &&
             td.TryGetProperty(propertyName: "uri", value: out JsonElement uriEl))
         {
             string uri = uriEl.GetString() ?? "";
@@ -270,9 +296,6 @@ public static class LspServer
             return;
         }
 
-        int line1 = line0 + 1;
-        int col1 = char0 + 1;
-
         Token? hit = TokenAt(doc: doc, line0: line0, char0: char0);
         if (hit == null)
         {
@@ -280,30 +303,7 @@ public static class LspServer
             return;
         }
 
-        // The best typed expression for this token: prefer one anchored exactly at the token start,
-        // else the innermost expression on that line whose start is at or before the cursor.
-        List<Expression> typed = AllNodes(program: doc.Program)
-            .OfType<Expression>().Where(predicate: e => e.ResolvedType != null).ToList();
-
-        Expression? best = null;
-        foreach (Expression e in typed)
-        {
-            if (e.Location.Line != line1)
-            {
-                continue;
-            }
-
-            if (e.Location.Column == hit.Column)
-            {
-                best = e; // exact anchor — the identifier/call at the cursor
-                break;
-            }
-
-            if (e.Location.Column <= col1 && (best == null || e.Location.Column > best.Location.Column))
-            {
-                best = e; // closest-starting enclosing expression as a fallback
-            }
-        }
+        Expression? best = BestTypedExpression(program: doc.Program, line1: line0 + 1, col1: char0 + 1, hit: hit);
 
         // Prefer a richer label when the token names a known kind of symbol:
         //   • a routine call/reference  → full signature `name(a: T, b: U) -> R`
@@ -318,23 +318,14 @@ public static class LspServer
 
         if (label == null)
         {
-            // A realm tag (`C`/`LLVM`/`RF`/`SF` before `::`) is a qualifier, not a value — don't let the
-            // type fallback report it as `C: <return type>`. If the qualified call resolved, the routine
-            // branch above already handled it; otherwise show nothing.
-            if (IsRealmQualifier(doc: doc, hit: hit))
+            string? resolved = ResolveHoverFallbackLabel(doc: doc, hit: hit, best: best);
+            if (resolved == null)
             {
                 WriteResult(stdout: stdout, id: id, result: null);
                 return;
             }
 
-            if (best?.ResolvedType == null)
-            {
-                WriteResult(stdout: stdout, id: id, result: null);
-                return;
-            }
-
-            string typeName = best.ResolvedType.Name;
-            label = IsIdentifierText(text: hit.Text) ? $"{hit.Text}: {typeName}" : typeName;
+            label = resolved;
         }
 
         int endCol0 = hit.Column - 1 + hit.Text.Length;
@@ -348,15 +339,61 @@ public static class LspServer
         {
             ["contents"] = new Dictionary<string, object?>
             {
-                ["kind"] = "markdown",
-                ["value"] = hoverValue
+                ["kind"] = PropMarkdown,
+                [PropValue] = hoverValue
             },
-            ["range"] = new Dictionary<string, object?>
+            [PropRange] = new Dictionary<string, object?>
             {
-                ["start"] = new Dictionary<string, object?> { ["line"] = line0, ["character"] = hit.Column - 1 },
-                ["end"] = new Dictionary<string, object?> { ["line"] = line0, ["character"] = endCol0 }
+                [PropStart] = new Dictionary<string, object?> { ["line"] = line0, [PropCharacter] = hit.Column - 1 },
+                ["end"] = new Dictionary<string, object?> { ["line"] = line0, [PropCharacter] = endCol0 }
             }
         });
+    }
+
+    /// <summary>The best typed expression on the cursor line: the one anchored exactly at the hit token,
+    /// or the closest-starting expression at or before the cursor column if no exact match.</summary>
+    private static Expression? BestTypedExpression(SyntaxTree.Program program, int line1, int col1, Token hit)
+    {
+        List<Expression> typed = AllNodes(program: program)
+            .OfType<Expression>().Where(predicate: e => e.ResolvedType != null && e.Location.Line == line1)
+            .ToList();
+
+        Expression? best = null;
+        foreach (Expression e in typed)
+        {
+            if (e.Location.Column == hit.Column)
+            {
+                return e; // exact anchor — the identifier/call at the cursor
+            }
+
+            if (e.Location.Column <= col1 && (best == null || e.Location.Column > best.Location.Column))
+            {
+                best = e; // closest-starting enclosing expression as a fallback
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>When no symbol-specific label was produced, falls back to the expression's resolved type.
+    /// Returns null if the token is a realm qualifier (which has no value type) or if the best expression
+    /// has no resolved type.</summary>
+    private static string? ResolveHoverFallbackLabel(DocState doc, Token hit, Expression? best)
+    {
+        // A realm tag (`C`/`LLVM`/`RF`/`SF` before `::`) is a qualifier, not a value — don't report it
+        // as the return type. If the qualified call resolved, the routine branch already handled it.
+        if (IsRealmQualifier(doc: doc, hit: hit))
+        {
+            return null;
+        }
+
+        if (best?.ResolvedType == null)
+        {
+            return null;
+        }
+
+        string typeName = best.ResolvedType.Name;
+        return IsIdentifierText(text: hit.Text) ? $"{hit.Text}: {typeName}" : typeName;
     }
 
     /// <summary>The richer hover label + documentation for an identifier token: a routine's signature, or a
@@ -413,39 +450,46 @@ public static class LspServer
                 continue;
             }
 
-            switch (call.Callee)
+            if (CalleeMatchesHit(callee: call.Callee, hit: hit))
             {
-                // A bare or realm-qualified callee (`foo` or `C::foo`). The IdentifierExpression is
-                // anchored at its START — the realm tag when one is present — so `C::foo` spans the realm
-                // token AND the name token. Match EITHER, at its exact column, so hovering the `C` in
-                // `C::rf_x()` resolves the routine instead of mistaking `C` for a value of the return type.
-                case IdentifierExpression cid when cid.Location.Line == hit.Line:
-                {
-                    int realmCol = cid.Location.Column;
-                    if (cid.Realm != null)
-                    {
-                        int nameCol = realmCol + cid.Realm.Length + 2; // realm tag + "::"
-                        if ((hit.Text == cid.Realm && hit.Column == realmCol) ||
-                            (hit.Text == cid.Name && hit.Column == nameCol))
-                        {
-                            return call.ResolvedRoutine;
-                        }
-                    }
-                    else if (hit.Text == cid.Name && hit.Column == realmCol)
-                    {
-                        return call.ResolvedRoutine;
-                    }
-
-                    break;
-                }
-
-                // A member callee (`x.foo()`): match the member name by name + line.
-                case MemberExpression m when m.MemberName == hit.Text && m.Location.Line == hit.Line:
-                    return call.ResolvedRoutine;
+                return call.ResolvedRoutine;
             }
         }
 
         return null;
+    }
+
+    /// <summary>Whether a call's callee expression matches the hit token — used to resolve which routine
+    /// a hovered/referenced identifier denotes. Handles both bare/realm-qualified identifiers and member
+    /// call expressions.</summary>
+    private static bool CalleeMatchesHit(Expression callee, Token hit)
+    {
+        switch (callee)
+        {
+            // A bare or realm-qualified callee (`foo` or `C::foo`). The IdentifierExpression is
+            // anchored at its START — the realm tag when one is present — so `C::foo` spans the realm
+            // token AND the name token. Match EITHER, at its exact column, so hovering the `C` in
+            // `C::rf_x()` resolves the routine instead of mistaking `C` for a value of the return type.
+            case IdentifierExpression cid when cid.Location.Line == hit.Line:
+            {
+                int realmCol = cid.Location.Column;
+                if (cid.Realm != null)
+                {
+                    int nameCol = realmCol + cid.Realm.Length + 2; // realm tag + "::"
+                    return (hit.Text == cid.Realm && hit.Column == realmCol) ||
+                           (hit.Text == cid.Name && hit.Column == nameCol);
+                }
+
+                return hit.Text == cid.Name && hit.Column == realmCol;
+            }
+
+            // A member callee (`x.foo()`): match the member name by name + line.
+            case MemberExpression m:
+                return m.MemberName == hit.Text && m.Location.Line == hit.Line;
+
+            default:
+                return false;
+        }
     }
 
     /// <summary>True when the token is a realm tag (<c>C</c>/<c>LLVM</c>/<c>RF</c>/<c>SF</c>) — i.e. the
@@ -531,6 +575,25 @@ public static class LspServer
         List<ISyntaxTreeNode> nodes = AllNodes(program: doc.Program);
 
         // 1. A routine call — jump to the resolved routine's definition (cross-file capable).
+        SourceLocation? routineLoc = FindCallDefinitionLocation(nodes: nodes, hit: hit);
+        if (routineLoc != null)
+        {
+            WriteResult(stdout: stdout, id: id, result: LocationToLsp(loc: routineLoc));
+            return;
+        }
+
+        // 2. A declaration in this file with the matching name (routine / type / variable). For variables,
+        //    prefer the nearest declaration at or above the use.
+        SyntaxTreeNode? bestDecl = FindBestDeclarationNode(nodes: nodes, hit: hit);
+        WriteResult(stdout: stdout, id: id,
+            result: bestDecl != null ? LocationToLsp(loc: bestDecl.Location) : null);
+    }
+
+    /// <summary>Finds the definition location of the resolved routine call whose callee matches the hit
+    /// token, or null if none matches. Checks both exact-column match (bare identifier) and
+    /// name+line match (member callee).</summary>
+    private static SourceLocation? FindCallDefinitionLocation(List<ISyntaxTreeNode> nodes, Token hit)
+    {
         foreach (CallExpression call in nodes.OfType<CallExpression>())
         {
             if (call.ResolvedRoutine?.Location is not { } rloc)
@@ -550,17 +613,21 @@ public static class LspServer
                 continue;
             }
 
-            WriteResult(stdout: stdout, id: id, result: LocationToLsp(loc: rloc));
-            return;
+            return rloc;
         }
 
-        // 2. A declaration in this file with the matching name (routine / type / variable). For variables,
-        //    prefer the nearest declaration at or above the use.
+        return null;
+    }
+
+    /// <summary>Finds the declaration node in this file whose name matches the hit token. For variables,
+    /// prefers the nearest declaration at or above the use site.</summary>
+    private static SyntaxTreeNode? FindBestDeclarationNode(List<ISyntaxTreeNode> nodes, Token hit)
+    {
         SyntaxTreeNode? bestDecl = null;
         foreach (ISyntaxTreeNode node in nodes)
         {
             if (node is not SyntaxTreeNode sn ||
-                !node.GetType().Name.EndsWith(value: "Declaration", comparisonType: StringComparison.Ordinal) ||
+                !node.GetType().Name.EndsWith(value: SuffixDeclaration, comparisonType: StringComparison.Ordinal) ||
                 GetNameProp(node: node) != hit.Text)
             {
                 continue;
@@ -573,8 +640,7 @@ public static class LspServer
             }
         }
 
-        WriteResult(stdout: stdout, id: id,
-            result: bestDecl != null ? LocationToLsp(loc: bestDecl.Location) : null);
+        return bestDecl;
     }
 
     // Semantic-tokens legend (order defines the indices sent in the delta stream). Indices are
@@ -672,30 +738,10 @@ public static class LspServer
         List<IdentifierExpression> idents = nodes.OfType<IdentifierExpression>().ToList();
 
         // 1. Variable / parameter binding. The cursor may be on a use OR on the declaration name.
-        VariableInfo? binding = VariableBoundAtToken(doc: doc, hit: hit);
-        if (binding == null)
-        {
-            binding = idents
-                .Select(selector: e => e.ResolvedVariable)
-                .FirstOrDefault(predicate: v => v?.Location is { } l &&
-                    l.Line == hit.Line && l.Column == hit.Column);
-        }
-
+        VariableInfo? binding = FindVariableBinding(doc: doc, hit: hit, idents: idents);
         if (binding != null)
         {
-            foreach (IdentifierExpression e in idents)
-            {
-                if (ReferenceEquals(objA: e.ResolvedVariable, objB: binding))
-                {
-                    Add(line: e.Location.Line, col: e.Location.Column);
-                }
-            }
-
-            if (binding.Location is { } decl)
-            {
-                Add(line: decl.Line, col: decl.Column);
-            }
-
+            CollectVariableOccurrences(binding: binding, idents: idents, add: Add);
             return result;
         }
 
@@ -704,30 +750,7 @@ public static class LspServer
             ?? RoutineDefinedAtToken(doc: doc, hit: hit, nodes: nodes);
         if (routine != null)
         {
-            string key = routine.RegistryKey;
-            foreach (CallExpression call in nodes.OfType<CallExpression>())
-            {
-                if (call.ResolvedRoutine?.RegistryKey != key)
-                {
-                    continue;
-                }
-
-                (string? cn, SourceLocation? cl) = CalleeName(callee: call.Callee);
-                if (cn == hit.Text && cl != null)
-                {
-                    Add(line: cl.Line, col: cl.Column);
-                }
-            }
-
-            foreach (ISyntaxTreeNode node in nodes)
-            {
-                if (node is SyntaxTreeNode sn && node.GetType().Name == "RoutineDeclaration" &&
-                    GetNameProp(node: node) == hit.Text)
-                {
-                    Add(line: sn.Location.Line, col: sn.Location.Column);
-                }
-            }
-
+            CollectRoutineOccurrences(routine: routine, hit: hit, nodes: nodes, add: Add);
             if (result.Count > 0)
             {
                 return result;
@@ -735,22 +758,84 @@ public static class LspServer
         }
 
         // 3. Fallback — same-name identifier tokens (types, unresolved names).
-        foreach (Token t in doc.Tokens)
+        foreach (Token t in doc.Tokens.Where(predicate: t =>
+            t.Type == TokenType.Identifier && t.Text == hit.Text))
         {
-            if (t.Type == TokenType.Identifier && t.Text == hit.Text)
-            {
-                Add(line: t.Line, col: t.Column);
-            }
+            Add(line: t.Line, col: t.Column);
         }
 
         return result;
+    }
+
+    /// <summary>Finds the variable/parameter binding that the hit token refers to. Checks the cursor token
+    /// first (via <see cref="VariableBoundAtToken"/>), then scans all identifier expressions to find one
+    /// whose binding declaration is at the cursor position (handles clicking the declaration site).</summary>
+    private static VariableInfo? FindVariableBinding(DocState doc, Token hit,
+        List<IdentifierExpression> idents)
+    {
+        VariableInfo? binding = VariableBoundAtToken(doc: doc, hit: hit);
+        if (binding != null)
+        {
+            return binding;
+        }
+
+        return idents
+            .Select(selector: e => e.ResolvedVariable)
+            .FirstOrDefault(predicate: v => v?.Location is { } l &&
+                l.Line == hit.Line && l.Column == hit.Column);
+    }
+
+    /// <summary>Adds all occurrence positions of a variable binding to the accumulator: every use site
+    /// (via ResolvedVariable identity) and the declaration site itself.</summary>
+    private static void CollectVariableOccurrences(VariableInfo binding,
+        List<IdentifierExpression> idents, Action<int, int> add)
+    {
+        foreach (IdentifierExpression e in idents.Where(predicate: e =>
+            ReferenceEquals(objA: e.ResolvedVariable, objB: binding)))
+        {
+            add(e.Location.Line, e.Location.Column);
+        }
+
+        if (binding.Location is { } decl)
+        {
+            add(decl.Line, decl.Column);
+        }
+    }
+
+    /// <summary>Adds all occurrence positions of a routine (call sites + declaration) to the accumulator.</summary>
+    private static void CollectRoutineOccurrences(RoutineInfo routine, Token hit,
+        List<ISyntaxTreeNode> nodes, Action<int, int> add)
+    {
+        string key = routine.RegistryKey;
+        foreach (CallExpression call in nodes.OfType<CallExpression>())
+        {
+            if (call.ResolvedRoutine?.RegistryKey != key)
+            {
+                continue;
+            }
+
+            (string? cn, SourceLocation? cl) = CalleeName(callee: call.Callee);
+            if (cn == hit.Text && cl != null)
+            {
+                add(cl.Line, cl.Column);
+            }
+        }
+
+        foreach (ISyntaxTreeNode node in nodes)
+        {
+            if (node is SyntaxTreeNode sn && node.GetType().Name == NodeRoutineDeclaration &&
+                GetNameProp(node: node) == hit.Text)
+            {
+                add(sn.Location.Line, sn.Location.Column);
+            }
+        }
     }
 
     /// <summary>If the token sits on a routine's declaration name, that routine (matched by name).</summary>
     private static RoutineInfo? RoutineDefinedAtToken(DocState doc, Token hit, List<ISyntaxTreeNode> nodes)
     {
         bool onDecl = nodes.Any(predicate: n => n is SyntaxTreeNode sn &&
-            n.GetType().Name == "RoutineDeclaration" && GetNameProp(node: n) == hit.Text &&
+            n.GetType().Name == NodeRoutineDeclaration && GetNameProp(node: n) == hit.Text &&
             sn.Location.Line == hit.Line);
         if (!onDecl)
         {
@@ -781,25 +866,30 @@ public static class LspServer
 
         var items = new List<Dictionary<string, object?>>();
         var seen = new HashSet<string>();
+        PopulateCompletionItems(doc: doc, line0: line0, char0: char0, items: items, seen: seen);
 
-        // After a `Realm::` (C / LLVM / RF / SF) list ONLY that realm's routines — the foreign-function
-        // and intrinsic surface — never the global dump.
+        WriteResult(stdout: stdout, id: id, result: new Dictionary<string, object?>
+        {
+            ["isIncomplete"] = false,
+            ["items"] = items
+        });
+    }
+
+    /// <summary>Fills the completion item list based on context: realm qualifier → realm-only routines;
+    /// member dot → receiver type members; otherwise → global keywords / routines / declarations.</summary>
+    private static void PopulateCompletionItems(DocState doc, int line0, int char0,
+        List<Dictionary<string, object?>> items, HashSet<string> seen)
+    {
+        // After a `Realm::` (C / LLVM / RF / SF) list ONLY that realm's routines.
         string? realm = RealmQualifierBefore(doc: doc, line0: line0, char0: char0);
         if (realm != null)
         {
             AddRealmCompletions(doc: doc, items: items, seen: seen, realm: realm);
-            WriteResult(stdout: stdout, id: id, result: new Dictionary<string, object?>
-            {
-                ["isIncomplete"] = false,
-                ["items"] = items
-            });
             return;
         }
 
-        // After a `receiver.` the ONLY valid completions are that type's members — so once we're in a
-        // member position we commit to members and never fall back to the global keyword/routine dump
-        // (which is what made `p.` spray ~900 unrelated symbols). If the receiver type can't be resolved
-        // we return an empty list rather than globals.
+        // After a `receiver.` commit to members only — if the receiver type can't be resolved,
+        // return an empty list rather than spilling globals.
         Token? receiver = MemberReceiverToken(doc: doc, line0: line0, char0: char0);
         if (receiver != null)
         {
@@ -809,17 +899,11 @@ public static class LspServer
                 AddMemberCompletions(doc: doc, items: items, seen: seen,
                     receiver: receiver, receiverType: receiverType);
             }
-        }
-        else
-        {
-            AddGlobalCompletions(doc: doc, items: items, seen: seen);
+
+            return;
         }
 
-        WriteResult(stdout: stdout, id: id, result: new Dictionary<string, object?>
-        {
-            ["isIncomplete"] = false,
-            ["items"] = items
-        });
+        AddGlobalCompletions(doc: doc, items: items, seen: seen);
     }
 
     /// <summary>Completions after a <c>Realm::</c> qualifier: only that realm's free routines.</summary>
@@ -874,46 +958,40 @@ public static class LspServer
         // `List[Agent[V]].gather` on a `List[FaceDraw]`). The compiler-generated failable variants
         // (`try_`/`check_`/`lookup_gather`) carry no MeType, so key the rejection on the BASE name
         // and let a variant inherit its base's (in)applicability.
-        var rejected = new HashSet<string>(comparer: StringComparer.Ordinal);
-        foreach (RoutineInfo mr in ownMethods)
+        var rejected = new HashSet<string>(
+            collection: ownMethods.Where(predicate: mr => !ReceiverAcceptsMethod(mr: mr, receiverType: receiverType))
+                                  .Select(selector: mr => mr.Name),
+            comparer: StringComparer.Ordinal);
+
+        foreach (RoutineInfo mr in ownMethods.Where(predicate: mr =>
+            !mr.Name.StartsWith(value: '$') &&
+            (includeSecret || mr.Visibility != VisibilityModifier.Secret) &&
+            !IsMethodRejected(name: mr.Name, rejected: rejected)))
         {
-            if (!ReceiverAcceptsMethod(mr: mr, receiverType: receiverType))
-            {
-                rejected.Add(item: mr.Name);
-            }
-        }
-
-        bool IsRejected(string name)
-        {
-            if (rejected.Contains(item: name))
-            {
-                return true;
-            }
-
-            foreach (string pfx in new[] { "try_", "check_", "lookup_" })
-            {
-                if (name.StartsWith(value: pfx, comparisonType: StringComparison.Ordinal) &&
-                    rejected.Contains(item: name[pfx.Length..]))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        foreach (RoutineInfo mr in ownMethods)
-        {
-            if (mr.Name.StartsWith(value: '$') ||
-                (!includeSecret && mr.Visibility == VisibilityModifier.Secret) ||
-                IsRejected(name: mr.Name))
-            {
-                continue; // wired internals / file-private / specialized-receiver mismatch
-            }
-
             AddItem(items: items, seen: seen, label: mr.Name, kind: 2, // Method
                 detail: RoutineDetail(r: mr), documentation: mr.Documentation);
         }
+    }
+
+    /// <summary>Returns true when the method name is in the rejected set directly, or is a compiler-generated
+    /// failable variant (<c>try_</c>/<c>check_</c>/<c>lookup_</c>) whose base name is rejected.</summary>
+    private static bool IsMethodRejected(string name, HashSet<string> rejected)
+    {
+        if (rejected.Contains(item: name))
+        {
+            return true;
+        }
+
+        foreach (string pfx in new[] { "try_", "check_", "lookup_" })
+        {
+            if (name.StartsWith(value: pfx, comparisonType: StringComparison.Ordinal) &&
+                rejected.Contains(item: name[pfx.Length..]))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Global (non-member) completions: keywords, visible free routines, and this file's
@@ -938,10 +1016,15 @@ public static class LspServer
         foreach (ISyntaxTreeNode node in AllNodes(program: doc.Program))
         {
             string tn = node.GetType().Name;
-            if (tn.EndsWith(value: "Declaration", comparisonType: StringComparison.Ordinal) &&
+            if (tn.EndsWith(value: SuffixDeclaration, comparisonType: StringComparison.Ordinal) &&
                 GetNameProp(node: node) is { } dn)
             {
-                int kind = tn == "VariableDeclaration" ? 6 : tn == "RoutineDeclaration" ? 3 : 7; // Var/Func/Class
+                int kind = tn switch // Var=6, Func=3, Class/type=7
+                {
+                    "VariableDeclaration" => 6,
+                    NodeRoutineDeclaration => 3,
+                    _ => 7
+                };
                 AddItem(items: items, seen: seen, label: dn, kind: kind);
             }
         }
@@ -953,7 +1036,7 @@ public static class LspServer
     /// </summary>
     private static void HandleCompletionResolve(Stream stdout, JsonElement id, JsonElement root)
     {
-        if (!root.TryGetProperty(propertyName: "params", value: out JsonElement item))
+        if (!root.TryGetProperty(propertyName: PropParams, value: out JsonElement item))
         {
             WriteResult(stdout: stdout, id: id, result: null);
             return;
@@ -962,10 +1045,10 @@ public static class LspServer
         var resolved = new Dictionary<string, object?>();
         string? label = null;
         string? detail = null;
-        if (item.TryGetProperty(propertyName: "label", value: out JsonElement lbl))
+        if (item.TryGetProperty(propertyName: PropLabel, value: out JsonElement lbl))
         {
             label = lbl.GetString();
-            resolved["label"] = label;
+            resolved[PropLabel] = label;
         }
 
         if (item.TryGetProperty(propertyName: "kind", value: out JsonElement k) &&
@@ -987,24 +1070,32 @@ public static class LspServer
 
         // Keep a real doc-comment if completion already attached one; otherwise promote the signature
         // detail into a rendered panel so at least the type shows.
-        if (item.TryGetProperty(propertyName: "documentation", value: out JsonElement existingDoc))
+        if (item.TryGetProperty(propertyName: PropDocumentation, value: out JsonElement existingDoc))
         {
-            string? docValue = existingDoc.ValueKind == JsonValueKind.String
-                ? existingDoc.GetString()
-                : existingDoc.TryGetProperty(propertyName: "value", value: out JsonElement dv)
-                    ? dv.GetString()
-                    : null;
-            resolved["documentation"] = new Dictionary<string, object?>
+            string? docValue;
+            if (existingDoc.ValueKind == JsonValueKind.String)
             {
-                ["kind"] = "markdown", ["value"] = docValue ?? ""
+                docValue = existingDoc.GetString();
+            }
+            else if (existingDoc.TryGetProperty(propertyName: PropValue, value: out JsonElement dv))
+            {
+                docValue = dv.GetString();
+            }
+            else
+            {
+                docValue = null;
+            }
+            resolved[PropDocumentation] = new Dictionary<string, object?>
+            {
+                ["kind"] = PropMarkdown, [PropValue] = docValue ?? ""
             };
         }
         else if (!string.IsNullOrEmpty(value: detail))
         {
-            resolved["documentation"] = new Dictionary<string, object?>
+            resolved[PropDocumentation] = new Dictionary<string, object?>
             {
-                ["kind"] = "markdown",
-                ["value"] = $"```razorforge\n{label}{detail}\n```"
+                ["kind"] = PropMarkdown,
+                [PropValue] = $"```razorforge\n{label}{detail}\n```"
             };
         }
 
@@ -1072,7 +1163,21 @@ public static class LspServer
         }
 
         (string? calleeName, int calleeLine, int activeParam) = enclosing;
+        RoutineInfo? routine = ResolveSignatureRoutine(doc: doc, calleeName: calleeName!, calleeLine: calleeLine);
+        if (routine == null)
+        {
+            WriteResult(stdout: stdout, id: id, result: null);
+            return;
+        }
 
+        WriteResult(stdout: stdout, id: id,
+            result: BuildSignatureHelpResult(routine: routine, activeParam: activeParam));
+    }
+
+    /// <summary>Resolves the routine named by the callee at the given line, first from resolved call
+    /// expressions (preferring the exact line), then from free routines in the registry.</summary>
+    private static RoutineInfo? ResolveSignatureRoutine(DocState doc, string calleeName, int calleeLine)
+    {
         RoutineInfo? routine = null;
         foreach (CallExpression call in AllNodes(program: doc.Program).OfType<CallExpression>())
         {
@@ -1087,64 +1192,72 @@ public static class LspServer
                 routine = call.ResolvedRoutine;
                 if (cl?.Line == calleeLine)
                 {
-                    break; // exact call at this line — best match
+                    return routine; // exact call at this line — best match
                 }
             }
         }
 
-        routine ??= doc.Registry.GetAllRoutines()
+        return routine ?? doc.Registry.GetAllRoutines()
             .FirstOrDefault(predicate: r => r.Name == calleeName && r.OwnerType == null);
-        if (routine == null)
-        {
-            WriteResult(stdout: stdout, id: id, result: null);
-            return;
-        }
+    }
 
+    /// <summary>Builds the LSP <c>SignatureHelp</c> response object for a resolved routine.</summary>
+    private static Dictionary<string, object?> BuildSignatureHelpResult(RoutineInfo routine, int activeParam)
+    {
         // Pull per-parameter descriptions from the routine's `:param name:` doc fields.
         DocInfo? sigDoc = string.IsNullOrWhiteSpace(value: routine.Documentation)
             ? null
             : ParseDoc(doc: routine.Documentation!);
-        var parameters = routine.Parameters
-            .Select(selector: p =>
-            {
-                var pdict = new Dictionary<string, object?> { ["label"] = $"{p.Name}: {p.Type.Name}" };
-                string? pdesc = sigDoc?.Params
-                    .FirstOrDefault(predicate: x => x.Name == p.Name).Desc;
-                if (!string.IsNullOrWhiteSpace(value: pdesc))
-                {
-                    pdict["documentation"] = pdesc;
-                }
 
-                return (object?)pdict;
-            })
-            .ToList();
+        List<object?> parameters = BuildSignatureParameters(routine: routine, sigDoc: sigDoc);
 
         int active = routine.Parameters.Count == 0
             ? 0
             : Math.Min(val1: activeParam, val2: routine.Parameters.Count - 1);
 
-        WriteResult(stdout: stdout, id: id, result: new Dictionary<string, object?>
+        object? docEntry = string.IsNullOrWhiteSpace(value: sigDoc?.Summary)
+            ? null
+            : (object?)new Dictionary<string, object?>
+            {
+                ["kind"] = PropMarkdown,
+                [PropValue] = sigDoc!.Summary
+            };
+
+        return new Dictionary<string, object?>
         {
             ["signatures"] = new List<object?>
             {
                 new Dictionary<string, object?>
                 {
-                    ["label"] = $"{routine.Name}{RoutineDetail(r: routine)}",
+                    [PropLabel] = $"{routine.Name}{RoutineDetail(r: routine)}",
                     ["parameters"] = parameters,
                     // Signature-level doc = the SUMMARY only; per-parameter `:param:` text is attached to
                     // each parameter above, and Returns/Throws render in hover, so don't repeat them here.
-                    ["documentation"] = string.IsNullOrWhiteSpace(value: sigDoc?.Summary)
-                        ? null
-                        : new Dictionary<string, object?>
-                        {
-                            ["kind"] = "markdown",
-                            ["value"] = sigDoc!.Summary
-                        }
+                    [PropDocumentation] = docEntry
                 }
             },
             ["activeSignature"] = 0,
             ["activeParameter"] = active
-        });
+        };
+    }
+
+    /// <summary>Builds the parameter array for a signature help response, annotating each parameter
+    /// with its doc-comment description when available.</summary>
+    private static List<object?> BuildSignatureParameters(RoutineInfo routine, DocInfo? sigDoc)
+    {
+        return routine.Parameters
+            .Select(selector: p =>
+            {
+                var pdict = new Dictionary<string, object?> { [PropLabel] = $"{p.Name}: {p.Type.Name}" };
+                string? pdesc = sigDoc?.Params.FirstOrDefault(predicate: x => x.Name == p.Name).Desc;
+                if (!string.IsNullOrWhiteSpace(value: pdesc))
+                {
+                    pdict[PropDocumentation] = pdesc;
+                }
+
+                return (object?)pdict;
+            })
+            .ToList();
     }
 
     /// <summary><c>textDocument/prepareRename</c>: the identifier span under the cursor, or null.</summary>
@@ -1167,10 +1280,10 @@ public static class LspServer
         int c = Math.Max(val1: 0, val2: hit.Column - 1);
         WriteResult(stdout: stdout, id: id, result: new Dictionary<string, object?>
         {
-            ["start"] = new Dictionary<string, object?> { ["line"] = hit.Line - 1, ["character"] = c },
+            [PropStart] = new Dictionary<string, object?> { ["line"] = hit.Line - 1, [PropCharacter] = c },
             ["end"] = new Dictionary<string, object?>
             {
-                ["line"] = hit.Line - 1, ["character"] = c + hit.Text.Length
+                ["line"] = hit.Line - 1, [PropCharacter] = c + hit.Text.Length
             }
         });
     }
@@ -1183,7 +1296,7 @@ public static class LspServer
     {
         if (!TryReadPosition(root: root, uri: out string uri, line0: out int line0, char0: out int char0) ||
             !Docs.TryGetValue(key: uri, value: out DocState? doc) ||
-            !root.TryGetProperty(propertyName: "params", value: out JsonElement p) ||
+            !root.TryGetProperty(propertyName: PropParams, value: out JsonElement p) ||
             !p.TryGetProperty(propertyName: "newName", value: out JsonElement nn))
         {
             WriteResult(stdout: stdout, id: id, result: null);
@@ -1205,10 +1318,10 @@ public static class LspServer
             int c = Math.Max(val1: 0, val2: col - 1);
             edits.Add(item: new Dictionary<string, object?>
             {
-                ["range"] = new Dictionary<string, object?>
+                [PropRange] = new Dictionary<string, object?>
                 {
-                    ["start"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c },
-                    ["end"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c + len }
+                    [PropStart] = new Dictionary<string, object?> { ["line"] = l, [PropCharacter] = c },
+                    ["end"] = new Dictionary<string, object?> { ["line"] = l, [PropCharacter] = c + len }
                 },
                 ["newText"] = newName
             });
@@ -1226,8 +1339,8 @@ public static class LspServer
     /// </summary>
     private static void HandleSemanticTokens(Stream stdout, JsonElement id, JsonElement root)
     {
-        if (!root.TryGetProperty(propertyName: "params", value: out JsonElement p) ||
-            !p.TryGetProperty(propertyName: "textDocument", value: out JsonElement td) ||
+        if (!root.TryGetProperty(propertyName: PropParams, value: out JsonElement p) ||
+            !p.TryGetProperty(propertyName: PropTextDocument, value: out JsonElement td) ||
             !td.TryGetProperty(propertyName: "uri", value: out JsonElement uriEl) ||
             !Docs.TryGetValue(key: uriEl.GetString() ?? "", value: out DocState? doc))
         {
@@ -1239,15 +1352,27 @@ public static class LspServer
         }
 
         List<ISyntaxTreeNode> nodes = AllNodes(program: doc.Program);
+        BuildSemanticRoleSets(nodes: nodes,
+            out HashSet<(int, int)> functionPos, out HashSet<(int, int)> typePos,
+            out HashSet<(int, int)> variablePos, out HashSet<(int, int)> deadPos);
 
-        // AST-derived roles for identifiers, keyed by (1-based Line, Column):
-        //   • call callee          → function
-        //   • bound to a variable  → variable
-        //   • resolves to a type   → type
-        var functionPos = new HashSet<(int, int)>();
-        var typePos = new HashSet<(int, int)>();
-        var variablePos = new HashSet<(int, int)>();
-        var deadPos = new HashSet<(int, int)>();
+        List<object?> data = BuildDeltaEncodedTokens(doc: doc,
+            functionPos: functionPos, typePos: typePos, variablePos: variablePos, deadPos: deadPos);
+
+        WriteResult(stdout: stdout, id: id, result: new Dictionary<string, object?> { ["data"] = data });
+    }
+
+    /// <summary>Builds the four AST-derived position sets used to classify identifier tokens for semantic
+    /// highlighting: call-callee positions (function), typed variable positions, type-name positions, and
+    /// dead-use (moved-out) positions.</summary>
+    private static void BuildSemanticRoleSets(List<ISyntaxTreeNode> nodes,
+        out HashSet<(int, int)> functionPos, out HashSet<(int, int)> typePos,
+        out HashSet<(int, int)> variablePos, out HashSet<(int, int)> deadPos)
+    {
+        functionPos = new HashSet<(int, int)>();
+        typePos = new HashSet<(int, int)>();
+        variablePos = new HashSet<(int, int)>();
+        deadPos = new HashSet<(int, int)>();
 
         foreach (CallExpression call in nodes.OfType<CallExpression>())
         {
@@ -1269,14 +1394,19 @@ public static class LspServer
             {
                 variablePos.Add(item: key);
             }
-            else if (ide.ResolvedType is { } rt && IsTypeLikeName(name: ide.Name) &&
-                     rt.Name == ide.Name)
+            else if (ide.ResolvedType is { } rt && IsTypeLikeName(name: ide.Name) && rt.Name == ide.Name)
             {
                 typePos.Add(item: key);
             }
         }
+    }
 
-        // Emit every token in document order, delta-encoded (deltaLine, deltaChar, length, type, mods).
+    /// <summary>Encodes the document's tokens as a delta-encoded LSP semantic token data array
+    /// (deltaLine, deltaChar, length, tokenType, modifiers per token).</summary>
+    private static List<object?> BuildDeltaEncodedTokens(DocState doc,
+        HashSet<(int, int)> functionPos, HashSet<(int, int)> typePos,
+        HashSet<(int, int)> variablePos, HashSet<(int, int)> deadPos)
+    {
         List<Token> toks = doc.Tokens
             .Where(predicate: t => t.Type != TokenType.Newline && t.Type != TokenType.Eof &&
                                    t.Text.Length > 0)
@@ -1308,7 +1438,7 @@ public static class LspServer
             prevChar = char0;
         }
 
-        WriteResult(stdout: stdout, id: id, result: new Dictionary<string, object?> { ["data"] = data });
+        return data;
     }
 
     /// <summary>
@@ -1321,26 +1451,42 @@ public static class LspServer
     {
         if (t.Type == TokenType.Identifier)
         {
-            (int, int) key = (t.Line, t.Column);
-            if (functionPos.Contains(item: key))
-            {
-                return SemTok(name: "function");
-            }
-
-            if (variablePos.Contains(item: key))
-            {
-                return SemTok(name: "variable");
-            }
-
-            if (typePos.Contains(item: key))
-            {
-                return SemTok(name: "type");
-            }
-
-            // Unresolved bare identifier — fall back to the naming convention (PascalCase = type).
-            return IsTypeLikeName(name: t.Text) ? SemTok(name: "type") : SemTok(name: "variable");
+            return ClassifyIdentifierToken(t: t, functionPos: functionPos,
+                typePos: typePos, variablePos: variablePos);
         }
 
+        return ClassifyNonIdentifierToken(t: t);
+    }
+
+    /// <summary>Classifies an <c>Identifier</c>-typed token using the AST-derived role sets, falling back
+    /// to the PascalCase naming convention for unresolved names.</summary>
+    private static int ClassifyIdentifierToken(Token t, HashSet<(int, int)> functionPos,
+        HashSet<(int, int)> typePos, HashSet<(int, int)> variablePos)
+    {
+        (int, int) key = (t.Line, t.Column);
+        if (functionPos.Contains(item: key))
+        {
+            return SemTok(name: "function");
+        }
+
+        if (variablePos.Contains(item: key))
+        {
+            return SemTok(name: "variable");
+        }
+
+        if (typePos.Contains(item: key))
+        {
+            return SemTok(name: "type");
+        }
+
+        // Unresolved bare identifier — fall back to the naming convention (PascalCase = type).
+        return IsTypeLikeName(name: t.Text) ? SemTok(name: "type") : SemTok(name: "variable");
+    }
+
+    /// <summary>Classifies a non-identifier token as comment, string, number, keyword, or -1
+    /// (operators / punctuation, left to the TextMate grammar).</summary>
+    private static int ClassifyNonIdentifierToken(Token t)
+    {
         string tn = t.Type.ToString();
         if (tn.Contains(value: "Comment"))
         {
@@ -1379,7 +1525,7 @@ public static class LspServer
     // Enum=10 Interface=11 FreeRoutine=12 Variable=13 Constant=14 Struct=23.
     private static (int Kind, bool IsType) SymbolKindOf(string declTypeName) => declTypeName switch
     {
-        "RoutineDeclaration" => (12, false),
+        NodeRoutineDeclaration => (12, false),
         "RecordDeclaration" => (23, true),
         "EntityDeclaration" => (5, true),
         "ChoiceDeclaration" => (10, true),
@@ -1395,8 +1541,8 @@ public static class LspServer
     /// DocumentSymbol list — routines, types, top-level variables), each ranged at its name.</summary>
     private static void HandleDocumentSymbol(Stream stdout, JsonElement id, JsonElement root)
     {
-        if (!root.TryGetProperty(propertyName: "params", value: out JsonElement p) ||
-            !p.TryGetProperty(propertyName: "textDocument", value: out JsonElement td) ||
+        if (!root.TryGetProperty(propertyName: PropParams, value: out JsonElement p) ||
+            !p.TryGetProperty(propertyName: PropTextDocument, value: out JsonElement td) ||
             !td.TryGetProperty(propertyName: "uri", value: out JsonElement uriEl) ||
             !Docs.TryGetValue(key: uriEl.GetString() ?? "", value: out DocState? doc))
         {
@@ -1439,7 +1585,7 @@ public static class LspServer
     private static Dictionary<string, object?>? MakeDocSymbol(ISyntaxTreeNode node)
     {
         string tn = node.GetType().Name;
-        if (!tn.EndsWith(value: "Declaration", comparisonType: StringComparison.Ordinal) ||
+        if (!tn.EndsWith(value: SuffixDeclaration, comparisonType: StringComparison.Ordinal) ||
             node is not SyntaxTreeNode sn || GetNameProp(node: node) is not { Length: > 0 } name)
         {
             return null;
@@ -1450,14 +1596,14 @@ public static class LspServer
         int c = Math.Max(val1: 0, val2: sn.Location.Column - 1);
         var range = new Dictionary<string, object?>
         {
-            ["start"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c },
-            ["end"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c + name.Length }
+            [PropStart] = new Dictionary<string, object?> { ["line"] = l, [PropCharacter] = c },
+            ["end"] = new Dictionary<string, object?> { ["line"] = l, [PropCharacter] = c + name.Length }
         };
         return new Dictionary<string, object?>
         {
             ["name"] = name,
             ["kind"] = kind,
-            ["range"] = range,
+            [PropRange] = range,
             ["selectionRange"] = range
         };
     }
@@ -1485,7 +1631,7 @@ public static class LspServer
     /// documents whose name contains the query (case-insensitive), as located SymbolInformation.</summary>
     private static void HandleWorkspaceSymbol(Stream stdout, JsonElement id, JsonElement root)
     {
-        string query = root.TryGetProperty(propertyName: "params", value: out JsonElement p) &&
+        string query = root.TryGetProperty(propertyName: PropParams, value: out JsonElement p) &&
                        p.TryGetProperty(propertyName: "query", value: out JsonElement q)
             ? q.GetString() ?? ""
             : "";
@@ -1493,46 +1639,24 @@ public static class LspServer
         var syms = new List<object?>();
         var seen = new HashSet<string>();
 
-        void Add(string name, int kind, SourceLocation? loc)
-        {
-            if (loc == null || name.Length == 0 ||
-                (query.Length > 0 && !name.Contains(value: query, comparisonType: StringComparison.OrdinalIgnoreCase)))
-            {
-                return;
-            }
-
-            string key = $"{name}@{loc.FileName}:{loc.Line}";
-            if (!seen.Add(item: key) || syms.Count >= 300)
-            {
-                return;
-            }
-
-            syms.Add(item: new Dictionary<string, object?>
-            {
-                ["name"] = name,
-                ["kind"] = kind,
-                ["location"] = LocationToLsp(loc: loc)
-            });
-        }
-
         foreach (DocState doc in Docs.Values)
         {
-            foreach (RoutineInfo r in doc.Registry.GetAllRoutines())
+            foreach (RoutineInfo r in doc.Registry.GetAllRoutines()
+                .Where(predicate: r => !r.Name.StartsWith(value: '$')))
             {
-                if (!r.Name.StartsWith(value: '$'))
-                {
-                    Add(name: r.Name, kind: r.OwnerType != null ? 6 : 12, loc: r.Location);
-                }
+                TryAddWorkspaceSymbol(syms: syms, seen: seen, query: query,
+                    name: r.Name, kind: r.OwnerType != null ? 6 : 12, loc: r.Location);
             }
 
             foreach (ISyntaxTreeNode node in AllNodes(program: doc.Program))
             {
                 string tn = node.GetType().Name;
-                if (tn.EndsWith(value: "Declaration", comparisonType: StringComparison.Ordinal) &&
+                if (tn.EndsWith(value: SuffixDeclaration, comparisonType: StringComparison.Ordinal) &&
                     node is SyntaxTreeNode sn && GetNameProp(node: node) is { } n)
                 {
                     (int kind, _) = SymbolKindOf(declTypeName: tn);
-                    Add(name: n, kind: kind, loc: sn.Location);
+                    TryAddWorkspaceSymbol(syms: syms, seen: seen, query: query,
+                        name: n, kind: kind, loc: sn.Location);
                 }
             }
         }
@@ -1540,12 +1664,37 @@ public static class LspServer
         WriteResult(stdout: stdout, id: id, result: syms);
     }
 
+    /// <summary>Adds a workspace symbol to the accumulator if its name matches the query, it hasn't been
+    /// seen before, and the cap of 300 symbols hasn't been reached.</summary>
+    private static void TryAddWorkspaceSymbol(List<object?> syms, HashSet<string> seen,
+        string query, string name, int kind, SourceLocation? loc)
+    {
+        if (loc == null || name.Length == 0 ||
+            (query.Length > 0 && !name.Contains(value: query, comparisonType: StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        string key = $"{name}@{loc.FileName}:{loc.Line}";
+        if (!seen.Add(item: key) || syms.Count >= 300)
+        {
+            return;
+        }
+
+        syms.Add(item: new Dictionary<string, object?>
+        {
+            ["name"] = name,
+            ["kind"] = kind,
+            ["location"] = LocationToLsp(loc: loc)
+        });
+    }
+
     /// <summary><c>textDocument/inlayHint</c>: for a <c>var x = expr</c> with no written type, an inferred
     /// <c>: Type</c> hint after the name (from the initializer's resolved type).</summary>
     private static void HandleInlayHint(Stream stdout, JsonElement id, JsonElement root)
     {
-        if (!root.TryGetProperty(propertyName: "params", value: out JsonElement p) ||
-            !p.TryGetProperty(propertyName: "textDocument", value: out JsonElement td) ||
+        if (!root.TryGetProperty(propertyName: PropParams, value: out JsonElement p) ||
+            !p.TryGetProperty(propertyName: PropTextDocument, value: out JsonElement td) ||
             !td.TryGetProperty(propertyName: "uri", value: out JsonElement uriEl) ||
             !Docs.TryGetValue(key: uriEl.GetString() ?? "", value: out DocState? doc))
         {
@@ -1561,9 +1710,9 @@ public static class LspServer
             {
                 ["position"] = new Dictionary<string, object?>
                 {
-                    ["line"] = line1 - 1, ["character"] = col1 - 1
+                    ["line"] = line1 - 1, [PropCharacter] = col1 - 1
                 },
-                ["label"] = labelText,
+                [PropLabel] = labelText,
                 ["kind"] = kind,
                 ["paddingLeft"] = padLeft
             });
@@ -1607,8 +1756,8 @@ public static class LspServer
     /// </summary>
     private static void HandleCodeAction(Stream stdout, JsonElement id, JsonElement root)
     {
-        if (!root.TryGetProperty(propertyName: "params", value: out JsonElement p) ||
-            !p.TryGetProperty(propertyName: "textDocument", value: out JsonElement td) ||
+        if (!root.TryGetProperty(propertyName: PropParams, value: out JsonElement p) ||
+            !p.TryGetProperty(propertyName: PropTextDocument, value: out JsonElement td) ||
             !td.TryGetProperty(propertyName: "uri", value: out JsonElement uriEl) ||
             !Docs.TryGetValue(key: uriEl.GetString() ?? "", value: out DocState? doc))
         {
@@ -1625,58 +1774,77 @@ public static class LspServer
         {
             foreach (JsonElement diag in diags.EnumerateArray())
             {
-                string code = diag.TryGetProperty(propertyName: "code", value: out JsonElement cd)
-                    ? cd.ValueKind == JsonValueKind.String ? cd.GetString() ?? "" : cd.ToString()
-                    : "";
-                if (!code.Contains(value: "W007") ||
-                    !diag.TryGetProperty(propertyName: "range", value: out JsonElement dr) ||
-                    !dr.TryGetProperty(propertyName: "start", value: out JsonElement ds) ||
-                    !ds.TryGetProperty(propertyName: "line", value: out JsonElement dl))
-                {
-                    continue;
-                }
-
-                int line1 = dl.GetInt32() + 1;
-                Token? first = doc.Tokens
-                    .Where(predicate: t => t.Line == line1 && t.Text.Length > 0 &&
-                                           t.Type != TokenType.Newline)
-                    .OrderBy(keySelector: t => t.Column).FirstOrDefault();
-                if (first == null)
-                {
-                    continue;
-                }
-
-                var pos = new Dictionary<string, object?>
-                {
-                    ["line"] = line1 - 1, ["character"] = first.Column - 1
-                };
-                actions.Add(item: new Dictionary<string, object?>
-                {
-                    ["title"] = "Prepend 'discard'",
-                    ["kind"] = "quickfix",
-                    ["diagnostics"] = new List<object?> { JsonElementToObject(el: diag) },
-                    ["edit"] = new Dictionary<string, object?>
-                    {
-                        ["changes"] = new Dictionary<string, object?>
-                        {
-                            [uri] = new List<object?>
-                            {
-                                new Dictionary<string, object?>
-                                {
-                                    ["range"] = new Dictionary<string, object?>
-                                    {
-                                        ["start"] = pos, ["end"] = pos
-                                    },
-                                    ["newText"] = "discard "
-                                }
-                            }
-                        }
-                    }
-                });
+                TryAddDiscardCodeAction(actions: actions, doc: doc, uri: uri, diag: diag);
             }
         }
 
         WriteResult(stdout: stdout, id: id, result: actions);
+    }
+
+    /// <summary>If <paramref name="diag"/> is an RF-W007 (unused Bool-returning call) diagnostic and the
+    /// first token on its line can be found, adds a "Prepend 'discard'" quick-fix code action.</summary>
+    private static void TryAddDiscardCodeAction(List<object?> actions, DocState doc,
+        string uri, JsonElement diag)
+    {
+        string code;
+        if (!diag.TryGetProperty(propertyName: "code", value: out JsonElement cd))
+        {
+            code = "";
+        }
+        else if (cd.ValueKind == JsonValueKind.String)
+        {
+            code = cd.GetString() ?? "";
+        }
+        else
+        {
+            code = cd.ToString();
+        }
+
+        if (!code.Contains(value: "W007") ||
+            !diag.TryGetProperty(propertyName: PropRange, value: out JsonElement dr) ||
+            !dr.TryGetProperty(propertyName: PropStart, value: out JsonElement ds) ||
+            !ds.TryGetProperty(propertyName: "line", value: out JsonElement dl))
+        {
+            return;
+        }
+
+        int line1 = dl.GetInt32() + 1;
+        Token? first = doc.Tokens
+            .Where(predicate: t => t.Line == line1 && t.Text.Length > 0 &&
+                                   t.Type != TokenType.Newline)
+            .OrderBy(keySelector: t => t.Column).FirstOrDefault();
+        if (first == null)
+        {
+            return;
+        }
+
+        var pos = new Dictionary<string, object?>
+        {
+            ["line"] = line1 - 1, [PropCharacter] = first.Column - 1
+        };
+        actions.Add(item: new Dictionary<string, object?>
+        {
+            ["title"] = "Prepend 'discard'",
+            ["kind"] = "quickfix",
+            ["diagnostics"] = new List<object?> { JsonElementToObject(el: diag) },
+            ["edit"] = new Dictionary<string, object?>
+            {
+                ["changes"] = new Dictionary<string, object?>
+                {
+                    [uri] = new List<object?>
+                    {
+                        new Dictionary<string, object?>
+                        {
+                            [PropRange] = new Dictionary<string, object?>
+                            {
+                                [PropStart] = pos, ["end"] = pos
+                            },
+                            ["newText"] = "discard "
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /// <summary>Shallow-copies a diagnostic JsonElement back into a serializable dictionary (so a code
@@ -1684,21 +1852,21 @@ public static class LspServer
     private static Dictionary<string, object?> JsonElementToObject(JsonElement el)
     {
         var d = new Dictionary<string, object?>();
-        if (el.TryGetProperty(propertyName: "range", value: out JsonElement r) &&
-            r.TryGetProperty(propertyName: "start", value: out JsonElement s) &&
+        if (el.TryGetProperty(propertyName: PropRange, value: out JsonElement r) &&
+            r.TryGetProperty(propertyName: PropStart, value: out JsonElement s) &&
             r.TryGetProperty(propertyName: "end", value: out JsonElement e))
         {
-            d["range"] = new Dictionary<string, object?>
+            d[PropRange] = new Dictionary<string, object?>
             {
-                ["start"] = new Dictionary<string, object?>
+                [PropStart] = new Dictionary<string, object?>
                 {
                     ["line"] = s.GetProperty(propertyName: "line").GetInt32(),
-                    ["character"] = s.GetProperty(propertyName: "character").GetInt32()
+                    [PropCharacter] = s.GetProperty(propertyName: PropCharacter).GetInt32()
                 },
                 ["end"] = new Dictionary<string, object?>
                 {
                     ["line"] = e.GetProperty(propertyName: "line").GetInt32(),
-                    ["character"] = e.GetProperty(propertyName: "character").GetInt32()
+                    [PropCharacter] = e.GetProperty(propertyName: PropCharacter).GetInt32()
                 }
             };
         }
@@ -1725,7 +1893,7 @@ public static class LspServer
             return;
         }
 
-        var item = new Dictionary<string, object?> { ["label"] = label, ["kind"] = kind };
+        var item = new Dictionary<string, object?> { [PropLabel] = label, ["kind"] = kind };
         if (detail != null)
         {
             item["detail"] = detail;
@@ -1733,10 +1901,10 @@ public static class LspServer
 
         if (!string.IsNullOrWhiteSpace(value: documentation))
         {
-            item["documentation"] = new Dictionary<string, object?>
+            item[PropDocumentation] = new Dictionary<string, object?>
             {
-                ["kind"] = "markdown",
-                ["value"] = RenderDoc(doc: documentation!)
+                ["kind"] = PropMarkdown,
+                [PropValue] = RenderDoc(doc: documentation!)
             };
         }
 
@@ -2006,33 +2174,27 @@ public static class LspServer
 
         // 1. The receiver identifier at exactly this position (NOT the enclosing MemberExpression, which
         //    shares the column but carries the MEMBER's type).
-        foreach (IdentifierExpression e in idents)
-        {
-            if (e.ResolvedType != null && e.Name == receiver.Text &&
+        TypeInfo? exactType = idents
+            .FirstOrDefault(predicate: e => e.ResolvedType != null && e.Name == receiver.Text &&
                 e.Location.Line == receiver.Line && e.Location.Column == receiver.Column)
-            {
-                return e.ResolvedType;
-            }
+            ?.ResolvedType;
+        if (exactType != null)
+        {
+            return exactType;
         }
 
         // 2. Fallback for a mid-edit line: the same name's binding (or any typed use) elsewhere.
-        foreach (IdentifierExpression e in idents)
+        TypeInfo? bindingType = idents
+            .FirstOrDefault(predicate: e => e.Name == receiver.Text && e.ResolvedVariable != null)
+            ?.ResolvedVariable?.Type;
+        if (bindingType != null)
         {
-            if (e.Name == receiver.Text && e.ResolvedVariable != null)
-            {
-                return e.ResolvedVariable.Type;
-            }
+            return bindingType;
         }
 
-        foreach (IdentifierExpression e in idents)
-        {
-            if (e.Name == receiver.Text && e.ResolvedType != null)
-            {
-                return e.ResolvedType;
-            }
-        }
-
-        return null;
+        return idents
+            .FirstOrDefault(predicate: e => e.Name == receiver.Text && e.ResolvedType != null)
+            ?.ResolvedType;
     }
 
     /// <summary>
@@ -2091,25 +2253,10 @@ public static class LspServer
         return new Dictionary<string, object?>
         {
             ["uri"] = uri,
-            ["range"] = new Dictionary<string, object?>
+            [PropRange] = new Dictionary<string, object?>
             {
-                ["start"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c },
-                ["end"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c + length }
-            }
-        };
-    }
-
-    private static Dictionary<string, object?> TokenLocationLsp(string uri, Token tok)
-    {
-        int l = Math.Max(val1: 0, val2: tok.Line - 1);
-        int c = Math.Max(val1: 0, val2: tok.Column - 1);
-        return new Dictionary<string, object?>
-        {
-            ["uri"] = uri,
-            ["range"] = new Dictionary<string, object?>
-            {
-                ["start"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c },
-                ["end"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c + tok.Text.Length }
+                [PropStart] = new Dictionary<string, object?> { ["line"] = l, [PropCharacter] = c },
+                ["end"] = new Dictionary<string, object?> { ["line"] = l, [PropCharacter] = c + length }
             }
         };
     }
@@ -2135,10 +2282,10 @@ public static class LspServer
         return new Dictionary<string, object?>
         {
             ["uri"] = FileNameToUri(fileName: loc.FileName),
-            ["range"] = new Dictionary<string, object?>
+            [PropRange] = new Dictionary<string, object?>
             {
-                ["start"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c },
-                ["end"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c }
+                [PropStart] = new Dictionary<string, object?> { ["line"] = l, [PropCharacter] = c },
+                ["end"] = new Dictionary<string, object?> { ["line"] = l, [PropCharacter] = c }
             }
         };
     }
@@ -2192,22 +2339,29 @@ public static class LspServer
                 continue;
             }
 
-            switch (value)
-            {
-                case ISyntaxTreeNode child:
-                    CollectAllNodes(node: child, acc: acc, seen: seen);
-                    break;
-                case System.Collections.IEnumerable seq and not string:
-                    foreach (object? item in seq)
-                    {
-                        if (item is ISyntaxTreeNode c)
-                        {
-                            CollectAllNodes(node: c, acc: acc, seen: seen);
-                        }
-                    }
+            TraversePropertyValue(value: value, acc: acc, seen: seen);
+        }
+    }
 
-                    break;
-            }
+    /// <summary>Descends into a single property value: recursing if it is a node, or iterating and
+    /// recursing into each element if it is a non-string enumerable.</summary>
+    private static void TraversePropertyValue(object? value, List<ISyntaxTreeNode> acc, HashSet<object> seen)
+    {
+        switch (value)
+        {
+            case ISyntaxTreeNode child:
+                CollectAllNodes(node: child, acc: acc, seen: seen);
+                break;
+            case System.Collections.IEnumerable seq and not string:
+                foreach (object? item in seq)
+                {
+                    if (item is ISyntaxTreeNode c)
+                    {
+                        CollectAllNodes(node: c, acc: acc, seen: seen);
+                    }
+                }
+
+                break;
         }
     }
 
@@ -2260,8 +2414,8 @@ public static class LspServer
         uri = "";
         line0 = 0;
         char0 = 0;
-        if (!root.TryGetProperty(propertyName: "params", value: out JsonElement p) ||
-            !p.TryGetProperty(propertyName: "textDocument", value: out JsonElement td) ||
+        if (!root.TryGetProperty(propertyName: PropParams, value: out JsonElement p) ||
+            !p.TryGetProperty(propertyName: PropTextDocument, value: out JsonElement td) ||
             !td.TryGetProperty(propertyName: "uri", value: out JsonElement uriEl) ||
             !p.TryGetProperty(propertyName: "position", value: out JsonElement pos))
         {
@@ -2270,7 +2424,7 @@ public static class LspServer
 
         uri = uriEl.GetString() ?? "";
         line0 = pos.TryGetProperty(propertyName: "line", value: out JsonElement l) ? l.GetInt32() : 0;
-        char0 = pos.TryGetProperty(propertyName: "character", value: out JsonElement c) ? c.GetInt32() : 0;
+        char0 = pos.TryGetProperty(propertyName: PropCharacter, value: out JsonElement c) ? c.GetInt32() : 0;
         return true;
     }
 
@@ -2375,12 +2529,12 @@ public static class LspServer
         int c = Math.Max(val1: 0, val2: column - 1);
         return new Dictionary<string, object?>
         {
-            ["range"] = new Dictionary<string, object?>
+            [PropRange] = new Dictionary<string, object?>
             {
-                ["start"] = new Dictionary<string, object?> { ["line"] = l, ["character"] = c },
+                [PropStart] = new Dictionary<string, object?> { ["line"] = l, [PropCharacter] = c },
                 ["end"] = new Dictionary<string, object?>
                 {
-                    ["line"] = l, ["character"] = c + Math.Max(val1: 1, val2: length)
+                    ["line"] = l, [PropCharacter] = c + Math.Max(val1: 1, val2: length)
                 }
             },
             ["severity"] = severity, // 1 = Error, 2 = Warning
@@ -2419,7 +2573,7 @@ public static class LspServer
         {
             ["jsonrpc"] = "2.0",
             ["method"] = method,
-            ["params"] = @params
+            [PropParams] = @params
         });
     }
 
@@ -2455,7 +2609,10 @@ public static class LspServer
                 line[..colon].Trim().Equals(value: "Content-Length",
                     comparisonType: StringComparison.OrdinalIgnoreCase))
             {
-                int.TryParse(s: line[(colon + 1)..].Trim(), result: out contentLength);
+                if (!int.TryParse(s: line[(colon + 1)..].Trim(), result: out contentLength))
+                {
+                    contentLength = -1; // malformed Content-Length header — treat as absent
+                }
             }
         }
 

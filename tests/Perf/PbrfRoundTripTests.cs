@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Compiler.Serialization;
 using Compiler.Tokenizer;
 using SyntaxTree;
@@ -16,7 +17,7 @@ namespace RazorForge.Tests.Perf;
 /// This validates the reflection-based graph serializer round-trips the whole semantic model (TypeInfo/
 /// RoutineInfo tables + lowered AST bodies) with reference identity intact. Also prints size/time.
 /// </summary>
-public sealed class PbrfRoundTripTests
+public sealed partial class PbrfRoundTripTests
 {
     private readonly ITestOutputHelper _out;
     public PbrfRoundTripTests(ITestOutputHelper output) => _out = output;
@@ -47,19 +48,24 @@ public sealed class PbrfRoundTripTests
         var gen = new Compiler.CodeGen.LlvmCodeGenerator(
             userPrograms: r.Registry.UserPrograms,
             registry: r.Registry,
-            stdlibPrograms: r.Registry.StdlibPrograms,
-            synthesizedBodies: r.SynthesizedBodies,
-            instantiatedGenericBodies: r.InstantiatedGenericBodies,
-            liveRoutineKeys: r.LiveRoutineKeys,
-            maySuspendRoutineKeys: r.MaySuspendRoutineKeys);
+            options: new Compiler.CodeGen.LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = r.Registry.StdlibPrograms,
+                SynthesizedBodies = r.SynthesizedBodies,
+                InstantiatedGenericBodies = r.InstantiatedGenericBodies,
+                LiveRoutineKeys = r.LiveRoutineKeys,
+                MaySuspendRoutineKeys = r.MaySuspendRoutineKeys
+            });
         return gen.Generate();
     }
+
+    [GeneratedRegex(@" !dbg ![0-9]+")]
+    private static partial Regex DebugAnnotationPattern();
 
     private static System.Collections.Generic.HashSet<string> DefineSet(string ll) =>
         ll.Split('\n')
           .Where(l => l.StartsWith("define ", System.StringComparison.Ordinal))
-          .Select(l => System.Text.RegularExpressions.Regex.Replace(
-              l.Split(" {", 2)[0], @" !dbg ![0-9]+", ""))
+          .Select(l => DebugAnnotationPattern().Replace(l.Split(" {", 2)[0], ""))
           .ToHashSet(System.StringComparer.Ordinal);
 
     [Fact]

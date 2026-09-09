@@ -1,3 +1,5 @@
+namespace SyntaxTree;
+
 /// <summary>
 /// Visibility modifiers controlling WHO can access declarations.
 /// Orthogonal to the routine kind (common/member/free) which controls WHERE a symbol lives.

@@ -205,7 +205,7 @@ public partial class Tokenizer
     /// Peeks (without consuming) whether the upcoming token on the current line is a
     /// word logical operator (<c>and</c>/<c>or</c>/<c>but</c>), indicating this line
     /// continues the previous one. Leading whitespace has already been consumed by the
-    /// caller, so <see cref="Peek()"/> returns the first content character.
+    /// caller, so <c>Peek()</c> returns the first content character.
     /// </summary>
     /// <remarks>
     /// Only the WORD logical operators qualify. Symbolic operators (<c>==</c>, <c>&lt;</c>,

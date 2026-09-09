@@ -5,7 +5,7 @@ namespace Compiler.Declaration;
 /// hard-coded list becomes a projection of <see cref="WiredRoutineCatalog"/> filtered by one flag.
 /// </summary>
 [Flags]
-public enum WiredView
+public enum WiredViews
 {
     /// <summary>The zero value; no views selected.</summary>
     None = 0,
@@ -84,10 +84,10 @@ public sealed class WiredEntry
     /// <summary>Coarse classification used by generation and lifecycle policy.</summary>
     public required WiredKind Kind { get; init; }
     /// <summary>Bitmask of consumer lists this entry participates in.</summary>
-    public required WiredView Views { get; init; }
+    public required WiredViews Views { get; init; }
 
     /// <summary>The protocols that materialise this routine. <c>[0]</c> is the primary/canonical
-    /// protocol used by capability gating; the full list is the <see cref="WiredView.ProtocolDecl"/>
+    /// protocol used by capability gating; the full list is the <see cref="WiredViews.ProtocolDecl"/>
     /// requirement set. Empty when the routine is not protocol-bound (e.g. <c>store</c> is keyed on
     /// Assignable for capability but not declared via a protocol-operator).</summary>
     public IReadOnlyList<string> Protocols { get; init; } = [];
@@ -113,17 +113,28 @@ public sealed class WiredEntry
 /// <summary>
 /// Single source of truth for the compiler's built-in ("wired") routine names. Every historical
 /// hard-coded list (capability map, known-wired set, operator→protocol map, reachability seed array)
-/// is now a projection of <see cref="All"/> filtered by a <see cref="WiredView"/> flag. Adding or
+/// is now a projection of <see cref="All"/> filtered by a <see cref="WiredViews"/> flag. Adding or
 /// renaming a wired routine is a one-line edit here; the projections (and their <c>#if DEBUG</c>
 /// equality assertions at each old site) keep every consumer aligned.
 /// </summary>
 public static class WiredRoutineCatalog
 {
     // Shorthand local aliases to keep the table readable.
-    private const WiredView Cap = WiredView.Capability;
-    private const WiredView Known = WiredView.KnownWired;
-    private const WiredView Proto = WiredView.ProtocolDecl;
-    private const WiredView Seed = WiredView.ReachabilitySeed;
+    private const WiredViews Cap = WiredViews.Capability;
+    private const WiredViews Known = WiredViews.KnownWired;
+    private const WiredViews Proto = WiredViews.ProtocolDecl;
+    private const WiredViews Seed = WiredViews.ReachabilitySeed;
+
+    // Protocol name constants for strings repeated 4+ times in the catalog.
+    private const string ComparableProtocol = "Comparable";
+    private const string BitwiseableProtocol = "Bitwiseable";
+    private const string BitandCapability = "bitand";
+    private const string ShiftableProtocol = "Shiftable";
+    private const string AshlCapability = "ashl";
+    private const string InPlaceBitandeableProtocol = "InPlaceBitwiseable";
+    private const string IbitandCapability = "ibitand";
+    private const string InPlaceShiftableProtocol = "InPlaceShiftable";
+    private const string IashlCapability = "iashl";
 
     /// <summary>All wired-routine entries in canonical order. Every consumer projection is a filtered view of this list.</summary>
     public static readonly IReadOnlyList<WiredEntry> All = BuildAll();
@@ -164,11 +175,11 @@ public static class WiredRoutineCatalog
         // ---- Comparison (cmp family shares the cmp body; ne shares eq) ----
         new() { Name = "eq",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = ["Equatable"] },
         new() { Name = "ne",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = ["Equatable"], CapabilityWiredOverride = "eq" },
-        new() { Name = "cmp", Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = ["Comparable"] },
-        new() { Name = "lt",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = ["Comparable"], CapabilityWiredOverride = "cmp" },
-        new() { Name = "le",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = ["Comparable"], CapabilityWiredOverride = "cmp" },
-        new() { Name = "gt",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = ["Comparable"], CapabilityWiredOverride = "cmp" },
-        new() { Name = "ge",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = ["Comparable"], CapabilityWiredOverride = "cmp" },
+        new() { Name = "cmp", Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = [ComparableProtocol] },
+        new() { Name = "lt",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = [ComparableProtocol], CapabilityWiredOverride = "cmp" },
+        new() { Name = "le",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = [ComparableProtocol], CapabilityWiredOverride = "cmp" },
+        new() { Name = "gt",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = [ComparableProtocol], CapabilityWiredOverride = "cmp" },
+        new() { Name = "ge",  Kind = WiredKind.Comparison, Views = Cap | Known | Proto | Seed, Protocols = [ComparableProtocol], CapabilityWiredOverride = "cmp" },
 
         // ---- Container / iteration / indexing ----
         new() { Name = "contains",    Kind = WiredKind.Container, Views = Cap | Known | Proto | Seed, Protocols = ["Container"], CapabilityWiredOverride = "contains" },
@@ -216,16 +227,16 @@ public static class WiredRoutineCatalog
         new() { Name = "pow_unchecked",      Kind = WiredKind.ArithmeticUnchecked, Views = Cap | Seed, Protocols = ["UncheckedExponentiable"] },
 
         // ---- Bitwise (the bitand body covers and/or/xor) ----
-        new() { Name = "bitand", Kind = WiredKind.Bitwise, Views = Cap | Known | Proto | Seed, Protocols = ["Bitwiseable"], CapabilityWiredOverride = "bitand" },
-        new() { Name = "bitor",  Kind = WiredKind.Bitwise, Views = Cap | Known | Proto | Seed, Protocols = ["Bitwiseable"], CapabilityWiredOverride = "bitand" },
-        new() { Name = "bitxor", Kind = WiredKind.Bitwise, Views = Cap | Known | Proto | Seed, Protocols = ["Bitwiseable"], CapabilityWiredOverride = "bitand" },
+        new() { Name = BitandCapability, Kind = WiredKind.Bitwise, Views = Cap | Known | Proto | Seed, Protocols = [BitwiseableProtocol], CapabilityWiredOverride = BitandCapability },
+        new() { Name = "bitor",  Kind = WiredKind.Bitwise, Views = Cap | Known | Proto | Seed, Protocols = [BitwiseableProtocol], CapabilityWiredOverride = BitandCapability },
+        new() { Name = "bitxor", Kind = WiredKind.Bitwise, Views = Cap | Known | Proto | Seed, Protocols = [BitwiseableProtocol], CapabilityWiredOverride = BitandCapability },
         new() { Name = "bitnot", Kind = WiredKind.Unary,   Views = Cap | Known | Proto | Seed, Protocols = ["Invertible"] },
 
         // ---- Shift (the ashl body covers all four) ----
-        new() { Name = "ashl", Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = ["Shiftable"], CapabilityWiredOverride = "ashl" },
-        new() { Name = "ashr", Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = ["Shiftable"], CapabilityWiredOverride = "ashl" },
-        new() { Name = "lshl", Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = ["Shiftable"], CapabilityWiredOverride = "ashl" },
-        new() { Name = "lshr", Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = ["Shiftable"], CapabilityWiredOverride = "ashl" },
+        new() { Name = AshlCapability, Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = [ShiftableProtocol], CapabilityWiredOverride = AshlCapability },
+        new() { Name = "ashr", Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = [ShiftableProtocol], CapabilityWiredOverride = AshlCapability },
+        new() { Name = "lshl", Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = [ShiftableProtocol], CapabilityWiredOverride = AshlCapability },
+        new() { Name = "lshr", Kind = WiredKind.Shift, Views = Cap | Known | Proto | Seed, Protocols = [ShiftableProtocol], CapabilityWiredOverride = AshlCapability },
 
         // ---- In-place arithmetic (imod shares ifloordiv) ----
         new() { Name = "iadd",      Kind = WiredKind.InPlaceArithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceAddable"] },
@@ -237,15 +248,15 @@ public static class WiredRoutineCatalog
         new() { Name = "ipow",      Kind = WiredKind.InPlaceArithmetic, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceExponentiable"] },
 
         // ---- In-place bitwise (ibitor/ibitxor share ibitand) ----
-        new() { Name = "ibitand", Kind = WiredKind.InPlaceBitwise, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceBitwiseable"], CapabilityWiredOverride = "ibitand" },
-        new() { Name = "ibitor",  Kind = WiredKind.InPlaceBitwise, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceBitwiseable"], CapabilityWiredOverride = "ibitand" },
-        new() { Name = "ibitxor", Kind = WiredKind.InPlaceBitwise, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceBitwiseable"], CapabilityWiredOverride = "ibitand" },
+        new() { Name = IbitandCapability, Kind = WiredKind.InPlaceBitwise, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceBitandeableProtocol], CapabilityWiredOverride = IbitandCapability },
+        new() { Name = "ibitor",  Kind = WiredKind.InPlaceBitwise, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceBitandeableProtocol], CapabilityWiredOverride = IbitandCapability },
+        new() { Name = "ibitxor", Kind = WiredKind.InPlaceBitwise, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceBitandeableProtocol], CapabilityWiredOverride = IbitandCapability },
 
         // ---- In-place shift (iashr/ilshl/ilshr share iashl) ----
-        new() { Name = "iashl", Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceShiftable"], CapabilityWiredOverride = "iashl" },
-        new() { Name = "iashr", Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceShiftable"], CapabilityWiredOverride = "iashl" },
-        new() { Name = "ilshl", Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceShiftable"], CapabilityWiredOverride = "iashl" },
-        new() { Name = "ilshr", Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = ["InPlaceShiftable"], CapabilityWiredOverride = "iashl" },
+        new() { Name = IashlCapability, Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceShiftableProtocol], CapabilityWiredOverride = IashlCapability },
+        new() { Name = "iashr", Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceShiftableProtocol], CapabilityWiredOverride = IashlCapability },
+        new() { Name = "ilshl", Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceShiftableProtocol], CapabilityWiredOverride = IashlCapability },
+        new() { Name = "ilshr", Kind = WiredKind.InPlaceShift, Views = Cap | Known | Proto | Seed, Protocols = [InPlaceShiftableProtocol], CapabilityWiredOverride = IashlCapability },
     ];
 
     // ---------------------------------------------------------------------------
@@ -308,7 +319,7 @@ public static class WiredRoutineCatalog
         new(comparer: StringComparer.Ordinal) { "Representable", "Diagnosable", "CycleTraceable" };
 
     /// <summary>
-    /// True when the universal derive memberRoutine <paramref name="member routine"/> (from an
+    /// True when the universal derive member routine <paramref name="memberRoutine"/> (from an
     /// <c>@overridable/@override routine T.&lt;memberRoutine&gt;()</c> template) is auto-conferred on EVERY
     /// type — i.e. backed solely by an auto-conferred protocol (<c>Representable</c>/<c>Diagnosable</c>).
     /// Such a template is registered as a live universal memberRoutine and its body is SA-analyzed.

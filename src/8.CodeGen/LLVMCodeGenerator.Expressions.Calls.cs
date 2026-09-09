@@ -157,117 +157,19 @@ public partial class LlvmCodeGenerator
         // Use semantic analyzer's resolved routine if available (e.g., generic overload)
         // Otherwise look up the routine -> try full name first, then short name fallback
         RoutineInfo? routine = ResolveInitialFreeCallRoutine(functionName: functionName,
-            isFailableCallSyntax: isFailableCallSyntax,
             resolvedRoutine: resolvedRoutine,
             typeArguments: typeArguments,
             arguments: arguments);
 
-        // If not found as a routine, check if it's a type name
+        // If not found as a routine, check if the name resolves to a type and attempt construction.
         if (routine == null)
         {
-            TypeInfo? calledType = LookupTypeInCurrentModule(name: functionName);
-            if (calledType != null)
+            string? directResult = TryEmitNamedTypeConstruction(sb: sb, functionName: functionName,
+                arguments: arguments, typeArguments: typeArguments,
+                routesToUserCreate: routesToUserCreate, routine: ref routine);
+            if (directResult != null)
             {
-                // Direct named-field construction: when all arg names match field names exactly,
-                // emit struct construction directly (avoids create infinite recursion).
-                // e.g., CStr(ptr: from_ptr) inside CStr.create body
-                if (calledType is RecordTypeInfo { MemberVariables.Count: > 0 } record &&
-                    arguments.Count == record.MemberVariables.Count && arguments.All(
-                        predicate: a =>
-                            a is NamedArgumentExpression named &&
-                            record.MemberVariables.Any(predicate: mv => mv.Name == named.Name)))
-                {
-                    return EmitRecordConstruction(sb: sb, record: record, arguments: arguments);
-                }
-
-                // Zero-field record construction (e.g. `ReadOnly()` — a `record ... pass`, reached
-                // monomorphized from `P()` where P=ReadOnly): no fields to initialize and no user
-                // `create`. Materialize the empty struct value directly. Without this the call
-                // falls through to a spurious `call void @TypeName()` to an undefined symbol (LINKERR).
-                if (calledType is RecordTypeInfo { MemberVariables.Count: 0 } emptyRecord &&
-                    arguments.Count == 0)
-                {
-                    return EmitRecordConstruction(sb: sb, record: emptyRecord, arguments: arguments);
-                }
-
-                if (!routesToUserCreate &&
-                    calledType is EntityTypeInfo { MemberVariables.Count: > 0 } entity &&
-                    arguments.Count == entity.MemberVariables.Count && arguments.All(
-                        predicate: a =>
-                            a is NamedArgumentExpression named2 &&
-                            entity.MemberVariables.Any(predicate: mv => mv.Name == named2.Name)))
-                {
-                    return EmitEntityConstruction(sb: sb, entity: entity, arguments: arguments);
-                }
-
-                if (calledType is CrashableTypeInfo crashable &&
-                    arguments.Count == crashable.MemberVariables.Count && arguments.All(
-                        predicate: a => crashable.MemberVariables.Count == 0 ||
-                                        a is NamedArgumentExpression named3 &&
-                                        crashable.MemberVariables.Any(
-                                            predicate: mv => mv.Name == named3.Name)))
-                {
-                    return EmitCrashableConstruction(sb: sb, crashable: crashable,
-                        arguments: arguments);
-                }
-
-                // Zero-arg entity construction -> try create() first, then null
-                if (calledType is EntityTypeInfo && arguments.Count == 0)
-                {
-                    RoutineInfo? creator = _registry.LookupCreatorOverload(type: calledType,
-                        argTypes: new List<TypeInfo>());
-                    if (!(creator is { Parameters.Count: 0 }))
-                    {
-                        throw new InvalidOperationException(
-                            $"No zero-arg constructor found for entity type '{calledType.Name}'. " +
-                            "Entity types require a constructor for zero-argument construction.");
-                    }
-                }
-
-                // Try create overload -> this covers conversion constructors
-                // (e.g., CStr(from: text) -> CStr.create(from: Text))
-                var semanticArgTypes = new List<TypeInfo>();
-                foreach (Expression arg in arguments)
-                {
-                    TypeInfo? t = GetExpressionType(expr: arg);
-                    if (t != null)
-                    {
-                        semanticArgTypes.Add(item: t);
-                    }
-                }
-
-                // If calledType is a generic definition and explicit typeArguments were provided
-                // (e.g., Hijacked[U64](addr)), resolve to the concrete instance so we find the
-                // monomorphized create whose OwnerType is Hijacked[U64], not Hijacked.
-                TypeInfo creatorOwnerType = calledType;
-                if (calledType.IsGenericDefinition && typeArguments is { Count: > 0 })
-                {
-                    var resolvedArgs = typeArguments
-                        .Select(selector: ta => ResolveTypeExpression(typeExpr: ta))
-                        .Where(predicate: t => t != null)
-                        .Cast<TypeInfo>()
-                        .ToList();
-                    if (resolvedArgs.Count == typeArguments.Count)
-                    {
-                        creatorOwnerType = _registry.GetOrCreateResolution(
-                            genericDef: calledType,
-                            typeArguments: resolvedArgs);
-                    }
-                }
-
-                routine = _registry.LookupCreatorOverload(type: creatorOwnerType,
-                              argTypes: semanticArgTypes) ??
-                    _registry.LookupCreatorOverload(type: calledType,
-                        argTypes: semanticArgTypes);
-                if (routine == null &&
-                    calledType is RecordTypeInfo { MemberVariables.Count: 1 } singleRecord && arguments is [NamedArgumentExpression])
-                {
-                    // For single-field records where arg name doesn't match field name
-                    // (e.g., Character(codepoint: val) where field is 'value')
-                    return EmitRecordConstruction(sb: sb,
-                        record: singleRecord,
-                        arguments: arguments);
-                }
+                return directResult;
             }
         }
 
@@ -305,11 +207,17 @@ public partial class LlvmCodeGenerator
         {
             Expression arg = arguments[index: argIdx];
             Expression argInner = arg is NamedArgumentExpression namedArg ? namedArg.Value : arg;
-            TypeInfo? paramTy = arg is NamedArgumentExpression na
-                ? routine?.Parameters.FirstOrDefault(predicate: p => p.Name == na.Name)?.Type
-                : routine != null && argIdx < routine.Parameters.Count
+            TypeInfo? paramTy;
+            if (arg is NamedArgumentExpression na)
+            {
+                paramTy = routine?.Parameters.FirstOrDefault(predicate: p => p.Name == na.Name)?.Type;
+            }
+            else
+            {
+                paramTy = routine != null && argIdx < routine.Parameters.Count
                     ? routine.Parameters[index: argIdx].Type
                     : null;
+            }
             bool ptyTakesCFnPtr = paramTy?.Name == "CPtr"
                 || (routine?.IsForeign == true && paramTy is RoutineTypeInfo);
             if (ptyTakesCFnPtr
@@ -465,8 +373,43 @@ public partial class LlvmCodeGenerator
     {
         int paramCount = routine.Parameters.Count;
 
-        // Bind each written argument to its declared parameter slot (named by name, else by
-        // position). Unmatched names fall back to position defensively (SA validates names).
+        // Bind each written argument to its declared parameter slot (named by name, else by position).
+        var slotArg = BindFreeCallArgumentsToSlots(
+            routine: routine, arguments: arguments, paramCount: paramCount);
+
+        // Emit slot-by-slot in declaration order: provided argument (evaluated here) or default.
+        for (int p = 0; p < paramCount; p++)
+        {
+            ParameterInfo param = routine.Parameters[index: p];
+            Expression? bound = slotArg[p];
+            if (bound != null)
+            {
+                EmitBoundFreeCallArgument(sb: sb, bound: bound, param: param, routine: routine,
+                    functionName: functionName,
+                    argValues: argValues, argTypes: argTypes, argTypeInfos: argTypeInfos);
+            }
+            else if (param.HasDefaultValue)
+            {
+                string value = EmitParameterDefault(sb: sb, param: param);
+                argValues.Add(item: value);
+                argTypeInfos.Add(item: param.Type);
+                argTypes.Add(item: GetParameterLlvmType(type: param.Type));
+            }
+            else
+            {
+                // No argument and no default: SA should have rejected this call. Stop rather
+                // than fabricate a value and emit a malformed call.
+                break;
+            }
+        }
+    }
+
+    /// <summary>Binds each written argument in <paramref name="arguments"/> to its declared parameter
+    /// slot (by name for named args, by position otherwise). Returns an array indexed by param slot
+    /// where each entry is the bound expression, or null when no argument was supplied.</summary>
+    private static Expression?[] BindFreeCallArgumentsToSlots(RoutineInfo routine,
+        List<Expression> arguments, int paramCount)
+    {
         var slotArg = new Expression?[paramCount];
         for (int argIdx = 0; argIdx < arguments.Count; argIdx++)
         {
@@ -496,83 +439,63 @@ public partial class LlvmCodeGenerator
             }
         }
 
-        // Emit slot-by-slot in declaration order: provided argument (evaluated here) or default.
-        for (int p = 0; p < paramCount; p++)
+        return slotArg;
+    }
+
+    /// <summary>
+    /// Emits a single bound argument for a free call — handling FFI function-pointer, fat-Routine
+    /// value, and normal coercion paths — and appends the result to the arg lists.
+    /// </summary>
+    private void EmitBoundFreeCallArgument(StringBuilder sb, Expression bound, ParameterInfo param,
+        RoutineInfo routine, string functionName,
+        List<string> argValues, List<string> argTypes, List<TypeInfo> argTypeInfos)
+    {
+        Expression argInner = bound is NamedArgumentExpression nb ? nb.Value : bound;
+        bool paramTakesCFnPtr = param.Type?.Name == "CPtr"
+            || (routine.IsForeign && param.Type is RoutineTypeInfo);
+
+        // FFI routine argument: bare routine name at a CPtr/Routine param → pass the C-ABI symbol.
+        if (paramTakesCFnPtr
+            && argInner is IdentifierExpression routineRef
+            && _registry.LookupRoutineByName(name: routineRef.Name) is { } refRoutine
+            && param.Type is not null)
         {
-            ParameterInfo param = routine.Parameters[index: p];
-            Expression? bound = slotArg[p];
-            if (bound != null)
-            {
-                // FFI routine -> C function pointer: a bare top-level routine name passed where a
-                // C:: extern expects a callback lowers to the routine's bare C-ABI symbol (its native
-                // define is already `ccc` with NO hidden %__cl/me; the symbol IS the fn pointer).
-                // This fires for a `CPtr` param (always an FFI slot) OR a `Routine[...]`-typed param
-                // of a FOREIGN (C::/LLVM::) callee. WITHOUT this a routine value would flow through
-                // EmitRoutineValueClosure — a heap `{fn}` box whose ADDRESS (not the fn) reaches C,
-                // plus the `.rfvthunk` adapter is closure-ptr-FIRST (`__cl, a, b`) so args shift one
-                // slot — the qsort 0xC0000005. SA gates this to non-capturing bare references.
-                Expression argInner =
-                    bound is NamedArgumentExpression nb ? nb.Value : bound;
-                bool paramTakesCFnPtr = param.Type?.Name == "CPtr"
-                    || (routine.IsForeign && param.Type is RoutineTypeInfo);
-                if (paramTakesCFnPtr
-                    && argInner is IdentifierExpression routineRef
-                    && _registry.LookupRoutineByName(name: routineRef.Name) is { } refRoutine)
-                {
-                    GenerateRoutineDeclaration(routine: refRoutine);
-                    argValues.Add(item: $"@{MangleRoutineName(routine: refRoutine)}");
-                    argTypeInfos.Add(item: param.Type);
-                    argTypes.Add(item: "ptr");
-                    continue;
-                }
-
-                // A Routine-typed VALUE (field / local / arbitrary expr) at a C boundary — NOT a bare
-                // routine ref. Capturing-ness lives in the fat value's `bound`, only knowable at
-                // runtime, so emit a `bound == null` guard: captureless → hand C the 1-word `fn`;
-                // capturing → crash (a capture has no C slot). See [[cabi-callback-ffi]].
-                if (paramTakesCFnPtr
-                    && GetExpressionType(expr: argInner) is RoutineTypeInfo)
-                {
-                    string fnArg = EmitForeignRoutineValueArg(sb: sb, valueExpr: argInner);
-                    argValues.Add(item: fnArg);
-                    argTypeInfos.Add(item: param.Type);
-                    argTypes.Add(item: "ptr");
-                    continue;
-                }
-
-                string value = EmitExpression(sb: sb, expr: bound);
-                TypeInfo? argType = GetExpressionType(expr: bound);
-                if (argType == null)
-                {
-                    throw new InvalidOperationException(
-                        message:
-                        $"Cannot determine type for argument in function call to '{functionName}'");
-                }
-
-                (string coercedValue, string coercedType) = CoerceCallArgumentToParameter(
-                    sb: sb,
-                    argValue: value,
-                    actualType: argType,
-                    parameterType: param.Type,
-                    callee: routine);
-                argValues.Add(item: coercedValue);
-                argTypes.Add(item: coercedType);
-                argTypeInfos.Add(item: argType);
-            }
-            else if (param.HasDefaultValue)
-            {
-                string value = EmitParameterDefault(sb: sb, param: param);
-                argValues.Add(item: value);
-                argTypeInfos.Add(item: param.Type);
-                argTypes.Add(item: GetParameterLlvmType(type: param.Type));
-            }
-            else
-            {
-                // No argument and no default: SA should have rejected this call. Stop rather
-                // than fabricate a value and emit a malformed call.
-                break;
-            }
+            GenerateRoutineDeclaration(routine: refRoutine);
+            argValues.Add(item: $"@{MangleRoutineName(routine: refRoutine)}");
+            argTypeInfos.Add(item: param.Type);
+            argTypes.Add(item: "ptr");
+            return;
         }
+
+        // FFI Routine VALUE argument: guard capturing-ness at runtime.
+        if (paramTakesCFnPtr
+            && GetExpressionType(expr: argInner) is RoutineTypeInfo
+            && param.Type is not null)
+        {
+            string fnArg = EmitForeignRoutineValueArg(sb: sb, valueExpr: argInner);
+            argValues.Add(item: fnArg);
+            argTypeInfos.Add(item: param.Type);
+            argTypes.Add(item: "ptr");
+            return;
+        }
+
+        string value = EmitExpression(sb: sb, expr: bound);
+        TypeInfo? argType = GetExpressionType(expr: bound);
+        if (argType == null)
+        {
+            throw new InvalidOperationException(
+                message: $"Cannot determine type for argument in function call to '{functionName}'");
+        }
+
+        (string coercedValue, string coercedType) = CoerceCallArgumentToParameter(
+            sb: sb,
+            argValue: value,
+            actualType: argType,
+            parameterType: param.Type ?? argType,
+            callee: routine);
+        argValues.Add(item: coercedValue);
+        argTypes.Add(item: coercedType);
+        argTypeInfos.Add(item: argType);
     }
 
     /// <summary>
@@ -605,6 +528,116 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>
+    /// When routine resolution returned null, checks whether <paramref name="functionName"/> is a
+    /// type name and, if so, either emits construction directly (returning the result string) or
+    /// resolves a creator overload into <paramref name="routine"/> (returning null so the caller
+    /// continues to the standard call path). Returns null when the type is not found.
+    /// </summary>
+    private string? TryEmitNamedTypeConstruction(StringBuilder sb, string functionName,
+        List<Expression> arguments, List<TypeExpression>? typeArguments,
+        bool routesToUserCreate, ref RoutineInfo? routine)
+    {
+        TypeInfo? calledType = LookupTypeInCurrentModule(name: functionName);
+        if (calledType == null)
+        {
+            return null;
+        }
+
+        // Direct named-field construction: when all arg names match field names exactly,
+        // emit struct construction directly (avoids create infinite recursion).
+        if (calledType is RecordTypeInfo { MemberVariables.Count: > 0 } record &&
+            arguments.Count == record.MemberVariables.Count && arguments.All(
+                predicate: a =>
+                    a is NamedArgumentExpression named &&
+                    record.MemberVariables.Any(predicate: mv => mv.Name == named.Name)))
+        {
+            return EmitRecordConstruction(sb: sb, record: record, arguments: arguments);
+        }
+
+        // Zero-field record construction: materialize the empty struct value directly.
+        if (calledType is RecordTypeInfo { MemberVariables.Count: 0 } emptyRecord &&
+            arguments.Count == 0)
+        {
+            return EmitRecordConstruction(sb: sb, record: emptyRecord, arguments: arguments);
+        }
+
+        if (!routesToUserCreate &&
+            calledType is EntityTypeInfo { MemberVariables.Count: > 0 } entity &&
+            arguments.Count == entity.MemberVariables.Count && arguments.All(
+                predicate: a =>
+                    a is NamedArgumentExpression named2 &&
+                    entity.MemberVariables.Any(predicate: mv => mv.Name == named2.Name)))
+        {
+            return EmitEntityConstruction(sb: sb, entity: entity, arguments: arguments);
+        }
+
+        if (calledType is CrashableTypeInfo crashable &&
+            arguments.Count == crashable.MemberVariables.Count && arguments.All(
+                predicate: a => crashable.MemberVariables.Count == 0 ||
+                                a is NamedArgumentExpression named3 &&
+                                crashable.MemberVariables.Any(
+                                    predicate: mv => mv.Name == named3.Name)))
+        {
+            return EmitCrashableConstruction(sb: sb, crashable: crashable, arguments: arguments);
+        }
+
+        // Zero-arg entity construction: validate that a zero-arg creator exists.
+        if (calledType is EntityTypeInfo && arguments.Count == 0)
+        {
+            RoutineInfo? creator = _registry.LookupCreatorOverload(type: calledType,
+                argTypes: new List<TypeInfo>());
+            if (!(creator is { Parameters.Count: 0 }))
+            {
+                throw new InvalidOperationException(
+                    $"No zero-arg constructor found for entity type '{calledType.Name}'. " +
+                    "Entity types require a constructor for zero-argument construction.");
+            }
+        }
+
+        // Try to find a creator overload (covers conversion constructors).
+        var semanticArgTypes = arguments
+            .Select(arg => GetExpressionType(expr: arg))
+            .Where(t => t != null)
+            .Cast<TypeInfo>()
+            .ToList();
+
+        TypeInfo creatorOwnerType = ResolveCreatorOwnerType(calledType: calledType, typeArguments: typeArguments);
+
+        routine = _registry.LookupCreatorOverload(type: creatorOwnerType, argTypes: semanticArgTypes)
+            ?? _registry.LookupCreatorOverload(type: calledType, argTypes: semanticArgTypes);
+
+        if (routine == null &&
+            calledType is RecordTypeInfo { MemberVariables.Count: 1 } singleRecord &&
+            arguments is [NamedArgumentExpression])
+        {
+            return EmitRecordConstruction(sb: sb, record: singleRecord, arguments: arguments);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// When explicit type arguments are provided and the called type is a generic definition,
+    /// resolves to the concrete monomorphized instance so the creator lookup finds the right overload.
+    /// </summary>
+    private TypeInfo ResolveCreatorOwnerType(TypeInfo calledType, List<TypeExpression>? typeArguments)
+    {
+        if (!calledType.IsGenericDefinition || typeArguments is not { Count: > 0 })
+        {
+            return calledType;
+        }
+
+        var resolvedArgs = typeArguments
+            .Select(selector: ta => ResolveTypeExpression(typeExpr: ta))
+            .Where(predicate: t => t != null)
+            .Cast<TypeInfo>()
+            .ToList();
+        return resolvedArgs.Count == typeArguments.Count
+            ? _registry.GetOrCreateResolution(genericDef: calledType, typeArguments: resolvedArgs)
+            : calledType;
+    }
+
+    /// <summary>
     /// Decides whether a 1-arg construction of a `@llvm("...")` record should be inlined as
     /// a scalar cast / reinterpret instead of dispatching to its `create` routine.
     /// Inline when no create was resolved, OR when the resolved routine's parameter LLVM
@@ -621,13 +654,11 @@ public partial class LlvmCodeGenerator
         TypeInfo? argType = GetExpressionType(expr: arg);
         if (argType == null) return false;
 
-        // When SA resolved a real `create(from: argType)` (or a reference-wrapper of argType),
-        // that routine IS the conversion: its body does the correct thing for every backend
-        // shape — a scalar cast for @llvm primitives, a real BID/IEEE encode for carrier records
-        // (F128/F256/D32/D64/D128/Decimal store a bit-ENCODING, not the value), a UTF-8 encode
-        // for CStr(Accessing[Text]), and so on. Honor it; never inline a scalar cast, which would
-        // bypass the encoding and corrupt carriers (e.g. `D128(42)` as a raw i128 decodes to
-        // 4.2E-6175). The backend must not re-decide a conversion the resolver already settled.
+        // When SA resolved a real create(from: argType) routine, that routine IS the conversion:
+        // its body handles every backend shape correctly — scalar casts for @llvm primitives, and
+        // BID/IEEE encoding for carrier records (F128/F256/D32/D64/D128/Decimal). Honor it;
+        // never inline a scalar cast that would bypass the encoding and corrupt carrier values.
+        // The backend must not re-decide a conversion the resolver already settled.
         if (resolvedRoutine is { IsSynthesized: false, IsCreator: true, Parameters.Count: 1 })
         {
             TypeInfo? paramType = resolvedRoutine.Parameters[index: 0].Type;
@@ -733,7 +764,6 @@ public partial class LlvmCodeGenerator
             receiverType = transparentProto.TypeArguments![index: 0]!;
         }
 
-        bool isFailableMemberRoutineCall = member.IsFailable;
         string memberRoutineName = member.MemberName;
 
         // Use the SA/upstream-stamped routine when present; otherwise the signature-based overload path
@@ -914,7 +944,7 @@ public partial class LlvmCodeGenerator
         // monomorphizes on the fly — that is upstream's job (GenericMonomorphizationPass / the demand
         // collector). A generic member routine reaching here WITHOUT explicit `[...]` type arguments (which
         // the block far below still instantiates) is an upstream resolution gap → hard error, never inference.
-        if (genericMemberRoutineForInference is { OwnerType: not GenericParameterTypeInfo and not ProtocolTypeInfo and not null } &&
+        if (genericMemberRoutineForInference is { OwnerType: not (null or GenericParameterTypeInfo or ProtocolTypeInfo) } &&
             !genericMemberRoutineForInference.OwnerType.IsGenericDefinition &&
             typeArguments is not { Count: > 0 })
         {
@@ -948,8 +978,7 @@ public partial class LlvmCodeGenerator
         {
             (argValues, argTypes, argTypeInfos) = EmitMemberCallArgumentsInDeclarationOrder(
                 sb: sb, member: member, memberRoutine: memberRoutine, arguments: arguments,
-                memberRoutineTakesReceiver: memberRoutineTakesReceiver,
-                argValues: argValues, argTypes: argTypes, argTypeInfos: argTypeInfos);
+                argCtx: new MemberCallArgContext(memberRoutineTakesReceiver, argValues, argTypes, argTypeInfos));
         }
         else
         {
@@ -1000,8 +1029,7 @@ public partial class LlvmCodeGenerator
             {
                 // Owner is still generic -> re-derive concrete memberRoutine from receiverType.
                 ResolvedMemberRoutine? resolved = ResolveMemberRoutine(receiverType: receiverType,
-                    memberRoutineName: memberRoutine.Name,
-                    isFailable: memberRoutine.IsFailable);
+                    memberRoutineName: memberRoutine.Name);
                 mangledName = resolved?.MangledName ??
                     Q(name: DecorateRoutineSymbolName(
                         baseName: $"{receiverType.FullName}.{SanitizeLlvmName(name: member.MemberName)}",
@@ -1062,10 +1090,23 @@ public partial class LlvmCodeGenerator
             }
         }
 
+        return EmitMemberRoutineCallInstruction(sb: sb, arguments: arguments,
+            memberRoutine: memberRoutine, memberRoutineTakesReceiver: memberRoutineTakesReceiver,
+            resolvedReturnType: resolvedReturnType, mangledName: mangledName,
+            argValues: argValues, argTypes: argTypes, argTypeInfos: argTypeInfos);
+    }
+
+    /// <summary>
+    /// Applies ABI coercions (byval / register) to the explicit arguments and emits the final
+    /// LLVM call instruction for a member routine — handling sret, coerced struct returns, void,
+    /// and normal value returns. Extracted from <c>EmitMemberRoutineCall</c> to reduce complexity.
+    /// </summary>
+    private string EmitMemberRoutineCallInstruction(StringBuilder sb, List<Expression> arguments,
+        RoutineInfo? memberRoutine, bool memberRoutineTakesReceiver,
+        TypeInfo? resolvedReturnType, string mangledName,
+        List<string> argValues, List<string> argTypes, List<TypeInfo> argTypeInfos)
+    {
         // Coerce explicit struct value args to byval (the ABI-Indirect arg form) before the call.
-        // The receiver, when present, occupies index 0 of the arg lists; explicit args follow and
-        // map 1:1 to memberRoutine.Parameters. Only byval is applied here — other coercions keep their
-        // existing handling so member-call behavior is otherwise unchanged.
         if (memberRoutine != null)
         {
             int recvOffset = memberRoutineTakesReceiver ? 1 : 0;
@@ -1098,11 +1139,7 @@ public partial class LlvmCodeGenerator
             ? GetLlvmType(type: resolvedReturnType)
             : "void";
 
-        // ABI-Indirect struct return: the callee returns through a hidden sret pointer (declared via
-        // GenerateRoutineDeclaration above, which agrees through ReturnsViaSret). Pass the result
-        // slot as the first argument, call as void, then load the struct back. For a UNIVERSAL derive
-        // callee (owner = generic param, raw ReturnType still `T`), classify the SUBSTITUTED return type —
-        // the mangled callee + result slot both use the concrete type, so the ABI must agree.
+        // ABI-Indirect struct return via a hidden sret pointer.
         TypeInfo? sretOverride = memberRoutine?.OwnerType is GenericParameterTypeInfo
             ? resolvedReturnType
             : null;
@@ -1215,20 +1252,13 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>
-    /// Binds each written explicit member-call argument to its declared slot (named by name, else
-    /// positionally) and emits the arguments in PARAMETER-DECLARATION order — evaluating each provided
-    /// argument or a default — producing fresh (values, types, typeInfos) lists (with the receiver, if
-    /// present, kept at index 0). Used when the resolved member routine is concrete.
+    /// Returns a slot-index array where <c>result[p]</c> is the index of the argument in
+    /// <paramref name="arguments"/> that binds to parameter slot <c>p</c>, or -1 when no argument
+    /// was provided for that slot. Named arguments are matched by name; positional by index.
     /// </summary>
-    private (List<string> Values, List<string> Types, List<TypeInfo> TypeInfos)
-        EmitMemberCallArgumentsInDeclarationOrder(StringBuilder sb, MemberExpression member,
-            RoutineInfo memberRoutine, List<Expression> arguments, bool memberRoutineTakesReceiver,
-            List<string> argValues, List<string> argTypes, List<TypeInfo> argTypeInfos)
+    private static int[] BindArgumentsToParameterSlots(RoutineInfo memberRoutine,
+        List<Expression> arguments, int paramCount)
     {
-        int paramCount = memberRoutine.Parameters.Count;
-
-        // Bind each written explicit argument to its declared slot (named by name, else by
-        // position). Unmatched names fall back to position defensively (SA validates names).
         var slotArgIndex = new int[paramCount];
         for (int s = 0; s < paramCount; s++)
         {
@@ -1263,14 +1293,33 @@ public partial class LlvmCodeGenerator
             }
         }
 
+        return slotArgIndex;
+    }
+
+    /// <summary>
+    /// Binds each written explicit member-call argument to its declared slot (named by name, else
+    /// positionally) and emits the arguments in PARAMETER-DECLARATION order — evaluating each provided
+    /// argument or a default — producing fresh (values, types, typeInfos) lists (with the receiver, if
+    /// present, kept at index 0). Used when the resolved member routine is concrete.
+    /// </summary>
+    private (List<string> Values, List<string> Types, List<TypeInfo> TypeInfos)
+        EmitMemberCallArgumentsInDeclarationOrder(StringBuilder sb, MemberExpression member,
+            RoutineInfo memberRoutine, List<Expression> arguments, MemberCallArgContext argCtx)
+    {
+        int paramCount = memberRoutine.Parameters.Count;
+
+        // Bind each written explicit argument to its declared parameter slot.
+        var slotArgIndex = BindArgumentsToParameterSlots(
+            memberRoutine: memberRoutine, arguments: arguments, paramCount: paramCount);
+
         var reorderedValues = new List<string>();
         var reorderedTypes = new List<string>();
         var reorderedTypeInfos = new List<TypeInfo>();
-        if (memberRoutineTakesReceiver)
+        if (argCtx.TakesReceiver)
         {
-            reorderedValues.Add(item: argValues[index: 0]);
-            reorderedTypes.Add(item: argTypes[index: 0]);
-            reorderedTypeInfos.Add(item: argTypeInfos[index: 0]);
+            reorderedValues.Add(item: argCtx.Values[index: 0]);
+            reorderedTypes.Add(item: argCtx.Types[index: 0]);
+            reorderedTypeInfos.Add(item: argCtx.TypeInfos[index: 0]);
         }
 
         for (int p = 0; p < paramCount; p++)
@@ -1670,7 +1719,7 @@ public partial class LlvmCodeGenerator
     /// Resolves the initial free call routine from semantic compiler state.
     /// </summary>
     private RoutineInfo? ResolveInitialFreeCallRoutine(string functionName,
-        bool isFailableCallSyntax, RoutineInfo? resolvedRoutine,
+        RoutineInfo? resolvedRoutine,
         List<TypeExpression>? typeArguments, List<Expression> arguments)
     {
         // Signature-only lookup (name + arg types) — never a name-only fallback. When SA already stamped
@@ -2017,6 +2066,16 @@ public partial class LlvmCodeGenerator
         IsByRefMeRecord(ownerType: receiverType);
 
 }
+
+/// <summary>
+/// Bundles the initial argument lists for <see cref="LlvmCodeGenerator.EmitMemberCallArgumentsInDeclarationOrder"/>
+/// — the receiver flag plus the three parallel accumulation lists — so the method stays within the parameter-count limit.
+/// </summary>
+internal sealed record MemberCallArgContext(
+    bool TakesReceiver,
+    List<string> Values,
+    List<string> Types,
+    List<TypeInfo> TypeInfos);
 
 /// <summary>
 /// Bundles the arguments for <see cref="LlvmCodeGenerator"/> free-function call emission.

@@ -22,11 +22,11 @@ public sealed partial class SemanticVerifier
     private void AutoRegisterWiredRoutines()
     {
         // Detect whether any USER program imports BuilderQuery. When absent we skip
-        // resolving List[FieldInfo]/List[ProtocolInfo]/List[RoutineInfo]/Dict[Text,Data];
-        // those resolutions otherwise drag in the full BTreeListNode/Owned/Array/
-        // ArrayIterator closure for every type via GMP, even when the user never calls
-        // a BuilderQuery routine. The stdlib itself imports BuilderQuery everywhere, so the
-        // signal must be a NON-stdlib import (see the override computed in AnalyzeMultiple).
+        // resolving the list-returning reflection types (FieldInfo/ProtocolInfo/RoutineInfo),
+        // which would otherwise drag in the full BTreeListNode/Owned/Array/ArrayIterator
+        // closure for every type via GMP, even when BuilderQuery is never called.
+        // The stdlib itself imports BuilderQuery everywhere, so the signal must be a
+        // NON-stdlib import (see the override computed in AnalyzeMultiple).
         bool builderServiceImported = _builderQueryUserImportedOverride ?? ScanUserProgramsForBuilderQuery();
 
         // The everywhere-derive registration inside the pass consults GetDeriveTemplate to decide which
@@ -66,13 +66,8 @@ public sealed partial class SemanticVerifier
                 }
             }
 
-            foreach (ISyntaxTreeNode node in program.Declarations)
-            {
-                if (node is ImportDeclaration { ModulePath: "BuilderQuery" })
-                {
-                    return true;
-                }
-            }
+            if (program.Declarations.Any(node => node is ImportDeclaration { ModulePath: "BuilderQuery" }))
+                return true;
         }
 
         return false;
@@ -83,13 +78,8 @@ public sealed partial class SemanticVerifier
     {
         foreach ((Program program, _, _) in _registry.UserPrograms)
         {
-            foreach (ISyntaxTreeNode node in program.Declarations)
-            {
-                if (node is ImportDeclaration { ModulePath: "BuilderQuery" })
-                {
-                    return true;
-                }
-            }
+            if (program.Declarations.Any(node => node is ImportDeclaration { ModulePath: "BuilderQuery" }))
+                return true;
         }
 
         return false;

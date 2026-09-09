@@ -346,10 +346,9 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         implementer = null;
         if (resolvedRoutine is not { } rr) return false;
 
-        // Walk the GenericDefinition chain to find a protocol-owned default-impl body. One level
-        // covers the re-homed owner-resolved form (List[Text].enumerate -> Iterable[T].enumerate);
-        // a memberRoutine-generic RESOLUTION needs two (List[Text].zip[S64,List[S64]] ->
-        // List[Text].zip[U,S2] -> Iterable[T].zip[U,S2]).
+        // Walk the GenericDefinition chain to find a protocol-owned default-impl body.
+        // One level covers the re-homed owner-resolved form; a member-routine-generic
+        // resolution may require two levels to reach the protocol owner.
         RoutineInfo? proto = null;
         for (RoutineInfo? cur = rr; cur != null; cur = cur.GenericDefinition)
         {
@@ -369,9 +368,13 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         // closure-call's receiver type unsubstituted), so trusting it would synthesize `Sub.List`
         // garbage instead of `List[S64].List`. Fall back to the receiver type only when `rr` is still
         // protocol-owned (not yet re-homed, e.g. an `Iterable[T].Set()` call).
-        TypeInfo? impl = rr.OwnerType is RecordTypeInfo or EntityTypeInfo
-            ? rr.OwnerType
-            : receiverResolvedType is { } recvType ? UnwrapWrappers(t: recvType) : null;
+        TypeInfo? impl;
+        if (rr.OwnerType is RecordTypeInfo or EntityTypeInfo)
+            impl = rr.OwnerType;
+        else if (receiverResolvedType is { } recvType)
+            impl = UnwrapWrappers(t: recvType);
+        else
+            impl = null;
         if (impl is null or ProtocolTypeInfo or GenericParameterTypeInfo) return false;
 
         protoRoutine = proto;
@@ -454,17 +457,28 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
                     yield return r.Body;
                     break;
                 case EntityDeclaration ed:
-                    foreach (SyntaxTree.Declaration m in ed.Members)
-                        if (m is RoutineDeclaration mr) yield return mr.Body;
+                    foreach (Statement body in MemberRoutineBodies(members: ed.Members))
+                        yield return body;
                     break;
                 case RecordDeclaration rd:
-                    foreach (SyntaxTree.Declaration m in rd.Members)
-                        if (m is RoutineDeclaration mr) yield return mr.Body;
+                    foreach (Statement body in MemberRoutineBodies(members: rd.Members))
+                        yield return body;
                     break;
                 case Statement topLevel:
                     yield return topLevel;
                     break;
             }
+        }
+    }
+
+    /// <summary>Yields the bodies of all routine members from a type member list.</summary>
+    private static IEnumerable<Statement> MemberRoutineBodies(
+        IEnumerable<SyntaxTree.Declaration> members)
+    {
+        foreach (SyntaxTree.Declaration m in members)
+        {
+            if (m is RoutineDeclaration mr)
+                yield return mr.Body;
         }
     }
 
@@ -597,39 +611,49 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         // TypeArguments, so the generic recursion below misses them. Substitute each explicitly so
         // a lambda parameter like `transform: Routine[(T,), U]` becomes `Routine[(S64,), S64]`.
         // Without this the synthesized routine mangles to `...select(Routine[(T,), U])` and never
-        // matches the call site's `...select(Routine[(S64,), S64])` → "undefined symbol" at codegen.
+        // matches the call site's `...select(Routine[(S64,), S64])` — "undefined symbol" at codegen.
         if (t is RoutineTypeInfo rt)
-        {
-            var newParamTypes = rt.ParameterTypes
-                .Select(selector: p => SubstituteMe(t: p, subs: subs))
-                .ToList();
-            TypeInfo? newReturn = rt.ReturnType != null
-                ? SubstituteMe(t: rt.ReturnType, subs: subs)
-                : null;
-            return new RoutineTypeInfo(parameterTypes: newParamTypes, returnType: newReturn)
-            {
-                IsFailable = rt.IsFailable
-            };
-        }
+            return SubstituteRoutineType(rt: rt, subs: subs);
 
         // Recurse into composite types (e.g. EnumerateIterator[T] → EnumerateIterator[Text],
         // List[Me] → List[List[Text]]) so the substituted param doesn't survive in a type argument.
-        if (t.TypeArguments is { Count: > 0 } args)
+        return SubstituteTypeArguments(t: t, subs: subs);
+    }
+
+    /// <summary>Substitutes generic parameters within a <see cref="RoutineTypeInfo"/>'s parameter and return types.</summary>
+    private TypeInfo SubstituteRoutineType(RoutineTypeInfo rt, Dictionary<string, TypeInfo> subs)
+    {
+        var newParamTypes = rt.ParameterTypes
+            .Select(selector: p => SubstituteMe(t: p, subs: subs))
+            .ToList();
+        TypeInfo? newReturn = rt.ReturnType != null
+            ? SubstituteMe(t: rt.ReturnType, subs: subs)
+            : null;
+        return new RoutineTypeInfo(parameterTypes: newParamTypes, returnType: newReturn)
         {
-            bool changed = false;
-            var newArgs = new List<TypeInfo>(capacity: args.Count);
-            foreach (TypeInfo a in args)
-            {
-                TypeInfo na = SubstituteMe(t: a, subs: subs);
-                changed |= !ReferenceEquals(objA: na, objB: a);
-                newArgs.Add(item: na);
-            }
-            if (changed)
-            {
-                TypeInfo? def = GenericDefOf(t: t) ?? (t.IsGenericDefinition ? t : null);
-                if (def != null)
-                    return ctx.Registry.GetOrCreateResolution(genericDef: def, typeArguments: newArgs);
-            }
+            IsFailable = rt.IsFailable
+        };
+    }
+
+    /// <summary>Recurses into composite type arguments and rebuilds the resolution if any argument changed.</summary>
+    private TypeInfo SubstituteTypeArguments(TypeInfo t, Dictionary<string, TypeInfo> subs)
+    {
+        if (t.TypeArguments is not { Count: > 0 } args)
+            return t;
+
+        bool changed = false;
+        var newArgs = new List<TypeInfo>(capacity: args.Count);
+        foreach (TypeInfo a in args)
+        {
+            TypeInfo na = SubstituteMe(t: a, subs: subs);
+            changed |= !ReferenceEquals(objA: na, objB: a);
+            newArgs.Add(item: na);
+        }
+        if (changed)
+        {
+            TypeInfo? def = GenericDefOf(t: t) ?? (t.IsGenericDefinition ? t : null);
+            if (def != null)
+                return ctx.Registry.GetOrCreateResolution(genericDef: def, typeArguments: newArgs);
         }
         return t;
     }

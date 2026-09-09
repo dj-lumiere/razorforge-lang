@@ -1,4 +1,5 @@
 using Compiler.Declaration;
+using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
@@ -7,6 +8,21 @@ using Compiler.Verification.Enums;
 namespace Compiler.Verification;
 
 using TypeSymbol = TypeInfo;
+
+/// <summary>
+/// Bundles the resolved carrier types needed by <see cref="BuilderInfoProvider.RegisterRoutinesOnType"/>.
+/// All members are nullable: a missing type simply suppresses the corresponding routine group.
+/// </summary>
+public readonly record struct BuilderQueryTypeSet(
+    TypeInfo? TextType,
+    TypeInfo? BoolType,
+    TypeInfo? U64Type,
+    TypeInfo? S64Type,
+    TypeInfo? ListTextType,
+    TypeInfo? ListFieldInfoType,
+    TypeInfo? ListProtocolInfoType,
+    TypeInfo? ListRoutineInfoType,
+    TypeInfo? ByteSizeType = null);
 
 /// <summary>
 /// Central authority for BuilderQuery routine registration and import-gating.
@@ -32,7 +48,7 @@ public static class BuilderInfoProvider
     /// compile-time-constant <c>List[Text]</c> of the owner type. These are NOT synthesized as routine
     /// bodies (see <c>WiredRoutinePass.TryHandleBuilderQueryConstant</c>); they are folded at the call site
     /// to an inline analyzed list literal by <c>SemanticVerifier.FoldListBuilderQueryReflection</c> BEFORE
-    /// reachability — the list analogue of the scalar <see cref="IsFoldable"/> foldables, so BuilderQuery
+    /// reachability — the list analogue of the scalar <c>BuilderQueryInliningPass.IsFoldable</c> foldables, so BuilderQuery
     /// never survives desugaring as an emitted routine (which the non-pruned resident-JIT base would emit
     /// dead, dangling an unmaterialized <c>from_literal(Array[Text,N])</c>).
     /// </summary>
@@ -56,28 +72,22 @@ public static class BuilderInfoProvider
     /// Registers all per-type BuilderQuery metadata routines on a given type.
     /// </summary>
     public static void RegisterRoutinesOnType(TypeSymbol type, List<RoutineInfo> existingMemberRoutines,
-        TypeRegistry registry, TypeSymbol? textType, TypeSymbol? boolType,
-        TypeSymbol? u64Type, TypeSymbol? s64Type, TypeSymbol? listTextType,
-        TypeSymbol? listFieldInfoType, TypeSymbol? listProtocolInfoType,
-        TypeSymbol? listRoutineInfoType,
-        TypeSymbol? byteSizeType = null)
+        TypeRegistry registry, BuilderQueryTypeSet types)
     {
         RegisterScalarReturningRoutines(type: type, existingMemberRoutines: existingMemberRoutines,
-            registry: registry, textType: textType, boolType: boolType, u64Type: u64Type,
-            s64Type: s64Type, byteSizeType: byteSizeType);
+            registry: registry, types: types);
 
         RegisterListReturningRoutines(type: type, existingMemberRoutines: existingMemberRoutines,
-            registry: registry, listTextType: listTextType, listFieldInfoType: listFieldInfoType,
-            listProtocolInfoType: listProtocolInfoType, listRoutineInfoType: listRoutineInfoType);
+            registry: registry, types: types);
 
         // member_type_id(member_name: Text) -> U64
-        if (u64Type != null && textType != null)
+        if (types.U64Type != null && types.TextType != null)
         {
             MaybeRegisterWithParam(owner: type,
                 name: "member_type_id",
                 paramName: "member_name",
-                paramType: textType,
-                returnType: u64Type,
+                paramType: types.TextType,
+                returnType: types.U64Type,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }
@@ -88,61 +98,60 @@ public static class BuilderInfoProvider
     /// (Text/U64/ByteSize/S64/TypeKind/Bool), gated on the availability of each carrier type.
     /// </summary>
     private static void RegisterScalarReturningRoutines(TypeSymbol type,
-        List<RoutineInfo> existingMemberRoutines, TypeRegistry registry, TypeSymbol? textType,
-        TypeSymbol? boolType, TypeSymbol? u64Type, TypeSymbol? s64Type, TypeSymbol? byteSizeType)
+        List<RoutineInfo> existingMemberRoutines, TypeRegistry registry, BuilderQueryTypeSet types)
     {
         // Text-returning routines
-        if (textType != null)
+        if (types.TextType != null)
         {
             MaybeRegister(owner: type,
                 name: "type_name",
-                returnType: textType,
+                returnType: types.TextType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
             MaybeRegister(owner: type,
                 name: "module_name",
-                returnType: textType,
+                returnType: types.TextType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
             MaybeRegister(owner: type,
                 name: "full_type_name",
-                returnType: textType,
+                returnType: types.TextType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }
 
         // U64-returning routines
-        if (u64Type != null)
+        if (types.U64Type != null)
         {
             MaybeRegister(owner: type,
                 name: "type_id",
-                returnType: u64Type,
+                returnType: types.U64Type,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }
 
         // data_size is RazorForge-only and should keep its declared ByteSize surface.
-        if (registry.Language == Language.RazorForge && byteSizeType != null)
+        if (registry.Language == Language.RazorForge && types.ByteSizeType != null)
         {
             MaybeRegister(owner: type,
                 name: RuntimeContract.DataSize,
-                returnType: byteSizeType,
+                returnType: types.ByteSizeType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }
 
         // S64-returning routines
-        if (s64Type != null)
+        if (types.S64Type != null)
         {
             MaybeRegister(owner: type,
                 name: "member_variable_count",
-                returnType: s64Type,
+                returnType: types.S64Type,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }
 
         // type_kind returns the declared TypeKind choice only (module-qualified: TypeKind lives in
-        // `module BuilderQuery`, so a bare lookup depended on the cross-module short-name scan).
+        // module BuilderQuery, so a bare lookup depended on the cross-module short-name scan).
         TypeSymbol? typeKindType = registry.LookupType(name: "BuilderQuery.TypeKind");
         if (typeKindType != null)
         {
@@ -154,16 +163,16 @@ public static class BuilderInfoProvider
         }
 
         // Bool-returning routines
-        if (boolType != null)
+        if (types.BoolType != null)
         {
             MaybeRegister(owner: type,
                 name: "is_generic",
-                returnType: boolType,
+                returnType: types.BoolType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
             MaybeRegister(owner: type,
                 name: "is_in_flight",
-                returnType: boolType,
+                returnType: types.BoolType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }
@@ -175,65 +184,64 @@ public static class BuilderInfoProvider
     /// availability of each carrier type.
     /// </summary>
     private static void RegisterListReturningRoutines(TypeSymbol type,
-        List<RoutineInfo> existingMemberRoutines, TypeRegistry registry, TypeSymbol? listTextType,
-        TypeSymbol? listFieldInfoType, TypeSymbol? listProtocolInfoType, TypeSymbol? listRoutineInfoType)
+        List<RoutineInfo> existingMemberRoutines, TypeRegistry registry, BuilderQueryTypeSet types)
     {
         // List[Text]-returning routines
-        if (listTextType != null)
+        if (types.ListTextType != null)
         {
             MaybeRegister(owner: type,
                 name: "protocols",
-                returnType: listTextType,
+                returnType: types.ListTextType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
             MaybeRegister(owner: type,
                 name: "routine_names",
-                returnType: listTextType,
+                returnType: types.ListTextType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
             MaybeRegister(owner: type,
                 name: "annotations",
-                returnType: listTextType,
+                returnType: types.ListTextType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
             MaybeRegister(owner: type,
                 name: "generic_args",
-                returnType: listTextType,
+                returnType: types.ListTextType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
             MaybeRegister(owner: type,
                 name: "dependencies",
-                returnType: listTextType,
+                returnType: types.ListTextType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }
 
         // List[FieldInfo]-returning routines
-        if (listFieldInfoType != null)
+        if (types.ListFieldInfoType != null)
         {
             MaybeRegister(owner: type,
                 name: "member_variable_info",
-                returnType: listFieldInfoType,
+                returnType: types.ListFieldInfoType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }
 
         // List[ProtocolInfo]-returning routines
-        if (listProtocolInfoType != null)
+        if (types.ListProtocolInfoType != null)
         {
             MaybeRegister(owner: type,
                 name: "protocol_info",
-                returnType: listProtocolInfoType,
+                returnType: types.ListProtocolInfoType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }
 
         // List[RoutineInfo]-returning routines
-        if (listRoutineInfoType != null)
+        if (types.ListRoutineInfoType != null)
         {
             MaybeRegister(owner: type,
                 name: "routine_info",
-                returnType: listRoutineInfoType,
+                returnType: types.ListRoutineInfoType,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }

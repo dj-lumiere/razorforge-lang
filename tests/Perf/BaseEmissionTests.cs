@@ -4,6 +4,7 @@ using SyntaxTree;
 using TypeModel.Enums;
 using Compiler.Verification;
 using Compiler.Verification.Results;
+using System.Text.RegularExpressions;
 using Xunit.Abstractions;
 
 namespace RazorForge.Tests.Perf;
@@ -15,8 +16,11 @@ namespace RazorForge.Tests.Perf;
 /// only ever emits an extern <c>declare</c> for a symbol it doesn't define, so every such symbol MUST be
 /// present in the base or JIT-link fails with an undefined symbol.
 /// </summary>
-public sealed class BaseEmissionTests
+public sealed partial class BaseEmissionTests
 {
+    [GeneratedRegex(@",? ?\d+")]
+    private static partial Regex ArityDigitsRegex();
+
     private readonly ITestOutputHelper _out;
     public BaseEmissionTests(ITestOutputHelper output) => _out = output;
 
@@ -69,23 +73,29 @@ public sealed class BaseEmissionTests
     private static string PrunedBuild(AnalysisResult r) => new LlvmCodeGenerator(
         userPrograms: r.Registry.UserPrograms,
         registry: r.Registry,
-        stdlibPrograms: r.Registry.StdlibPrograms,
-        synthesizedBodies: r.SynthesizedBodies,
-        instantiatedGenericBodies: r.InstantiatedGenericBodies,
-        liveRoutineKeys: r.LiveRoutineKeys,
-        maySuspendRoutineKeys: r.MaySuspendRoutineKeys).Generate();
+        options: new LlvmCodeGeneratorOptions
+        {
+            StdlibPrograms = r.Registry.StdlibPrograms,
+            SynthesizedBodies = r.SynthesizedBodies,
+            InstantiatedGenericBodies = r.InstantiatedGenericBodies,
+            LiveRoutineKeys = r.LiveRoutineKeys,
+            MaySuspendRoutineKeys = r.MaySuspendRoutineKeys
+        }).Generate();
 
     /// <summary>The delta build: user code with the base's symbols marked resident (⇒ declare, not define).</summary>
     private static string DeltaBuild(AnalysisResult r, IReadOnlyCollection<string> residentSymbols) =>
         new LlvmCodeGenerator(
             userPrograms: r.Registry.UserPrograms,
             registry: r.Registry,
-            stdlibPrograms: r.Registry.StdlibPrograms,
-            synthesizedBodies: r.SynthesizedBodies,
-            instantiatedGenericBodies: r.InstantiatedGenericBodies,
-            liveRoutineKeys: r.LiveRoutineKeys,
-            maySuspendRoutineKeys: r.MaySuspendRoutineKeys,
-            residentSymbols: residentSymbols).Generate();
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = r.Registry.StdlibPrograms,
+                SynthesizedBodies = r.SynthesizedBodies,
+                InstantiatedGenericBodies = r.InstantiatedGenericBodies,
+                LiveRoutineKeys = r.LiveRoutineKeys,
+                MaySuspendRoutineKeys = r.MaySuspendRoutineKeys,
+                ResidentSymbols = residentSymbols
+            }).Generate();
 
     [Fact]
     public void GenerateBase_And_Delta_CoverPrunedBuild_WithTinyDelta()
@@ -104,10 +114,12 @@ public sealed class BaseEmissionTests
         var baseGen = new LlvmCodeGenerator(
             userPrograms: new List<(Program, string, string)>(),
             registry: r.Registry,
-            stdlibPrograms: r.Registry.StdlibPrograms,
-            synthesizedBodies: r.SynthesizedBodies,
-            instantiatedGenericBodies: r.InstantiatedGenericBodies,
-            liveRoutineKeys: null);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = r.Registry.StdlibPrograms,
+                SynthesizedBodies = r.SynthesizedBodies,
+                InstantiatedGenericBodies = r.InstantiatedGenericBodies
+            });
         (string baseIr, IReadOnlyCollection<string> baseSyms) = baseGen.GenerateBase();
 
         Assert.False(condition: string.IsNullOrWhiteSpace(value: baseIr));
@@ -174,10 +186,12 @@ public sealed class BaseEmissionTests
         var baseGen = new LlvmCodeGenerator(
             userPrograms: new List<(Program, string, string)>(),
             registry: baseR.Registry,
-            stdlibPrograms: baseR.Registry.StdlibPrograms,
-            synthesizedBodies: baseR.SynthesizedBodies,
-            instantiatedGenericBodies: baseR.InstantiatedGenericBodies,
-            liveRoutineKeys: null);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = baseR.Registry.StdlibPrograms,
+                SynthesizedBodies = baseR.SynthesizedBodies,
+                InstantiatedGenericBodies = baseR.InstantiatedGenericBodies
+            });
         (string baseIr, _) = baseGen.GenerateBase();
         System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "rf_base.ll"), baseIr);
 
@@ -186,13 +200,13 @@ public sealed class BaseEmissionTests
         // gap = referenced-but-not-defined. A quoted symbol ("[member] ...", "$...") is RF-emitted code that
         // the base OWNS (must define); a bare ident is a runtime extern resolved from the runtime DLL.
         List<string> gap = declared.Except(second: defined).OrderBy(keySelector: s => s).ToList();
-        List<string> rfGap = gap.Where(predicate: s => s.StartsWith(value: "\"", comparisonType: StringComparison.Ordinal)).ToList();
-        List<string> externGap = gap.Where(predicate: s => !s.StartsWith(value: "\"", comparisonType: StringComparison.Ordinal)).ToList();
+        List<string> rfGap = gap.Where(predicate: s => s.StartsWith('"')).ToList();
+        List<string> externGap = gap.Where(predicate: s => !s.StartsWith('"')).ToList();
 
         _out.WriteLine($"base: defined={defined.Count} declared={declared.Count} gap={gap.Count} (rf-mangled={rfGap.Count}, bare-extern={externGap.Count})");
         // Category histogram: collapse arity/type args so we see the SHAPE of the gap, not 700 near-dupes.
         var byShape = rfGap
-            .Select(selector: s => System.Text.RegularExpressions.Regex.Replace(input: s, pattern: @",? ?\d+", replacement: "N"))
+            .Select(selector: s => ArityDigitsRegex().Replace(input: s, replacement: "N"))
             .GroupBy(keySelector: s => s)
             .Select(selector: g => (Shape: g.Key, Count: g.Count()))
             .OrderByDescending(keySelector: g => g.Count)
@@ -230,10 +244,12 @@ public sealed class BaseEmissionTests
         var baseGen = new LlvmCodeGenerator(
             userPrograms: new List<(Program, string, string)>(),
             registry: baseR.Registry,
-            stdlibPrograms: baseR.Registry.StdlibPrograms,
-            synthesizedBodies: baseR.SynthesizedBodies,
-            instantiatedGenericBodies: baseR.InstantiatedGenericBodies,
-            liveRoutineKeys: null);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = baseR.Registry.StdlibPrograms,
+                SynthesizedBodies = baseR.SynthesizedBodies,
+                InstantiatedGenericBodies = baseR.InstantiatedGenericBodies
+            });
         (string baseIr, IReadOnlyCollection<string> baseSyms) = baseGen.GenerateBase();
 
         bool ok = Builder.OrcJitExecutor.TryParseIr(llvmIr: baseIr, out string? err);
@@ -263,10 +279,12 @@ public sealed class BaseEmissionTests
         var baseGen = new LlvmCodeGenerator(
             userPrograms: new List<(Program, string, string)>(),
             registry: baseR.Registry,
-            stdlibPrograms: baseR.Registry.StdlibPrograms,
-            synthesizedBodies: baseR.SynthesizedBodies,
-            instantiatedGenericBodies: baseR.InstantiatedGenericBodies,
-            liveRoutineKeys: null);
+            options: new LlvmCodeGeneratorOptions
+            {
+                StdlibPrograms = baseR.Registry.StdlibPrograms,
+                SynthesizedBodies = baseR.SynthesizedBodies,
+                InstantiatedGenericBodies = baseR.InstantiatedGenericBodies
+            });
         (string baseIr, IReadOnlyCollection<string> baseSyms) = baseGen.GenerateBase();
 
         // DELTA: the actual user program, with the base's symbols marked resident (⇒ extern declare).

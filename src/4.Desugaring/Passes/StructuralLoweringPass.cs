@@ -17,7 +17,7 @@ namespace Compiler.Desugaring.Passes;
 ///
 /// <para>The TypeRegistry is intentionally left unchanged -> codegen continues using
 /// <c>ChoiceTypeInfo</c>, <c>FlagsTypeInfo</c>, etc. for LLVM emission. This pass
-/// only transforms the AST declarations as groundwork for <see cref="WiredRoutinePass"/>
+/// only transforms the AST declarations as groundwork for <see cref="Compiler.Instantiation.WiredRoutinePass"/>
 /// (Step 4), which will generate <c>represent</c>/<c>diagnose</c> bodies that
 /// reference the lowered backing fields.</para>
 ///

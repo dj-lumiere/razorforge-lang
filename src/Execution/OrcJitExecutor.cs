@@ -28,8 +28,6 @@ internal static unsafe class OrcJitExecutor
 {
     private static readonly object InitLock = new();
     private static bool _initialized;
-    private static IntPtr _llvmHandle;
-    private static IntPtr _runtimeHandle;
 
     // LLVM 21 replaced LLVMOrcThreadSafeContextGetContext with this; LLVMSharp 20 doesn't bind it, so we
     // resolve it from our own libLLVM handle and call it through a function pointer.
@@ -57,8 +55,8 @@ internal static unsafe class OrcJitExecutor
                 string llvmSrc = File.Exists(path: stagedLlvm)
                     ? stagedLlvm
                     : @"C:\Program Files\LLVM\bin\LLVM-C.dll";
-                _llvmHandle = NativeLibrary.Load(libraryPath: llvmSrc);
-                if (!NativeLibrary.TryGetExport(handle: _llvmHandle,
+                IntPtr llvmHandle = NativeLibrary.Load(libraryPath: llvmSrc);
+                if (!NativeLibrary.TryGetExport(handle: llvmHandle,
                         name: "LLVMOrcCreateNewThreadSafeContextFromLLVMContext", address: out IntPtr fromCtxPtr))
                 {
                     error = $"libLLVM at '{llvmSrc}' is missing LLVMOrcCreateNewThreadSafeContextFromLLVMContext.";
@@ -68,8 +66,10 @@ internal static unsafe class OrcJitExecutor
 
                 // Load the native runtime so its rf_* exports are visible to ORC's process-wide symbol
                 // search (this is what lets JIT'd RF code link against rf_console_show, the scheduler, …).
+                // The handle is intentionally not stored: the library stays loaded for the process lifetime
+                // by virtue of NativeLibrary.Load, so no explicit reference is needed.
                 string rtPath = Path.Combine(path1: dir, path2: "razorforge_runtime.dll");
-                _runtimeHandle = NativeLibrary.Load(
+                _ = NativeLibrary.Load(
                     libraryPath: File.Exists(path: rtPath) ? rtPath : "razorforge_runtime");
 
                 LLVM.InitializeNativeTarget();

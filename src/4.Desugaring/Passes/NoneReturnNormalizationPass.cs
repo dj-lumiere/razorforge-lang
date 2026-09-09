@@ -93,7 +93,7 @@ internal sealed class NoneReturnNormalizationPass(DesugaringContext _)
         };
     }
 
-    private Statement NormalizeBlock(BlockStatement b)
+    private BlockStatement NormalizeBlock(BlockStatement b)
     {
         var stmts = b.Statements;
         List<Statement>? replaced = null;
@@ -111,7 +111,7 @@ internal sealed class NoneReturnNormalizationPass(DesugaringContext _)
         return replaced != null ? b with { Statements = replaced } : b;
     }
 
-    private Statement NormalizeIf(IfStatement ifs)
+    private IfStatement NormalizeIf(IfStatement ifs)
     {
         Statement thenN = NormalizeStatement(stmt: ifs.ThenStatement);
         Statement? elseN = ifs.ElseStatement != null
@@ -122,14 +122,14 @@ internal sealed class NoneReturnNormalizationPass(DesugaringContext _)
         return ifs with { ThenStatement = thenN, ElseStatement = elseN };
     }
 
-    private Statement NormalizeLoop(LoopStatement loop)
+    private LoopStatement NormalizeLoop(LoopStatement loop)
     {
         Statement bodyN = NormalizeStatement(stmt: loop.Body);
         if (ReferenceEquals(bodyN, loop.Body)) return loop;
         return loop with { Body = bodyN };
     }
 
-    private Statement NormalizeWhen(WhenStatement ws)
+    private WhenStatement NormalizeWhen(WhenStatement ws)
     {
         bool changed = false;
         var clauses = new List<WhenClause>(capacity: ws.Clauses.Count);
@@ -142,7 +142,7 @@ internal sealed class NoneReturnNormalizationPass(DesugaringContext _)
         return changed ? ws with { Clauses = clauses } : ws;
     }
 
-    private Statement NormalizeRoutineDecl(DeclarationStatement ds, RoutineDeclaration r)
+    private DeclarationStatement NormalizeRoutineDecl(DeclarationStatement ds, RoutineDeclaration r)
     {
         RoutineDeclaration rN = NormalizeRoutine(r: r);
         if (ReferenceEquals(rN, r)) return ds;

@@ -10,9 +10,7 @@ internal sealed class GenericCanonicalizationPass(InstantiationContext ctx)
 {
     public static void Run()
     {
-        // TODO: Implement generic canonicalization logic
-        // Remaining work:
-        // Canonicalize duplicate concrete identities (wrapper facade vs record def,
+        // Remaining work: canonicalize duplicate concrete identities (wrapper facade vs record def,
         // entity specialization vs primary generic definition, etc.).
     }
 }

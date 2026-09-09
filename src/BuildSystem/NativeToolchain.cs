@@ -12,6 +12,11 @@ namespace Builder;
 /// </summary>
 internal static class NativeToolchain
 {
+    // Bare tool names used both as the resolution fallback (PATH lookup) and as the
+    // sentinel meaning "tool was not found in a bundled/explicit LLVM_HOME location".
+    private const string ClangToolName = "clang";
+    private const string OptToolName = "opt";
+
     /// <summary>
     /// Native DLLs a compiled program needs next to its .exe on Windows: the runtime
     /// itself plus the shared libraries it links dynamically (bdwgc builds as a shared
@@ -24,10 +29,15 @@ internal static class NativeToolchain
     ];
 
     /// <summary>The platform-specific link-time artifact of the bundled native runtime.</summary>
-    internal static string RuntimeLinkLibraryFileName =>
-        OperatingSystem.IsWindows() ? "razorforge_runtime.lib"
-        : OperatingSystem.IsMacOS() ? "librazorforge_runtime.dylib"
-        : "librazorforge_runtime.so";
+    internal static string RuntimeLinkLibraryFileName
+    {
+        get
+        {
+            if (OperatingSystem.IsWindows()) return "razorforge_runtime.lib";
+            if (OperatingSystem.IsMacOS()) return "librazorforge_runtime.dylib";
+            return "librazorforge_runtime.so";
+        }
+    }
 
     /// <summary>
     /// Resolves the directory containing the running RazorForge assembly.
@@ -266,12 +276,12 @@ internal static class NativeToolchain
         return File.Exists(path: bundled) ? bundled : name;
     }
 
-    private static readonly Lazy<string> ClangTool = new(valueFactory: () => ResolveToolchainTool(name: "clang"));
-    private static readonly Lazy<string> OptTool = new(valueFactory: () => ResolveToolchainTool(name: "opt"));
+    private static readonly Lazy<string> ClangTool = new(valueFactory: () => ResolveToolchainTool(name: ClangToolName));
+    private static readonly Lazy<string> OptTool = new(valueFactory: () => ResolveToolchainTool(name: OptToolName));
 
     private static void ConfigureToolchainEnvironment(ProcessStartInfo psi, string toolPath)
     {
-        if (toolPath == "clang" || toolPath == "opt")
+        if (toolPath == ClangToolName || toolPath == OptToolName)
         {
             return;
         }
@@ -410,7 +420,7 @@ internal static class NativeToolchain
             return "ld";
         }
 
-        return "clang";
+        return ClangToolName;
     }
 
     /// <summary>Maps a build mode to the LLVM optimization level token (O0/O2/O3/Os).</summary>
@@ -504,7 +514,6 @@ internal static class NativeToolchain
         };
     }
 
-    /// <summary>Links the optimized IR <paramref name="optFile"/> into the native executable <paramref name="exeFile"/> via clang, bundling the runtime from <paramref name="runtimeLibDir"/>. Returns 0 on success.</summary>
     /// <summary>
     /// Builds the clang link-argument fragment for user-declared C libraries: a <c>-L"dir"</c> for each
     /// search path followed by a <c>-l name</c> for each library. Empty inputs yield an empty string.
@@ -518,20 +527,14 @@ internal static class NativeToolchain
         var sb = new System.Text.StringBuilder();
         if (libraryPaths != null)
         {
-            foreach (string path in libraryPaths)
-            {
-                if (!string.IsNullOrWhiteSpace(value: path))
-                    sb.Append(value: $" -L\"{path}\"");
-            }
+            foreach (string path in libraryPaths.Where(p => !string.IsNullOrWhiteSpace(p)))
+                sb.Append(value: $" -L\"{path}\"");
         }
 
         if (cLibraries != null)
         {
-            foreach (string lib in cLibraries)
-            {
-                if (!string.IsNullOrWhiteSpace(value: lib))
-                    sb.Append(value: $" -l{lib.Trim()}");
-            }
+            foreach (string lib in cLibraries.Where(l => !string.IsNullOrWhiteSpace(l)))
+                sb.Append(value: $" -l{lib.Trim()}");
         }
 
         return sb.ToString();
@@ -596,7 +599,7 @@ internal static class NativeToolchain
     // bin directory for it first).
     private static string LldFlagFragment()
     {
-        bool clangIsBundled = ClangTool.Value != "clang";
+        bool clangIsBundled = ClangTool.Value != ClangToolName;
         return OperatingSystem.IsWindows() || clangIsBundled ? " -fuse-ld=lld" : "";
     }
 
@@ -759,7 +762,22 @@ internal static class NativeToolchain
             return;
         }
 
-        // A statically-linked library has no runtime DLL to stage — it is pulled into the exe at link time.
+        HashSet<string> staticNames = CollectStaticLibraryNames(libraryConfigs: libraryConfigs);
+        foreach (string lib in cLibraries)
+        {
+            if (!staticNames.Contains(item: lib))
+            {
+                StageDynamicLibrary(lib: lib, libraryPaths: libraryPaths, outputDir: outputDir);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Builds the set of library names that are statically linked (baked into the exe at link time)
+    /// and therefore have no runtime DLL to stage.
+    /// </summary>
+    private static HashSet<string> CollectStaticLibraryNames(IReadOnlyDictionary<string, CLibrary>? libraryConfigs)
+    {
         var staticNames = new HashSet<string>(comparer: StringComparer.Ordinal);
         if (libraryConfigs != null)
         {
@@ -771,33 +789,35 @@ internal static class NativeToolchain
                 }
             }
         }
+        return staticNames;
+    }
 
-        foreach (string lib in cLibraries)
+    /// <summary>
+    /// Searches <paramref name="libraryPaths"/> for the shared-object file for <paramref name="lib"/>
+    /// and copies it to <paramref name="outputDir"/> if found.
+    /// </summary>
+    private static void StageDynamicLibrary(string lib, IReadOnlyList<string> libraryPaths, string outputDir)
+    {
+        string dllName = SharedObjectFileName(libName: lib);
+        foreach (string dir in libraryPaths)
         {
-            if (staticNames.Contains(item: lib))
+            string src = Path.Combine(path1: dir, path2: dllName);
+            if (File.Exists(path: src))
             {
-                continue;
-            }
-
-            string dllName = SharedObjectFileName(libName: lib);
-            foreach (string dir in libraryPaths)
-            {
-                string src = Path.Combine(path1: dir, path2: dllName);
-                if (File.Exists(path: src))
-                {
-                    TryCopyTolerant(src: src, dst: Path.Combine(path1: outputDir, path2: dllName));
-                    break;
-                }
+                TryCopyTolerant(src: src, dst: Path.Combine(path1: outputDir, path2: dllName));
+                break;
             }
         }
     }
 
     /// <summary>The platform shared-object filename for an <c>-l</c> link name: <c>NAME.dll</c> on Windows,
     /// <c>libNAME.dylib</c> on macOS, <c>libNAME.so</c> elsewhere.</summary>
-    private static string SharedObjectFileName(string libName) =>
-        OperatingSystem.IsWindows() ? $"{libName}.dll"
-        : OperatingSystem.IsMacOS() ? $"lib{libName}.dylib"
-        : $"lib{libName}.so";
+    private static string SharedObjectFileName(string libName)
+    {
+        if (OperatingSystem.IsWindows()) return $"{libName}.dll";
+        if (OperatingSystem.IsMacOS()) return $"lib{libName}.dylib";
+        return $"lib{libName}.so";
+    }
 
     /// <summary>
     /// Deletes stale per-target outputs that can cause buildandrun to execute or link against

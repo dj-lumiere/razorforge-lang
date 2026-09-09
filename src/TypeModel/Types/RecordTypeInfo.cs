@@ -123,11 +123,11 @@ public class RecordTypeInfo : TypeInfo
 
         int size = 0;
         int maxAlignment = 1;
-        foreach (MemberVariableInfo mv in MemberVariables)
+        foreach (TypeInfo memberType in MemberVariables.Select(mv => mv.Type))
         {
-            int memberSize = mv.Type.SizeBytes(pointerSize: pointerSize);
+            int memberSize = memberType.SizeBytes(pointerSize: pointerSize);
             // @layout("packed"): fields sit at alignment 1 — no inter-field padding (C `packed`).
-            int alignment = IsPacked ? 1 : mv.Type.Alignment(pointerSize: pointerSize);
+            int alignment = IsPacked ? 1 : memberType.Alignment(pointerSize: pointerSize);
             maxAlignment = Math.Max(val1: maxAlignment, val2: alignment);
             size = AlignTo(size: size, alignment: alignment);
             size += memberSize;
@@ -593,17 +593,7 @@ public class RecordTypeInfo : TypeInfo
         // Otherwise keep a (re-based) deferred projection.
         if (type is AssociatedProjectionTypeInfo projection)
         {
-            TypeInfo newBase = SubstituteType(type: projection.Base, substitution: substitution);
-            TypeInfo? bound = ProjectAssociatedBinding(baseType: newBase,
-                slot: projection.SlotName);
-            if (bound != null)
-            {
-                // The binding may still carry params/projections of its own — substitute again.
-                return SubstituteType(type: bound, substitution: substitution);
-            }
-            return ReferenceEquals(objA: newBase, objB: projection.Base)
-                ? projection
-                : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: projection.SlotName);
+            return SubstituteAssociatedProjection(projection: projection, substitution: substitution);
         }
 
         // Comptime const-generic (`${max(T.data_size().byte_size(), 8)}`): fold to a concrete value
@@ -635,6 +625,23 @@ public class RecordTypeInfo : TypeInfo
         }
 
         return SubstituteGenericResolution(type: type, substitution: substitution);
+    }
+
+    // Substitute an associated-type projection: re-base the projection onto its substituted base,
+    // and if the base now binds the slot, resolve to that binding (substituting it in turn).
+    private static TypeInfo SubstituteAssociatedProjection(AssociatedProjectionTypeInfo projection,
+        Dictionary<string, TypeInfo> substitution)
+    {
+        TypeInfo newBase = SubstituteType(type: projection.Base, substitution: substitution);
+        TypeInfo? bound = ProjectAssociatedBinding(baseType: newBase, slot: projection.SlotName);
+        if (bound != null)
+        {
+            // The binding may still carry params/projections of its own — substitute again.
+            return SubstituteType(type: bound, substitution: substitution);
+        }
+        return ReferenceEquals(objA: newBase, objB: projection.Base)
+            ? projection
+            : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: projection.SlotName);
     }
 
     // Substitute a generic resolution's args and re-resolve through the ambient registry per kind.

@@ -178,7 +178,7 @@ public partial class LlvmCodeGenerator
     /// Whether a record needs no struct type generated: backend-annotated types and generic
     /// definitions / partially-concrete resolutions (whose layout would be invalid IR).
     /// </summary>
-    private bool ShouldSkipRecordTypeGeneration(RecordTypeInfo record)
+    private static bool ShouldSkipRecordTypeGeneration(RecordTypeInfo record)
     {
         return record.BackendType != null ||
             record.IsGenericDefinition ||

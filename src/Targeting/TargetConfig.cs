@@ -70,7 +70,15 @@ public sealed class TargetConfig
         bool isLinux = RuntimeInformation.IsOSPlatform(osPlatform: OSPlatform.Linux);
         bool isMacOS = RuntimeInformation.IsOSPlatform(osPlatform: OSPlatform.OSX);
 
-        string os = isWindows ? "windows" : isLinux ? "linux" : isMacOS ? "macos" : "unknown";
+        string os;
+        if (isWindows)
+            os = "windows";
+        else if (isLinux)
+            os = "linux";
+        else if (isMacOS)
+            os = "macos";
+        else
+            os = "unknown";
 
         return RuntimeInformation.OSArchitecture switch
         {

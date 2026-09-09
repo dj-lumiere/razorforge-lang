@@ -233,8 +233,16 @@ internal sealed class BindingTypeRewriter : ISyntaxTreeVisitor<bool>
     public bool VisitDangerStatement(DangerStatement node)
     { Visit(s: node.Body); return false; }
     public bool VisitUsingStatement(UsingStatement node)
-    { Visit(e: node.Resource); Visit(s: node.Body);
-      if (node.FallbackBody != null) Visit(s: node.FallbackBody); return false; }
+    {
+        Visit(e: node.Resource);
+        Visit(s: node.Body);
+        if (node.FallbackBody != null)
+        {
+            Visit(s: node.FallbackBody);
+        }
+
+        return false;
+    }
     public bool VisitDiscardStatement(DiscardStatement node)
     { Visit(e: node.Expression); return false; }
 

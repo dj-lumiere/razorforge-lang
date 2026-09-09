@@ -407,8 +407,8 @@ internal sealed class TypeResolver
         }
 
         // Module-scoped ambiguity: a bare name declared in 2+ imported modules (with the current
-        // module NOT declaring its own to shadow) is ambiguous. Report here where a location exists;
-        // still resolve (first-match) below so downstream analysis doesn't cascade on a null type.
+        // module NOT declaring its own to shadow) is ambiguous. Report here where a location exists.
+        // Still resolve (first-match) below so downstream analysis doesn't cascade on a null type.
         List<string> ambiguousDeclarers = ImportedModulesDeclaring(name: typeExpr.Name);
         if (ambiguousDeclarers.Count >= 2)
         {
@@ -435,8 +435,18 @@ internal sealed class TypeResolver
                 slot: GenericParameterSlot(name: typeExpr.Name));
         }
 
+        return ResolveConstGenericOrUnknown(typeExpr: typeExpr);
+    }
+
+    /// <summary>
+    /// Resolves the tail cases of <see cref="ResolveTypeCore"/>: comptime value splices, const-generic
+    /// literals, preset constants, and the unknown-type fallback. Extracted to keep the parent method
+    /// within the allowed cognitive-complexity budget.
+    /// </summary>
+    private TypeSymbol ResolveConstGenericOrUnknown(TypeExpression typeExpr)
+    {
         // Comptime const-generic argument from a `${…}` value-splice (e.g. the payload buffer size
-        // `${max(T.data_size().byte_size(), 8)}`). Resolves to a symbolic ComptimeConstGenericTypeInfo;
+        // `${max(T.data_size().byte_size(), 8)}`). Resolves to a symbolic ComptimeConstGenericTypeInfo.
         // RoutineInfo.SubstituteType folds it to a concrete value once the enclosing type's parameters
         // are bound at monomorphization.
         if (typeExpr.ComptimeValue != null)
@@ -510,7 +520,7 @@ internal sealed class TypeResolver
     /// Resolves a parser <c>Tuple(T, U, ...)</c> type expression to a tuple type by resolving each
     /// element type in order.
     /// </summary>
-    private TypeSymbol ResolveTupleType(TypeExpression typeExpr)
+    private TupleTypeInfo ResolveTupleType(TypeExpression typeExpr)
     {
         var elementTypes = new List<TypeInfo>();
         foreach (TypeExpression argExpr in typeExpr.GenericArguments!)
@@ -526,7 +536,7 @@ internal sealed class TypeResolver
     /// Resolves a <c>Routine[(T, T), Bool]</c> type expression to a <see cref="RoutineTypeInfo"/>,
     /// unpacking the parameter tuple and resolving the return type.
     /// </summary>
-    private TypeSymbol ResolveRoutineType(TypeExpression typeExpr)
+    private RoutineTypeInfo ResolveRoutineType(TypeExpression typeExpr)
     {
         TypeExpression paramTupleExpr = typeExpr.GenericArguments![index: 0];
         TypeExpression returnTypeExpr = typeExpr.GenericArguments[index: 1];
@@ -575,11 +585,13 @@ internal sealed class TypeResolver
         if (typeExpr.Name.Contains(value: '/'))
         {
             string[] segments = typeExpr.Name.Split(separator: '/');
-            TypeSymbol? projBase = segments[0] == "Me"
-                ? ProtocolSelfTypeInfo.Instance
-                : IsGenericParameter(name: segments[0])
-                    ? new GenericParameterTypeInfo(name: segments[0])
-                    : null;
+            TypeSymbol? projBase;
+            if (segments[0] == "Me")
+                projBase = ProtocolSelfTypeInfo.Instance;
+            else if (IsGenericParameter(name: segments[0]))
+                projBase = new GenericParameterTypeInfo(name: segments[0]);
+            else
+                projBase = null;
             if (projBase != null && segments.Length - 1 <= _assocOptions.MaxProjectionDepth)
             {
                 TypeSymbol current = projBase;
@@ -818,15 +830,13 @@ internal sealed class TypeResolver
             return;
         }
 
-        foreach (TypeExpression protoExpr in constraint.ConstraintTypes)
+        foreach (TypeExpression protoExpr in constraint.ConstraintTypes.Where(
+            p => !_sa.ImplementsProtocol(type: typeArg, protocolName: p.Name)))
         {
-            if (!_sa.ImplementsProtocol(type: typeArg, protocolName: protoExpr.Name))
-            {
-                _sa.ReportError(code: SemanticDiagnosticCode.ProtocolConstraintViolation,
-                    message:
-                    $"Type '{typeArg.Name}' does not implement protocol '{protoExpr.Name}' required by constraint on '{constraint.ParameterName}'.",
-                    location: location);
-            }
+            _sa.ReportError(code: SemanticDiagnosticCode.ProtocolConstraintViolation,
+                message:
+                $"Type '{typeArg.Name}' does not implement protocol '{protoExpr.Name}' required by constraint on '{constraint.ParameterName}'.",
+                location: location);
         }
     }
 
@@ -1338,18 +1348,14 @@ internal sealed class TypeResolver
         }
 
         // Check if typeArg matches any of the allowed types
-        foreach (TypeExpression allowedExpr in constraint.ConstraintTypes)
+        List<string> allowedNames = constraint.ConstraintTypes.Select(selector: t => t.Name).ToList();
+        if (allowedNames.Any(n => n == typeArg.Name || n == typeArg.BareName))
         {
-            if (typeArg.Name == allowedExpr.Name ||
-                typeArg.BareName == allowedExpr.Name)
-            {
-                return; // Found a match
-            }
+            return; // Found a match
         }
 
         // No match found
-        string allowedTypesList = string.Join(separator: ", ",
-            values: constraint.ConstraintTypes.Select(selector: t => t.Name));
+        string allowedTypesList = string.Join(separator: ", ", values: allowedNames);
         _sa.ReportError(code: SemanticDiagnosticCode.TypeEqualityConstraintViolation,
             message:
             $"Type '{typeArg.Name}' is not in [{allowedTypesList}] for constraint on '{constraint.ParameterName}'.",

@@ -459,19 +459,7 @@ public partial class Parser
         // Case 2: Condition-based when (RF only) - parse full expression as pattern
         if (isConditionBased)
         {
-            bool savedConditionContext = _inWhenConditionContext;
-            _inWhenConditionContext = true;
-            Expression condExpr;
-            try
-            {
-                condExpr = ParseExpression();
-            }
-            finally
-            {
-                _inWhenConditionContext = savedConditionContext;
-            }
-
-            return new ExpressionPattern(Expression: condExpr, Location: clauseLocation);
+            return ParseConditionBasedPattern(clauseLocation: clauseLocation);
         }
 
         // Case 3: 'is' keyword - type pattern
@@ -534,6 +522,28 @@ public partial class Parser
         Pattern generalPattern = ParsePattern();
         _inWhenPatternContext = false;
         return generalPattern;
+    }
+
+    /// <summary>
+    /// Parses a full expression as an <see cref="ExpressionPattern"/> inside a condition-based
+    /// <c>when</c> block (RF only), with the <c>_inWhenConditionContext</c> flag set for the duration
+    /// so the expression parser handles <c>=&gt;</c> correctly.
+    /// </summary>
+    private ExpressionPattern ParseConditionBasedPattern(SourceLocation clauseLocation)
+    {
+        bool savedConditionContext = _inWhenConditionContext;
+        _inWhenConditionContext = true;
+        Expression condExpr;
+        try
+        {
+            condExpr = ParseExpression();
+        }
+        finally
+        {
+            _inWhenConditionContext = savedConditionContext;
+        }
+
+        return new ExpressionPattern(Expression: condExpr, Location: clauseLocation);
     }
 
     /// <summary>
@@ -620,7 +630,7 @@ public partial class Parser
         }
 
         ProcessIndentToken();
-        while (Match(TokenType.Newline, TokenType.DocComment)) { }
+        while (Match(TokenType.Newline, TokenType.DocComment)) { /* skip interleaved blank lines and doc comments */ }
 
         SourceLocation clauseLoc = GetLocation();
         Consume(type: TokenType.Is,
@@ -924,7 +934,7 @@ public partial class Parser
     /// carries no payload, so a trailing binding (<c>is None x</c>) or destructuring (<c>is None (x, y)</c>)
     /// is rejected; it takes no <c>and</c>-guard either.
     /// </summary>
-    private Pattern ParseNoneTypePattern(SourceLocation location)
+    private TypePattern ParseNoneTypePattern(SourceLocation location)
     {
         var noneType =
             new TypeExpression(Name: "None", GenericArguments: null, Location: location);
@@ -1276,7 +1286,7 @@ public partial class Parser
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         // 'danger' is tokenized as a single Danger token (including the '!')
-        var body = (BlockStatement)ParseIndentedBlock();
+        BlockStatement body = ParseIndentedBlock();
 
         return new DangerStatement(Body: body, Location: location);
     }
@@ -1290,7 +1300,7 @@ public partial class Parser
     /// Both RazorForge and Suflae use indentation-based syntax.
     /// </summary>
     /// <returns>A <see cref="BlockStatement"/> AST node.</returns>
-    private Statement ParseBody()
+    private BlockStatement ParseBody()
     {
         return ParseIndentedBlock();
     }

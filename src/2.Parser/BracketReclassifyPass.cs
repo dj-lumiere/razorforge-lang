@@ -212,10 +212,10 @@ internal static class BracketReclassifyPass
                 return te;
 
             default:
-                // Best-effort: name it by its textual identifier if any, else empty. The resolver
-                // will surface a proper diagnostic if this is not a valid type argument.
+                // Best-effort: produce an empty name so the resolver can surface a proper diagnostic.
+                // All named expression types are handled by the cases above, so none remain here.
                 return new TypeExpression(
-                    Name: (expr as IdentifierExpression)?.Name ?? "",
+                    Name: "",
                     GenericArguments: null,
                     Location: expr.Location);
         }
@@ -234,7 +234,7 @@ internal static class BracketReclassifyPass
             MemberExpression nmem => QualifiedName(mem: nmem),
             BinaryExpression { Operator: BinaryOperator.TrueDivide } nbin =>
                 FlattenProjection(bin: nbin),
-            _ => (idx.Object as IdentifierExpression)?.Name ?? ""
+            _ => ""
         };
         return new TypeExpression(Name: nestedName,
             GenericArguments: [ExpressionToTypeArg(expr: idx.Index)],
@@ -265,7 +265,8 @@ internal static class BracketReclassifyPass
                 sb.Append(value: QualifiedName(mem: mem));
                 break;
             default:
-                sb.Append(value: (expr as IdentifierExpression)?.Name ?? "");
+                // All named expression types are handled above; append nothing for unrecognized nodes.
+                sb.Append(value: "");
                 break;
         }
     }

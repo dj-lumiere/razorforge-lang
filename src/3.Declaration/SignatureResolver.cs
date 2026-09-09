@@ -230,23 +230,54 @@ internal sealed class SignatureResolver
         bool isRvalueReturn = (routine.ReturnType?.IsRvalue ?? false)
             || returnType is EntityTypeInfo or GenericParameterTypeInfo;
 
-        // Merge implicit generics with explicit generics
+        (List<string> allGenericParams, List<GenericConstraintDeclaration> allConstraints) =
+            MergeAndApplyImplicitGenerics(routine: routine,
+                filteredGenericParams: filteredGenericParams,
+                implicitGenerics: implicitGenerics, implicitConstraints: implicitConstraints,
+                astParamGenericNames: astParamGenericNames);
+
+        // Specialized-receiver member `me` (e.g. `List[Agent[V]]`), else the SF-user-entity Roamed[E]
+        // handle. A specialized `meType` takes precedence over the SF wrap.
+        TypeSymbol? meType = ResolveSpecializedReceiverMeType(pending: pending,
+            refreshedOwnerType: refreshedOwnerType, routine: routine,
+            filteredGenericParams: filteredGenericParams)
+            ?? ResolveSuflaeEntityMeType(sfUserEntity: sfUserEntity, pending: pending,
+                refreshedOwnerType: refreshedOwnerType);
+
+        _sa._currentRoutine = prevRoutine;
+
+        RoutineInfo finalRoutine = BuildFinalRoutineInfo(pending: pending,
+            routine: routine, refreshedOwnerType: refreshedOwnerType, meType: meType,
+            parameters: parameters, returnType: returnType, isRvalueReturn: isRvalueReturn,
+            declaredModification: declaredModification, allGenericParams: allGenericParams,
+            allConstraints: allConstraints);
+
+        RegisterAndValidateRoutine(pending: pending, routine: routine, finalRoutine: finalRoutine);
+    }
+
+    /// <summary>
+    /// Merges explicit and implicit generic parameters/constraints, and applies protocol-as-generic
+    /// AST rewrites to the routine declaration so that downstream passes (GenericMonomorphizationPass,
+    /// GenericAstRewriter) see the same implicit generics as the RoutineInfo.
+    /// </summary>
+    private static (List<string> AllParams, List<GenericConstraintDeclaration> AllConstraints)
+        MergeAndApplyImplicitGenerics(RoutineDeclaration routine,
+            List<string>? filteredGenericParams, List<string> implicitGenerics,
+            List<GenericConstraintDeclaration> implicitConstraints,
+            List<(int Index, string GenericName)> astParamGenericNames)
+    {
         List<string> allGenericParams = filteredGenericParams?.ToList() ?? [];
         allGenericParams.AddRange(collection: implicitGenerics);
-
-        // Merge implicit constraints with explicit constraints
         List<GenericConstraintDeclaration> allConstraints =
             routine.GenericConstraints?.ToList() ?? [];
         allConstraints.AddRange(collection: implicitConstraints);
 
-
-        // Desugar the protocol-as-generic rewrite onto the AST decl itself, so downstream passes
-        // that read the AST (GenericMonomorphizationPass.FindInStdlib + GenericAstRewriter) see the
-        // SAME implicit generics as the RoutineInfo. Without this the AST keeps `r: Iterable[S64]`
-        // with no `[T]`, FindInStdlib rejects it as non-generic, and no monomorphized body is emitted
-        // for `print_range[Range[S64]]` → declare-without-define → linker error. `routine` is the
-        // same node reference held in the program's declaration list, so mutating it in place
-        // propagates to the GMP routine index (built later from program.Declarations).
+        // Desugar the protocol-as-generic rewrite onto the AST decl itself so downstream passes
+        // that read the AST see the SAME implicit generics as the RoutineInfo. Without this the AST
+        // keeps `r: Iterable[S64]` with no `[T]`, FindInStdlib rejects it as non-generic, and no
+        // monomorphized body is emitted → declare-without-define → linker error. The `routine` node
+        // is the same reference held in the program's declaration list, so mutating it propagates to
+        // the GMP routine index (built later from program.Declarations).
         if (implicitGenerics.Count > 0)
         {
             foreach ((int idx, string genericName) in astParamGenericNames)
@@ -262,21 +293,19 @@ internal sealed class SignatureResolver
             routine.GenericConstraints = allConstraints;
         }
 
-        // Specialized-receiver member `me` (e.g. `List[Agent[V]]`), else the SF-user-entity Roamed[E]
-        // handle. A specialized `meType` takes precedence over the SF wrap.
-        TypeSymbol? meType = ResolveSpecializedReceiverMeType(pending: pending,
-            refreshedOwnerType: refreshedOwnerType, routine: routine,
-            filteredGenericParams: filteredGenericParams);
-        if (meType == null)
-        {
-            meType = ResolveSuflaeEntityMeType(sfUserEntity: sfUserEntity, pending: pending,
-                refreshedOwnerType: refreshedOwnerType);
-        }
+        return (allGenericParams, allConstraints);
+    }
 
-        _sa._currentRoutine = prevRoutine;
-
-        // Create the final RoutineInfo with fully resolved signature
-        var finalRoutine = new RoutineInfo(name: pending.RoutineName)
+    /// <summary>
+    /// Constructs the final <see cref="RoutineInfo"/> from the resolved signature components.
+    /// </summary>
+    private static RoutineInfo BuildFinalRoutineInfo(SemanticVerifier.PendingRoutine pending,
+        RoutineDeclaration routine, TypeSymbol? refreshedOwnerType, TypeSymbol? meType,
+        List<ParameterInfo> parameters, TypeSymbol? returnType, bool isRvalueReturn,
+        MutationCategory declaredModification, List<string> allGenericParams,
+        List<GenericConstraintDeclaration> allConstraints)
+    {
+        return new RoutineInfo(name: pending.RoutineName)
         {
             Kind = pending.Kind,
             OwnerType = refreshedOwnerType,
@@ -287,12 +316,8 @@ internal sealed class SignatureResolver
             IsWiredMemberRoutine = routine.IsWiredMemberRoutine,
             IsInFlightReturn = isRvalueReturn,
             IsVariadic = routine.Parameters.Any(predicate: p => p.IsVariadic),
-            GenericParameters = allGenericParams.Count > 0
-                ? allGenericParams
-                : null,
-            GenericConstraints = allConstraints.Count > 0
-                ? allConstraints
-                : null,
+            GenericParameters = allGenericParams.Count > 0 ? allGenericParams : null,
+            GenericConstraints = allConstraints.Count > 0 ? allConstraints : null,
             Visibility = routine.Visibility,
             Location = routine.Location,
             Documentation = routine.Documentation,
@@ -304,10 +329,17 @@ internal sealed class SignatureResolver
             IsDangerous = routine.IsDangerous,
             AsyncStatus = routine.Async
         };
+    }
 
+    /// <summary>
+    /// Performs duplicate detection, registers the routine in the type registry, pins the decl→info
+    /// binding, and runs post-registration protocol-conformance validations.
+    /// </summary>
+    private void RegisterAndValidateRoutine(SemanticVerifier.PendingRoutine pending,
+        RoutineDeclaration routine, RoutineInfo finalRoutine)
+    {
         // Duplicate detection by full signature (RegistryKey includes param types).
-        // A user-written routine is allowed to shadow a synthesized (builder-generated) one
-        // with the same signature — RegisterRoutine handles the overwrite precedence.
+        // A user-written routine is allowed to shadow a synthesized (builder-generated) one.
         RoutineInfo? existingByKey = _sa._registry.LookupRoutine(fullName: finalRoutine.RegistryKey);
         if (existingByKey is { IsSynthesized: false })
         {
@@ -317,27 +349,17 @@ internal sealed class SignatureResolver
             return;
         }
 
-        // NOTE: a wired `X` and a plain `X` share the canonical bare name `X`. The truly-conflicting
-        // case — SAME signature (e.g. redundant `add(you:T)` + `add(you:T)`) — is already caught by the
-        // RegistryKey duplicate check above (RF-S406). DIFFERENT-signature pairs (e.g. `hash()` +
-        // `hash(k0,k1)`) are legitimate distinct routines and MUST coexist, so no extra guard is added.
-
-        // Constructor divergent-duplicate guard (mainly for the stdlib path; user cross-file dups are
-        // already RF-S406 above): hash the body so RegisterRoutine distinguishes identical from
-        // divergent same-signature creators.
+        // Constructor divergent-duplicate guard: hash the body so RegisterRoutine distinguishes
+        // identical from divergent same-signature creators (mainly for stdlib cross-file paths).
         if (finalRoutine.IsCreator)
             finalRoutine.BodyHash = TypeRegistry.ComputeCreatorBodyHash(body: routine.Body);
         _sa._registry.RegisterRoutine(routine: finalRoutine);
 
-        // Pin the decl → info binding so codegen reads it directly instead of re-deriving the routine
-        // by parsing the name and looking the owner type up by bare name (module-blind).
+        // Pin the decl → info binding so codegen reads it directly (module-blind name-parse avoided).
         routine.ResolvedInfo = finalRoutine;
 
-        // Post-registration validation
-        ValidateOperatorProtocolConformance(routineInfo: finalRoutine,
-            location: routine.Location);
-        ValidateProtocolMemberRoutineSignature(routineInfo: finalRoutine,
-            location: routine.Location);
+        ValidateOperatorProtocolConformance(routineInfo: finalRoutine, location: routine.Location);
+        ValidateProtocolMemberRoutineSignature(routineInfo: finalRoutine, location: routine.Location);
     }
 
     /// <summary>
@@ -445,7 +467,7 @@ internal sealed class SignatureResolver
         // for an entity, or the value itself for a value type) binds V. Body uses that touch an ENTITY
         // member get `.access()`/`.control()` auto-inserted at member-access analysis; a value conformer's
         // `.access()`/`.control()` is identity. This replaces the old erase-to-inner-T model.
-        if (paramType is ProtocolTypeInfo paramProto)
+        if (paramType is ProtocolTypeInfo)
         {
             // Generate implicit generic parameter name
             string implicitGenericName = $"__T{implicitGenericCounter++}";
@@ -626,48 +648,58 @@ internal sealed class SignatureResolver
     private void CheckExternalSignatureConsistency(Program program)
     {
         var seen = new Dictionary<string, (ExternalDeclaration Decl, string Sig)>();
-
-        void Visit(ExternalDeclaration ext)
-        {
-            string sig = BuildExternalSignatureKey(ext: ext);
-            if (seen.TryGetValue(key: ext.Name, value: out var prior))
-            {
-                if (prior.Sig != sig)
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.ExternalSignatureMismatch,
-                        message:
-                        $"external(\"{ext.CallingConvention ?? "C"}\") routine '{ext.Name}' is declared with " +
-                        $"conflicting signatures: '{prior.Sig}' (at {prior.Decl.Location.Line}:{prior.Decl.Location.Column}) " +
-                        $"vs '{sig}' (at {ext.Location.Line}:{ext.Location.Column}). " +
-                        "All declarations of the same C symbol must agree on ABI.",
-                        location: ext.Location);
-                }
-            }
-            else
-            {
-                seen[key: ext.Name] = (ext, sig);
-            }
-        }
-
         foreach (ISyntaxTreeNode declaration in program.Declarations)
         {
             switch (declaration)
             {
                 case ExternalDeclaration externalDecl:
-                    Visit(ext: externalDecl);
+                    VisitExternalDeclaration(ext: externalDecl, seen: seen);
                     break;
-
                 case ExternalBlockDeclaration block:
-                    foreach (SyntaxTree.Declaration decl in block.Declarations)
-                    {
-                        if (decl is ExternalDeclaration ext)
-                        {
-                            Visit(ext: ext);
-                        }
-                    }
-
+                    VisitExternalBlockDeclarations(block: block, seen: seen);
                     break;
             }
+        }
+    }
+
+    /// <summary>
+    /// Checks one external declaration against the already-seen set for signature consistency and
+    /// records it when no prior declaration exists.
+    /// </summary>
+    private void VisitExternalDeclaration(ExternalDeclaration ext,
+        Dictionary<string, (ExternalDeclaration Decl, string Sig)> seen)
+    {
+        string sig = BuildExternalSignatureKey(ext: ext);
+        if (seen.TryGetValue(key: ext.Name, value: out var prior))
+        {
+            if (prior.Sig != sig)
+            {
+                _sa.ReportError(code: SemanticDiagnosticCode.ExternalSignatureMismatch,
+                    message:
+                    $"external(\"{ext.CallingConvention ?? "C"}\") routine '{ext.Name}' is declared with " +
+                    $"conflicting signatures: '{prior.Sig}' (at {prior.Decl.Location.Line}:{prior.Decl.Location.Column}) " +
+                    $"vs '{sig}' (at {ext.Location.Line}:{ext.Location.Column}). " +
+                    "All declarations of the same C symbol must agree on ABI.",
+                    location: ext.Location);
+            }
+        }
+        else
+        {
+            seen[key: ext.Name] = (ext, sig);
+        }
+    }
+
+    /// <summary>
+    /// Visits every <see cref="ExternalDeclaration"/> inside an <see cref="ExternalBlockDeclaration"/>
+    /// and checks each one for signature consistency.
+    /// </summary>
+    private void VisitExternalBlockDeclarations(ExternalBlockDeclaration block,
+        Dictionary<string, (ExternalDeclaration Decl, string Sig)> seen)
+    {
+        foreach (SyntaxTree.Declaration decl in block.Declarations)
+        {
+            if (decl is ExternalDeclaration ext)
+                VisitExternalDeclaration(ext: ext, seen: seen);
         }
     }
 
@@ -676,14 +708,12 @@ internal sealed class SignatureResolver
         string conv = ext.CallingConvention ?? "C";
         string variadic = ext.IsVariadic ? "..." : "";
         string failable = ext.IsFailable ? "!" : "";
-        var parts = new List<string>();
-        foreach (Parameter p in ext.Parameters)
-        {
-            TypeSymbol t = p.Type != null
+        List<string> parts = ext.Parameters
+            .Select(p => p.Type != null
                 ? _typeResolver.ResolveType(typeExpr: p.Type)
-                : ErrorTypeInfo.Instance;
-            parts.Add(item: t.FullName);
-        }
+                : ErrorTypeInfo.Instance)
+            .Select(t => t.FullName)
+            .ToList();
 
         string paramSig = string.Join(separator: ", ", values: parts);
         if (variadic.Length > 0)
@@ -753,6 +783,18 @@ internal sealed class SignatureResolver
                 location: location ?? new SourceLocation("", 0, 0, 0));
         }
     }
+
+    /// <summary>
+    /// Shared validation context threaded through protocol-parameter and return-type checks.
+    /// Bundles the four repeated parameters that both check methods need so neither call site
+    /// exceeds the 7-parameter limit.
+    /// </summary>
+    private readonly record struct ProtocolCheckContext(
+        RoutineInfo TypeMemberRoutine,
+        ProtocolTypeInfo Protocol,
+        Dictionary<string, string>? Substitution,
+        List<string>? InferableParams,
+        SourceLocation? Location);
 
     /// <summary>
     /// Validates that a type memberRoutine matches the expected protocol memberRoutine signature.
@@ -830,28 +872,29 @@ internal sealed class SignatureResolver
             return;
         }
 
+        var ctx = new ProtocolCheckContext(
+            TypeMemberRoutine: typeMemberRoutine,
+            Protocol: protocol,
+            Substitution: substitution,
+            InferableParams: inferableParams,
+            Location: location);
+
         // Check parameter types - skip 'me' if present
-        int startIndex = hasMeParam
-            ? 1
-            : 0;
+        int startIndex = hasMeParam ? 1 : 0;
         for (int i = 0; i < expectedParamCount; i++)
         {
             TypeSymbol expectedType = protoMemberRoutine.ParameterTypes[index: i];
             TypeSymbol actualType = typeMemberRoutine.Parameters[index: startIndex + i].Type;
-            CheckProtocolParameterType(typeMemberRoutine: typeMemberRoutine,
-                protoMemberRoutine: protoMemberRoutine, protocol: protocol,
-                substitution: substitution, inferableParams: inferableParams,
-                paramIndex: i, expectedType: expectedType, actualType: actualType,
-                location: location);
+            CheckProtocolParameterType(ctx: ctx, protoMemberRoutine: protoMemberRoutine,
+                paramIndex: i, expectedType: expectedType, actualType: actualType);
         }
 
         // Check return type
         if (protoMemberRoutine.ReturnType != null && typeMemberRoutine.ReturnType != null)
         {
-            CheckProtocolReturnType(typeMemberRoutine: typeMemberRoutine, protocol: protocol,
-                substitution: substitution, inferableParams: inferableParams,
+            CheckProtocolReturnType(ctx: ctx,
                 expectedReturn: protoMemberRoutine.ReturnType,
-                actualReturn: typeMemberRoutine.ReturnType, location: location);
+                actualReturn: typeMemberRoutine.ReturnType);
         }
     }
 
@@ -860,11 +903,16 @@ internal sealed class SignatureResolver
     /// handling the protocol-self (Me) case and inferable-param substitution binding, reporting a
     /// mismatch when the types disagree.
     /// </summary>
-    private void CheckProtocolParameterType(RoutineInfo typeMemberRoutine,
-        ProtocolMemberRoutineInfo protoMemberRoutine, ProtocolTypeInfo protocol,
-        Dictionary<string, string>? substitution, List<string>? inferableParams, int paramIndex,
-        TypeSymbol expectedType, TypeSymbol actualType, SourceLocation? location)
+    private void CheckProtocolParameterType(ProtocolCheckContext ctx,
+        ProtocolMemberRoutineInfo protoMemberRoutine, int paramIndex,
+        TypeSymbol expectedType, TypeSymbol actualType)
     {
+        RoutineInfo typeMemberRoutine = ctx.TypeMemberRoutine;
+        ProtocolTypeInfo protocol = ctx.Protocol;
+        Dictionary<string, string>? substitution = ctx.Substitution;
+        List<string>? inferableParams = ctx.InferableParams;
+        SourceLocation? location = ctx.Location;
+
         // Handle protocol self type (Me) - should match the owner type
         if (expectedType is ProtocolSelfTypeInfo)
         {
@@ -906,10 +954,15 @@ internal sealed class SignatureResolver
     /// protocol-self (Me) case and inferable-param substitution binding, reporting a mismatch when the
     /// types disagree.
     /// </summary>
-    private void CheckProtocolReturnType(RoutineInfo typeMemberRoutine, ProtocolTypeInfo protocol,
-        Dictionary<string, string>? substitution, List<string>? inferableParams,
-        TypeSymbol expectedReturn, TypeSymbol actualReturn, SourceLocation? location)
+    private void CheckProtocolReturnType(ProtocolCheckContext ctx,
+        TypeSymbol expectedReturn, TypeSymbol actualReturn)
     {
+        RoutineInfo typeMemberRoutine = ctx.TypeMemberRoutine;
+        ProtocolTypeInfo protocol = ctx.Protocol;
+        Dictionary<string, string>? substitution = ctx.Substitution;
+        List<string>? inferableParams = ctx.InferableParams;
+        SourceLocation? location = ctx.Location;
+
         // Handle protocol self type (Me)
         if (expectedReturn is ProtocolSelfTypeInfo)
         {

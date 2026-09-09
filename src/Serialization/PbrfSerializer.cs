@@ -70,13 +70,14 @@ public static class PbrfSerializer
     }
 
     // ---- modular (per-module artifact) API ------------------------------------------------------
-    // A module artifact = [header][manifestLen][manifest][graph]. The MANIFEST lists this module's owned
-    // symbols as (stableKey, assemblyQualifiedTypeName) — read in phase A to create GetUninitializedObject
-    // SHELLS registered in a global (module,key)→shell table BEFORE any graph is filled, so cyclic
-    // cross-module references resolve. The GRAPH holds, in manifest order, each owned symbol's FIELD body;
-    // every symbol reference inside a body is written as an extern (module,key) — NEVER inline — so a symbol
-    // has exactly one instance (its shell) shared across all artifacts. Interior (non-symbol) objects stay
-    // local to the artifact and may duplicate across artifacts (proven safe by the partition de-risk).
+    // A module artifact has four segments: header, manifest-length prefix, manifest, and graph body.
+    // The manifest lists this module's owned symbols as (stableKey, assemblyQualifiedTypeName) — read
+    // in phase A to create GetUninitializedObject shells registered in a global (module,key)->shell table
+    // BEFORE any graph is filled, so cyclic cross-module references resolve. The graph holds, in manifest
+    // order, each owned symbol's field body; every symbol reference inside a body is written as an extern
+    // (module,key) — never inline — so a symbol has exactly one instance (its shell) shared across all
+    // artifacts. Interior (non-symbol) objects stay local to the artifact and may duplicate across
+    // artifacts (proven safe by the partition de-risk).
 
     /// <summary>Serialize one module artifact: its owned symbols' bodies + an optional CONTAINER root (this
     /// module's dict slices / bodies), + a manifest. <paramref name="idOf"/> returns (module,key) for any
@@ -181,9 +182,6 @@ public static class PbrfSerializer
         _fieldCache[key: type] = ordered;
         return ordered;
     }
-
-    private static bool IsInlineValue(Type t) =>
-        t.IsPrimitive || t.IsEnum || t == typeof(decimal);
 
     // Compiled field accessors — the reflection HOT PATH (FieldInfo.Get/SetValue per field × hundreds of
     // thousands of objects) is what made deserialize slow. We keep reflection for field DISCOVERY (FieldsOf,
@@ -313,7 +311,7 @@ public static class PbrfSerializer
                     WriteInline(value: value, type: underlying);
                     return;
                 }
-                WriteInline(value: value, type: declaredType);
+                WriteInline(value: value!, type: declaredType);
                 return;
             }
 
@@ -622,7 +620,7 @@ public static class PbrfSerializer
             return obj;
         }
 
-        private object ReadArrayBody(Type concrete, int id)
+        private Array ReadArrayBody(Type concrete, int id)
         {
             int len = _br.Read7BitEncodedInt();
             Type elemT = concrete.GetElementType()!;
@@ -635,7 +633,6 @@ public static class PbrfSerializer
         private object ReadDictionaryBody(Type concrete, int id)
         {
             Type[] kv = concrete.GetGenericArguments();
-            Type cmpT = typeof(IEqualityComparer<>).MakeGenericType(kv[0]);
             object? comparer = ReadValue(declaredType: typeof(object));
             object dict = Activator.CreateInstance(type: concrete, args: [comparer])!;
             RegisterAt(id: id, obj: dict);

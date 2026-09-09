@@ -25,6 +25,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 {
     private const string NoneTypeName = "None";
     private const string TypeIdFieldName = "type_id";
+    private const string MaybeTypeName = "Maybe";
 
     private int _tempCount;
 
@@ -69,173 +70,242 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             // -- Compound: recurse into children --------------------------------
 
             case BlockStatement b:
-            {
-                List<Statement> loweredList = LowerStatementList(b.Statements);
-                if (ReferenceEquals(loweredList, b.Statements)) return ([], b);
-                return ([], b with { Statements = loweredList });
-            }
+                return LowerBlockStatement(b);
 
             case IfStatement ifs:
-            {
-                var (condH, loweredCond) = LowerExpr(ifs.Condition);
-                Statement then = LowerStatementFull(ifs.ThenStatement);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? LowerStatementFull(ifs.ElseStatement)
-                    : null;
-                bool changed = !ReferenceEquals(loweredCond, ifs.Condition)
-                               || !ReferenceEquals(then, ifs.ThenStatement)
-                               || !ReferenceEquals(elseS, ifs.ElseStatement);
-                if (!changed && condH.Count == 0) return ([], stmt);
-                return (condH,
-                    ifs with { Condition = loweredCond, ThenStatement = then, ElseStatement = elseS });
-            }
+                return LowerIfStatement(ifs);
 
             case WhileStatement w:
-            {
-                var (condH, loweredCond) = LowerExpr(w.Condition);
-                Statement body = LowerStatementFull(w.Body);
-                Statement? elseB = w.ElseBranch != null
-                    ? LowerStatementFull(w.ElseBranch)
-                    : null;
-                bool changed = !ReferenceEquals(loweredCond, w.Condition)
-                               || !ReferenceEquals(body, w.Body)
-                               || !ReferenceEquals(elseB, w.ElseBranch);
-                if (!changed && condH.Count == 0) return ([], stmt);
-                return (condH, w with { Condition = loweredCond, Body = body, ElseBranch = elseB });
-            }
+                return LowerWhileStatement(w);
 
             case LoopStatement loop:
-            {
-                Statement body = LowerStatementFull(loop.Body);
-                if (ReferenceEquals(body, loop.Body)) return ([], stmt);
-                return ([], loop with { Body = body });
-            }
+                return LowerLoopStatement(loop: loop, stmt: stmt);
 
             case WhenStatement w:
-            {
-                var (subjH, loweredSubj) = LowerExpr(w.Expression);
-                bool clauseChanged = false;
-                var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
-                foreach (WhenClause c in w.Clauses)
-                {
-                    Statement lBody = LowerStatementFull(c.Body);
-                    if (!ReferenceEquals(lBody, c.Body))
-                    {
-                        clauses.Add(c with { Body = lBody });
-                        clauseChanged = true;
-                    }
-                    else
-                    {
-                        clauses.Add(c);
-                    }
-                }
-
-                bool changed = !ReferenceEquals(loweredSubj, w.Expression) || clauseChanged;
-                if (!changed && subjH.Count == 0) return ([], stmt);
-                return (subjH, w with { Expression = loweredSubj, Clauses = clauses });
-            }
+                return LowerWhenStatement(w);
 
             case UsingStatement u:
-            {
-                var (hoisted, loweredRes) = LowerExpr(u.Resource);
-                Statement body = LowerStatementFull(u.Body);
-                Statement? fb = u.FallbackBody != null ? LowerStatementFull(u.FallbackBody) : null;
-                bool changed = !ReferenceEquals(loweredRes, u.Resource)
-                               || !ReferenceEquals(body, u.Body)
-                               || !ReferenceEquals(fb, u.FallbackBody);
-                if (!changed && hoisted.Count == 0) return ([], stmt);
-                return (hoisted, u with { Resource = loweredRes, Body = body, FallbackBody = fb });
-            }
+                return LowerUsingStatement(u);
 
             case DangerStatement d:
-            {
-                Statement lowered = LowerStatementFull(d.Body);
-                if (ReferenceEquals(lowered, d.Body)) return ([], stmt);
-                return ([], d with { Body = (BlockStatement)lowered });
-            }
+                return LowerDangerStatement(d: d, stmt: stmt);
 
             // -- Simple: lower the contained expressions -------------------------
 
             case AssignmentStatement asgn:
-            {
-                var (hoisted, loweredVal) = LowerExpr(asgn.Value);
-                // Maybe auto-wrap on a member store: `me.field = x` where `field : Maybe[T]` and
-                // `x : T` boxes the bare value into `Maybe[T](present: true, value: x)` as a real
-                // CreatorExpression (codegen's record-creator path builds the { i1, T } aggregate),
-                // instead of codegen hand-building the insertvalue at the store site.
-                Expression effectiveVal =
-                    TryWrapMemberMaybe(target: asgn.Target, value: loweredVal) ?? loweredVal;
-                if (hoisted.Count == 0 && ReferenceEquals(effectiveVal, asgn.Value)) return ([], stmt);
-                return (hoisted, asgn with { Value = effectiveVal });
-            }
+                return LowerAssignmentStatement(asgn: asgn, stmt: stmt);
 
             case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd } decl:
-            {
-                var (hoisted, loweredInit) = LowerExpr(vd.Initializer);
-                Expression effectiveInit = TryWrapCarrier(vd.Type, loweredInit) ?? loweredInit;
-                if (hoisted.Count == 0 && ReferenceEquals(effectiveInit, vd.Initializer))
-                    return ([], stmt);
-                return (hoisted, decl with { Declaration = vd with { Initializer = effectiveInit } });
-            }
+                return LowerDeclarationStatement(decl: decl, vd: vd, stmt: stmt);
 
             case ReturnStatement { Value: not null } ret:
-            {
-                var (hoisted, loweredVal) = LowerExpr(ret.Value);
-                if (hoisted.Count == 0 && ReferenceEquals(loweredVal, ret.Value)) return ([], stmt);
-                return (hoisted, ret with { Value = loweredVal });
-            }
+                return LowerReturnStatement(ret: ret, stmt: stmt);
 
             case ExpressionStatement { Expression: CompoundAssignmentExpression } es:
-            {
-                // Compound assignment in statement position: the result value is discarded.
-                // LowerExpr for the fallback path returns (hoisted=[AssignmentStatement], residual=LHS).
-                // Don't emit the residual as a bare expression statement.
-                var (hoisted, loweredExpr) = LowerExpr(es.Expression);
-                if (hoisted.Count == 0)
-                    return ([], es with { Expression = loweredExpr });
-                if (hoisted.Count == 1) return ([], hoisted[0]);
-                return ([], new BlockStatement(hoisted, es.Location));
-            }
+                return LowerCompoundAssignmentStatement(es);
 
             case ExpressionStatement es:
-            {
-                var (hoisted, loweredExpr) = LowerExpr(es.Expression);
-                if (hoisted.Count == 0 && ReferenceEquals(loweredExpr, es.Expression)) return ([], stmt);
-                return (hoisted, es with { Expression = loweredExpr });
-            }
+                return LowerExpressionStatement(es: es, stmt: stmt);
 
             case DiscardStatement ds:
-            {
-                var (hoisted, loweredExpr) = LowerExpr(ds.Expression);
-                if (hoisted.Count == 0 && ReferenceEquals(loweredExpr, ds.Expression)) return ([], stmt);
-                return (hoisted, ds with { Expression = loweredExpr });
-            }
+                return LowerDiscardStatement(ds: ds, stmt: stmt);
 
             case BecomesStatement bs:
-            {
-                var (hoisted, loweredVal) = LowerExpr(bs.Value);
-                if (hoisted.Count == 0 && ReferenceEquals(loweredVal, bs.Value)) return ([], stmt);
-                return (hoisted, bs with { Value = loweredVal });
-            }
+                return LowerBecomesStatement(bs: bs, stmt: stmt);
 
             case ThrowStatement t:
-            {
-                var (hoisted, loweredErr) = LowerExpr(t.Error);
-                if (hoisted.Count == 0 && ReferenceEquals(loweredErr, t.Error)) return ([], stmt);
-                return (hoisted, t with { Error = loweredErr });
-            }
+                return LowerThrowStatement(t: t, stmt: stmt);
 
             // D-AST-7: recurse into variant return value expressions.
             case VariantReturnStatement { Value: not null } vrs:
-            {
-                var (hoisted, loweredVal) = LowerExpr(vrs.Value);
-                if (hoisted.Count == 0 && ReferenceEquals(loweredVal, vrs.Value)) return ([], stmt);
-                return (hoisted, vrs with { Value = loweredVal });
-            }
+                return LowerVariantReturnStatement(vrs: vrs, stmt: stmt);
 
             default:
                 return ([], stmt);
         }
+    }
+
+    private (List<Statement> Hoisted, Statement Lowered) LowerBlockStatement(BlockStatement b)
+    {
+        List<Statement> loweredList = LowerStatementList(b.Statements);
+        if (ReferenceEquals(loweredList, b.Statements)) return ([], b);
+        return ([], b with { Statements = loweredList });
+    }
+
+    private (List<Statement> Hoisted, Statement Lowered) LowerLoopStatement(
+        LoopStatement loop, Statement stmt)
+    {
+        Statement body = LowerStatementFull(loop.Body);
+        if (ReferenceEquals(body, loop.Body)) return ([], stmt);
+        return ([], loop with { Body = body });
+    }
+
+    private (List<Statement> Hoisted, Statement Lowered) LowerDangerStatement(
+        DangerStatement d, Statement stmt)
+    {
+        Statement lowered = LowerStatementFull(d.Body);
+        if (ReferenceEquals(lowered, d.Body)) return ([], stmt);
+        return ([], d with { Body = (BlockStatement)lowered });
+    }
+
+    // Lowers a when-statement: lowers the subject expression and each clause body.
+    private (List<Statement> Hoisted, Statement Lowered) LowerWhenStatement(WhenStatement w)
+    {
+        var (subjH, loweredSubj) = LowerExpr(w.Expression);
+        bool clauseChanged = false;
+        var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
+        foreach (WhenClause c in w.Clauses)
+        {
+            Statement lBody = LowerStatementFull(c.Body);
+            if (!ReferenceEquals(lBody, c.Body))
+            {
+                clauses.Add(c with { Body = lBody });
+                clauseChanged = true;
+            }
+            else
+            {
+                clauses.Add(c);
+            }
+        }
+
+        bool changed = !ReferenceEquals(loweredSubj, w.Expression) || clauseChanged;
+        if (!changed && subjH.Count == 0) return ([], w);
+        return (subjH, w with { Expression = loweredSubj, Clauses = clauses });
+    }
+
+    // Lowers a using-statement: lowers the resource expression and body/fallback.
+    private (List<Statement> Hoisted, Statement Lowered) LowerUsingStatement(UsingStatement u)
+    {
+        var (hoisted, loweredRes) = LowerExpr(u.Resource);
+        Statement body = LowerStatementFull(u.Body);
+        Statement? fb = u.FallbackBody != null ? LowerStatementFull(u.FallbackBody) : null;
+        bool changed = !ReferenceEquals(loweredRes, u.Resource)
+                       || !ReferenceEquals(body, u.Body)
+                       || !ReferenceEquals(fb, u.FallbackBody);
+        if (!changed && hoisted.Count == 0) return ([], u);
+        return (hoisted, u with { Resource = loweredRes, Body = body, FallbackBody = fb });
+    }
+
+    // Lowers an if-statement: lowers the condition and both branches.
+    private (List<Statement> Hoisted, Statement Lowered) LowerIfStatement(IfStatement ifs)
+    {
+        var (condH, loweredCond) = LowerExpr(ifs.Condition);
+        Statement then = LowerStatementFull(ifs.ThenStatement);
+        Statement? elseS = ifs.ElseStatement != null
+            ? LowerStatementFull(ifs.ElseStatement)
+            : null;
+        bool changed = !ReferenceEquals(loweredCond, ifs.Condition)
+                       || !ReferenceEquals(then, ifs.ThenStatement)
+                       || !ReferenceEquals(elseS, ifs.ElseStatement);
+        if (!changed && condH.Count == 0) return ([], ifs);
+        return (condH,
+            ifs with { Condition = loweredCond, ThenStatement = then, ElseStatement = elseS });
+    }
+
+    // Lowers a while-statement: lowers the condition and body/else branches.
+    private (List<Statement> Hoisted, Statement Lowered) LowerWhileStatement(WhileStatement w)
+    {
+        var (condH, loweredCond) = LowerExpr(w.Condition);
+        Statement body = LowerStatementFull(w.Body);
+        Statement? elseB = w.ElseBranch != null
+            ? LowerStatementFull(w.ElseBranch)
+            : null;
+        bool changed = !ReferenceEquals(loweredCond, w.Condition)
+                       || !ReferenceEquals(body, w.Body)
+                       || !ReferenceEquals(elseB, w.ElseBranch);
+        if (!changed && condH.Count == 0) return ([], w);
+        return (condH, w with { Condition = loweredCond, Body = body, ElseBranch = elseB });
+    }
+
+    // Lowers a compound-assignment expression-statement: discards the residual LHS reference
+    // and collapses the hoisted assignment(s) into the statement position.
+    private (List<Statement> Hoisted, Statement Lowered) LowerCompoundAssignmentStatement(
+        ExpressionStatement es)
+    {
+        // Compound assignment in statement position: the result value is discarded.
+        // LowerExpr for the fallback path returns (hoisted=[AssignmentStatement], residual=LHS).
+        // Don't emit the residual as a bare expression statement.
+        var (hoisted, loweredExpr) = LowerExpr(es.Expression);
+        if (hoisted.Count == 0)
+            return ([], es with { Expression = loweredExpr });
+        if (hoisted.Count == 1) return ([], hoisted[0]);
+        return ([], new BlockStatement(hoisted, es.Location));
+    }
+
+    // Lowers an assignment statement, auto-wrapping the value into a Maybe creator when the
+    // target member field is Maybe[T] and the value is a bare T.
+    private (List<Statement> Hoisted, Statement Lowered) LowerAssignmentStatement(
+        AssignmentStatement asgn, Statement stmt)
+    {
+        var (hoisted, loweredVal) = LowerExpr(asgn.Value);
+        // Maybe auto-wrap on a member store: `me.field = x` where `field : Maybe[T]` and
+        // `x : T` boxes the bare value into `Maybe[T](present: true, value: x)` as a real
+        // CreatorExpression (codegen's record-creator path builds the { i1, T } aggregate),
+        // instead of codegen hand-building the insertvalue at the store site.
+        Expression effectiveVal =
+            TryWrapMemberMaybe(target: asgn.Target, value: loweredVal) ?? loweredVal;
+        if (hoisted.Count == 0 && ReferenceEquals(effectiveVal, asgn.Value)) return ([], stmt);
+        return (hoisted, asgn with { Value = effectiveVal });
+    }
+
+    // Lowers a variable declaration statement with an initializer, auto-wrapping carrier types.
+    private (List<Statement> Hoisted, Statement Lowered) LowerDeclarationStatement(
+        DeclarationStatement decl, VariableDeclaration vd, Statement stmt)
+    {
+        var (hoisted, loweredInit) = LowerExpr(vd.Initializer!);
+        Expression effectiveInit = TryWrapCarrier(vd.Type, loweredInit) ?? loweredInit;
+        if (hoisted.Count == 0 && ReferenceEquals(effectiveInit, vd.Initializer))
+            return ([], stmt);
+        return (hoisted, decl with { Declaration = vd with { Initializer = effectiveInit } });
+    }
+
+    private (List<Statement> Hoisted, Statement Lowered) LowerReturnStatement(
+        ReturnStatement ret, Statement stmt)
+    {
+        var (hoisted, loweredVal) = LowerExpr(ret.Value!);
+        if (hoisted.Count == 0 && ReferenceEquals(loweredVal, ret.Value)) return ([], stmt);
+        return (hoisted, ret with { Value = loweredVal });
+    }
+
+    private (List<Statement> Hoisted, Statement Lowered) LowerExpressionStatement(
+        ExpressionStatement es, Statement stmt)
+    {
+        var (hoisted, loweredExpr) = LowerExpr(es.Expression);
+        if (hoisted.Count == 0 && ReferenceEquals(loweredExpr, es.Expression)) return ([], stmt);
+        return (hoisted, es with { Expression = loweredExpr });
+    }
+
+    private (List<Statement> Hoisted, Statement Lowered) LowerDiscardStatement(
+        DiscardStatement ds, Statement stmt)
+    {
+        var (hoisted, loweredExpr) = LowerExpr(ds.Expression);
+        if (hoisted.Count == 0 && ReferenceEquals(loweredExpr, ds.Expression)) return ([], stmt);
+        return (hoisted, ds with { Expression = loweredExpr });
+    }
+
+    private (List<Statement> Hoisted, Statement Lowered) LowerBecomesStatement(
+        BecomesStatement bs, Statement stmt)
+    {
+        var (hoisted, loweredVal) = LowerExpr(bs.Value);
+        if (hoisted.Count == 0 && ReferenceEquals(loweredVal, bs.Value)) return ([], stmt);
+        return (hoisted, bs with { Value = loweredVal });
+    }
+
+    private (List<Statement> Hoisted, Statement Lowered) LowerThrowStatement(
+        ThrowStatement t, Statement stmt)
+    {
+        var (hoisted, loweredErr) = LowerExpr(t.Error);
+        if (hoisted.Count == 0 && ReferenceEquals(loweredErr, t.Error)) return ([], stmt);
+        return (hoisted, t with { Error = loweredErr });
+    }
+
+    // D-AST-7: recurse into variant return value expressions.
+    private (List<Statement> Hoisted, Statement Lowered) LowerVariantReturnStatement(
+        VariantReturnStatement vrs, Statement stmt)
+    {
+        var (hoisted, loweredVal) = LowerExpr(vrs.Value!);
+        if (hoisted.Count == 0 && ReferenceEquals(loweredVal, vrs.Value)) return ([], stmt);
+        return (hoisted, vrs with { Value = loweredVal });
     }
 
     /// <summary>
@@ -277,54 +347,17 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             // declared aggregate, ResolvedType = the arm). Rewrite the read into a payload extraction
             // from the full underlying value so codegen loads the arm, not the whole aggregate.
             case IdentifierExpression { NarrowedFrom: not null } narrowedId:
-            {
-                TypeInfo declared = narrowedId.NarrowedFrom!;
-                TypeInfo target = narrowedId.ResolvedType!;
-                SourceLocation nloc = narrowedId.Location;
-
-                Expression rawRead()
-                    => new IdentifierExpression(Name: narrowedId.Name, Location: nloc)
-                        { ResolvedType = declared };
-
-                CarrierPayloadExpression extractStep(Expression carrier, TypeInfo step)
-                    => new CarrierPayloadExpression(
-                        Carrier: carrier, ConcreteType: TypeInfoToExpr(type: step, loc: nloc),
-                        Location: nloc) { ResolvedType = step };
-
-                // Non-carrier variant: extract along the arm path — which may be NESTED, e.g. an
-                // `Outer` narrowed to `Inner` then to `Inner`'s arm `S32` yields Outer -> Inner -> S32
-                // (each level a field-1 payload load).
-                if (declared is VariantTypeInfo variant &&
-                    !IsMaybeRecord(type: declared) && !IsResultOrLookup(type: declared) &&
-                    FindVariantArmPath(from: variant, target: target) is { } path)
-                {
-                    Expression acc = rawRead();
-                    foreach (TypeInfo step in path)
-                        acc = extractStep(carrier: acc, step: step);
-                    return ([], acc);
-                }
-
-                // Carrier (Maybe/Result/Lookup): single-level payload extraction.
-                return ([], extractStep(carrier: rawRead(), step: target));
-            }
+                return LowerNarrowedIdentifier(narrowedId);
 
             // -- Step 1a: chained comparisons -------------------------------------
             // Multi-comparison chains (a <= b <= c) are lowered to pairwise comparisons
             // joined by And. The And must then be further lowered to ConditionalExpression.
             case ChainedComparisonExpression chain:
-            {
-                var (h, lowered) = LowerChainedComparison(chain);
-                if (lowered is BinaryExpression { Operator: BinaryOperator.And } andBin)
-                {
-                    var (andH, andLowered) = LowerBooleanAnd(andBin);
-                    return (Concat(h, andH), andLowered);
-                }
-                return (h, lowered);
-            }
+                return LowerChainedComparisonExpr(chain);
 
-            // -- Step 1b: none-coalescing (??) ------------------------------------
-            case BinaryExpression { Operator: BinaryOperator.NoneCoalesce } binary:
-                return LowerNoneCoalesce(binary);
+            // -- Steps 1b/1e/1f-2/1f-3/1g/1h/1h-2/1j: binary expression dispatch ---
+            case BinaryExpression bin:
+                return LowerBinaryExpr(bin: bin, expr: expr);
 
             // -- Step 1c: force-unwrap (!!) -- handled by OperatorLoweringPass --------
             // !! is desugared to operand.unwrap() in OperatorLoweringPass so that
@@ -334,97 +367,18 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             case OptionalMemberExpression optMember:
                 return LowerOptionalMember(optMember);
 
-            // -- Step 1e: flags combination (and/but on FlagsTypeInfo) -------------
-            case BinaryExpression { Operator: BinaryOperator.And or BinaryOperator.But, Left.ResolvedType: FlagsTypeInfo } flagsBin:
-                return LowerFlagsCombination(flagsBin);
-
             // -- Step 1f: carrier absence checks (is None / is None) -------------
             case IsPatternExpression ipe:
                 return LowerIsPatternExpression(ipe);
 
-            // -- Step 1f-2: variant type test (x is T / x isnot T) -> type_id compare --
-            // Variant subjects: x is S64 -> x.type_id == FNV("S64")
-            //                   x isnot S64 -> x.type_id != FNV("S64")
-            case BinaryExpression { Operator: BinaryOperator.Is or BinaryOperator.IsNot, Left.ResolvedType: VariantTypeInfo } isBin:
-                return LowerVariantIsExpression(isBin);
-
-            // -- Step 1f-3: choice discriminant test (a is b / a isnot b) -> S32 equality --
-            // A choice is S32-backed; reinterpret both sides to S32 and compare with ==/!=, which OLP
-            // lowers to S32.eq / S32.ne (icmp eq/ne i32). Keeps the `is` operator out of codegen.
-            case BinaryExpression { Operator: BinaryOperator.Is or BinaryOperator.IsNot, Left.ResolvedType: ChoiceTypeInfo choiceLeft } choiceBin:
-                return LowerChoiceIsExpression(choiceBin, choiceLeft);
-
-            // -- Step 1g: boolean short-circuit And -> ConditionalExpression --------
-            // a and b  ->  if a { _cif = b } else { _cif = false }
-            // Flags And (union of active bits) is handled by Step 1e above.
-            case BinaryExpression { Operator: BinaryOperator.And, Left.ResolvedType: not FlagsTypeInfo } boolAnd:
-                return LowerBooleanAnd(boolAnd);
-
-            // -- Step 1h: boolean short-circuit Or -> ConditionalExpression ---------
-            // a or b  ->  if a { _cif = true } else { _cif = b }
-            case BinaryExpression { Operator: BinaryOperator.Or } boolOr:
-                return LowerBooleanOr(boolOr);
-
-            // -- Step 1h-2: obeys/disobeys -> compile-time Bool literal -------------
-            // `x obeys P` / `x disobeys P` are resolved during SA (which validates the
-            // conformance and gates any error). The result is a fixed compile-time constant:
-            // `obeys` is true, `disobeys` is false. Fold to a Bool literal here so codegen
-            // never has to synthesize the constant itself.
-            case BinaryExpression { Operator: BinaryOperator.Obeys or BinaryOperator.Disobeys } obeysBin:
-            {
-                bool obeysValue = obeysBin.Operator == BinaryOperator.Obeys;
-                return ([], new LiteralExpression(
-                    Value: obeysValue,
-                    LiteralType: obeysValue ? TokenType.True : TokenType.False,
-                    Location: obeysBin.Location)
-                    { ResolvedType = obeysBin.ResolvedType ?? ctx.Registry.LookupType(name: "Bool") });
-            }
-
-            // -- Step 1j: member-store Maybe auto-wrap on `me.field = x` -----------
-            // User assignments parse as BinaryExpression(Assign), not AssignmentStatement. When the
-            // LHS is a `Maybe[T]` member and the RHS is a bare `T`, box it into a Maybe creator here
-            // (the same wrap the AssignmentStatement path applies) so codegen never hand-builds the
-            // { i1, T } insertvalue at the store site.
-            case BinaryExpression { Operator: BinaryOperator.Assign } assignBin:
-            {
-                var (leftH, loweredLeft) = LowerExpr(assignBin.Left);
-                var (rightH, loweredRight) = LowerExpr(assignBin.Right);
-                Expression wrappedRight =
-                    TryWrapMemberMaybe(target: loweredLeft, value: loweredRight) ?? loweredRight;
-                var hoisted = Concat(leftH, rightH);
-                if (hoisted.Count == 0
-                    && ReferenceEquals(loweredLeft, assignBin.Left)
-                    && ReferenceEquals(wrappedRight, assignBin.Right))
-                    return ([], expr);
-                return (hoisted, assignBin with { Left = loweredLeft, Right = wrappedRight });
-            }
-
-            // -- Recursive descent for all other node types ------------------------
-
-            case BinaryExpression bin:
-            {
-                var (leftH, loweredLeft) = LowerExpr(bin.Left);
-                var (rightH, loweredRight) = LowerExpr(bin.Right);
-                var hoisted = Concat(leftH, rightH);
-                if (hoisted.Count == 0
-                    && ReferenceEquals(loweredLeft, bin.Left)
-                    && ReferenceEquals(loweredRight, bin.Right))
-                    return ([], expr);
-                return (hoisted, bin with { Left = loweredLeft, Right = loweredRight });
-            }
-
             // -- Step 1i: logical not -> ConditionalExpression ----------------------
-            // not x  ->  if x { _cif = false } else { _cif = true }
+            // Lowers "not x" to a conditional: true branch yields false, false branch yields true.
             // BitwiseNot (~) on FlagsTypeInfo stays as UnaryExpression for OperatorLoweringPass.
             case UnaryExpression { Operator: UnaryOperator.Not } notExpr:
                 return LowerLogicalNot(notExpr);
 
             case UnaryExpression unary:
-            {
-                var (h, lowered) = LowerExpr(unary.Operand);
-                if (h.Count == 0 && ReferenceEquals(lowered, unary.Operand)) return ([], expr);
-                return (h, unary with { Operand = lowered });
-            }
+                return LowerGenericUnary(unary: unary, expr: expr);
 
             case CallExpression call:
                 return LowerCallExpr(call: call, expr: expr);
@@ -433,100 +387,30 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
                 return LowerMemberExpr(mem: mem, expr: expr);
 
             case IndexExpression idx:
-            {
-                var (objH, loweredObj) = LowerExpr(idx.Object);
-                var (idxH, loweredIdx) = LowerExpr(idx.Index);
-                var hoisted = Concat(objH, idxH);
-                if (hoisted.Count == 0
-                    && ReferenceEquals(loweredObj, idx.Object)
-                    && ReferenceEquals(loweredIdx, idx.Index))
-                    return ([], expr);
-                var rewritten = idx with { Object = loweredObj, Index = loweredIdx };
-                rewritten.ResolvedType = idx.ResolvedType;
-                rewritten.ResolvedSetItem = idx.ResolvedSetItem;
-                return (hoisted, rewritten);
-            }
+                return LowerIndexExpr(idx: idx, expr: expr);
 
             case NamedArgumentExpression named:
                 // Strip the wrapper -- after SA the argument is already in its correct position.
                 return LowerExpr(named.Value);
 
             case CreatorExpression creator:
-            {
-                var hoisted = new List<Statement>();
-                var members = new List<(string Name, Expression Value)>(
-                    capacity: creator.MemberVariables.Count);
-                bool changed = false;
-                foreach ((string name, Expression value) in creator.MemberVariables)
-                {
-                    var (h, lowered) = LowerExpr(value);
-                    hoisted.AddRange(h);
-                    members.Add((name, lowered));
-                    if (!ReferenceEquals(lowered, value)) changed = true;
-                }
-
-                if (!changed && hoisted.Count == 0) return ([], expr);
-                return (hoisted, creator with { MemberVariables = members });
-            }
+                return LowerCreatorExpr(creator: creator, expr: expr);
 
             case WithExpression withExpr:
                 return LowerWithExpression(withExpr);
 
             case GenericMemberRoutineCallExpression gmc:
-            {
-                var hoisted = new List<Statement>();
-                var (objH, loweredObj) = LowerExpr(gmc.Object);
-                hoisted.AddRange(objH);
-
-                var args = new List<Expression>(capacity: gmc.Arguments.Count);
-                bool argsChanged = false;
-                foreach (Expression arg in gmc.Arguments)
-                {
-                    var (h, lowered) = LowerExpr(arg);
-                    hoisted.AddRange(h);
-                    args.Add(lowered);
-                    if (!ReferenceEquals(lowered, arg)) argsChanged = true;
-                }
-
-                if (hoisted.Count == 0 && !argsChanged
-                    && ReferenceEquals(loweredObj, gmc.Object))
-                    return ([], expr);
-                return (hoisted, gmc with { Object = loweredObj, Arguments = args });
-            }
+                return LowerGenericMemberRoutineCall(gmc: gmc, expr: expr);
 
             case CompoundAssignmentExpression compound:
                 return LowerCompoundAssignment(compound: compound);
 
             case StealExpression steal:
-            {
                 // Strip the wrapper -- ownership transfer semantics are only needed during SA.
-                var (h, lowered) = LowerExpr(steal.Operand);
-                return (h, lowered);
-            }
+                return LowerExpr(steal.Operand);
 
             case InsertedTextExpression ftext:
-            {
-                var hoisted = new List<Statement>();
-                var parts = new List<InsertedTextPart>(capacity: ftext.Parts.Count);
-                bool changed = false;
-                foreach (InsertedTextPart part in ftext.Parts)
-                {
-                    if (part is ExpressionPart ep)
-                    {
-                        var (h, lowered) = LowerExpr(ep.Expression);
-                        hoisted.AddRange(h);
-                        parts.Add(ep with { Expression = lowered });
-                        if (!ReferenceEquals(lowered, ep.Expression)) changed = true;
-                    }
-                    else
-                    {
-                        parts.Add(part);
-                    }
-                }
-
-                if (!changed && hoisted.Count == 0) return ([], expr);
-                return (hoisted, ftext with { Parts = parts });
-            }
+                return LowerInsertedText(ftext: ftext, expr: expr);
 
             case ConditionalExpression cond:
                 return LowerConditionalExpr(cond: cond);
@@ -570,16 +454,12 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             // AFTER this pass — so the lifted body is never lowered again. Descend into the body
             // here so its UndecidedInteger/UndecidedDecimal literals get a concrete LiteralType;
             // otherwise codegen receives UndecidedInteger and (per IsIntegerLiteralType) emits it
-            // as a Text string constant (e.g. `x % 2` → `mod(i64, %Record.Text)` type mismatch).
+            // as a Text string constant, producing an IR type mismatch in arithmetic operations.
             // Lambda bodies are expression-position and cannot carry hoisted statements, so only
-            // rewrite when lowering produced none; complex bodies (`??`/`?.`) fall through unchanged.
+            // rewrite when lowering produced none; complex bodies with coalesce or optional-member
+            // access fall through unchanged.
             case LambdaExpression lambda:
-            {
-                var (bodyH, loweredBody) = LowerExpr(expr: lambda.Body);
-                if (bodyH.Count == 0 && !ReferenceEquals(objA: loweredBody, objB: lambda.Body))
-                    return ([], lambda with { Body = loweredBody });
-                return ([], expr);
-            }
+                return LowerLambdaExpr(lambda: lambda, expr: expr);
 
             default:
                 // LiteralExpression, TypeExpression,
@@ -587,6 +467,232 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
                 // no sub-expressions that need lowering.
                 return ([], expr);
         }
+    }
+
+    // Step 0: rewrites a flow-narrowed identifier to a carrier/variant payload extraction.
+    private (List<Statement> Hoisted, Expression Expr) LowerNarrowedIdentifier(
+        IdentifierExpression narrowedId)
+    {
+        TypeInfo declared = narrowedId.NarrowedFrom!;
+        TypeInfo target = narrowedId.ResolvedType!;
+        SourceLocation nloc = narrowedId.Location;
+
+        IdentifierExpression rawRead()
+            => new IdentifierExpression(Name: narrowedId.Name, Location: nloc)
+                { ResolvedType = declared };
+
+        CarrierPayloadExpression extractStep(Expression carrier, TypeInfo step)
+            => new CarrierPayloadExpression(
+                Carrier: carrier, ConcreteType: TypeInfoToExpr(type: step, loc: nloc),
+                Location: nloc) { ResolvedType = step };
+
+        // Non-carrier variant: extract along the arm path — which may be NESTED, e.g. an
+        // `Outer` narrowed to `Inner` then to `Inner`'s arm `S32` yields Outer -> Inner -> S32
+        // (each level a field-1 payload load).
+        if (declared is VariantTypeInfo variant &&
+            !IsMaybeRecord(type: declared) && !IsResultOrLookup(type: declared) &&
+            FindVariantArmPath(from: variant, target: target) is { } path)
+        {
+            Expression acc = rawRead();
+            foreach (TypeInfo step in path)
+                acc = extractStep(carrier: acc, step: step);
+            return ([], acc);
+        }
+
+        // Carrier (Maybe/Result/Lookup): single-level payload extraction.
+        return ([], extractStep(carrier: rawRead(), step: target));
+    }
+
+    // Dispatches all binary-expression lowering by operator and operand types.
+    private (List<Statement> Hoisted, Expression Expr) LowerBinaryExpr(
+        BinaryExpression bin, Expression expr)
+    {
+        return bin switch
+        {
+            // Step 1b: none-coalescing (??) -> temp + when-statement
+            { Operator: BinaryOperator.NoneCoalesce } => LowerNoneCoalesce(bin),
+            // Step 1e: flags combination (and/but on FlagsTypeInfo) -> bitwise op
+            { Operator: BinaryOperator.And or BinaryOperator.But,
+              Left.ResolvedType: FlagsTypeInfo } => LowerFlagsCombination(bin),
+            // Step 1f-2: variant type test (x is T / x isnot T) -> type_id compare
+            { Operator: BinaryOperator.Is or BinaryOperator.IsNot,
+              Left.ResolvedType: VariantTypeInfo } => LowerVariantIsExpression(bin),
+            // Step 1f-3: choice discriminant test -> S32 equality
+            { Operator: BinaryOperator.Is or BinaryOperator.IsNot,
+              Left.ResolvedType: ChoiceTypeInfo ct } => LowerChoiceIsExpression(bin, ct),
+            // Step 1g: boolean And -> short-circuit ConditionalExpression
+            { Operator: BinaryOperator.And, Left.ResolvedType: not FlagsTypeInfo } => LowerBooleanAnd(bin),
+            // Step 1h: boolean Or -> short-circuit ConditionalExpression
+            { Operator: BinaryOperator.Or } => LowerBooleanOr(bin),
+            // Step 1h-2: obeys/disobeys -> compile-time Bool literal
+            { Operator: BinaryOperator.Obeys or BinaryOperator.Disobeys } => LowerObeysExpr(bin),
+            // Step 1j: binary-assign with Maybe member target
+            { Operator: BinaryOperator.Assign } => LowerBinaryAssign(assignBin: bin, expr: expr),
+            // Recursive descent for all other binary nodes
+            _ => LowerGenericBinary(bin: bin, expr: expr),
+        };
+    }
+
+    // Step 1a: lowers a chained comparison, further lowering the resulting And to a conditional.
+    private (List<Statement> Hoisted, Expression Expr) LowerChainedComparisonExpr(
+        ChainedComparisonExpression chain)
+    {
+        var (h, lowered) = LowerChainedComparison(chain);
+        if (lowered is BinaryExpression { Operator: BinaryOperator.And } andBin)
+        {
+            var (andH, andLowered) = LowerBooleanAnd(andBin);
+            return (Concat(h, andH), andLowered);
+        }
+        return (h, lowered);
+    }
+
+    // Step 1h-2: folds obeys/disobeys to a compile-time Bool literal (true for obeys, false for disobeys).
+    private (List<Statement> Hoisted, Expression Expr) LowerObeysExpr(BinaryExpression obeysBin)
+    {
+        bool obeysValue = obeysBin.Operator == BinaryOperator.Obeys;
+        return ([], new LiteralExpression(
+            Value: obeysValue,
+            LiteralType: obeysValue ? TokenType.True : TokenType.False,
+            Location: obeysBin.Location)
+            { ResolvedType = obeysBin.ResolvedType ?? ctx.Registry.LookupType(name: "Bool") });
+    }
+
+    // Step 1j: lowers a binary-assign expression, auto-wrapping the RHS into a Maybe creator
+    // when the LHS member field type is Maybe[T] and the RHS is a bare T.
+    private (List<Statement> Hoisted, Expression Expr) LowerBinaryAssign(
+        BinaryExpression assignBin, Expression expr)
+    {
+        var (leftH, loweredLeft) = LowerExpr(assignBin.Left);
+        var (rightH, loweredRight) = LowerExpr(assignBin.Right);
+        Expression wrappedRight =
+            TryWrapMemberMaybe(target: loweredLeft, value: loweredRight) ?? loweredRight;
+        var hoisted = Concat(leftH, rightH);
+        if (hoisted.Count == 0
+            && ReferenceEquals(loweredLeft, assignBin.Left)
+            && ReferenceEquals(wrappedRight, assignBin.Right))
+            return ([], expr);
+        return (hoisted, assignBin with { Left = loweredLeft, Right = wrappedRight });
+    }
+
+    // Recursive descent for generic binary nodes (no special operator handling needed).
+    private (List<Statement> Hoisted, Expression Expr) LowerGenericBinary(
+        BinaryExpression bin, Expression expr)
+    {
+        var (leftH, loweredLeft) = LowerExpr(bin.Left);
+        var (rightH, loweredRight) = LowerExpr(bin.Right);
+        var hoisted = Concat(leftH, rightH);
+        if (hoisted.Count == 0
+            && ReferenceEquals(loweredLeft, bin.Left)
+            && ReferenceEquals(loweredRight, bin.Right))
+            return ([], expr);
+        return (hoisted, bin with { Left = loweredLeft, Right = loweredRight });
+    }
+
+    // Recursive descent for generic unary nodes (non-Not operators).
+    private (List<Statement> Hoisted, Expression Expr) LowerGenericUnary(
+        UnaryExpression unary, Expression expr)
+    {
+        var (h, lowered) = LowerExpr(unary.Operand);
+        if (h.Count == 0 && ReferenceEquals(lowered, unary.Operand)) return ([], expr);
+        return (h, unary with { Operand = lowered });
+    }
+
+    // Recursive descent for index expressions: lowers both the object and the index sub-expressions.
+    private (List<Statement> Hoisted, Expression Expr) LowerIndexExpr(
+        IndexExpression idx, Expression expr)
+    {
+        var (objH, loweredObj) = LowerExpr(idx.Object);
+        var (idxH, loweredIdx) = LowerExpr(idx.Index);
+        var hoisted = Concat(objH, idxH);
+        if (hoisted.Count == 0
+            && ReferenceEquals(loweredObj, idx.Object)
+            && ReferenceEquals(loweredIdx, idx.Index))
+            return ([], expr);
+        var rewritten = idx with { Object = loweredObj, Index = loweredIdx };
+        rewritten.ResolvedType = idx.ResolvedType;
+        rewritten.ResolvedSetItem = idx.ResolvedSetItem;
+        return (hoisted, rewritten);
+    }
+
+    // Recursive descent for creator expressions: lowers each member-variable initializer.
+    private (List<Statement> Hoisted, Expression Expr) LowerCreatorExpr(
+        CreatorExpression creator, Expression expr)
+    {
+        var hoisted = new List<Statement>();
+        var members = new List<(string Name, Expression Value)>(
+            capacity: creator.MemberVariables.Count);
+        bool changed = false;
+        foreach ((string name, Expression value) in creator.MemberVariables)
+        {
+            var (h, lowered) = LowerExpr(value);
+            hoisted.AddRange(h);
+            members.Add((name, lowered));
+            if (!ReferenceEquals(lowered, value)) changed = true;
+        }
+
+        if (!changed && hoisted.Count == 0) return ([], expr);
+        return (hoisted, creator with { MemberVariables = members });
+    }
+
+    // Recursive descent for generic member routine call expressions: lowers the receiver and each argument.
+    private (List<Statement> Hoisted, Expression Expr) LowerGenericMemberRoutineCall(
+        GenericMemberRoutineCallExpression gmc, Expression expr)
+    {
+        var hoisted = new List<Statement>();
+        var (objH, loweredObj) = LowerExpr(gmc.Object);
+        hoisted.AddRange(objH);
+
+        var args = new List<Expression>(capacity: gmc.Arguments.Count);
+        bool argsChanged = false;
+        foreach (Expression arg in gmc.Arguments)
+        {
+            var (h, lowered) = LowerExpr(arg);
+            hoisted.AddRange(h);
+            args.Add(lowered);
+            if (!ReferenceEquals(lowered, arg)) argsChanged = true;
+        }
+
+        if (hoisted.Count == 0 && !argsChanged
+            && ReferenceEquals(loweredObj, gmc.Object))
+            return ([], expr);
+        return (hoisted, gmc with { Object = loweredObj, Arguments = args });
+    }
+
+    // Recursive descent for inserted-text (f-string) expressions: lowers each expression part.
+    private (List<Statement> Hoisted, Expression Expr) LowerInsertedText(
+        InsertedTextExpression ftext, Expression expr)
+    {
+        var hoisted = new List<Statement>();
+        var parts = new List<InsertedTextPart>(capacity: ftext.Parts.Count);
+        bool changed = false;
+        foreach (InsertedTextPart part in ftext.Parts)
+        {
+            if (part is ExpressionPart ep)
+            {
+                var (h, lowered) = LowerExpr(ep.Expression);
+                hoisted.AddRange(h);
+                parts.Add(ep with { Expression = lowered });
+                if (!ReferenceEquals(lowered, ep.Expression)) changed = true;
+            }
+            else
+            {
+                parts.Add(part);
+            }
+        }
+
+        if (!changed && hoisted.Count == 0) return ([], expr);
+        return (hoisted, ftext with { Parts = parts });
+    }
+
+    // Lowers the body of a lambda expression for UndecidedInteger/Decimal resolution.
+    // Only rewrites when lowering the body produced no hoisted statements (expression-position only).
+    private (List<Statement> Hoisted, Expression Expr) LowerLambdaExpr(
+        LambdaExpression lambda, Expression expr)
+    {
+        var (bodyH, loweredBody) = LowerExpr(expr: lambda.Body);
+        if (bodyH.Count == 0 && !ReferenceEquals(objA: loweredBody, objB: lambda.Body))
+            return ([], lambda with { Body = loweredBody });
+        return ([], expr);
     }
 
     // Lowers a call expression: recurses into callee + args, auto-wraps variant arm arguments,
@@ -598,48 +704,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         var (calleeH, loweredCallee) = LowerExpr(call.Callee);
         hoisted.AddRange(calleeH);
 
-        var args = new List<Expression>(capacity: call.Arguments.Count);
         bool argsChanged = false;
-        // Auto-wrap an arm value passed to a VARIANT parameter (`tag(s: 9_s32)` where `tag`
-        // takes a `Shape`) — the same rewrite the declaration auto-wrap uses, keyed on the
-        // resolved routine's parameter type. Positional args map by index, named by name.
-        RoutineInfo? callRoutine = call.ResolvedRoutine;
-        int posArgIdx = 0;
-        foreach (Expression arg in call.Arguments)
-        {
-            // Preserve NamedArgumentExpression wrappers -- codegen uses arg names to detect
-            // direct field constructors (e.g., Point(x: 1, y: 2) vs CStr(from: v)).
-            // Only lower the inner value expression, not the wrapper itself.
-            if (arg is NamedArgumentExpression namedArg)
-            {
-                var (h, loweredValue) = LowerExpr(namedArg.Value);
-                hoisted.AddRange(h);
-                TypeInfo? paramType = callRoutine?.Parameters
-                    .FirstOrDefault(predicate: p => p.Name == namedArg.Name)?.Type;
-                Expression wrappedValue =
-                    TryWrapVariantArm(targetType: paramType, init: loweredValue) ?? loweredValue;
-                Expression loweredNamed = ReferenceEquals(wrappedValue, namedArg.Value)
-                    ? namedArg
-                    : namedArg with { Value = wrappedValue };
-                args.Add(loweredNamed);
-                if (!ReferenceEquals(loweredNamed, arg)) argsChanged = true;
-            }
-            else
-            {
-                var (h, lowered) = LowerExpr(arg);
-                hoisted.AddRange(h);
-                TypeInfo? paramType =
-                    callRoutine != null && posArgIdx < callRoutine.Parameters.Count
-                        ? callRoutine.Parameters[index: posArgIdx].Type
-                        : null;
-                Expression wrapped =
-                    TryWrapVariantArm(targetType: paramType, init: lowered) ?? lowered;
-                args.Add(wrapped);
-                if (!ReferenceEquals(wrapped, arg)) argsChanged = true;
-            }
-
-            posArgIdx++;
-        }
+        List<Expression> args = LowerCallArguments(call: call, hoisted: hoisted, argsChanged: ref argsChanged);
 
         // Variant construction via the call form: `Inner(7_s32)` / `Inner(none)`. SA leaves
         // these as CallExpressions with ConstructedType=<variant> but no create routine, so
@@ -652,6 +718,68 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             && ReferenceEquals(loweredCallee, call.Callee))
             return ([], expr);
         return (hoisted, call with { Callee = loweredCallee, Arguments = args });
+    }
+
+    // Lowers the argument list of a call, auto-wrapping variant arm values against the resolved
+    // parameter types. Named arguments preserve their wrapper; positional arguments map by index.
+    private List<Expression> LowerCallArguments(CallExpression call, List<Statement> hoisted,
+        ref bool argsChanged)
+    {
+        var args = new List<Expression>(capacity: call.Arguments.Count);
+        RoutineInfo? callRoutine = call.ResolvedRoutine;
+        int posArgIdx = 0;
+        foreach (Expression arg in call.Arguments)
+        {
+            // Preserve NamedArgumentExpression wrappers -- codegen uses arg names to detect
+            // direct field constructors (e.g., Point(x: 1, y: 2) vs CStr(from: v)).
+            // Only lower the inner value expression, not the wrapper itself.
+            if (arg is NamedArgumentExpression namedArg)
+            {
+                Expression loweredNamed = LowerNamedCallArg(namedArg: namedArg,
+                    callRoutine: callRoutine, hoisted: hoisted);
+                args.Add(loweredNamed);
+                if (!ReferenceEquals(loweredNamed, arg)) argsChanged = true;
+            }
+            else
+            {
+                Expression wrapped = LowerPositionalCallArg(arg: arg, callRoutine: callRoutine,
+                    posArgIdx: posArgIdx, hoisted: hoisted);
+                args.Add(wrapped);
+                if (!ReferenceEquals(wrapped, arg)) argsChanged = true;
+            }
+
+            posArgIdx++;
+        }
+
+        return args;
+    }
+
+    // Lowers a single named argument, wrapping the value for variant arm parameters if needed.
+    private Expression LowerNamedCallArg(NamedArgumentExpression namedArg,
+        RoutineInfo? callRoutine, List<Statement> hoisted)
+    {
+        var (h, loweredValue) = LowerExpr(namedArg.Value);
+        hoisted.AddRange(h);
+        TypeInfo? paramType = callRoutine?.Parameters
+            .FirstOrDefault(predicate: p => p.Name == namedArg.Name)?.Type;
+        Expression wrappedValue =
+            TryWrapVariantArm(targetType: paramType, init: loweredValue) ?? loweredValue;
+        return ReferenceEquals(wrappedValue, namedArg.Value)
+            ? namedArg
+            : namedArg with { Value = wrappedValue };
+    }
+
+    // Lowers a single positional argument, wrapping the value for variant arm parameters if needed.
+    private Expression LowerPositionalCallArg(Expression arg, RoutineInfo? callRoutine,
+        int posArgIdx, List<Statement> hoisted)
+    {
+        var (h, lowered) = LowerExpr(arg);
+        hoisted.AddRange(h);
+        TypeInfo? paramType =
+            callRoutine != null && posArgIdx < callRoutine.Parameters.Count
+                ? callRoutine.Parameters[index: posArgIdx].Type
+                : null;
+        return TryWrapVariantArm(targetType: paramType, init: lowered) ?? lowered;
     }
 
     // Lowers a member expression, folding choice/flags member access to a literal where applicable.
@@ -724,7 +852,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         return (hoisted, loweredTarget);
     }
 
-    // D-AST-6: hoist a conditional to `var _cif_N: T; if cond { _cif_N = a } else { _cif_N = b }`.
+    // D-AST-6: hoists a conditional expression to a temp variable plus an if/else statement,
+    // replacing the expression with a reference to the temp (ANF lifting).
     private (List<Statement> Hoisted, Expression Expr) LowerConditionalExpr(ConditionalExpression cond)
     {
         // ResolvedType must be set -- SA annotates user ternaries, and synthesized
@@ -808,7 +937,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         return (hoisted, creator);
     }
 
-    // D-AST-10: hoist a when-expression to `var _wres_N: T; WhenStatement; replace with _wres_N`.
+    // D-AST-10: hoists a when-expression to a temp variable declaration, emits a WhenStatement
+    // that assigns into the temp per clause, and replaces the expression with the temp reference.
     private (List<Statement> Hoisted, Expression Expr) LowerWhenExpr(WhenExpression whenExpr,
         Expression expr)
     {
@@ -943,7 +1073,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// variant <see cref="CreatorExpression"/> codegen expects. Returns null when the call is not a
     /// bodyless single-argument variant construction or the argument matches no arm.
     /// </summary>
-    private CreatorExpression? TryRewriteVariantCallConstruction(CallExpression call,
+    private static CreatorExpression? TryRewriteVariantCallConstruction(CallExpression call,
         List<Expression> args)
     {
         if (call is not { ConstructedType: VariantTypeInfo callVariant, ResolvedRoutine: null }
@@ -954,12 +1084,12 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         string? armName = null;
         if (vArg is LiteralExpression { LiteralType: TokenType.NoneValue })
         {
-            if (callVariant.Members.Any(predicate: m => m.IsNone)) armName = "None";
+            if (callVariant.Members.Any(predicate: m => m.IsNone)) armName = NoneTypeName;
         }
         else if (vArg.ResolvedType is { } vArgType)
         {
             VariantMemberInfo? m = FindVariantMember(callVariant, vArgType);
-            if (m != null) armName = m.IsNone ? "None" : m.Type!.Name;
+            if (m != null) armName = m.IsNone ? NoneTypeName : m.Type!.Name;
         }
         if (armName == null) return null;
 
@@ -1398,12 +1528,12 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         string carrierName = LastNameSegment(varType.Name);
         // Only Maybe handled at this stage. Result/Lookup payloads need TypeLayoutPass
         // to stamp byte sizes before their construction can be synthesized.
-        if (carrierName != "Maybe") return null;
+        if (carrierName != MaybeTypeName) return null;
         if (varType.GenericArguments is not { Count: 1 } typeArgs) return null;
 
         // Skip if init already produces the carrier itself (e.g. explicit Maybe[T](...)).
         string initBase = CarrierBaseName(initType);
-        if (initBase == "Maybe") return null;
+        if (initBase == MaybeTypeName) return null;
 
         // Build `Maybe[T](present: true, value: init)`. The carrier is a stdlib record
         // with named fields {present: Bool, value: T} — field-init lowering in codegen
@@ -1413,7 +1543,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             LiteralType: TokenType.True,
             Location: init.Location);
         var maybeCreator = new CreatorExpression(
-            TypeName: "Maybe",
+            TypeName: MaybeTypeName,
             TypeArguments: typeArgs,
             MemberVariables: [(Declaration.RuntimeContract.Carrier.PresentField, trueLit), (Declaration.RuntimeContract.Carrier.ValueField, init)],
             Location: init.Location)
@@ -1432,11 +1562,11 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// TypeInfo rather than a declared TypeExpression — replaces the hand-built { i1, T } insertvalue
     /// that codegen used to emit at the member store (D3).
     /// </summary>
-    private Expression? TryWrapMemberMaybe(Expression target, Expression value)
+    private CreatorExpression? TryWrapMemberMaybe(Expression target, Expression value)
     {
         if (target is not MemberExpression member) return null;
         TypeInfo? fieldType = member.ResolvedType;
-        if (fieldType is null || CarrierBaseName(fieldType) != "Maybe") return null;
+        if (fieldType is null || CarrierBaseName(fieldType) != MaybeTypeName) return null;
         if (fieldType.TypeArguments is not { Count: 1 }) return null;
 
         // The `none` literal is Maybe's zero value — leave it as-is (codegen stores zeroinitializer).
@@ -1444,7 +1574,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 
         // Already a Maybe carrier — no wrap.
         TypeInfo? valueType = value.ResolvedType;
-        if (valueType != null && CarrierBaseName(valueType) == "Maybe") return null;
+        if (valueType != null && CarrierBaseName(valueType) == MaybeTypeName) return null;
 
         List<TypeExpression> typeArgs =
             [TypeInfoToExpr(type: fieldType.TypeArguments[index: 0], loc: value.Location)];
@@ -1452,7 +1582,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             Value: true, LiteralType: TokenType.True, Location: value.Location)
             { ResolvedType = ctx.Registry.LookupType(name: "Bool") };
         return new CreatorExpression(
-            TypeName: "Maybe",
+            TypeName: MaybeTypeName,
             TypeArguments: typeArgs,
             MemberVariables:
             [
@@ -1473,7 +1603,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// variant (passthrough — including a different variant that is itself an arm must still wrap),
     /// or it matches no arm. Guarded by the declaration auto-wrap and the call-argument auto-wrap.
     /// </summary>
-    private Expression? TryWrapVariantArm(TypeInfo? targetType, Expression init)
+    private static CreatorExpression? TryWrapVariantArm(TypeInfo? targetType, Expression init)
     {
         if (targetType is not VariantTypeInfo variant) return null;
 
@@ -1481,7 +1611,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         if (init is LiteralExpression { LiteralType: TokenType.NoneValue })
         {
             return variant.Members.Any(predicate: m => m.IsNone)
-                ? MakeVariantArmCreator(variant: variant, armName: "None", init: init)
+                ? MakeVariantArmCreator(variant: variant, armName: NoneTypeName, init: init)
                 : null;
         }
 
@@ -1489,10 +1619,9 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         if (initType is null || initType.FullName == variant.FullName) return null;
 
         VariantMemberInfo? member = FindVariantMember(variant: variant, initType: initType);
-        return member is null
-            ? null
-            : MakeVariantArmCreator(variant: variant,
-                armName: member.IsNone ? "None" : member.Type!.Name, init: init);
+        if (member is null) return null;
+        string armName = member.IsNone ? NoneTypeName : member.Type!.Name;
+        return MakeVariantArmCreator(variant: variant, armName: armName, init: init);
     }
 
     private static CreatorExpression MakeVariantArmCreator(VariantTypeInfo variant, string armName,
@@ -1618,7 +1747,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// lowered) elements into an inline `Array[E, K]` literal and calls the monomorphized `from_literal[K]`
     /// static builder. `from_literal` is a `common` routine (no `me`), so its single parameter is the Array.
     /// </summary>
-    private Expression MakeFromLiteralCall(RoutineInfo builder, List<Expression> arrayElements,
+    private static CallExpression MakeFromLiteralCall(RoutineInfo builder, List<Expression> arrayElements,
         TypeInfo? literalResultType, SourceLocation loc)
     {
         TypeInfo arrayType = builder.Parameters[index: 0].Type; // Array[E, K]
@@ -1638,7 +1767,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     /// <summary>Builds a `DictEntry[K, V](key: k, value: v)` record construction for a dict-literal pair.</summary>
-    private static Expression MakeDictEntry(TypeInfo entryType, Expression key, Expression value,
+    private static CreatorExpression MakeDictEntry(TypeInfo entryType, Expression key, Expression value,
         SourceLocation loc)
     {
         List<TypeExpression>? typeArgs = entryType.TypeArguments is { Count: > 0 } eargs
@@ -1962,7 +2091,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     // Builds `var with_copy = baseRef.assign(); with_copy.field = value; …` returning the copy ref.
-    private Expression BuildWithCopy(Expression baseRef, TypeInfo baseType, RecordTypeInfo recordType,
+    private IdentifierExpression BuildWithCopy(Expression baseRef, TypeInfo baseType, RecordTypeInfo recordType,
         List<(string Field, Expression Value)> loweredOverrides, SourceLocation loc,
         List<Statement> hoisted)
     {
@@ -2018,8 +2147,27 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             return (hoisted, MakeTypeIdZeroCompare(loweredExpr: loweredExpr, isNegated: ipe.IsNegated,
                 loc: ipe.Location, u64Type: u64Type, boolType: boolType));
 
+        if (ipe.Pattern is TypePattern tp)
+        {
+            var dispatched = TryLowerTypedIsPattern(ipe: ipe, tp: tp, operandType: operandType,
+                loweredExpr: loweredExpr, u64Type: u64Type, boolType: boolType, hoisted: hoisted);
+            if (dispatched.HasValue) return dispatched.Value;
+        }
+
+        // Not lowerable (Maybe[T entity] or other): pass through, but recurse operand.
+        if (ReferenceEquals(loweredExpr, ipe.Expression) && hoisted.Count == 0)
+            return ([], ipe);
+        return (hoisted, ipe with { Expression = loweredExpr });
+    }
+
+    // Dispatches TypePattern-based is/isnot checks for Variant, Choice, Flags, and Entity operands.
+    // Returns null when no arm matched (caller falls through to the pass-through path).
+    private (List<Statement> Hoisted, Expression Expr)? TryLowerTypedIsPattern(
+        IsPatternExpression ipe, TypePattern tp, TypeInfo? operandType,
+        Expression loweredExpr, TypeInfo? u64Type, TypeInfo? boolType, List<Statement> hoisted)
+    {
         // D-AST-11: user VariantTypeInfo -- x is T -> x.type_id == FNV-1a(T.FullName)
-        if (ipe.Pattern is TypePattern { } tp && operandType is VariantTypeInfo)
+        if (operandType is VariantTypeInfo)
         {
             var (matched, result) = LowerVariantIsPattern(ipe: ipe, tp: tp, loweredExpr: loweredExpr,
                 u64Type: u64Type, boolType: boolType, hoisted: hoisted);
@@ -2029,18 +2177,18 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // Choice type: `c is CASE` -> `c == CASE_value`; `c isnot CASE` -> `c != CASE_value`.
         // ChoiceType is backed by an integer (default i32) with each case having a discrete
         // ComputedValue; comparison lowers to a direct integer eq/ne against the case constant.
-        if (ipe.Pattern is TypePattern choiceTp && operandType is ChoiceTypeInfo choiceType)
+        if (operandType is ChoiceTypeInfo choiceType)
         {
-            var (matched, result) = LowerChoiceIsPattern(ipe: ipe, choiceTp: choiceTp,
+            var (matched, result) = LowerChoiceIsPattern(ipe: ipe, choiceTp: tp,
                 choiceType: choiceType, loweredExpr: loweredExpr, boolType: boolType,
                 hoisted: hoisted);
             if (matched) return result;
         }
 
         // Flags type: `p is FLAG` -> `(p & mask) != 0`; `p isnot FLAG` -> `(p & mask) == 0`
-        if (ipe.Pattern is TypePattern flagsTp && operandType is FlagsTypeInfo flagsType2)
+        if (operandType is FlagsTypeInfo flagsType2)
         {
-            var (matched, result) = LowerFlagsIsPattern(ipe: ipe, flagsTp: flagsTp,
+            var (matched, result) = LowerFlagsIsPattern(ipe: ipe, flagsTp: tp,
                 flagsType2: flagsType2, loweredExpr: loweredExpr, hoisted: hoisted);
             if (matched) return result;
         }
@@ -2049,9 +2197,9 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // BUILDTIME-decidable — same type = always true, different = always false. Fold to a Bool literal
         // so codegen never sees an entity type-test (the old "optimistic match" hack disappears). A
         // protocol/Unknown operand carries a runtime type_id and is handled by its own path, not here.
-        if (ipe.Pattern is TypePattern entTp && operandType is EntityTypeInfo)
+        if (operandType is EntityTypeInfo)
         {
-            TypeInfo? target = entTp.Type.ResolvedType ?? ctx.Registry.LookupType(name: entTp.Type.Name);
+            TypeInfo? target = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
             if (target is EntityTypeInfo)
             {
                 bool same = operandType.FullName == target.FullName;
@@ -2063,10 +2211,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             }
         }
 
-        // Not lowerable (Maybe[T entity] or other): pass through, but recurse operand.
-        if (ReferenceEquals(loweredExpr, ipe.Expression) && hoisted.Count == 0)
-            return ([], ipe);
-        return (hoisted, ipe with { Expression = loweredExpr });
+        return null;
     }
 
     // Maybe[T record]: x is None -> not x.present; x isnot None -> x.present
@@ -2090,7 +2235,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     // x.type_id == 0_u64 (or != for isnot).
-    private static Expression MakeTypeIdZeroCompare(Expression loweredExpr, bool isNegated,
+    private static BinaryExpression MakeTypeIdZeroCompare(Expression loweredExpr, bool isNegated,
         SourceLocation loc, TypeInfo? u64Type, TypeInfo? boolType)
     {
         var typeIdAccess = new MemberExpression(
@@ -2541,7 +2686,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
             _ => type.Name
         };
-        if (baseName != "Maybe") return false;
+        if (baseName != MaybeTypeName) return false;
         if (type.TypeArguments is not { Count: > 0 }) return false;
         // Post-Owned-retirement: Maybe[T entity] uses the same record-shaped carrier
         // as Maybe[T record] (single `present`+`value` layout), so accept both.
@@ -2589,14 +2734,14 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// </summary>
     private static Pattern MakeAbsencePattern(TypeInfo? carrierType, SourceLocation loc)
     {
-        // Maybe is identified by name prefix "Maybe"
+        // Maybe is identified by name prefix
         string? baseName = carrierType switch
         {
             RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
             _ => carrierType?.Name
         };
 
-        if (baseName == "Maybe")
+        if (baseName == MaybeTypeName)
             return new NonePattern(Location: loc);
 
         // Result, Lookup, or unknown -- use None type pattern
@@ -2645,7 +2790,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// D-AST-7: Runs expression lowering on all synthesized variant bodies in
     /// <see cref="PostprocessingContext.VariantBodies"/> so that hoisting transforms
     /// (conditional expressions, when expressions, etc.) are applied to variant bodies
-    /// generated by <see cref="ErrorHandlingVariantPass"/>.
+    /// generated by <c>ErrorHandlingVariantPass</c>.
     /// </summary>
     public void RunOnVariantBodies()
         => BodyDispatch.RunOnVariantBodies(

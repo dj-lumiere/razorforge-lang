@@ -13,6 +13,9 @@ namespace RazorForge.Tests.Perf;
 /// </summary>
 public sealed class PbrfExternRefTests
 {
+    private static readonly string[] TagsA = ["a1", "a2"];
+    private static readonly string[] TagsB = ["b1"];
+
     public sealed class Node
     {
         public string Name = "";
@@ -67,9 +70,9 @@ public sealed class PbrfExternRefTests
         // Bodies filled.
         Assert.Equal("A", liveA.Name);
         Assert.Equal(1, liveA.Payload);
-        Assert.Equal(new[] { "a1", "a2" }, liveA.Tags);
+        Assert.Equal(TagsA, liveA.Tags);
         Assert.Equal("B", liveB.Name);
-        Assert.Equal(new[] { "b1" }, liveB.Tags);
+        Assert.Equal(TagsB, liveB.Tags);
 
         // The cross-module cycle resolved to the SAME shells — reference identity across artifacts.
         Assert.Same(liveB, liveA.Ref);

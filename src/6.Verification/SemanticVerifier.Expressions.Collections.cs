@@ -70,7 +70,7 @@ public sealed partial class SemanticVerifier
     /// created as <c>Roamed[Set]()</c>, an uninitialized controller → AccessViolation). Other expected
     /// wrappers (Owned/Retained/Tracked) and exact collection types pass through unchanged.
     /// </summary>
-    private TypeSymbol LiteralTypeFromExpected(TypeSymbol expectedType,
+    private static TypeSymbol LiteralTypeFromExpected(TypeSymbol expectedType,
         TypeSymbol? collectionExpectedType) =>
         GetTypeBaseName(type: expectedType) == Compiler.Declaration.RuntimeContract.Roamed
             ? collectionExpectedType!
@@ -106,37 +106,74 @@ public sealed partial class SemanticVerifier
         // `create + add_last` sequence. Mark for the auto-bind rule (rvalue T → bound T).
         list.IsInFlight = true;
         // Extract expected element type from list-shaped expected types.
-        TypeSymbol? expectedElementType = null;
         TypeSymbol? collectionExpectedType = expectedType != null
             ? UnwrapCollectionLiteralExpectedType(type: expectedType)
             : null;
         string? expectedBaseName = collectionExpectedType != null
             ? GetTypeBaseName(type: collectionExpectedType)
             : null;
+        TypeSymbol? expectedElementType = ResolveListExpectedElementType(
+            collectionExpectedType: collectionExpectedType, expectedBaseName: expectedBaseName);
+
+        TypeSymbol? elementType = ResolveListElementType(list: list,
+            expectedElementType: expectedElementType);
+
+        ValidateListFixedArity(list: list, expectedBaseName: expectedBaseName,
+            collectionExpectedType: collectionExpectedType);
+
+        TypeSymbol resultType = ResolveListResultType(expectedType: expectedType,
+            expectedBaseName: expectedBaseName, collectionExpectedType: collectionExpectedType,
+            elementType: elementType);
+
+        // Resolve the `from_literal` static builder for the (non-inline) collection type, so the lowering
+        // emits `Type.from_literal(a, b, c)` and reachability seeds the monomorphized body.
+        ResolveLiteralBuilder(literal: list, resultType: resultType, builderElementType: elementType,
+            elementCount: list.Elements.Count);
+        return resultType;
+    }
+
+    /// <summary>
+    /// Determines the expected element type for a list literal from the unwrapped collection expected type
+    /// and its base name. Bit-typed collections (<c>BitList</c>/<c>BitArray</c>) force <c>Bool</c>;
+    /// sequence types extract their first type argument.
+    /// </summary>
+    private TypeSymbol? ResolveListExpectedElementType(TypeSymbol? collectionExpectedType,
+        string? expectedBaseName)
+    {
         if (collectionExpectedType is { IsGenericResolution: true, TypeArguments.Count: >= 1 } &&
-            expectedBaseName is "List" or "CircularList" or "SortedList" or "Array")
+            expectedBaseName is "List" or "CircularList" or "SortedList" or CollectionNameArray)
         {
-            expectedElementType = collectionExpectedType.TypeArguments![index: 0];
-        }
-        else if (expectedBaseName is "BitList" or "BitArray")
-        {
-            expectedElementType = _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
+            return collectionExpectedType.TypeArguments![index: 0];
         }
 
-        TypeSymbol? elementType = null;
+        if (expectedBaseName is "BitList" or CollectionNameBitArray)
+        {
+            return _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
+        }
 
+        return null;
+    }
+
+    /// <summary>
+    /// Infers or validates the element type for a list literal: explicit annotation, inferred from the
+    /// first element (with subsequent elements validated), propagated from context, or an error.
+    /// </summary>
+    private TypeSymbol? ResolveListElementType(ListLiteralExpression list,
+        TypeSymbol? expectedElementType)
+    {
         if (list.ElementType != null)
         {
-            elementType = ResolveType(typeExpr: list.ElementType);
+            return ResolveType(typeExpr: list.ElementType);
         }
-        else if (list.Elements.Count > 0)
+
+        if (list.Elements.Count > 0)
         {
-            // Infer from first element, propagating expected element type
-            elementType = AnalyzeExpression(expression: list.Elements[index: 0],
+            // Infer from first element, propagating expected element type.
+            TypeSymbol elementType = AnalyzeExpression(expression: list.Elements[index: 0],
                 expectedType: expectedElementType);
 
-            // Validate all elements have compatible types
-            // Use inferred element type as context for subsequent elements (e.g., [] in [[1,2], []])
+            // Validate all elements have compatible types.
+            // Use inferred element type as context for subsequent elements (e.g., [] in [[1,2], []]).
             TypeSymbol elemExpected = expectedElementType ?? elementType;
             for (int i = 1; i < list.Elements.Count; i++)
             {
@@ -150,22 +187,33 @@ public sealed partial class SemanticVerifier
                         location: list.Elements[index: i].Location);
                 }
             }
-        }
-        else if (expectedElementType != null)
-        {
-            // Empty list with expected type from context — use it
-            elementType = expectedElementType;
-        }
-        else
-        {
-            ReportError(code: SemanticDiagnosticCode.EmptyListNoTypeAnnotation,
-                message:
-                "Cannot infer element type from empty list literal without type annotation.",
-                location: list.Location);
-            elementType = ErrorTypeInfo.Instance;
+
+            return elementType;
         }
 
-        if (expectedBaseName == "Array" && collectionExpectedType?.TypeArguments is { Count: >= 2 })
+        if (expectedElementType != null)
+        {
+            // Empty list with expected type from context — use it.
+            return expectedElementType;
+        }
+
+        ReportError(code: SemanticDiagnosticCode.EmptyListNoTypeAnnotation,
+            message:
+            "Cannot infer element type from empty list literal without type annotation.",
+            location: list.Location);
+        return ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// Validates that a fixed-arity list literal (<c>Array[T,N]</c> or <c>BitArray[N]</c>) has exactly
+    /// the expected number of elements, reporting <see cref="SemanticDiagnosticCode.ArgumentCountMismatch"/>
+    /// if not.
+    /// </summary>
+    private void ValidateListFixedArity(ListLiteralExpression list, string? expectedBaseName,
+        TypeSymbol? collectionExpectedType)
+    {
+        if (expectedBaseName == CollectionNameArray &&
+            collectionExpectedType?.TypeArguments is { Count: >= 2 })
         {
             long? expectedCount =
                 GetConstGenericLong(type: collectionExpectedType.TypeArguments[index: 1]);
@@ -178,7 +226,7 @@ public sealed partial class SemanticVerifier
             }
         }
 
-        if (expectedBaseName == "BitArray" &&
+        if (expectedBaseName == CollectionNameBitArray &&
             collectionExpectedType?.TypeArguments is { Count: >= 1 })
         {
             long? expectedCount =
@@ -191,33 +239,32 @@ public sealed partial class SemanticVerifier
                     location: list.Location);
             }
         }
+    }
 
-        TypeSymbol resultType;
+    /// <summary>
+    /// Resolves the result type of a list literal: uses the expected type when it matches a known sequence
+    /// collection base name, otherwise defaults to <c>List[T]</c>.
+    /// </summary>
+    private TypeSymbol ResolveListResultType(TypeSymbol? expectedType, string? expectedBaseName,
+        TypeSymbol? collectionExpectedType, TypeSymbol? elementType)
+    {
         if (expectedType != null && expectedBaseName is "List" or "CircularList" or "SortedList" or "BitList" or
-            "Array" or "BitArray")
+            CollectionNameArray or CollectionNameBitArray)
         {
-            resultType = LiteralTypeFromExpected(expectedType: expectedType,
+            return LiteralTypeFromExpected(expectedType: expectedType,
                 collectionExpectedType: collectionExpectedType);
         }
-        else
-        {
-            // Return List<T> type by default.
-            TypeSymbol? listDef = _registry.LookupType(name: "List");
-            if (listDef == null || elementType == null)
-            {
-                return ErrorTypeInfo.Instance;
-            }
 
-            TypeSymbol listType = _registry.GetOrCreateResolution(genericDef: listDef,
-                typeArguments: [elementType]);
-            resultType = WrapOwnedCollectionLiteralType(type: listType);
+        // Return List<T> type by default.
+        TypeSymbol? listDef = _registry.LookupType(name: "List");
+        if (listDef == null || elementType == null)
+        {
+            return ErrorTypeInfo.Instance;
         }
 
-        // Resolve the `from_literal` static builder for the (non-inline) collection type, so the lowering
-        // emits `Type.from_literal(a, b, c)` and reachability seeds the monomorphized body.
-        ResolveLiteralBuilder(literal: list, resultType: resultType, builderElementType: elementType,
-            elementCount: list.Elements.Count);
-        return resultType;
+        TypeSymbol listType = _registry.GetOrCreateResolution(genericDef: listDef,
+            typeArguments: [elementType]);
+        return WrapOwnedCollectionLiteralType(type: listType);
     }
 
     /// <summary>
@@ -237,18 +284,12 @@ public sealed partial class SemanticVerifier
 
         TypeInfo collectionType = UnwrapCollectionLiteralExpectedType(type: resultType);
         string? baseName = GetTypeBaseName(type: collectionType);
-        if (baseName is "Array" or "BitArray" or null)
+        if (baseName is CollectionNameArray or CollectionNameBitArray or null)
         {
             return;
         }
 
-        var candidates = new List<RoutineInfo>();
-        _registry.CollectMemberRoutineCandidates(type: collectionType,
-            memberRoutineName: LiteralBuilderRoutineName, candidates: candidates);
-        candidates.AddRange(collection: _registry.GetMemberRoutinesForType(type: collectionType)
-            .Where(predicate: m => m.Name == LiteralBuilderRoutineName));
-        RoutineInfo? builder = candidates.FirstOrDefault(
-            predicate: m => m.Parameters.Any(predicate: p => p.IsVariadicParam));
+        RoutineInfo? builder = FindVariadicLiteralBuilder(collectionType: collectionType);
         if (builder == null)
         {
             return;
@@ -260,6 +301,34 @@ public sealed partial class SemanticVerifier
             return;
         }
 
+        MonomorphizeLiteralBuilder(literal: literal, builder: builder, arrayDef: arrayDef,
+            builderElementType: builderElementType, elementCount: elementCount);
+    }
+
+    /// <summary>
+    /// Finds the variadic <c>from_literal</c> routine on <paramref name="collectionType"/> by collecting
+    /// all member-routine candidates and returning the first one with a variadic parameter.
+    /// Returns null when no such routine is registered on the type.
+    /// </summary>
+    private RoutineInfo? FindVariadicLiteralBuilder(TypeInfo collectionType)
+    {
+        var candidates = new List<RoutineInfo>();
+        _registry.CollectMemberRoutineCandidates(type: collectionType,
+            memberRoutineName: LiteralBuilderRoutineName, candidates: candidates);
+        candidates.AddRange(collection: _registry.GetMemberRoutinesForType(type: collectionType)
+            .Where(predicate: m => m.Name == LiteralBuilderRoutineName));
+        return candidates.FirstOrDefault(
+            predicate: m => m.Parameters.Any(predicate: p => p.IsVariadicParam));
+    }
+
+    /// <summary>
+    /// Infers the generic type arguments for a <c>from_literal</c> builder by constructing an
+    /// <c>Array[E, K]</c> probe literal and unifying it against the builder's parameter, then
+    /// stamps the monomorphized (or bare generic) builder onto <paramref name="literal"/>.
+    /// </summary>
+    private void MonomorphizeLiteralBuilder(Expression literal, RoutineInfo builder,
+        TypeSymbol arrayDef, TypeSymbol builderElementType, int elementCount)
+    {
         var arityConst = new ConstGenericValueTypeInfo(literalText: elementCount.ToString(),
             value: elementCount, explicitTypeName: "U64");
         TypeSymbol arrayType = _registry.GetOrCreateResolution(genericDef: arrayDef,
@@ -277,6 +346,8 @@ public sealed partial class SemanticVerifier
     }
 
     private const string LiteralBuilderRoutineName = "from_literal";
+    private const string CollectionNameArray = "Array";
+    private const string CollectionNameBitArray = "BitArray";
 
     private TypeSymbol AnalyzeSetLiteralExpression(SetLiteralExpression set,
         TypeSymbol? expectedType = null)
@@ -284,43 +355,21 @@ public sealed partial class SemanticVerifier
         // Collection literals are entity rvalues; see AnalyzeListLiteralExpression.
         set.IsInFlight = true;
         // Extract expected element type from set-shaped expected types.
-        TypeSymbol? expectedElementType = null;
         TypeSymbol? collectionExpectedType = expectedType != null
             ? UnwrapCollectionLiteralExpectedType(type: expectedType)
             : null;
         string? expectedBaseName = collectionExpectedType != null
             ? GetTypeBaseName(type: collectionExpectedType)
             : null;
+        TypeSymbol? expectedElementType = null;
         if (collectionExpectedType is { IsGenericResolution: true, TypeArguments.Count: 1 } &&
             expectedBaseName is "Set" or "SortedSet" or "SecureSet")
         {
             expectedElementType = collectionExpectedType.TypeArguments![index: 0];
         }
 
-        TypeSymbol? elementType = null;
-
-        if (set.ElementType != null)
-        {
-            elementType = ResolveType(typeExpr: set.ElementType);
-        }
-        else if (set.Elements.Count > 0)
-        {
-            elementType = AnalyzeExpression(expression: set.Elements[index: 0],
-                expectedType: expectedElementType);
-        }
-        else if (expectedElementType != null)
-        {
-            // Empty set with expected type from context — use it
-            elementType = expectedElementType;
-        }
-        else
-        {
-            ReportError(code: SemanticDiagnosticCode.EmptySetNoTypeAnnotation,
-                message:
-                "Cannot infer element type from empty set literal without type annotation.",
-                location: set.Location);
-            elementType = ErrorTypeInfo.Instance;
-        }
+        TypeSymbol? elementType = ResolveSetElementType(set: set,
+            expectedElementType: expectedElementType);
 
         // Analyze all elements with the inferred/expected element type.
         foreach (Expression elem in set.Elements)
@@ -328,29 +377,69 @@ public sealed partial class SemanticVerifier
             AnalyzeExpression(expression: elem, expectedType: expectedElementType ?? elementType);
         }
 
-        TypeSymbol setResult;
-        if (expectedType != null && expectedBaseName is "Set" or "SortedSet" or "SecureSet")
-        {
-            setResult = LiteralTypeFromExpected(expectedType: expectedType,
-                collectionExpectedType: collectionExpectedType);
-        }
-        else
-        {
-            // Return Set<T> type by default.
-            TypeSymbol? setDef = _registry.LookupType(name: "Set");
-            if (setDef == null || elementType == null)
-            {
-                return ErrorTypeInfo.Instance;
-            }
-
-            TypeSymbol setType = _registry.GetOrCreateResolution(genericDef: setDef,
-                typeArguments: [elementType]);
-            setResult = WrapOwnedCollectionLiteralType(type: setType);
-        }
+        TypeSymbol setResult = ResolveSetResultType(expectedType: expectedType,
+            expectedBaseName: expectedBaseName, collectionExpectedType: collectionExpectedType,
+            elementType: elementType);
 
         ResolveLiteralBuilder(literal: set, resultType: setResult, builderElementType: elementType,
             elementCount: set.Elements.Count);
         return setResult;
+    }
+
+    /// <summary>
+    /// Infers the element type for a set literal: explicit annotation, first element, expected-type
+    /// propagation for empty sets, or an error.
+    /// </summary>
+    private TypeSymbol? ResolveSetElementType(SetLiteralExpression set,
+        TypeSymbol? expectedElementType)
+    {
+        if (set.ElementType != null)
+        {
+            return ResolveType(typeExpr: set.ElementType);
+        }
+
+        if (set.Elements.Count > 0)
+        {
+            return AnalyzeExpression(expression: set.Elements[index: 0],
+                expectedType: expectedElementType);
+        }
+
+        if (expectedElementType != null)
+        {
+            // Empty set with expected type from context — use it.
+            return expectedElementType;
+        }
+
+        ReportError(code: SemanticDiagnosticCode.EmptySetNoTypeAnnotation,
+            message:
+            "Cannot infer element type from empty set literal without type annotation.",
+            location: set.Location);
+        return ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// Resolves the result type of a set literal: uses the expected type when it matches a known set
+    /// collection base name, otherwise defaults to <c>Set[T]</c>.
+    /// </summary>
+    private TypeSymbol ResolveSetResultType(TypeSymbol? expectedType, string? expectedBaseName,
+        TypeSymbol? collectionExpectedType, TypeSymbol? elementType)
+    {
+        if (expectedType != null && expectedBaseName is "Set" or "SortedSet" or "SecureSet")
+        {
+            return LiteralTypeFromExpected(expectedType: expectedType,
+                collectionExpectedType: collectionExpectedType);
+        }
+
+        // Return Set<T> type by default.
+        TypeSymbol? setDef = _registry.LookupType(name: "Set");
+        if (setDef == null || elementType == null)
+        {
+            return ErrorTypeInfo.Instance;
+        }
+
+        TypeSymbol setType = _registry.GetOrCreateResolution(genericDef: setDef,
+            typeArguments: [elementType]);
+        return WrapOwnedCollectionLiteralType(type: setType);
     }
 
     private TypeSymbol AnalyzeDictLiteralExpression(DictLiteralExpression dict,
@@ -729,16 +818,16 @@ public sealed partial class SemanticVerifier
     private void ValidateWhenPatternOrder(WhenExpression when)
     {
         bool seenElse = false;
-        foreach (WhenClause clause in when.Clauses)
+        foreach (Pattern pattern in when.Clauses.Select(clause => clause.Pattern))
         {
             if (seenElse)
             {
                 ReportError(code: SemanticDiagnosticCode.PatternOrderViolation,
                     message: "Unreachable pattern after 'else' or wildcard.",
-                    location: clause.Pattern.Location);
+                    location: pattern.Location);
             }
 
-            if (clause.Pattern is ElsePattern or WildcardPattern)
+            if (pattern is ElsePattern or WildcardPattern)
             {
                 seenElse = true;
             }
@@ -751,14 +840,14 @@ public sealed partial class SemanticVerifier
     private void ValidateWhenDuplicatePatterns(WhenExpression when)
     {
         var seenPatterns = new HashSet<string>();
-        foreach (WhenClause clause in when.Clauses)
+        foreach (Pattern pattern in when.Clauses.Select(clause => clause.Pattern))
         {
-            string? patternKey = GetPatternKey(pattern: clause.Pattern);
+            string? patternKey = GetPatternKey(pattern: pattern);
             if (patternKey != null && !seenPatterns.Add(item: patternKey))
             {
                 ReportError(code: SemanticDiagnosticCode.DuplicatePattern,
                     message: $"Duplicate pattern: {patternKey}.",
-                    location: clause.Pattern.Location);
+                    location: pattern.Location);
             }
         }
     }
@@ -775,88 +864,97 @@ public sealed partial class SemanticVerifier
         if (clause.Body is ExpressionStatement exprStmt)
         {
             TypeSymbol branchType = AnalyzeExpression(expression: exprStmt.Expression);
-
-            if (resultType == null)
-            {
-                resultType = branchType;
-            }
-            else if (!IsAssignableTo(source: branchType, target: resultType))
-            {
-                ReportError(code: SemanticDiagnosticCode.WhenBranchTypeMismatch,
-                    message:
-                    $"When expression branches have incompatible types: '{resultType.Name}' and '{branchType.Name}'.",
-                    location: clause.Body.Location);
-            }
+            return FoldWhenBranchType(resultType: resultType, branchType: branchType,
+                errorLocation: clause.Body.Location);
         }
-        else if (clause.Body is ReturnStatement { Value: not null } ret)
+
+        if (clause.Body is ReturnStatement { Value: not null } ret)
         {
             // Allow return statements in when expressions
             TypeSymbol branchType = AnalyzeExpression(expression: ret.Value);
+            return resultType ?? branchType;
+        }
 
-            if (resultType == null)
+        if (clause.Body is BlockStatement block)
+        {
+            return AnalyzeWhenBlockClauseBody(block: block, resultType: resultType);
+        }
+
+        // Analyze as regular statement
+        AnalyzeStatement(statement: clause.Body);
+        return resultType;
+    }
+
+    /// <summary>
+    /// Folds a branch type into the running result type for a <c>when</c> expression clause, reporting
+    /// <see cref="SemanticDiagnosticCode.WhenBranchTypeMismatch"/> when the branch is incompatible with
+    /// the established result type. Returns the (possibly updated) result type.
+    /// </summary>
+    private TypeSymbol? FoldWhenBranchType(TypeSymbol? resultType, TypeSymbol branchType,
+        SourceLocation errorLocation)
+    {
+        if (resultType == null)
+        {
+            return branchType;
+        }
+
+        if (!IsAssignableTo(source: branchType, target: resultType))
+        {
+            ReportError(code: SemanticDiagnosticCode.WhenBranchTypeMismatch,
+                message:
+                $"When expression branches have incompatible types: '{resultType.Name}' and '{branchType.Name}'.",
+                location: errorLocation);
+        }
+
+        return resultType;
+    }
+
+    /// <summary>
+    /// Analyzes a block-statement body inside a <c>when</c> expression clause: validates <c>becomes</c>
+    /// usage and extracts the result type. A block with only <c>becomes</c> should have used
+    /// <c>=&gt;</c> syntax; a block without any <c>becomes</c> is an error.
+    /// </summary>
+    private TypeSymbol? AnalyzeWhenBlockClauseBody(BlockStatement block, TypeSymbol? resultType)
+    {
+        BecomesStatement? becomesStmt = null;
+        int statementCount = 0;
+
+        foreach (Statement stmt in block.Statements)
+        {
+            AnalyzeStatement(statement: stmt);
+            statementCount++;
+
+            if (stmt is BecomesStatement becomes)
             {
-                resultType = branchType;
+                becomesStmt = becomes;
             }
         }
-        else if (clause.Body is BlockStatement block)
+
+        if (becomesStmt != null)
         {
-            // For block statements in when expressions, we need to validate 'becomes' usage
-            // and extract the result type from the becomes statement
-            BecomesStatement? becomesStmt = null;
-            int statementCount = 0;
-
-            foreach (Statement stmt in block.Statements)
+            // Found a becomes statement — check if it's a single-statement block.
+            if (statementCount == 1)
             {
-                AnalyzeStatement(statement: stmt);
-                statementCount++;
-
-                if (stmt is BecomesStatement becomes)
-                {
-                    becomesStmt = becomes;
-                }
-            }
-
-            if (becomesStmt != null)
-            {
-                // Found a becomes statement - check if it's a single-statement block
-                if (statementCount == 1)
-                {
-                    // Block contains only 'becomes expr' - should use => syntax instead
-                    ReportError(code: SemanticDiagnosticCode.SingleExpressionBranchUsesBecomes,
-                        message:
-                        "Single-expression when branch should use '=>' syntax instead of block with 'becomes'.",
-                        location: becomesStmt.Location);
-                }
-
-                // Extract the result type from the becomes expression (already analyzed via AnalyzeStatement)
-                TypeSymbol branchType =
-                    becomesStmt.Value.ResolvedType ?? ErrorTypeInfo.Instance;
-
-                if (resultType == null)
-                {
-                    resultType = branchType;
-                }
-                else if (!IsAssignableTo(source: branchType, target: resultType))
-                {
-                    ReportError(code: SemanticDiagnosticCode.WhenBranchTypeMismatch,
-                        message:
-                        $"When expression branches have incompatible types: '{resultType.Name}' and '{branchType.Name}'.",
-                        location: becomesStmt.Location);
-                }
-            }
-            else if (statementCount > 0)
-            {
-                // Multi-statement block without 'becomes' in a when expression
-                ReportError(code: SemanticDiagnosticCode.WhenExpressionBlockMissingBecomes,
+                // Block contains only 'becomes expr' — should use => syntax instead.
+                ReportError(code: SemanticDiagnosticCode.SingleExpressionBranchUsesBecomes,
                     message:
-                    "Multi-statement block in when expression requires 'becomes' to specify the result value.",
-                    location: block.Location);
+                    "Single-expression when branch should use '=>' syntax instead of block with 'becomes'.",
+                    location: becomesStmt.Location);
             }
+
+            // Extract the result type from the becomes expression (already analyzed via AnalyzeStatement).
+            TypeSymbol branchType = becomesStmt.Value.ResolvedType ?? ErrorTypeInfo.Instance;
+            return FoldWhenBranchType(resultType: resultType, branchType: branchType,
+                errorLocation: becomesStmt.Location);
         }
-        else
+
+        if (statementCount > 0)
         {
-            // Analyze as regular statement
-            AnalyzeStatement(statement: clause.Body);
+            // Multi-statement block without 'becomes' in a when expression.
+            ReportError(code: SemanticDiagnosticCode.WhenExpressionBlockMissingBecomes,
+                message:
+                "Multi-statement block in when expression requires 'becomes' to specify the result value.",
+                location: block.Location);
         }
 
         return resultType;
@@ -877,37 +975,9 @@ public sealed partial class SemanticVerifier
 
         var typeArgs = new TypeSymbol?[genericRoutine.GenericParameters.Count];
 
-        int argCount = Math.Min(val1: genericRoutine.Parameters.Count, val2: arguments.Count);
-        for (int i = 0; i < argCount; i++)
-        {
-            TypeSymbol paramType = genericRoutine.Parameters[index: i].Type;
-
-            // Variadic params are desugared to Array[T, __VarargN]; the packed Array[T, K] argument
-            // is matched against the Array parameter directly so both T and the arity bind — no unwrap.
-
-            Expression argExpr = arguments[index: i] is NamedArgumentExpression na
-                ? na.Value
-                : arguments[index: i];
-            // A variadic call packs its trailing args into an Array[T, K] literal (already analyzed
-            // against the Array expected type). Re-analyzing it here without that expected type would
-            // default it back to List[T] and lose the arity K, so reuse its resolved Array type.
-            TypeSymbol argType =
-                argExpr is ListLiteralExpression { ResolvedType: { } packed }
-                && GetTypeBaseName(type: packed) is "Array"
-                    ? packed
-                    : AnalyzeExpression(expression: argExpr);
-            if (argType == ErrorTypeInfo.Instance)
-            {
-                continue;
-            }
-
-            // Recurse into TypeArguments so const- and type-generics inside a parameterized
-            // pattern (e.g. `array: Array[Byte, N]`) bind from the matching position in argType.
-            InferMemberRoutineTypeArgumentsFromTypes(paramType: paramType,
-                argType: argType,
-                genericParameters: genericRoutine.GenericParameters,
-                inferred: typeArgs);
-        }
+        // First pass: infer from argument types.
+        InferTypeArgsFromArguments(genericRoutine: genericRoutine, arguments: arguments,
+            typeArgs: typeArgs);
 
         // Second pass: infer any still-unbound generics from `needs` constraints whose constraining
         // param is now known (e.g. `zip[U, S2](other: Accessing[S2]) needs S2 obeys Iterable[U]` —
@@ -928,16 +998,57 @@ public sealed partial class SemanticVerifier
                 inferred: typeArgs);
         }
 
-        // All type args must be inferred
-        for (int i = 0; i < typeArgs.Length; i++)
+        // All type args must be inferred.
+        return typeArgs.Any(t => t == null) ? null : typeArgs.ToList()!;
+    }
+
+    /// <summary>
+    /// First-pass argument-type inference: resolves each argument's type and unifies it against the
+    /// corresponding parameter type to bind generic-parameter slots in <paramref name="typeArgs"/>.
+    /// Variadic packed-array arguments reuse their already-resolved <c>Array[T,K]</c> type to preserve
+    /// the arity constant <c>K</c>; error-typed arguments are skipped.
+    /// </summary>
+    private void InferTypeArgsFromArguments(RoutineInfo genericRoutine, List<Expression> arguments,
+        TypeSymbol?[] typeArgs)
+    {
+        int argCount = Math.Min(val1: genericRoutine.Parameters.Count, val2: arguments.Count);
+        for (int i = 0; i < argCount; i++)
         {
-            if (typeArgs[i] == null)
-            {
-                return null;
-            }
+            TypeSymbol paramType = genericRoutine.Parameters[index: i].Type;
+            Expression argExpr = arguments[index: i] is NamedArgumentExpression na
+                ? na.Value
+                : arguments[index: i];
+
+            // A variadic call packs its trailing args into an Array[T, K] literal (already analyzed
+            // against the Array expected type). Re-analyzing it here without that expected type would
+            // default it back to List[T] and lose the arity K, so reuse its resolved Array type.
+            TypeSymbol argType = ResolveArgTypeForInference(argExpr: argExpr);
+            if (argType == ErrorTypeInfo.Instance) continue;
+
+            // Recurse into TypeArguments so const- and type-generics inside a parameterized
+            // pattern (e.g. `array: Array[Byte, N]`) bind from the matching position in argType.
+            InferMemberRoutineTypeArgumentsFromTypes(paramType: paramType,
+                argType: argType,
+                genericParameters: genericRoutine.GenericParameters,
+                inferred: typeArgs);
+        }
+    }
+
+    /// <summary>
+    /// Resolves the effective type of an expression for generic type-argument inference. For a
+    /// <c>ListLiteralExpression</c> whose resolved type is already an <c>Array[T,K]</c> (a packed
+    /// variadic argument), returns that resolved type directly to preserve the arity constant. All
+    /// other expressions are analyzed fresh.
+    /// </summary>
+    private TypeSymbol ResolveArgTypeForInference(Expression argExpr)
+    {
+        if (argExpr is ListLiteralExpression { ResolvedType: { } packed }
+            && GetTypeBaseName(type: packed) is "Array")
+        {
+            return packed;
         }
 
-        return typeArgs.ToList()!;
+        return AnalyzeExpression(expression: argExpr);
     }
 
     /// <summary>
@@ -990,8 +1101,8 @@ public sealed partial class SemanticVerifier
     private static List<TypeSymbol> ImplementedProtocolsOf(TypeSymbol type) =>
         type switch
         {
-            RecordTypeInfo r => r.ImplementedProtocols.Cast<TypeSymbol>().ToList(),
-            EntityTypeInfo e => e.ImplementedProtocols.Cast<TypeSymbol>().ToList(),
+            RecordTypeInfo r => r.ImplementedProtocols.ToList(),
+            EntityTypeInfo e => e.ImplementedProtocols.ToList(),
             _ => []
         };
 
@@ -1061,12 +1172,8 @@ public sealed partial class SemanticVerifier
     {
         if (paramType is GenericParameterTypeInfo)
         {
-            int idx = genericParameters.ToList().IndexOf(item: paramType.Name);
-            if (idx >= 0 && inferred[idx] == null)
-            {
-                inferred[idx] = argType;
-            }
-
+            BindInferredSlot(name: paramType.Name, argType: argType,
+                genericParameters: genericParameters, inferred: inferred);
             return;
         }
 
@@ -1076,16 +1183,9 @@ public sealed partial class SemanticVerifier
         // `List[S64]` would wrongly element-wise-bind S2 to S64 (the inner element). Restricted to a
         // bare-generic inner so wrappers around constructed types (e.g. `Accessing[List[T]]`) keep
         // the normal element-wise unification that binds their inner params (T) correctly.
-        if (paramType is { TypeArguments: [GenericParameterTypeInfo markerParam] } &&
-            Compiler.Declaration.RuntimeContract.IsMarkerProtocol(baseName: ProtocolBaseName(type: paramType)) &&
-            ProtocolBaseName(type: argType) is not (Compiler.Declaration.RuntimeContract.Accessing or Compiler.Declaration.RuntimeContract.Controlling))
+        if (TryInferFromMarkerProtocolWrapper(paramType: paramType, argType: argType,
+                genericParameters: genericParameters, inferred: inferred))
         {
-            int markerIdx = genericParameters.ToList().IndexOf(item: markerParam.Name);
-            if (markerIdx >= 0 && inferred[markerIdx] == null)
-            {
-                inferred[markerIdx] = argType;
-            }
-
             return;
         }
 
@@ -1105,24 +1205,68 @@ public sealed partial class SemanticVerifier
         // RoutineTypeInfo is structural: its parameter/return types live in ParameterTypes/ReturnType,
         // not TypeArguments. Without this branch, `Routine[(T,), U]` would not unify against
         // `Routine[(S64,), S64]` and memberRoutine-level params (e.g. `select[U]`) would stay unresolved.
-        if (paramType is RoutineTypeInfo paramRoutine && argType is RoutineTypeInfo argRoutine &&
-            paramRoutine.ParameterTypes.Count == argRoutine.ParameterTypes.Count)
-        {
-            for (int i = 0; i < paramRoutine.ParameterTypes.Count; i++)
-            {
-                InferMemberRoutineTypeArgumentsFromTypes(paramType: paramRoutine.ParameterTypes[index: i],
-                    argType: argRoutine.ParameterTypes[index: i],
-                    genericParameters: genericParameters,
-                    inferred: inferred);
-            }
+        InferFromRoutineTypeStructure(paramType: paramType, argType: argType,
+            genericParameters: genericParameters, inferred: inferred);
+    }
 
-            if (paramRoutine.ReturnType is { } paramRet && argRoutine.ReturnType is { } argRet)
-            {
-                InferMemberRoutineTypeArgumentsFromTypes(paramType: paramRet,
-                    argType: argRet,
-                    genericParameters: genericParameters,
-                    inferred: inferred);
-            }
+    /// <summary>
+    /// Binds a generic-parameter slot by name if it is not yet bound: sets
+    /// <paramref name="inferred"/>[slot] = <paramref name="argType"/> for the first matching slot.
+    /// </summary>
+    private static void BindInferredSlot(string name, TypeSymbol argType,
+        List<string> genericParameters, TypeSymbol?[] inferred)
+    {
+        int idx = genericParameters.ToList().IndexOf(item: name);
+        if (idx >= 0 && inferred[idx] == null)
+        {
+            inferred[idx] = argType;
+        }
+    }
+
+    /// <summary>
+    /// Handles inference through a marker-protocol wrapper (<c>Accessing[S2]</c> /
+    /// <c>Controlling[S2]</c>) around a bare generic parameter: binds the wrapper's inner param
+    /// slot to the WHOLE argument type rather than element-wise. Returns true and binds the slot
+    /// when applicable; returns false otherwise so the caller falls through to element-wise unification.
+    /// </summary>
+    private static bool TryInferFromMarkerProtocolWrapper(TypeSymbol paramType, TypeSymbol argType,
+        List<string> genericParameters, TypeSymbol?[] inferred)
+    {
+        if (paramType is not { TypeArguments: [GenericParameterTypeInfo markerParam] }) return false;
+        if (!Compiler.Declaration.RuntimeContract.IsMarkerProtocol(baseName: ProtocolBaseName(type: paramType))) return false;
+        if (ProtocolBaseName(type: argType) is Compiler.Declaration.RuntimeContract.Accessing
+                                            or Compiler.Declaration.RuntimeContract.Controlling) return false;
+
+        BindInferredSlot(name: markerParam.Name, argType: argType,
+            genericParameters: genericParameters, inferred: inferred);
+        return true;
+    }
+
+    /// <summary>
+    /// Unifies a <c>RoutineTypeInfo</c> parameter against a <c>RoutineTypeInfo</c> argument by
+    /// recursively inferring from each paired parameter type and then from the return types.
+    /// No-op when either side is not a <c>RoutineTypeInfo</c> or the parameter counts differ.
+    /// </summary>
+    private static void InferFromRoutineTypeStructure(TypeSymbol paramType, TypeSymbol argType,
+        List<string> genericParameters, TypeSymbol?[] inferred)
+    {
+        if (paramType is not RoutineTypeInfo paramRoutine || argType is not RoutineTypeInfo argRoutine) return;
+        if (paramRoutine.ParameterTypes.Count != argRoutine.ParameterTypes.Count) return;
+
+        for (int i = 0; i < paramRoutine.ParameterTypes.Count; i++)
+        {
+            InferMemberRoutineTypeArgumentsFromTypes(paramType: paramRoutine.ParameterTypes[index: i],
+                argType: argRoutine.ParameterTypes[index: i],
+                genericParameters: genericParameters,
+                inferred: inferred);
+        }
+
+        if (paramRoutine.ReturnType is { } paramRet && argRoutine.ReturnType is { } argRet)
+        {
+            InferMemberRoutineTypeArgumentsFromTypes(paramType: paramRet,
+                argType: argRet,
+                genericParameters: genericParameters,
+                inferred: inferred);
         }
     }
 }

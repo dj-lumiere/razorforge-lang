@@ -102,6 +102,7 @@ public record AssociatedTypeDeclaration(
 /// <param name="Location">Source location information</param>
 /// <param name="Annotations">Optional annotation markers applied to the declaration.</param>
 /// <param name="IsLateInit">Whether the variable is initialized lazily after declaration.</param>
+/// <param name="IsGlobal">Whether this is a module-level mutable global (Suflae only; rejected in RazorForge).</param>
 /// <remarks>
 /// Variable declarations support various patterns:
 /// <list type="bullet">
@@ -408,7 +409,7 @@ public record RecordDeclaration(
 /// </summary>
 /// <param name="Name">Choice identifier name</param>
 /// <param name="Cases">List of choice variant definitions with optional values</param>
-/// <param name="member routines">List of memberRoutines that can be called on choice values</param>
+/// <param name="MemberRoutines">List of member routines that can be called on choice values</param>
 /// <param name="Visibility">Access control modifier</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
@@ -531,7 +532,7 @@ public record VariantDeclaration(
 /// <param name="Name">Protocol identifier name</param>
 /// <param name="GenericParameters">Optional list of generic type parameter names</param>
 /// <param name="ParentProtocols">List of parent protocols this protocol extends (obeys)</param>
-/// <param name="member routines">List of memberRoutine signatures (without implementations)</param>
+/// <param name="MemberRoutines">List of member routine signatures (without implementations)</param>
 /// <param name="Visibility">Access control modifier</param>
 /// <param name="Location">Source location information</param>
 /// <param name="GenericConstraints">Optional generic constraints.</param>
@@ -603,6 +604,8 @@ public record ModuleDeclaration(string Path, SourceLocation Location)
 /// <param name="Alias">Optional alias for imported module (as collections)</param>
 /// <param name="SpecificImports">Optional list of specific symbols to import ([List, Dict])</param>
 /// <param name="Location">Source location information</param>
+/// <param name="RealmImports">Optional list of realm-qualified foreign-routine aliases brought into
+/// bare-name scope (e.g. <c>import Module.C::qsort</c> → bare <c>qsort(...)</c> call allowed).</param>
 /// <remarks>
 /// Import declarations support various patterns:
 /// <list type="bullet">

@@ -197,7 +197,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
 
     // Statement walker
 
-    private Statement LowerBlockStatement(BlockStatement block)
+    private BlockStatement LowerBlockStatement(BlockStatement block)
     {
         bool changed = false;
         var newStmts = new List<Statement>(capacity: block.Statements.Count);
@@ -418,6 +418,21 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
 
     // Core lowering
 
+    // Returns true when a bare identifier at a return position should NOT be given a retaining
+    // copy: owned locals are moved out (teardown skips them), so copying would leak. Only the
+    // borrowed receiver (`me` outside a copy routine) and borrow-annotated parameters require
+    // a copy, since the caller still owns those and expects its own reference to remain valid.
+    private bool ShouldSkipRetainOnReturn(Expression expr)
+    {
+        if (expr is not IdentifierExpression id)
+            return false;
+        bool returningBorrowedReceiver = id.Name == "me" && !_inCopyRoutine;
+        bool returningBorrowParam = _borrowParamNames.Contains(item: id.Name);
+        // Skip retain when the identifier is an ordinary owned local (neither borrowed-receiver
+        // nor a borrow-annotated param). Retain IS needed for borrowed-receiver / borrow-param.
+        return !returningBorrowedReceiver && !returningBorrowParam;
+    }
+
     /// <summary>
     /// Lowers a single expression sitting in an ownership/copy position (var-binding RHS,
     /// assignment RHS, return value, call argument). A "borrowed reference" — an identifier or
@@ -462,17 +477,8 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
             && expr is IdentifierExpression or MemberExpression
             && NeedsRetainingCopy(type: expr.ResolvedType, copyMemberRoutine: out RoutineInfo? copyMemberRoutine))
         {
-            if (isReturn && expr is IdentifierExpression id)
-            {
-                // Returning the borrowed receiver `me` — or a borrowed managed PARAM — hands the caller
-                // an owned value that aliases the caller's still-live argument, so it must be copied
-                // (retained). Inside `store` itself `return me` is the identity primitive (excluded). Any
-                // OTHER bare identifier is an owned local being moved out, so it is returned as-is.
-                bool returningBorrowedReceiver = id.Name == "me" && !_inCopyRoutine;
-                bool returningBorrowParam = _borrowParamNames.Contains(item: id.Name);
-                if (!returningBorrowedReceiver && !returningBorrowParam)
-                    return expr;
-            }
+            if (isReturn && ShouldSkipRetainOnReturn(expr: expr))
+                return expr;
             return MakeCopyCall(expr: expr, copyMemberRoutine: copyMemberRoutine!);
         }
 
@@ -507,7 +513,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
         };
     }
 
-    private Expression StripStealFromCall(CallExpression call)
+    private CallExpression StripStealFromCall(CallExpression call)
     {
         bool changed = false;
         // A store primitive (poke / store / store_element_ref) MOVES its argument into raw
@@ -559,7 +565,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
         return changed ? call with { Arguments = args, Callee = callee } : call;
     }
 
-    private Expression StripStealFromCreator(CreatorExpression creator)
+    private CreatorExpression StripStealFromCreator(CreatorExpression creator)
     {
         // A constructor's member-variable initializers are copy positions, exactly like call
         // arguments: each becomes an independent field of the new aggregate, so a borrowed
@@ -577,7 +583,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
         return changed ? creator with { MemberVariables = members } : creator;
     }
 
-    private Expression StripStealFromGenericMemberRoutineCall(GenericMemberRoutineCallExpression gmc)
+    private GenericMemberRoutineCallExpression StripStealFromGenericMemberRoutineCall(GenericMemberRoutineCallExpression gmc)
     {
         bool changed = false;
         // Store-primitive move semantics (see the CallExpression case) — e.g. poke lowers to
@@ -609,7 +615,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
     // borrowed-reference value (e.g. a `Text` local) must be retained, otherwise
     // scope-teardown's `destroy` of the source frees the buffer the target now aliases
     // (use-after-free). Mirrors the AssignmentStatement / DeclarationStatement handling.
-    private Expression StripStealFromAssign(BinaryExpression bin)
+    private BinaryExpression StripStealFromAssign(BinaryExpression bin)
     {
         // Field-write to an RC-wrapper / Roamed field: codegen owns the release-old + retain-new RC
         // (isRoamedField), so retaining the RHS here too DOUBLE-counts — an SF self-cycle
@@ -627,7 +633,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
     // must be lowered — without this, an argument like `v` inside the subject call never
     // gets its retaining `store`, yet the callee (e.g. `Integer.cmp`) still `destroy`s the
     // by-value parameter, double-freeing the reused source on the next iteration.
-    private Expression StripStealFromWhen(WhenExpression whenExpr)
+    private WhenExpression StripStealFromWhen(WhenExpression whenExpr)
     {
         bool changed = false;
         Expression? newSubject = whenExpr.Expression is { } subj
@@ -658,7 +664,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
 
     // Top-level conditional expression (`if c then a else b`). The branches are copy
     // positions (each can be the result value); the condition is recursed for nested args.
-    private Expression StripStealFromConditional(ConditionalExpression cond)
+    private ConditionalExpression StripStealFromConditional(ConditionalExpression cond)
     {
         Expression newCond = StripStealFromExpr(expr: cond.Condition);
         Expression newTrue = LowerOwnership(expr: cond.TrueExpression, isReturn: false);
@@ -739,11 +745,11 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
     /// <c>each</c>/<c>when</c> element). Such a binding is a VIEW into a payload the carrier owns, so it must
     /// not be retained as an owning copy.
     /// </summary>
-    private static bool IsCarrierPayloadExtraction(Expression init) =>
+    private static bool IsCarrierPayloadExtraction(Expression? init) =>
         init is CarrierPayloadExpression
         || (init is MemberExpression { Object.ResolvedType: RecordTypeInfo { CarrierKind: not TypeModel.Enums.CarrierKind.None } });
 
-    private static Expression MakeCopyCall(Expression expr, RoutineInfo copyMemberRoutine)
+    private static CallExpression MakeCopyCall(Expression expr, RoutineInfo copyMemberRoutine)
     {
         // Use the resolved memberRoutine's own name for the property: records/managed-leaves retain via
         // `store`, but a variant's deep copy is `copy` (BuildVariantCopyBody). Codegen dispatches on

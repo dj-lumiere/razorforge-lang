@@ -25,39 +25,8 @@ public partial class Tokenizer
             Advance();
         }
 
-        bool isFloat = false;
-
-        // Check for decimal point followed by digit
-        if (Peek() == '.' && char.IsDigit(c: Peek(offset: 1)))
-        {
-            isFloat = true;
-            Advance(); // consume '.'
-
-            // Consume fractional digits
-            while (char.IsDigit(c: Peek()) || Peek() == '_')
-            {
-                Advance();
-            }
-        }
-
-        // Check for scientific notation
-        if (Peek() == 'e' || Peek() == 'E')
-        {
-            isFloat = true;
-            Advance(); // consume 'e' or 'E'
-
-            // Optional sign
-            if (Peek() == '+' || Peek() == '-')
-            {
-                Advance();
-            }
-
-            // Exponent digits
-            while (char.IsDigit(c: Peek()))
-            {
-                Advance();
-            }
-        }
+        bool isFloat = ScanDecimalFractionalPart();
+        if (ScanScientificNotation()) isFloat = true;
 
         // Skip underscore before suffix after scientific notation (e.g., 3.4e10_f64)
         if (Peek() == '_' && char.IsLetter(c: Peek(offset: 1)))
@@ -76,6 +45,52 @@ public partial class Tokenizer
                 ? TokenType.UndecidedDecimal
                 : TokenType.UndecidedInteger);
         }
+    }
+
+    /// <summary>
+    /// Scans the optional fractional part of a decimal literal (e.g. the <c>.25</c> in <c>3.25</c>).
+    /// </summary>
+    /// <returns><c>true</c> if a fractional part was consumed.</returns>
+    private bool ScanDecimalFractionalPart()
+    {
+        if (Peek() != '.' || !char.IsDigit(c: Peek(offset: 1)))
+        {
+            return false;
+        }
+
+        Advance(); // consume '.'
+        while (char.IsDigit(c: Peek()) || Peek() == '_')
+        {
+            Advance();
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Scans the optional scientific-notation exponent (<c>e</c>/<c>E</c> followed by an optional
+    /// sign and exponent digits).
+    /// </summary>
+    /// <returns><c>true</c> if a scientific-notation suffix was consumed.</returns>
+    private bool ScanScientificNotation()
+    {
+        if (Peek() != 'e' && Peek() != 'E')
+        {
+            return false;
+        }
+
+        Advance(); // consume 'e' or 'E'
+        if (Peek() == '+' || Peek() == '-')
+        {
+            Advance();
+        }
+
+        while (char.IsDigit(c: Peek()))
+        {
+            Advance();
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -184,8 +199,18 @@ public partial class Tokenizer
     /// <returns><c>true</c> if a hex-float fractional part or exponent was seen.</returns>
     private bool ScanHexDigitsAndFloatParts()
     {
-        bool isHexFloat = false;
+        ScanHexIntegerDigits();
+        bool isHexFloat = ScanHexFractionalPart();
+        if (ScanHexBinaryExponent()) isHexFloat = true;
+        return isHexFloat;
+    }
 
+    /// <summary>
+    /// Consumes hex digits and underscores, stopping early when an underscore introduces a type
+    /// suffix (e.g. <c>_addr</c>) rather than a digit separator (e.g. <c>_ABCD</c>).
+    /// </summary>
+    private void ScanHexIntegerDigits()
+    {
         while (IsHexDigit(c: Peek()) || Peek() == '_')
         {
             // When encountering underscore in hex mode, check if what follows
@@ -198,35 +223,52 @@ public partial class Tokenizer
 
             Advance();
         }
+    }
 
-        // Check for hex float fractional part: 0x1.ABCDp5
-        if (Peek() == '.' && IsHexDigit(c: Peek(offset: 1)))
+    /// <summary>
+    /// Scans the optional hex-float fractional part (e.g. the <c>.ABCD</c> in <c>0x1.ABCDp5</c>).
+    /// </summary>
+    /// <returns><c>true</c> if a fractional part was consumed.</returns>
+    private bool ScanHexFractionalPart()
+    {
+        if (Peek() != '.' || !IsHexDigit(c: Peek(offset: 1)))
         {
-            isHexFloat = true;
-            Advance(); // consume '.'
-            while (IsHexDigit(c: Peek()) || Peek() == '_')
-            {
-                Advance();
-            }
+            return false;
         }
 
-        // Check for hex float binary exponent (p/P)
-        if (Peek() == 'p' || Peek() == 'P')
+        Advance(); // consume '.'
+        while (IsHexDigit(c: Peek()) || Peek() == '_')
         {
-            isHexFloat = true;
-            Advance(); // consume 'p'/'P'
-            if (Peek() == '+' || Peek() == '-')
-            {
-                Advance();
-            }
-
-            while (char.IsDigit(c: Peek()))
-            {
-                Advance();
-            }
+            Advance();
         }
 
-        return isHexFloat;
+        return true;
+    }
+
+    /// <summary>
+    /// Scans the optional hex-float binary exponent (<c>p</c>/<c>P</c> with optional sign and
+    /// decimal exponent digits, e.g. the <c>p5</c> in <c>0x1.0p5</c>).
+    /// </summary>
+    /// <returns><c>true</c> if a binary exponent was consumed.</returns>
+    private bool ScanHexBinaryExponent()
+    {
+        if (Peek() != 'p' && Peek() != 'P')
+        {
+            return false;
+        }
+
+        Advance(); // consume 'p'/'P'
+        if (Peek() == '+' || Peek() == '-')
+        {
+            Advance();
+        }
+
+        while (char.IsDigit(c: Peek()))
+        {
+            Advance();
+        }
+
+        return true;
     }
 
     /// <summary>

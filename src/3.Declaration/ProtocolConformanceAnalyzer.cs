@@ -11,6 +11,9 @@ using TypeSymbol = TypeInfo;
 /// </summary>
 internal sealed class ProtocolConformanceAnalyzer
 {
+    private const string AssignableProtocol = "Assignable";
+    private const string CopyableProtocol = "Copyable";
+
     private readonly SemanticVerifier _sa;
 
     internal ProtocolConformanceAnalyzer(SemanticVerifier sa)
@@ -92,13 +95,11 @@ internal sealed class ProtocolConformanceAnalyzer
 
         // Add transitive protocols first, then the marker itself
         // Track implicitly-added protocols so validation skips them
-        foreach (TypeSymbol proto in transitiveProtocols)
+        foreach (TypeSymbol proto in transitiveProtocols.Where(
+            predicate: p => merged.All(predicate: e => e.Name != p.Name)))
         {
-            if (merged.All(predicate: p => p.Name != proto.Name))
-            {
-                merged.Add(item: proto);
-                _sa._implicitProtocolConformances.Add(item: (type.FullName, proto.Name));
-            }
+            merged.Add(item: proto);
+            _sa._implicitProtocolConformances.Add(item: (type.FullName, proto.Name));
         }
 
         if (merged.All(predicate: p => p.Name != marker.Name))
@@ -118,7 +119,7 @@ internal sealed class ProtocolConformanceAnalyzer
     /// SEMANTIC everywhere-protocols (Equatable/Comparable/Hashable) are opt-in and deliberately excluded —
     /// a plain value record must not silently gain equality/ordering. Keyed by bare protocol name.</summary>
     private static readonly HashSet<string> _autoConferredEverywhereProtocols =
-        new(comparer: System.StringComparer.Ordinal) { "Assignable", "Copyable" };
+        new(comparer: System.StringComparer.Ordinal) { AssignableProtocol, CopyableProtocol };
 
     /// <summary>
     /// Generic <c>needs P everywhere</c> gate (④ standard-impl eligibility): for every protocol that declares
@@ -201,7 +202,7 @@ internal sealed class ProtocolConformanceAnalyzer
 
     /// <summary>
     /// True when a protocol declares an <c>everywhere</c> self-constraint (<c>needs P everywhere</c>, which
-    /// the parser records as a <see cref="ConstraintKind.Everywhere"/> constraint with subject <c>Me</c> and
+    /// the parser records as a <see cref="SyntaxTree.ConstraintKind.Everywhere"/> constraint with subject <c>Me</c> and
     /// the protocol's own name as the constraint target) — the opt-in that makes
     /// <see cref="ApplyEverywhereConformance"/> structurally cascade the protocol over composition.
     /// </summary>
@@ -223,7 +224,7 @@ internal sealed class ProtocolConformanceAnalyzer
     /// </summary>
     private void ApplyAutoAssignableCascadeConformance()
     {
-        if (_sa._registry.LookupType(name: "Assignable") is not ProtocolTypeInfo Assignable)
+        if (_sa._registry.LookupType(name: AssignableProtocol) is not ProtocolTypeInfo Assignable)
         {
             return;
         }
@@ -236,7 +237,7 @@ internal sealed class ProtocolConformanceAnalyzer
             }
 
             List<TypeSymbol> existing = GetImplementedProtocols(type: type);
-            if (existing.Any(predicate: p => p.Name is "Assignable" or "Copyable"))
+            if (existing.Any(predicate: p => p.Name is AssignableProtocol or CopyableProtocol))
             {
                 continue;
             }
@@ -268,8 +269,8 @@ internal sealed class ProtocolConformanceAnalyzer
         // deep `copy` (nothing heap is shared). `Assignable` and `Copyable` are ORTHOGONAL (no hierarchy),
         // so derive BOTH explicitly. Raw-pointer opt-in types (Hijacked/CPtr) have a ptr, so
         // CanAutoDeriveAssignable is false and they keep their hand-written `obeys Assignable` only.
-        if (_sa._registry.LookupType(name: "Copyable") is not ProtocolTypeInfo copyable
-            || _sa._registry.LookupType(name: "Assignable") is not ProtocolTypeInfo Assignable)
+        if (_sa._registry.LookupType(name: CopyableProtocol) is not ProtocolTypeInfo copyable
+            || _sa._registry.LookupType(name: AssignableProtocol) is not ProtocolTypeInfo Assignable)
         {
             return;
         }
@@ -282,7 +283,7 @@ internal sealed class ProtocolConformanceAnalyzer
             }
 
             List<TypeSymbol> existing = GetImplementedProtocols(type: type);
-            if (existing.Any(predicate: p => p.Name is "Copyable" or "Assignable"))
+            if (existing.Any(predicate: p => p.Name is CopyableProtocol or AssignableProtocol))
             {
                 continue;
             }

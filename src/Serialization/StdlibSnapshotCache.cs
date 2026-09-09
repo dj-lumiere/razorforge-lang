@@ -165,7 +165,7 @@ public static class StdlibSnapshotCache
         if (string.IsNullOrEmpty(value: root) || !Directory.Exists(path: root)) return null;
 
         var sb = new StringBuilder();
-        sb.Append(value: "v").Append(value: PbrfSerializer.FormatVersion).Append(value: ';');
+        sb.Append(value: 'v').Append(value: PbrfSerializer.FormatVersion).Append(value: ';');
         sb.Append(value: language).Append(value: ';');
 
         AppendSourceFileMetadata(sb: sb, root: root, language: language);

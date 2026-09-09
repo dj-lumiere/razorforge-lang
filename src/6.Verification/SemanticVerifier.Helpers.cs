@@ -51,6 +51,7 @@ internal enum NumericTypeKind
 public sealed partial class SemanticVerifier
 {
     private const string MaybeTypeName = "Maybe";
+    private const string IterableProtocolName = "Iterable";
 
     #region Carrier Type Helpers
 
@@ -174,26 +175,36 @@ public sealed partial class SemanticVerifier
                                    .Select(selector: p => p.Name).ToList());
 
         // Step 1: Validate named argument ordering and build parameter bindings.
-        // Each entry maps parameter index -> argument expression.
-        bool seenNamed = false;
-        var boundParams = new Dictionary<int, Expression>();
-        int positionalIndex = 0;
+        Dictionary<int, Expression> boundParams = BuildArgumentBindings(
+            routine: routine, arguments: arguments,
+            parameters: parameters, totalParams: totalParams, location: location);
 
-        // S510: Routines with 3+ non-me parameters require all arguments to be named.
-        // This prevents argument-swap bugs at call sites. Variadic routines are exempt
-        // because their extra positional args don't map to named parameters.
-        // For exactly 2 parameters, naming is recommended (warning W258) — binary ops
-        // like swap(a, b) or move(from, to) are usually clear from context.
-        int nonMeParamCount =
-            parameters.Count(predicate: p => p.Name != "me" && !p.HasDefaultValue);
+        // Step 2: Check argument count against required parameters.
+        int positionalCount = arguments.Count(predicate: a => a is not NamedArgumentExpression);
+        ValidateArgumentCount(routine: routine, arguments: arguments, parameters: parameters,
+            totalParams: totalParams, boundParams: boundParams,
+            positionalCount: positionalCount, location: location);
+
+        // Step 3: Type-check each bound argument against its parameter.
+        TypeCheckBoundArguments(routine: routine, parameters: parameters,
+            totalParams: totalParams, boundParams: boundParams, callObjectType: callObjectType);
+    }
+
+    /// <summary>
+    /// Validates named/positional argument ordering and builds the parameter-index to argument-expression
+    /// map used by subsequent count and type checks. Reports S505 (unknown named), S506 (duplicate),
+    /// S507 (positional after named), S510 (naming required), S512 (mixed style), W258 (naming recommended).
+    /// Extracted from <see cref="AnalyzeCallArguments"/>.
+    /// </summary>
+    private Dictionary<int, Expression> BuildArgumentBindings(RoutineInfo routine,
+        List<Expression> arguments, List<ParameterInfo> parameters,
+        int totalParams, SourceLocation location)
+    {
+        int nonMeParamCount = parameters.Count(predicate: p => p.Name != "me" && !p.HasDefaultValue);
         bool requiresNamedArgs = nonMeParamCount >= 3 && !routine.IsVariadic;
         bool recommendsNamedArgs = nonMeParamCount == 2 && !routine.IsVariadic;
 
-        // @positional: the routine opts into positional calls. Named arguments always remain
-        // legal, so this only RELAXES the S510/W258 rules — it never forbids names.
-        // Foreign (C::/LLVM::) routines are positional by nature: their parameter identity is the
-        // ARGUMENT ORDER (+ types), not names — a C header carries no binding parameter names, and
-        // extern re-declarations may name them differently. So they are implicitly @positional.
+        // @positional / Foreign routines relax naming requirements.
         bool isPositional = routine.Annotations.Contains(value: "positional") || routine.IsForeign;
         if (isPositional)
         {
@@ -201,15 +212,9 @@ public sealed partial class SemanticVerifier
             recommendsNamedArgs = false;
         }
 
-        // All-or-nothing (S512): a single call must be EITHER all named OR all positional —
-        // mixing the two is always a compile error, for @positional and plain routines alike,
-        // because partially-named calls are the most argument-swap-prone shape. The all-positional
-        // case is then governed by the count rules above (0/1 ok, 2 warns W258, 3+ requires names
-        // S510); the all-named case is always fine. When mixed, S512 subsumes the per-argument
-        // W258/S510/S507 diagnostics below (gated on !isMixed) so the call reports once, cleanly.
+        // S512: a call must be all-named OR all-positional — mixing is always an error.
         bool hasNamedArg = arguments.Any(predicate: a => a is NamedArgumentExpression);
-        bool hasPositionalArg =
-            arguments.Any(predicate: a => a is not NamedArgumentExpression);
+        bool hasPositionalArg = arguments.Any(predicate: a => a is not NamedArgumentExpression);
         bool isMixed = hasNamedArg && hasPositionalArg;
         if (isMixed)
         {
@@ -220,203 +225,193 @@ public sealed partial class SemanticVerifier
                 location: location);
         }
 
+        bool seenNamed = false;
+        var boundParams = new Dictionary<int, Expression>();
+        int positionalIndex = 0;
+
         foreach (Expression arg in arguments)
         {
             if (arg is NamedArgumentExpression named)
             {
                 seenNamed = true;
-
-                // Look up parameter by name
-                int paramIndex = -1;
-                for (int j = 0; j < totalParams; j++)
-                {
-                    if (parameters[index: j].Name == named.Name)
-                    {
-                        paramIndex = j;
-                        break;
-                    }
-                }
-
-                if (paramIndex == -1)
-                {
-                    // S505: Unknown named argument
-                    ReportError(code: SemanticDiagnosticCode.UnknownNamedArgument,
-                        message: $"'{routine.Name}' has no parameter named '{named.Name}'.",
-                        location: named.Location);
-                    AnalyzeExpression(expression: named.Value);
-                }
-                else if (boundParams.ContainsKey(key: paramIndex))
-                {
-                    // S506: Duplicate named argument (parameter already bound)
-                    ReportError(code: SemanticDiagnosticCode.DuplicateNamedArgument,
-                        message: $"Parameter '{named.Name}' of '{routine.Name}' is already bound.",
-                        location: named.Location);
-                    AnalyzeExpression(expression: named.Value);
-                }
-                else
-                {
-                    boundParams[key: paramIndex] = named.Value;
-                }
+                ProcessNamedArg(named: named, routine: routine, parameters: parameters,
+                    totalParams: totalParams, boundParams: boundParams);
             }
             else
             {
-                if (requiresNamedArgs && !isMixed)
-                {
-                    // S510: Named argument enforcement — subsumes S507
-                    ReportError(code: SemanticDiagnosticCode.NamedArgumentRequired,
-                        message:
-                        $"Routine '{routine.Name}' has {nonMeParamCount} parameters - all arguments must be named.",
-                        location: arg.Location);
-                }
-                else if (recommendsNamedArgs && !isMixed)
-                {
-                    // W258: Named arguments recommended for 2-parameter calls.
-                    ReportWarning(code: SemanticWarningCode.NamedArgumentRecommended,
-                        message:
-                        $"Routine '{routine.Name}' has 2 parameters - naming arguments is recommended for clarity.",
-                        location: arg.Location);
-                }
-                else if (seenNamed && !isPositional && !isMixed)
-                {
-                    // S507: Positional argument after named argument. Mixed calls are already
-                    // reported once as S512 above, so this is suppressed for them.
-                    ReportError(code: SemanticDiagnosticCode.PositionalAfterNamed,
-                        message:
-                        $"Positional argument cannot appear after named arguments in call to '{routine.Name}'.",
-                        location: arg.Location);
-                }
-
-                // For variadic routines: once we reach the varargs parameter,
-                // all subsequent positional args are varargs (don't advance past it).
-                // Trailing params (sep, end) are only filled via named args or defaults.
-                bool inVariadicSlot = routine.IsVariadic && positionalIndex > 0 &&
-                                      positionalIndex - 1 < totalParams &&
-                                      parameters[index: positionalIndex - 1].IsVariadicParam;
-
-                if (inVariadicSlot)
-                {
-                    // Variadic extra argument — just analyze it
-                    AnalyzeExpression(expression: arg);
-                }
-                else if (positionalIndex < totalParams)
-                {
-                    if (boundParams.ContainsKey(key: positionalIndex))
-                    {
-                        // S506: Positional arg collides with earlier named arg that bound this slot
-                        ReportError(code: SemanticDiagnosticCode.DuplicateNamedArgument,
-                            message:
-                            $"Parameter '{parameters[index: positionalIndex].Name}' of '{routine.Name}' is already bound.",
-                            location: arg.Location);
-                    }
-                    else
-                    {
-                        boundParams[key: positionalIndex] = arg;
-                    }
-                }
-                else if (!routine.IsVariadic)
-                {
-                    // Extra positional arg beyond parameter count — handled by count check below
-                    boundParams[key: positionalIndex] = arg;
-                }
-                else
-                {
-                    // Variadic extra argument — just analyze it
-                    AnalyzeExpression(expression: arg);
-                }
-
-                if (!inVariadicSlot)
-                {
-                    positionalIndex++;
-                }
+                ProcessPositionalArg(arg: arg, routine: routine, parameters: parameters,
+                    totalParams: totalParams, boundParams: boundParams,
+                    requiresNamedArgs: requiresNamedArgs, recommendsNamedArgs: recommendsNamedArgs,
+                    isPositional: isPositional, isMixed: isMixed, seenNamed: seenNamed,
+                    nonMeParamCount: nonMeParamCount, positionalIndex: ref positionalIndex);
             }
         }
 
-        // Step 2: Check argument count against required parameters.
+        return boundParams;
+    }
+
+    /// <summary>
+    /// Processes a single named argument: looks up the target parameter index, reports S505 (unknown
+    /// parameter) or S506 (duplicate binding), and records the binding. Extracted from
+    /// <see cref="BuildArgumentBindings"/>.
+    /// </summary>
+    private void ProcessNamedArg(NamedArgumentExpression named, RoutineInfo routine,
+        List<ParameterInfo> parameters, int totalParams, Dictionary<int, Expression> boundParams)
+    {
+        int paramIndex = -1;
+        for (int j = 0; j < totalParams; j++)
+        {
+            if (parameters[index: j].Name == named.Name)
+            {
+                paramIndex = j;
+                break;
+            }
+        }
+
+        if (paramIndex == -1)
+        {
+            ReportError(code: SemanticDiagnosticCode.UnknownNamedArgument,
+                message: $"'{routine.Name}' has no parameter named '{named.Name}'.",
+                location: named.Location);
+            AnalyzeExpression(expression: named.Value);
+        }
+        else if (boundParams.ContainsKey(key: paramIndex))
+        {
+            ReportError(code: SemanticDiagnosticCode.DuplicateNamedArgument,
+                message: $"Parameter '{named.Name}' of '{routine.Name}' is already bound.",
+                location: named.Location);
+            AnalyzeExpression(expression: named.Value);
+        }
+        else
+        {
+            boundParams[key: paramIndex] = named.Value;
+        }
+    }
+
+    /// <summary>
+    /// Processes a single positional argument: validates naming rules (S510/W258/S507), determines
+    /// whether the argument falls in a variadic slot, records the binding, and advances the positional
+    /// index. Extracted from <see cref="BuildArgumentBindings"/>.
+    /// </summary>
+    private void ProcessPositionalArg(Expression arg, RoutineInfo routine,
+        List<ParameterInfo> parameters, int totalParams, Dictionary<int, Expression> boundParams,
+        bool requiresNamedArgs, bool recommendsNamedArgs, bool isPositional,
+        bool isMixed, bool seenNamed, int nonMeParamCount, ref int positionalIndex)
+    {
+        if (requiresNamedArgs && !isMixed)
+        {
+            ReportError(code: SemanticDiagnosticCode.NamedArgumentRequired,
+                message:
+                $"Routine '{routine.Name}' has {nonMeParamCount} parameters - all arguments must be named.",
+                location: arg.Location);
+        }
+        else if (recommendsNamedArgs && !isMixed)
+        {
+            ReportWarning(code: SemanticWarningCode.NamedArgumentRecommended,
+                message:
+                $"Routine '{routine.Name}' has 2 parameters - naming arguments is recommended for clarity.",
+                location: arg.Location);
+        }
+        else if (seenNamed && !isPositional && !isMixed)
+        {
+            ReportError(code: SemanticDiagnosticCode.PositionalAfterNamed,
+                message:
+                $"Positional argument cannot appear after named arguments in call to '{routine.Name}'.",
+                location: arg.Location);
+        }
+
+        // Once we reach the varargs parameter, all subsequent positional args are variadic —
+        // don't advance past it. Trailing params (sep, end) are filled via named args or defaults.
+        bool inVariadicSlot = routine.IsVariadic && positionalIndex > 0 &&
+                              positionalIndex - 1 < totalParams &&
+                              parameters[index: positionalIndex - 1].IsVariadicParam;
+
+        if (inVariadicSlot)
+        {
+            AnalyzeExpression(expression: arg);
+        }
+        else if (positionalIndex < totalParams)
+        {
+            if (boundParams.ContainsKey(key: positionalIndex))
+            {
+                ReportError(code: SemanticDiagnosticCode.DuplicateNamedArgument,
+                    message:
+                    $"Parameter '{parameters[index: positionalIndex].Name}' of '{routine.Name}' is already bound.",
+                    location: arg.Location);
+            }
+            else
+            {
+                boundParams[key: positionalIndex] = arg;
+            }
+        }
+        else if (!routine.IsVariadic)
+        {
+            boundParams[key: positionalIndex] = arg;
+        }
+        else
+        {
+            AnalyzeExpression(expression: arg);
+        }
+
+        if (!inVariadicSlot)
+            positionalIndex++;
+    }
+
+    /// <summary>
+    /// Validates the number of bound arguments against the routine's required parameter count.
+    /// Reports S400 (too few arguments) and S401 (too many arguments). Extracted from
+    /// <see cref="AnalyzeCallArguments"/>.
+    /// </summary>
+    private void ValidateArgumentCount(RoutineInfo routine, List<Expression> arguments,
+        List<ParameterInfo> parameters, int totalParams, Dictionary<int, Expression> boundParams,
+        int positionalCount, SourceLocation location)
+    {
         int requiredParams = parameters.Count(predicate: p => !p.HasDefaultValue);
         int unboundRequired = 0;
         for (int i = 0; i < totalParams; i++)
         {
             if (!boundParams.ContainsKey(key: i) && !parameters[index: i].HasDefaultValue)
-            {
                 unboundRequired++;
-            }
         }
 
         if (unboundRequired > 0)
         {
-            if (requiredParams == totalParams)
-            {
-                ReportError(code: SemanticDiagnosticCode.TooFewArguments,
-                    message:
-                    $"'{routine.Name}' expects {totalParams} argument(s), but got {arguments.Count}.",
-                    location: location);
-            }
-            else
-            {
-                ReportError(code: SemanticDiagnosticCode.TooFewArguments,
-                    message:
-                    $"'{routine.Name}' expects at least {requiredParams} argument(s), but got {arguments.Count}.",
-                    location: location);
-            }
+            string msg = requiredParams == totalParams
+                ? $"'{routine.Name}' expects {totalParams} argument(s), but got {arguments.Count}."
+                : $"'{routine.Name}' expects at least {requiredParams} argument(s), but got {arguments.Count}.";
+            ReportError(code: SemanticDiagnosticCode.TooFewArguments, message: msg, location: location);
         }
-        else if (positionalIndex > totalParams && !routine.IsVariadic)
+        else if (positionalCount > totalParams && !routine.IsVariadic)
         {
             ReportError(code: SemanticDiagnosticCode.TooManyArguments,
                 message:
                 $"'{routine.Name}' expects at most {totalParams} argument(s), but got {arguments.Count}.",
                 location: location);
         }
+    }
 
-        // Step 3: Type-check each bound argument against its parameter.
+    /// <summary>
+    /// Type-checks each bound argument against its resolved parameter type, substituting owner/method
+    /// generics where applicable, and reporting argument-type mismatch, nullable-entity, and C-boundary
+    /// callback violations. Extracted from <see cref="AnalyzeCallArguments"/>.
+    /// </summary>
+    private void TypeCheckBoundArguments(RoutineInfo routine, List<ParameterInfo> parameters,
+        int totalParams, Dictionary<int, Expression> boundParams, TypeSymbol? callObjectType)
+    {
         foreach (KeyValuePair<int, Expression> binding in boundParams)
         {
             if (binding.Key >= totalParams)
             {
-                // Extra positional beyond params (already reported as TooManyArguments)
                 AnalyzeExpression(expression: binding.Value);
                 continue;
             }
 
             ParameterInfo param = parameters[index: binding.Key];
-            TypeSymbol paramType = param.Type;
-
-            // Variadic params are desugared to Array[T, __VarargN] and the call site packs its trailing
-            // args into a single Array[T, K] literal, so the argument is matched against the Array
-            // parameter directly — no element unwrapping.
-
-            if (callObjectType != null)
-            {
-                if (routine.OwnerType is GenericParameterTypeInfo genParamOwner)
-                {
-                    var substitutions = new Dictionary<string, TypeSymbol>
-                    {
-                        [key: genParamOwner.Name] = callObjectType
-                    };
-                    paramType = SubstituteWithMapping(type: paramType,
-                        substitutions: substitutions);
-                }
-                else if (routine.OwnerType is { IsGenericDefinition: true })
-                {
-                    // Owner like `List[T]` (gen-def) against receiver `List[S64]` — substitute
-                    // T → S64 so callback parameter types (e.g. `Routine[(T, T), Bool]`) target-type
-                    // lambda parameters correctly. Skip when OwnerType is already a resolution
-                    // (e.g. `Hijacked[BTreeListNode[T]]`) — its Parameters are already substituted,
-                    // applying again would double-wrap (`T → BTreeListNode[T]` applied to a
-                    // `BTreeListNode[T]` param produces `BTreeListNode[BTreeListNode[T]]`).
-                    paramType =
-                        SubstituteOwnerGenerics(paramType: paramType,
-                            lookupType: callObjectType,
-                            ownerType: routine.OwnerType) ?? paramType;
-                }
-            }
+            TypeSymbol paramType = ResolveParamType(param: param, routine: routine, callObjectType: callObjectType);
 
             Expression argExpr = binding.Value;
             TypeSymbol argType = AnalyzeExpression(expression: argExpr, expectedType: paramType);
 
-            // Suflae: a NON-NULL entity parameter rejects a possibly-none argument. Every SF entity
-            // parameter is non-null — a nullable one would be `Maybe[E]`, a distinct type — so any
-            // entity-reference param must be fed a checked (non-none) value. A nullable Roamed arg is
-            // still IsAssignableTo the bare-entity param (the E↔Roamed bridge), so this is the only gate.
             if (IsEntityRefType(type: paramType) && IsNullableEntityRead(expr: argExpr))
             {
                 ReportNullableIntoNonNull(target: $"parameter '{param.Name}' of '{routine.Name}'",
@@ -424,26 +419,12 @@ public sealed partial class SemanticVerifier
             }
 
             if (argType.Category == TypeCategory.Error || paramType.Category == TypeCategory.Error)
-            {
                 continue;
-            }
 
             if (!IsAssignableTo(source: argType, target: paramType))
             {
-                // Routine -> CPtr coercion (FFI): a NON-CAPTURING routine reference is a C function
-                // pointer at the ABI level, so it satisfies a `CPtr` parameter (codegen emits the
-                // routine's bare symbol). Restricted to a bare top-level routine NAME — that cannot
-                // capture an environment, which a C `void*` could not carry anyway. Routine-typed
-                // locals and lambdas are excluded (they may be closures).
-                if (IsBareRoutineRefToCPtr(argExpr: argExpr, argType: argType, paramType: paramType))
-                {
-                    // accept — handled by codegen as a bare function-pointer reference.
-                }
-                // Skip mismatch when paramType still references an unresolved memberRoutine-level generic
-                // (e.g. `Routine[(S64,), U]` for `select[U]`). The caller runs
-                // InferMemberRoutineGenericTypeArguments after AnalyzeCallArguments and substitutes the
-                // memberRoutine; without this guard we'd report a spurious error before inference resolves U.
-                else if (!ContainsUnresolvedMemberRoutineGeneric(type: paramType,
+                if (!IsBareRoutineRefToCPtr(argExpr: argExpr, argType: argType, paramType: paramType)
+                    && !ContainsUnresolvedMemberRoutineGeneric(type: paramType,
                         genericParameters: routine.GenericParameters))
                 {
                     ReportError(code: SemanticDiagnosticCode.ArgumentTypeMismatch,
@@ -453,18 +434,6 @@ public sealed partial class SemanticVerifier
                 }
             }
 
-            // C-boundary callback: a routine handed to a C:: / LLVM:: extern becomes a raw C function
-            // pointer, which carries NO environment, so only a CAPTURELESS routine can cross (its fat
-            // value's `bound` is null → the `fn` word IS a 1-word C fnptr). A capturing routine's `bound`
-            // has no slot in the C signature. Capturing-ness is a VALUE property (the fat `{fn, bound}`),
-            // NOT a type property — `Routine[T]` deliberately erases it (value-arity == type-arity) — so
-            // for a Routine-typed VALUE (a field / local / arbitrary expression) it is only knowable at
-            // RUNTIME. Codegen therefore emits a runtime `bound == null` guard at the C boundary for such
-            // values (captureless → pass `fn`; capturing → crash). Only a CAPTURING LAMBDA LITERAL is a
-            // STATICALLY-certain violation (its `given` clause is right here), so THAT is the sole build-
-            // time error; everything else defers to the runtime guard. Fires for a `Routine[...]`/`CPtr`
-            // foreign param. A future build-time analysis (RF has no nested routines, so a value can be
-            // traced to its source routine) could recover more cases statically.
             bool isCapturingLambdaLiteral = argExpr is LambdaExpression { Captures.Count: > 0 };
             if (IsForeignCapturingCallbackArg(routine: routine, paramType: paramType,
                     argType: argType, isCapturingLambdaLiteral: isCapturingLambdaLiteral))
@@ -477,25 +446,44 @@ public sealed partial class SemanticVerifier
                     "callback and thread any state through an explicit userdata parameter.",
                     location: argExpr.Location);
             }
-            // (No marker-protocol call-site coercion: a marker param is now a generic bound
-            // `V obeys Accessing[X]`, so the caller's token/value argument binds V directly — the old
-            // `arg.refer()`/`arg.control()` rewrite, which only fired for a bare `Accessing[X]` param type
-            // that no longer exists, is gone.)
 
-            // Phase 1: warn when a borrowed reference is passed where the parameter type is not
-            // trivially copyable. Mirrors the var-decl / assignment rule — the same explicit
-            // verb (steal / .retain() / .track()) must appear at the call site.
-            Expression argValue = argExpr is NamedArgumentExpression namedArg
-                ? namedArg.Value
-                : argExpr;
-
+            Expression argValue = argExpr is NamedArgumentExpression namedArg ? namedArg.Value : argExpr;
             ValidateImplicitWrapperCopyArg(routine: routine, param: param, paramType: paramType,
                 argExpr: argExpr, argValue: argValue, argType: argType);
-
-            // Bare entity passed to a CONSUMING parameter needs an explicit `steal` (RF-S413).
             ValidateBareEntityConsumingArg(routine: routine, param: param, paramType: paramType,
                 argValue: argValue, argType: argType);
         }
+    }
+
+    /// <summary>
+    /// Resolves the effective type for <paramref name="param"/> by substituting owner-level or
+    /// method-level generic parameters with the concrete types from <paramref name="callObjectType"/>.
+    /// Returns the original parameter type when no substitution applies. Extracted from
+    /// <see cref="TypeCheckBoundArguments"/>.
+    /// </summary>
+    private TypeSymbol ResolveParamType(ParameterInfo param, RoutineInfo routine, TypeSymbol? callObjectType)
+    {
+        TypeSymbol paramType = param.Type;
+        if (callObjectType == null)
+            return paramType;
+        if (routine.OwnerType is GenericParameterTypeInfo genParamOwner)
+        {
+            var substitutions = new Dictionary<string, TypeSymbol>
+            {
+                [key: genParamOwner.Name] = callObjectType
+            };
+            return SubstituteWithMapping(type: paramType, substitutions: substitutions);
+        }
+        if (routine.OwnerType is { IsGenericDefinition: true })
+        {
+            // Owner like List[T] (gen-def) against receiver List[S64] — substitute T → S64 so
+            // callback parameter types target-type lambda parameters correctly. Skip when
+            // OwnerType is already a resolution (its Parameters are already substituted, applying
+            // again would double-wrap).
+            return SubstituteOwnerGenerics(paramType: paramType, lookupType: callObjectType,
+                ownerType: routine.OwnerType) ?? paramType;
+        }
+        return paramType;
     }
 
     /// <summary>
@@ -569,7 +557,7 @@ public sealed partial class SemanticVerifier
         // every borrow is a Protocol (`Accessing`/`Controlling`) or a Record wrapper
         // (`Viewing`/`Modifying`/…) — never bare `EntityTypeInfo`. So gating on
         // `paramType is EntityTypeInfo` excludes all borrow forms with no name list. Verb-wrapped
-        // arguments (`steal x`, `x.copy()`, `x.share()`) are Steal/Call expressions, not
+        // arguments (steal/copy/share expressions) are Steal/Call expressions, not
         // Identifier/Member, so they are excluded automatically. Safety comes from move tracking;
         // this check makes the destructive transfer visible in source.
         if (_registry.Language == Language.RazorForge
@@ -737,116 +725,38 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private bool IsAssignableTo(TypeSymbol source, TypeSymbol target)
     {
-        // Same type
-        if (source.Name == target.Name)
-        {
+        if (source.Name == target.Name || source.FullName == target.FullName)
             return true;
-        }
 
-        // FullName equality: handles wrapper types where Name may be bare ("Hijacked") on
-        // one side but parameterized ("Hijacked[Core.U8]") on the other due to differing
-        // construction paths. FullName normalizes both forms.
-        if (source.FullName == target.FullName)
-        {
+        // Suflae: bare entity E and Roamed[E] are mutually assignable (the lowering pass inserts roam).
+        if (_registry.Language == Language.Suflae && IsSuflaeEntityRoamedAssignable(source, target))
             return true;
-        }
 
-        // Suflae: a bare entity `E` and `Roamed[E]` are the same thing to an SF user (entity FIELDS are
-        // the `Roamed[E]` record at collection; entity LOCALS stay bare `E` in SA until the Phase-7 SF
-        // lowering pass retypes them). Treat them as mutually assignable — the pass + codegen insert the
-        // `.roam()` / field release-old+retain-new. RazorForge keeps the strict distinction.
-        if (_registry.Language == Language.Suflae)
-        {
-            // Both `x: E` (non-null) and `x: E?` (optional) fields are `Roamed[E]`, so a bare entity is
-            // assignable to either (the pass inserts the roam). `E?`'s `none` is a null Roamed handle.
-            if (source is EntityTypeInfo se && IsRoamedOfEntity(type: target, entity: se)) return true;
-            if (target is EntityTypeInfo te && IsRoamedOfEntity(type: source, entity: te)) return true;
-        }
-
-        // Error types are assignable to anything (to reduce cascading errors)
+        // Error types suppress cascading errors.
         if (source.Category == TypeCategory.Error || target.Category == TypeCategory.Error)
-        {
             return true;
-        }
 
-        // FreeRoutine-type (lambda) compatibility with return-type COVARIANCE: a lambda returning a
-        // concrete type is assignable to a parameter expecting a supertype of that return — e.g.
-        // `select_many[S64](transform: x => (1 to x).List())` produces `Routine[(S64,), List[S64]]`
-        // for a `Routine[(S64,), Iterable[S64]]` parameter, and `List[S64]` obeys `Iterable[S64]`.
-        // Parameter types must line up (the lambda was analyzed against the expected param types, so
-        // they already match — accept either assignment direction for robustness).
+        // Routine type (lambda) compatibility with covariant return type.
         if (source is RoutineTypeInfo srcRoutine && target is RoutineTypeInfo tgtRoutine)
-        {
-            if (srcRoutine.ParameterTypes.Count != tgtRoutine.ParameterTypes.Count)
-                return false;
-            for (int i = 0; i < srcRoutine.ParameterTypes.Count; i++)
-            {
-                if (!IsAssignableTo(source: srcRoutine.ParameterTypes[index: i],
-                        target: tgtRoutine.ParameterTypes[index: i])
-                    && !IsAssignableTo(source: tgtRoutine.ParameterTypes[index: i],
-                        target: srcRoutine.ParameterTypes[index: i]))
-                    return false;
-            }
-            if (srcRoutine.ReturnType == null || tgtRoutine.ReturnType == null)
-                return srcRoutine.ReturnType == null && tgtRoutine.ReturnType == null;
-            return IsAssignableTo(source: srcRoutine.ReturnType, target: tgtRoutine.ReturnType);
-        }
+            return IsRoutineAssignableTo(srcRoutine, tgtRoutine);
 
-        // Variant auto-wrap: any value whose type matches a variant member type is
-        // implicitly coerced to the variant (the tag is set automatically). This is
-        // how variants are constructed — there is no explicit `Variant.of(...)` form.
-        if (target is VariantTypeInfo variantTarget)
-        {
-            foreach (VariantMemberInfo member in variantTarget.Members)
-            {
-                if (member.Type != null &&
-                    (member.Type.Name == source.Name ||
-                     member.Type.FullName == source.FullName))
-                {
-                    return true;
-                }
-            }
-        }
+        // Variant auto-wrap: a value whose type matches a variant member is implicitly coerced.
+        if (target is VariantTypeInfo variantTarget &&
+            variantTarget.Members.Any(predicate: member =>
+                member.Type != null &&
+                (member.Type.Name == source.Name || member.Type.FullName == source.FullName)))
+            return true;
 
-        // Generic type matching - check if resolution matches definition
-        if (target.IsGenericDefinition && source.IsGenericResolution)
-        {
-            string baseName = source.BareName;
-            if (baseName == target.Name)
-            {
-                return true;
-            }
-        }
+        // Generic type matching.
+        if (IsGenericDefinitionResolutionAssignable(source, target))
+            return true;
 
-        // Reverse: generic definition assignable to its parameterized form within generic context.
-        // e.g., 'me' has type 'Total' (generic def) but return expects 'Total[T]'.
-        // Only allowed when all type args are unresolved generic parameters (not concrete types).
-        if (source.IsGenericDefinition && target is { IsGenericResolution: true, TypeArguments: not null } &&
-            target.TypeArguments.All(predicate: t => t is GenericParameterTypeInfo))
-        {
-            string baseName = target.BareName;
-            if (baseName == source.Name)
-            {
-                return true;
-            }
-        }
-
-        // Protocol conformance - if target is a protocol, check if source implements it
+        // Protocol conformance.
         if (target.Category == TypeCategory.Protocol)
-        {
-            // Borrow protocols (Accessing[T] / Controlling[T]) accept an ownership-carrying or
-            // bare source whose inner type matches T.
-            if (IsAssignableToBorrowProtocol(source: source, target: target))
-            {
-                return true;
-            }
+            return IsAssignableToBorrowProtocol(source: source, target: target)
+                || ImplementsProtocol(type: source, protocolName: target.Name);
 
-            return ImplementsProtocol(type: source, protocolName: target.Name);
-        }
-
-
-        // Const generic: `needs N is U64` means N is a U64 value at runtime.
-        // Treat N as assignable to U64 (and vice versa).
+        // Const generic: `needs N is U64` — N is a U64 value at runtime.
         if (source is GenericParameterTypeInfo srcGen &&
             ConstGenericMatches(paramName: srcGen.Name, otherTypeName: target.Name))
             return true;
@@ -854,28 +764,83 @@ public sealed partial class SemanticVerifier
             ConstGenericMatches(paramName: tgtGen.Name, otherTypeName: source.Name))
             return true;
 
-        // None (Maybe generic def) is assignable to any Maybe[T]
-        if (source is { IsGenericDefinition: true, Name: MaybeTypeName } && IsMaybeType(type: target))
+        // Maybe auto-wrap cases.
+        if (IsMaybeAssignable(source, target))
             return true;
 
-        // Entity, record, or wrapper type is implicitly assignable to Maybe[SameType].
-        // Covers: entity fields, RC wrappers (Retained[T], Tracked[T] -> Maybe[Retained[T]]).
+        // Raw entity E → Owned[E]: a freshly produced entity transfers ownership.
+        if (source.Category == TypeCategory.Entity &&
+            IsOwnedOf(type: target, out TypeSymbol? ownedInnerOfTarget) &&
+            (source.Name == ownedInnerOfTarget.Name || source.FullName == ownedInnerOfTarget.FullName))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when the Suflae entity↔Roamed assignability rule applies: a bare entity and its
+    /// <c>Roamed[E]</c> wrapper are mutually assignable in SF (the lowering pass inserts the roam call).
+    /// </summary>
+    private static bool IsSuflaeEntityRoamedAssignable(TypeSymbol source, TypeSymbol target)
+    {
+        if (source is EntityTypeInfo se && IsRoamedOfEntity(type: target, entity: se)) return true;
+        if (target is EntityTypeInfo te && IsRoamedOfEntity(type: source, entity: te)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when two routine types are mutually assignable: parameter types must be compatible
+    /// (either direction for robustness) and the source return type must be assignable to the target
+    /// return type (covariance). Extracted from <see cref="IsAssignableTo"/>.
+    /// </summary>
+    private bool IsRoutineAssignableTo(RoutineTypeInfo src, RoutineTypeInfo tgt)
+    {
+        if (src.ParameterTypes.Count != tgt.ParameterTypes.Count)
+            return false;
+        for (int i = 0; i < src.ParameterTypes.Count; i++)
+        {
+            if (!IsAssignableTo(source: src.ParameterTypes[index: i], target: tgt.ParameterTypes[index: i])
+                && !IsAssignableTo(source: tgt.ParameterTypes[index: i], target: src.ParameterTypes[index: i]))
+                return false;
+        }
+        if (src.ReturnType == null || tgt.ReturnType == null)
+            return src.ReturnType == null && tgt.ReturnType == null;
+        return IsAssignableTo(source: src.ReturnType, target: tgt.ReturnType);
+    }
+
+    /// <summary>
+    /// Returns true when a generic-definition/resolution pair is assignable: a resolved type is
+    /// assignable to its bare definition, and a generic definition is assignable to a parameterized
+    /// form when all type args are unresolved generic parameters. Extracted from <see cref="IsAssignableTo"/>.
+    /// </summary>
+    private static bool IsGenericDefinitionResolutionAssignable(TypeSymbol source, TypeSymbol target)
+    {
+        // Resolution → definition (e.g. List[S64] → List).
+        if (target.IsGenericDefinition && source.IsGenericResolution && source.BareName == target.Name)
+            return true;
+        // Definition → parameterized form within a generic context (e.g. 'me: Total' → 'Total[T]').
+        if (source.IsGenericDefinition
+            && target is { IsGenericResolution: true, TypeArguments: not null }
+            && target.TypeArguments.All(predicate: t => t is GenericParameterTypeInfo)
+            && target.BareName == source.Name)
+            return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="source"/> is implicitly assignable to a <c>Maybe[T]</c>
+    /// <paramref name="target"/>: the None generic def to any Maybe, and entity/record/wrapper types
+    /// to <c>Maybe[SameType]</c>. Extracted from <see cref="IsAssignableTo"/>.
+    /// </summary>
+    private static bool IsMaybeAssignable(TypeSymbol source, TypeSymbol target)
+    {
+        if (source is { IsGenericDefinition: true, Name: MaybeTypeName } && IsMaybeType(type: target))
+            return true;
         if ((source.Category == TypeCategory.Entity || source.Category == TypeCategory.Record ||
              source.Category == TypeCategory.Wrapper) &&
             IsMaybeType(type: target) && target.TypeArguments is { Count: 1 } &&
             IsAssignableToMaybeInner(source: source, maybeTarget: target))
-        {
             return true;
-        }
-
-        // Raw entity E (rvalue) -> E: a freshly produced entity transfers ownership.
-        if (source.Category == TypeCategory.Entity &&
-            IsOwnedOf(type: target, out TypeSymbol? ownedInnerOfTarget) &&
-            (source.Name == ownedInnerOfTarget.Name ||
-             source.FullName == ownedInnerOfTarget.FullName))
-            return true;
-
-        // No implicit conversions - all type conversions must be explicit via creator syntax
         return false;
     }
 
@@ -1034,37 +999,41 @@ public sealed partial class SemanticVerifier
     private bool IsNumericGenericParam(TypeSymbol type)
     {
         if (type is ConstGenericValueTypeInfo) return true;
+        if (type is not GenericParameterTypeInfo gp) return false;
 
-        if (type is GenericParameterTypeInfo gp)
+        // Search the active generic-constraint scope for a numeric const-generic constraint.
+        // Constraints can live on the routine, the enclosing type, or on the routine's owner type
+        // (e.g. Array[T,N] declares `needs N is U64`).
+        IEnumerable<List<GenericConstraintDeclaration>?> sources =
+        [
+            _currentRoutine?.GenericConstraints,
+            _currentType?.GenericConstraints,
+            _currentRoutine?.OwnerType?.GenericConstraints
+        ];
+        return sources.Any(constraints => HasNumericConstGenericConstraint(constraints, gp.Name));
+    }
+
+    /// <summary>
+    /// Returns true when the given constraint list contains a const-generic constraint on
+    /// <paramref name="paramName"/> whose bound resolves to a numeric type. Extracted from
+    /// <see cref="IsNumericGenericParam"/>.
+    /// </summary>
+    private bool HasNumericConstGenericConstraint(IEnumerable<GenericConstraintDeclaration>? constraints,
+        string paramName)
+    {
+        if (constraints == null) return false;
+        foreach (GenericConstraintDeclaration c in constraints)
         {
-            string name = gp.Name;
-            // Search the active generic-constraint scope for a numeric constraint on this name.
-            // Constraints can live on the routine, the enclosing type, or — for
-            // extension memberRoutines — on the routine's owner type (e.g., `Array[T,N]`
-            // declares `needs N is U64`).
-            List<List<GenericConstraintDeclaration>?> sources =
-            [
-                _currentRoutine?.GenericConstraints,
-                _currentType?.GenericConstraints,
-                _currentRoutine?.OwnerType?.GenericConstraints
-            ];
-            foreach (List<GenericConstraintDeclaration>? constraints in sources)
-            {
-                if (constraints == null) continue;
-                foreach (GenericConstraintDeclaration c in constraints)
+            if (c.ParameterName != paramName || c.ConstraintType != ConstraintKind.ConstGeneric)
+                continue;
+            if (c.ConstraintTypes is not { Count: > 0 } types) continue;
+            if (types.Any(boundExpr =>
                 {
-                    if (c.ParameterName != name) continue;
-                    if (c.ConstraintType != ConstraintKind.ConstGeneric) continue;
-                    if (c.ConstraintTypes is not { Count: > 0 } types) continue;
-                    foreach (TypeExpression boundExpr in types)
-                    {
-                        TypeSymbol? bound = LookupTypeWithImports(name: boundExpr.Name);
-                        if (bound != null && IsNumericType(type: bound)) return true;
-                    }
-                }
-            }
+                    TypeSymbol? bound = LookupTypeWithImports(name: boundExpr.Name);
+                    return bound != null && IsNumericType(type: bound);
+                }))
+                return true;
         }
-
         return false;
     }
 
@@ -1180,31 +1149,45 @@ public sealed partial class SemanticVerifier
     {
         foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: paramName))
         {
-            if (c is { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null })
-            {
-                foreach (TypeExpression protocolExpr in c.ConstraintTypes)
-                {
-                    TypeSymbol? proto = _registry.LookupType(name: protocolExpr.Name);
-                    if (proto is ProtocolTypeInfo &&
-                        ProtocolDeclaresMemberRoutine(proto: proto, memberRoutineName: memberRoutineName))
-                        return true;
-                }
-            }
-            // `needs N is U64` — operator support follows the underlying value type.
-            else if (c is { ConstraintType: ConstraintKind.ConstGeneric, ConstraintTypes: not null })
-            {
-                foreach (TypeExpression ct in c.ConstraintTypes)
-                {
-                    TypeSymbol? underlying = _registry.LookupType(name: ct.Name);
-                    if (underlying != null &&
-                        underlying.Category != TypeCategory.Protocol &&
-                        _registry.LookupMemberRoutine(type: underlying, memberRoutineName: memberRoutineName) != null)
-                        return true;
-                }
-            }
+            if (ObeysConstraintSupportsMemberRoutine(c, memberRoutineName))
+                return true;
+            if (ConstGenericConstraintSupportsMemberRoutine(c, memberRoutineName))
+                return true;
         }
-
         return false;
+    }
+
+    /// <summary>
+    /// Returns true when an <c>obeys P</c> constraint's protocol (transitively) declares
+    /// <paramref name="memberRoutineName"/>. Extracted from <see cref="GenericParamConstraintSupportsMemberRoutine"/>.
+    /// </summary>
+    private bool ObeysConstraintSupportsMemberRoutine(GenericConstraintDeclaration c, string memberRoutineName)
+    {
+        if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null })
+            return false;
+        return c.ConstraintTypes.Any(protocolExpr =>
+        {
+            TypeSymbol? proto = _registry.LookupType(name: protocolExpr.Name);
+            return proto is ProtocolTypeInfo &&
+                   ProtocolDeclaresMemberRoutine(proto: proto, memberRoutineName: memberRoutineName);
+        });
+    }
+
+    /// <summary>
+    /// Returns true when a <c>needs N is T</c> const-generic constraint's underlying value type has
+    /// <paramref name="memberRoutineName"/>. Extracted from <see cref="GenericParamConstraintSupportsMemberRoutine"/>.
+    /// </summary>
+    private bool ConstGenericConstraintSupportsMemberRoutine(GenericConstraintDeclaration c, string memberRoutineName)
+    {
+        if (c is not { ConstraintType: ConstraintKind.ConstGeneric, ConstraintTypes: not null })
+            return false;
+        return c.ConstraintTypes.Any(ct =>
+        {
+            TypeSymbol? underlying = _registry.LookupType(name: ct.Name);
+            return underlying != null
+                && underlying.Category != TypeCategory.Protocol
+                && _registry.LookupMemberRoutine(type: underlying, memberRoutineName: memberRoutineName) != null;
+        });
     }
 
     /// <summary>
@@ -1252,17 +1235,12 @@ public sealed partial class SemanticVerifier
     {
         if (paramType is not GenericParameterTypeInfo gp || routine.GenericConstraints == null)
             return false;
-        foreach (GenericConstraintDeclaration c in routine.GenericConstraints)
-        {
-            if (c.ParameterName != gp.Name || c.ConstraintType != ConstraintKind.Obeys ||
-                c.ConstraintTypes == null)
-                continue;
-            foreach (TypeExpression pe in c.ConstraintTypes)
-                if (pe.Name is Compiler.Declaration.RuntimeContract.Accessing
-                    or Compiler.Declaration.RuntimeContract.Controlling)
-                    return true;
-        }
-        return false;
+        return routine.GenericConstraints
+            .Where(c => c.ParameterName == gp.Name && c.ConstraintType == ConstraintKind.Obeys
+                        && c.ConstraintTypes != null)
+            .SelectMany(c => c.ConstraintTypes!)
+            .Any(pe => pe.Name is Compiler.Declaration.RuntimeContract.Accessing
+                       or Compiler.Declaration.RuntimeContract.Controlling);
     }
 
     private IEnumerable<GenericConstraintDeclaration> ActiveConstraintsFor(string paramName)
@@ -1523,49 +1501,22 @@ public sealed partial class SemanticVerifier
         if (iterableType is ProtocolTypeInfo iproto)
         {
             string baseName = (iproto.GenericDefinition ?? iproto).BareName;
-            if (baseName == "Iterable" && iproto.TypeArguments is { Count: > 0 })
+            if (baseName == IterableProtocolName && iproto.TypeArguments is { Count: > 0 })
             {
                 return iproto.TypeArguments[index: 0];
             }
         }
 
-        // Generic-parameter receiver constrained to `Iterable[X]` — e.g. a desugared protocol
-        // parameter `r: Iterable[S64]` becomes `__T0 obeys Iterable[S64]`. The constraint pins the
-        // element type to X for EVERY instantiation, so take the element from the obeys-constraint's
-        // type argument. Without this the element falls through to Strategy 2 and resolves to the
-        // protocol's bare element param `T`, which then leaks unsubstituted into the monomorphized
-        // body and reaches codegen (`GenericParameterTypeInfo 'T' reached GetLlvmType`).
+        // Generic-parameter receiver constrained to Iterable[X]: take the element type directly
+        // from the constraint's type argument to avoid leaking the unsubstituted generic param T.
         if (iterableType is GenericParameterTypeInfo gp)
         {
-            foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: gp.Name))
-            {
-                if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null })
-                    continue;
-                foreach (TypeExpression protocolExpr in c.ConstraintTypes)
-                {
-                    if (BareTypeName(typeName: protocolExpr.Name) != "Iterable") continue;
-                    TypeSymbol resolved = _typeResolver.ResolveType(typeExpr: protocolExpr);
-                    if (resolved.TypeArguments is { Count: > 0 })
-                        return resolved.TypeArguments[index: 0];
-                }
-            }
+            TypeSymbol? fromConstraint = TryGetIterableElementFromGenericConstraint(gp.Name);
+            if (fromConstraint != null) return fromConstraint;
         }
 
-        // Type must follow the Iterable protocol
-        bool obeysIterable = ImplementsProtocol(type: iterableType, protocolName: "Iterable");
-
-        // For generic resolution types, also check if the generic definition has iter
-        if (!obeysIterable && iterableType.IsGenericResolution)
-        {
-            RoutineInfo? seqMemberRoutine =
-                _registry.LookupMemberRoutine(type: iterableType, memberRoutineName: "iter");
-            if (seqMemberRoutine != null)
-            {
-                obeysIterable = true;
-            }
-        }
-
-        if (!obeysIterable)
+        // Verify the type follows the Iterable protocol (or has an iter member routine).
+        if (!IsOrObeysIterable(iterableType: iterableType))
         {
             ReportError(code: SemanticDiagnosticCode.TypeNotIterable,
                 message: $"Type '{iterableType.Name}' is not iterable. Types must follow the " +
@@ -1622,11 +1573,47 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
+    /// Walks the <c>Obeys Iterable[X]</c> constraints on the generic parameter named
+    /// <paramref name="paramName"/> and returns the element type <c>X</c> when found.
+    /// Returns null if no such constraint exists.
+    /// </summary>
+    private TypeSymbol? TryGetIterableElementFromGenericConstraint(string paramName)
+    {
+        foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: paramName))
+        {
+            if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null })
+                continue;
+            foreach (TypeExpression protocolExpr in c.ConstraintTypes)
+            {
+                if (BareTypeName(typeName: protocolExpr.Name) != IterableProtocolName) continue;
+                TypeSymbol resolved = _typeResolver.ResolveType(typeExpr: protocolExpr);
+                if (resolved.TypeArguments is { Count: > 0 })
+                    return resolved.TypeArguments[index: 0];
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="iterableType"/> directly implements the
+    /// <c>Iterable</c> protocol or, for a generic resolution, exposes an <c>iter</c>
+    /// member routine (structural Iterable check).
+    /// </summary>
+    private bool IsOrObeysIterable(TypeSymbol iterableType)
+    {
+        if (ImplementsProtocol(type: iterableType, protocolName: IterableProtocolName))
+            return true;
+        if (iterableType.IsGenericResolution)
+            return _registry.LookupMemberRoutine(type: iterableType, memberRoutineName: "iter") != null;
+        return false;
+    }
+
+    /// <summary>
     /// Strategy 1 of <see cref="GetIterableElementType"/>: extracts the element type from an
     /// <c>Iterable[X]</c> entry in the type's implemented protocols, substituting generic parameters
     /// for a generic resolution. Returns null when no <c>Iterable</c> protocol entry is found.
     /// </summary>
-    private TypeSymbol? TryGetElementFromIterableProtocols(TypeSymbol iterableType)
+    private static TypeSymbol? TryGetElementFromIterableProtocols(TypeSymbol iterableType)
     {
         List<TypeSymbol>? protocols = iterableType switch
         {
@@ -1642,42 +1629,46 @@ public sealed partial class SemanticVerifier
 
         foreach (TypeSymbol proto in protocols)
         {
-            if (proto.BareName == "Iterable" &&
-                proto.TypeArguments is { Count: > 0 })
-            {
-                TypeInfo elementType = proto.TypeArguments[index: 0];
+            if (proto.BareName != IterableProtocolName || proto.TypeArguments is not { Count: > 0 })
+                continue;
 
-                // Resolve generic parameters if the iterable is a generic resolution
-                if (iterableType is { IsGenericResolution: true, TypeArguments: not null })
-                {
-                    TypeInfo? genericDef = iterableType switch
-                    {
-                        RecordTypeInfo r => r.GenericDefinition,
-                        EntityTypeInfo e => e.GenericDefinition,
-                        _ => null
-                    };
-                    if (genericDef?.GenericParameters != null)
-                    {
-                        var substitution = new Dictionary<string, TypeInfo>();
-                        for (int i = 0;
-                             i < genericDef.GenericParameters.Count &&
-                             i < iterableType.TypeArguments.Count;
-                             i++)
-                        {
-                            substitution[key: genericDef.GenericParameters[index: i]] =
-                                iterableType.TypeArguments[index: i];
-                        }
-
-                        elementType = SubstituteTypeParams(type: elementType,
-                            substitution: substitution);
-                    }
-                }
-
-                return elementType;
-            }
+            TypeInfo elementType = proto.TypeArguments[index: 0];
+            return SubstituteIterableElementTypeParams(iterableType: iterableType, elementType: elementType);
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Substitutes the generic parameters of <paramref name="iterableType"/> into
+    /// <paramref name="elementType"/> when the iterable is a generic resolution.
+    /// Returns <paramref name="elementType"/> unchanged when no substitution applies.
+    /// </summary>
+    private static TypeInfo SubstituteIterableElementTypeParams(TypeSymbol iterableType, TypeInfo elementType)
+    {
+        if (iterableType is not { IsGenericResolution: true, TypeArguments: not null })
+            return elementType;
+
+        TypeInfo? genericDef = iterableType switch
+        {
+            RecordTypeInfo r => r.GenericDefinition,
+            EntityTypeInfo e => e.GenericDefinition,
+            _ => null
+        };
+
+        if (genericDef?.GenericParameters == null)
+            return elementType;
+
+        var substitution = new Dictionary<string, TypeInfo>();
+        for (int i = 0;
+             i < genericDef.GenericParameters.Count && i < iterableType.TypeArguments.Count;
+             i++)
+        {
+            substitution[key: genericDef.GenericParameters[index: i]] =
+                iterableType.TypeArguments[index: i];
+        }
+
+        return SubstituteTypeParams(type: elementType, substitution: substitution);
     }
 
     /// <summary>
@@ -1747,35 +1738,21 @@ public sealed partial class SemanticVerifier
             return true;
         }
 
-        if (type.TypeArguments is { Count: > 0 } args)
+        if (type.TypeArguments is { Count: > 0 } args &&
+            args.Any(arg => ContainsUnresolvedMemberRoutineGeneric(type: arg, genericParameters: genericParameters)))
         {
-            foreach (TypeSymbol arg in args)
-            {
-                if (ContainsUnresolvedMemberRoutineGeneric(type: arg,
-                        genericParameters: genericParameters))
-                {
-                    return true;
-                }
-            }
+            return true;
         }
 
         if (type is RoutineTypeInfo routine)
         {
-            foreach (TypeSymbol pt in routine.ParameterTypes)
-            {
-                if (ContainsUnresolvedMemberRoutineGeneric(type: pt,
-                        genericParameters: genericParameters))
-                {
-                    return true;
-                }
-            }
+            if (routine.ParameterTypes.Any(pt =>
+                    ContainsUnresolvedMemberRoutineGeneric(type: pt, genericParameters: genericParameters)))
+                return true;
 
             if (routine.ReturnType is { } ret &&
-                ContainsUnresolvedMemberRoutineGeneric(type: ret,
-                    genericParameters: genericParameters))
-            {
+                ContainsUnresolvedMemberRoutineGeneric(type: ret, genericParameters: genericParameters))
                 return true;
-            }
         }
 
         return false;

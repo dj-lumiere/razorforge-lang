@@ -463,7 +463,7 @@ public enum SemanticDiagnosticCode
     ChoiceCaseValueOverflow = 419,
 
     /// <summary>Duplicate choice case value.</summary>
-    ChoiceDuplicateValue = 420,
+    ChoiceDuplicateValue = 429,
 
     /// <summary>Discard target must be a routine call, not an arbitrary expression.</summary>
     InvalidDiscardTarget = 421,
@@ -784,7 +784,7 @@ public enum SemanticDiagnosticCode
     ProtocolMemberRoutineSignatureMismatch = 703,
 
     /// <summary>@generated or @innate annotation used outside a protocol routine declaration.</summary>
-    InvalidGeneratedInnatePlacement = 704,
+    InvalidGeneratedInnatePlacement = 710,
 
     /// <summary>Cannot override an @innate protocol routine.</summary>
     InnateOverrideNotAllowed = 705,
@@ -960,7 +960,7 @@ public enum SemanticDiagnosticCode
     SuflaeDataFallback = 831,
 
     /// <summary>Routine cannot directly return Maybe&lt;T&gt;/Result&lt;T&gt;/Lookup&lt;T&gt; — use failable routines (!) instead.</summary>
-    ErrorHandlingTypeAsReturnType = 807,
+    ErrorHandlingTypeAsReturnType = 806,
 
     ///<summary>Nested Maybe types (Maybe[Maybe[T]] / T??) are not allowed.</summary>
     NestedMaybeProhibited = 808,
@@ -1004,7 +1004,7 @@ public enum SemanticDiagnosticCode
     UnknownExpandSource = 953,
 
     /// <summary>Bare entity type used as type argument to Maybe/Result/Lookup. Wrap in Retained[T], Guarded[T], or use Owned[T?] for unique ownership.</summary>
-    BareEntityInCarrierType = 953,
+    BareEntityInCarrierType = 961,
 
     /// <summary>Residual high-level AST node survived backend-entry lowering validation.</summary>
     IllegalBackendResidualNode = 954,

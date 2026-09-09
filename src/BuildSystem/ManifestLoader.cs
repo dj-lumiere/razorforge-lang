@@ -288,39 +288,46 @@ public static class ManifestLoader
         // `library` = EXTERNAL dependency directories (requirements.txt-style), relative
         // to the manifest. Accept a single string or an array of strings.
         if (table.TryGetValue(key: "library", value: out object? libraryObj))
-        {
-            foreach (string? rawEntry in AsStringEntries(value: libraryObj))
-            {
-                if (string.IsNullOrWhiteSpace(value: rawEntry))
-                {
-                    continue;
-                }
-
-                target.Libraries.Add(item: rawEntry);
-            }
-        }
+            ParseLibraryEntries(value: libraryObj, target: target);
 
         // `c_libraries` = external C libraries to link (the `-l` names, e.g. "SDL2"). Names only.
         if (table.TryGetValue(key: "c_libraries", value: out object? cLibsObj))
-        {
-            foreach (string? rawEntry in AsStringEntries(value: cLibsObj))
-            {
-                if (!string.IsNullOrWhiteSpace(value: rawEntry))
-                    target.CLibraries.Add(item: rawEntry.Trim());
-            }
-        }
+            ParseCLibraryEntries(value: cLibsObj, target: target);
 
         // `library_paths` = additional `-L` search directories for `c_libraries`, resolved relative
         // to the manifest directory (absolute entries pass through).
         if (table.TryGetValue(key: "library_paths", value: out object? libPathsObj))
+            ParseLibraryPathEntries(value: libPathsObj, target: target, manifestDir: manifestDir);
+    }
+
+    /// <summary>Adds non-empty raw library entries to <paramref name="target"/>'s Libraries list.</summary>
+    private static void ParseLibraryEntries(object? value, BuildTarget target)
+    {
+        foreach (string? rawEntry in AsStringEntries(value: value)
+                     .Where(predicate: e => !string.IsNullOrWhiteSpace(value: e)))
         {
-            foreach (string? rawEntry in AsStringEntries(value: libPathsObj))
-            {
-                if (string.IsNullOrWhiteSpace(value: rawEntry))
-                    continue;
-                target.LibraryPaths.Add(item: Path.GetFullPath(
-                    path: Path.Combine(path1: manifestDir, path2: rawEntry.Trim())));
-            }
+            target.Libraries.Add(item: rawEntry!);
+        }
+    }
+
+    /// <summary>Adds trimmed, non-empty C-library names to <paramref name="target"/>'s CLibraries list.</summary>
+    private static void ParseCLibraryEntries(object? value, BuildTarget target)
+    {
+        foreach (string? rawEntry in AsStringEntries(value: value)
+                     .Where(predicate: e => !string.IsNullOrWhiteSpace(value: e)))
+        {
+            target.CLibraries.Add(item: rawEntry!.Trim());
+        }
+    }
+
+    /// <summary>Resolves and adds library search-path entries to <paramref name="target"/>'s LibraryPaths list.</summary>
+    private static void ParseLibraryPathEntries(object? value, BuildTarget target, string manifestDir)
+    {
+        foreach (string? rawEntry in AsStringEntries(value: value)
+                     .Where(predicate: e => !string.IsNullOrWhiteSpace(value: e)))
+        {
+            target.LibraryPaths.Add(item: Path.GetFullPath(
+                path: Path.Combine(path1: manifestDir, path2: rawEntry!.Trim())));
         }
     }
 
@@ -456,7 +463,7 @@ public static class ManifestLoader
         string fullPath = Path.GetFullPath(path: filePath);
         bool hasEntryPoint = FileDeclaresEntryPoint(filePath: filePath);
 
-        if (!index.ContainsKey(key: moduleName))
+        if (!index.TryGetValue(key: moduleName, value: out string? existingPath))
         {
             index[key: moduleName] = fullPath;
             if (hasEntryPoint)
@@ -478,7 +485,7 @@ public static class ManifestLoader
         {
             throw new InvalidOperationException(
                 message: $"{ManifestFileName}: module '{moduleName}' declares " +
-                         $"'routine start()' in both '{index[moduleName]}' and '{fullPath}'.");
+                         $"'routine start()' in both '{existingPath}' and '{fullPath}'.");
         }
 
         // Promote the entry-bearing file over a previously-indexed library file.
@@ -495,21 +502,15 @@ public static class ManifestLoader
     {
         try
         {
-            foreach (string line in File.ReadLines(path: filePath))
-            {
-                if (line.Trim()
-                        .StartsWith(value: "routine start(", comparisonType: StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
+            return File.ReadLines(path: filePath)
+                .Any(predicate: line => line.Trim()
+                    .StartsWith(value: "routine start(", comparisonType: StringComparison.Ordinal));
         }
         catch (IOException)
         {
             // Unreadable file contributes no entry point.
+            return false;
         }
-
-        return false;
     }
 
     /// <summary>

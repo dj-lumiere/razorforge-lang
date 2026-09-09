@@ -12,6 +12,7 @@ namespace Compiler.CodeGen;
 public partial class LlvmCodeGenerator
 {
     private const string UnknownRoutineName = "<unknown>";
+    private const string NullDisplayName = "<null>";
 
     // Returns true if ALL clauses of the when statement are guaranteed to terminate
     // (i.e. the when_end block is unreachable).
@@ -190,50 +191,64 @@ public partial class LlvmCodeGenerator
                 : endLabel;
 
             EmitLine(sb: sb, line: $"{currentLabel}:");
-
-            // For carrier ElsePattern with a variable: extract the inner T value, mirroring SA narrowing.
-            // Must do this BEFORE EmitPatternMatch to pass the right type.
-            if (subjectType != null && IsCarrierType(type: subjectType) &&
-                clause.Pattern is ElsePattern { VariableName: not null } elseCarrier &&
-                subjectType.TypeArguments?.Count > 0 &&
-                IsNarrowedCarrierElseArm(subjectType: subjectType, handledAbsent: handledAbsent,
-                    handledCrashable: handledCrashable))
-            {
-                EmitNarrowedCarrierElseArm(sb: sb, clause: clause, subject: subject,
-                    subjectType: subjectType, variableName: elseCarrier.VariableName,
-                    clauseIndex: i, endLabel: endLabel, allTerminated: ref allTerminated);
-                continue;
-            }
-
-            // Track absent/crashable for narrowing of subsequent else arms
-            if (subjectType != null && IsCarrierType(type: subjectType))
-            {
-                if (IsAbsentPatternForCarrier(pattern: clause.Pattern, carrierType: subjectType))
-                    handledAbsent = true;
-                else if (IsCrashablePatternForGen(pattern: clause.Pattern))
-                    handledCrashable = true;
-            }
-
-            // Emit pattern matching code
-            string bodyLbl = NextLabel(prefix: $"when_body{i}");
-            EmitPatternMatch(sb: sb,
-                subject: subject,
-                pattern: clause.Pattern,
-                matchLabel: bodyLbl,
-                failLabel: nextLabel,
-                subjectType: subjectType);
-
-            // Emit body
-            EmitLine(sb: sb, line: $"{bodyLbl}:");
-            bool bodyTerminated = EmitStatement(sb: sb, stmt: clause.Body);
-            if (!bodyTerminated)
-            {
-                allTerminated = false;
-                EmitLine(sb: sb, line: $"  br label %{endLabel}");
-            }
+            EmitWhenChainClause(sb: sb, clause: clause, subject: subject, subjectType: subjectType,
+                clauseIndex: i, nextLabel: nextLabel, endLabel: endLabel,
+                handledAbsent: ref handledAbsent, handledCrashable: ref handledCrashable,
+                allTerminated: ref allTerminated);
         }
 
         return allTerminated;
+    }
+
+    /// <summary>
+    /// Emits a single when-chain clause: handles the narrowed carrier else-arm fast path,
+    /// updates the absent/crashable tracking flags, emits the pattern match, and emits the body.
+    /// </summary>
+    private void EmitWhenChainClause(StringBuilder sb, WhenClause clause, string subject,
+        TypeInfo? subjectType, int clauseIndex, string nextLabel, string endLabel,
+        ref bool handledAbsent, ref bool handledCrashable, ref bool allTerminated)
+    {
+        // For carrier ElsePattern with a variable: extract the inner T value, mirroring SA narrowing.
+        // Must do this BEFORE EmitPatternMatch to pass the right type.
+        if (subjectType != null && IsCarrierType(type: subjectType) &&
+            clause.Pattern is ElsePattern { VariableName: not null } elseCarrier &&
+            subjectType.TypeArguments?.Count > 0 &&
+            IsNarrowedCarrierElseArm(subjectType: subjectType, handledAbsent: handledAbsent,
+                handledCrashable: handledCrashable))
+        {
+            string elseBodyLabel = NextLabel(prefix: $"when_body{clauseIndex}");
+            EmitNarrowedCarrierElseArm(sb: sb, clauseBody: clause.Body, subject: subject,
+                subjectType: subjectType, variableName: elseCarrier.VariableName,
+                bodyLabel: elseBodyLabel, endLabel: endLabel, allTerminated: ref allTerminated);
+            return;
+        }
+
+        // Track absent/crashable for narrowing of subsequent else arms
+        if (subjectType != null && IsCarrierType(type: subjectType))
+        {
+            if (IsAbsentPatternForCarrier(pattern: clause.Pattern, carrierType: subjectType))
+                handledAbsent = true;
+            else if (IsCrashablePatternForGen(pattern: clause.Pattern))
+                handledCrashable = true;
+        }
+
+        // Emit pattern matching code
+        string bodyLbl = NextLabel(prefix: $"when_body{clauseIndex}");
+        EmitPatternMatch(sb: sb,
+            subject: subject,
+            pattern: clause.Pattern,
+            matchLabel: bodyLbl,
+            failLabel: nextLabel,
+            subjectType: subjectType);
+
+        // Emit body
+        EmitLine(sb: sb, line: $"{bodyLbl}:");
+        bool bodyTerminated = EmitStatement(sb: sb, stmt: clause.Body);
+        if (!bodyTerminated)
+        {
+            allTerminated = false;
+            EmitLine(sb: sb, line: $"  br label %{endLabel}");
+        }
     }
 
     /// <summary>
@@ -252,12 +267,11 @@ public partial class LlvmCodeGenerator
     /// clause body, and (unless the body self-terminates) branches to <paramref name="endLabel"/>,
     /// clearing <paramref name="allTerminated"/>.
     /// </summary>
-    private void EmitNarrowedCarrierElseArm(StringBuilder sb, WhenClause clause, string subject,
-        TypeInfo subjectType, string variableName, int clauseIndex, string endLabel,
+    private void EmitNarrowedCarrierElseArm(StringBuilder sb, Statement clauseBody, string subject,
+        TypeInfo subjectType, string variableName, string bodyLabel, string endLabel,
         ref bool allTerminated)
     {
         TypeInfo innerType = subjectType.TypeArguments![index: 0];
-        string bodyLabel = NextLabel(prefix: $"when_body{clauseIndex}");
         EmitCarrierElsePatternExtract(sb: sb,
             subject: subject,
             subjectType: subjectType,
@@ -265,7 +279,7 @@ public partial class LlvmCodeGenerator
             variableName: variableName,
             matchLabel: bodyLabel);
         EmitLine(sb: sb, line: $"{bodyLabel}:");
-        bool bodyTerminated = EmitStatement(sb: sb, stmt: clause.Body);
+        bool bodyTerminated = EmitStatement(sb: sb, stmt: clauseBody);
         if (!bodyTerminated)
         {
             allTerminated = false;
@@ -503,11 +517,8 @@ public partial class LlvmCodeGenerator
                     subjectType: subjectType);
                 break;
 
-            case CrashablePattern crashable:
+            case CrashablePattern:
                 EmitCrashablePatternMatch(sb: sb,
-                    subject: subject,
-                    crashable: crashable,
-                    matchLabel: matchLabel,
                     failLabel: failLabel,
                     subjectType: subjectType);
                 break;
@@ -522,7 +533,7 @@ public partial class LlvmCodeGenerator
             case NegatedTypePattern:
                 throw new InvalidOperationException(
                     $"NegatedTypePattern on variant reached codegen -> PatternLoweringPass must lower this. " +
-                    $"Subject type: {subjectType?.Name ?? "<null>"}. Routine: {_currentEmittingRoutine?.Name ?? UnknownRoutineName}.");
+                    $"Subject type: {subjectType?.Name ?? NullDisplayName}. Routine: {_currentEmittingRoutine?.Name ?? UnknownRoutineName}.");
 
             case FlagsPattern flagsPattern:
                 EmitFlagsPatternMatch(sb: sb,
@@ -545,12 +556,12 @@ public partial class LlvmCodeGenerator
             case DestructuringPattern:
                 throw new InvalidOperationException(
                     $"DestructuringPattern reached codegen -> PatternLoweringPass must lower this. " +
-                    $"Subject type: {subjectType?.Name ?? "<null>"}. Routine: {_currentEmittingRoutine?.Name ?? UnknownRoutineName}.");
+                    $"Subject type: {subjectType?.Name ?? NullDisplayName}. Routine: {_currentEmittingRoutine?.Name ?? UnknownRoutineName}.");
 
             case TypeDestructuringPattern:
                 throw new InvalidOperationException(
                     $"TypeDestructuringPattern reached codegen -> PatternLoweringPass must lower this. " +
-                    $"Subject type: {subjectType?.Name ?? "<null>"}. Routine: {_currentEmittingRoutine?.Name ?? UnknownRoutineName}.");
+                    $"Subject type: {subjectType?.Name ?? NullDisplayName}. Routine: {_currentEmittingRoutine?.Name ?? UnknownRoutineName}.");
 
             default:
                 throw new NotImplementedException(
@@ -668,10 +679,8 @@ public partial class LlvmCodeGenerator
         if (subjectType != null && IsCarrierType(type: subjectType) &&
             !IsMaybeType(type: subjectType) && typePattern.Type.Name == "Crashable")
         {
-            EmitCrashablePatternMatch(sb: sb, subject: subject,
-                crashable: new CrashablePattern(ErrorType: null,
-                    VariableName: typePattern.VariableName, Location: typePattern.Location),
-                matchLabel: matchLabel, failLabel: failLabel, subjectType: subjectType);
+            EmitCrashablePatternMatch(sb: sb,
+                failLabel: failLabel, subjectType: subjectType);
             return;
         }
 
@@ -750,7 +759,7 @@ public partial class LlvmCodeGenerator
     /// silently, and a runtime type test must be lowered to a type_id comparison upstream, never optimistically
     /// matched here.
     /// </summary>
-    private void EmitEntityTypePatternMatch(StringBuilder sb, TypeInfo? subjectType,
+    private static void EmitEntityTypePatternMatch(StringBuilder sb, TypeInfo? subjectType,
         TypeInfo? targetType, string branchTarget, string failLabel)
     {
         if (subjectType is EntityTypeInfo or RecordTypeInfo &&
@@ -764,16 +773,15 @@ public partial class LlvmCodeGenerator
         }
 
         throw new InvalidOperationException(
-            $"Undecidable type pattern (subject '{subjectType?.FullName ?? "<null>"}' is " +
-            $"'{targetType?.FullName ?? "<null>"}') reached codegen — a runtime type test must be lowered to a " +
+            $"Undecidable type pattern (subject '{subjectType?.FullName ?? NullDisplayName}' is " +
+            $"'{targetType?.FullName ?? NullDisplayName}') reached codegen — a runtime type test must be lowered to a " +
             "type_id comparison upstream. codegen is a never-fail translator, it does not optimistically match.");
     }
 
     /// <summary>
     /// Emits code for crashable pattern matching (error case of Result/Lookup/Maybe).
     /// </summary>
-    private void EmitCrashablePatternMatch(StringBuilder sb, string subject,
-        CrashablePattern crashable, string matchLabel, string failLabel,
+    private static void EmitCrashablePatternMatch(StringBuilder sb, string failLabel,
         TypeInfo? subjectType)
     {
         // Maybe has no error case -> a CrashablePattern on a Maybe subject never matches.

@@ -39,7 +39,7 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
     /// <summary>Inserts Roamed field-access lock brackets across a whole program.</summary>
     public void Run(Program program)
     {
-        foreach (SyntaxTree.Declaration decl in program.Declarations)
+        foreach (SyntaxTree.Declaration decl in program.Declarations.OfType<SyntaxTree.Declaration>())
         {
             LowerDeclaration(decl);
         }
@@ -134,7 +134,7 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
             delta: out _);
     }
 
-    private List<Expression> FieldAccessHandles(Statement stmt)
+    private static List<Expression> FieldAccessHandles(Statement stmt)
     {
         var handles = new List<Expression>();
         foreach (Expression e in DirectExpressions(stmt))
@@ -164,8 +164,9 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
     {
         switch (stmt)
         {
-            case ExpressionStatement s: yield return s.Expression; break;
-            case DiscardStatement s: yield return s.Expression; break;
+            case ExpressionStatement or DiscardStatement:
+                yield return stmt is ExpressionStatement es ? es.Expression : ((DiscardStatement)stmt).Expression;
+                break;
             case ReturnStatement { Value: not null } s: yield return s.Value; break;
             case VariantReturnStatement { Value: not null } s: yield return s.Value; break;
             case BecomesStatement s: yield return s.Value; break;
@@ -219,7 +220,7 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
     // take the Roamed handle, and return void — so the statement is a pure side effect around the field
     // access, exactly what the removed codegen bracket did. The handle node is reused (side-effect-free
     // to re-evaluate: an identifier / member handle), mirroring the promote/retain steps.
-    private Statement? MakeLockCall(Expression handle, string memberRoutine)
+    private ExpressionStatement? MakeLockCall(Expression handle, string memberRoutine)
     {
         if (handle.ResolvedType is not { } recvType) return null;
         RoutineInfo? routine = Registry.LookupMemberRoutine(type: recvType, memberRoutineName: memberRoutine);

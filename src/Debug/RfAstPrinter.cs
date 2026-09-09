@@ -15,6 +15,9 @@ namespace Builder;
 /// </summary>
 public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
 {
+    /// <summary>Return-type suffix rendered when a routine has no declared return type or returns None.</summary>
+    private const string ReturnNoneSuffix = " -> None";
+
     /// <summary>
     /// Stores the indent state used by this compiler phase.
     /// </summary>
@@ -31,10 +34,6 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
 
     // -----------------------------------------------------------------------------
 
-    /// <summary>
-    /// Produces a human-readable dump of all user programs and synthesized bodies
-    /// after the full desugaring pipeline has run.
-    /// </summary>
     /// <summary>The categorized output buckets for <see cref="PrintMultiProgram"/>: the flat stream is
     /// ordered presets → each type definition followed by its member routines → free routines → the entry
     /// point <c>start</c>.</summary>
@@ -66,6 +65,16 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         }
     }
 
+    /// <summary>
+    /// Renders all user and stdlib programs into one flat, fully-qualified text dump, interleaving
+    /// synthesized and monomorphized routine bodies in declaration order. The output groups every type
+    /// definition with its member routines, followed by free routines and the entry point.
+    /// </summary>
+    /// <param name="programs">The user-program ASTs together with their file path and module name.</param>
+    /// <param name="synthesizedBodies">Map from registry key to synthesized routine body statement.</param>
+    /// <param name="registry">The populated type registry, used to reconstruct routine signatures.</param>
+    /// <param name="stdlibPrograms">Optional stdlib ASTs to include before user programs.</param>
+    /// <param name="instantiatedGenericBodies">Optional map of monomorphized generic routine bodies.</param>
     public string PrintMultiProgram(
         IEnumerable<(SyntaxTree.Program Program, string FilePath, string Module)> programs,
         IReadOnlyDictionary<string, Statement> synthesizedBodies,
@@ -99,17 +108,17 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         _currentModule = "";
 
         // 2. Synthesized routine bodies (concrete only), bucketed by owner.
-        foreach ((string key, Statement body) in synthesizedBodies)
+        foreach (KeyValuePair<string, Statement> entry in synthesizedBodies)
         {
             _indent = 0;
-            if (!routineByKey.TryGetValue(key: key, value: out RoutineInfo? ri)
+            if (!routineByKey.TryGetValue(entry.Key, out RoutineInfo? ri)
                 || ri.IsGenericDefinition || ri.OwnerType?.IsGenericDefinition == true)
                 continue;
-            buckets.CategorizeRoutine(ri: ri, text: $"{FormatRoutineSignature(ri: ri)}\n{PrintBodyOf(body)}");
+            buckets.CategorizeRoutine(ri: ri, text: $"{FormatRoutineSignature(ri: ri)}\n{PrintBodyOf(entry.Value)}");
         }
 
         // 3. Monomorphized instances (concrete AST bodies), bucketed by owner.
-        foreach ((string key, MonomorphizedBody mono) in
+        foreach ((string _, MonomorphizedBody mono) in
                  instantiatedGenericBodies ?? new Dictionary<string, MonomorphizedBody>())
         {
             if (mono.IsSynthesized)
@@ -212,9 +221,13 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     /// </summary>
     private static string FormatRoutineSignature(RoutineInfo ri)
     {
-        string ownerPrefix = ri.OwnerType != null
-            ? $"{ri.OwnerType.FullName}."
-            : string.IsNullOrEmpty(ri.Module) ? "" : $"{ri.Module}.";
+        string ownerPrefix;
+        if (ri.OwnerType != null)
+            ownerPrefix = $"{ri.OwnerType.FullName}.";
+        else if (string.IsNullOrEmpty(ri.Module))
+            ownerPrefix = "";
+        else
+            ownerPrefix = $"{ri.Module}.";
         // `!` is a structured attribute (IsFailable), never part of the Name — the name is canonically
         // bare, so it renders directly and the failable marker comes solely from IsFailable.
         string bareName = ri.Name;
@@ -226,14 +239,16 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         // on it (stdlib / synthesized routines). Show None rather than <ERROR>.
         string retStr = ri.ReturnType != null
             ? $" -> {ri.ReturnType.FullName}"
-            : " -> None";
+            : ReturnNoneSuffix;
         // Preserve every annotation (`@llvm_ir(...)`, `@readonly`, `@positional`, …); fall back to
         // synthesizing `@readonly` from the mutation category when SA recorded it that way.
-        IEnumerable<string> anns = ri.Annotations.Count > 0
-            ? ri.Annotations
-            : ri.DeclaredMutation == MutationCategory.Readonly
-                ? new[] { "readonly" }
-                : System.Array.Empty<string>();
+        IEnumerable<string> anns;
+        if (ri.Annotations.Count > 0)
+            anns = ri.Annotations;
+        else if (ri.DeclaredMutation == MutationCategory.Readonly)
+            anns = new[] { "readonly" };
+        else
+            anns = System.Array.Empty<string>();
         string annotations = string.Concat(anns.Select(a => $"@{a}\n"));
         // Constructor: `routine Type(...)`, not `routine Type.create(...)`.
         string name = ri.IsCreator && ri.OwnerType is { } ctorOwner
@@ -304,27 +319,42 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     /// <summary>
     /// Performs the print pattern step for this compiler phase.
     /// </summary>
-    private string PrintPattern(Pattern p) => p switch
+    private string PrintPattern(Pattern p)
     {
-        LiteralPattern lit => FormatLiteralValue(lit.Value, lit.LiteralType),
-        TypePattern tp =>
-            $"is {tp.Type.Accept(this)}{(tp.VariableName != null ? " " + tp.VariableName : "")}",
-        NonePattern => "is None",
-        CrashablePattern cp =>
-            $"is {(cp.ErrorType != null ? cp.ErrorType.Accept(this) : "Crashable")}" +
-            $"{(cp.VariableName != null ? " " + cp.VariableName : "")}",
-        ElsePattern ep => ep.VariableName != null ? $"else {ep.VariableName}" : "else",
-        WildcardPattern => "_",
-        IdentifierPattern ip => ip.Name,
-        ExpressionPattern ep => ep.Expression.Accept(this),
-        GuardPattern gp => $"{PrintPattern(gp.InnerPattern)} where {gp.Guard.Accept(this)}",
-        FlagsPattern fp =>
-            $"is {string.Join(fp.Connective == FlagsTestConnective.And ? " and " : " or ", fp.FlagNames)}",
-        DestructuringPattern dp => $"({string.Join(", ", dp.Bindings.Select(PrintBinding))})",
-        TypeDestructuringPattern tdp =>
-            $"is {tdp.Type.Accept(this)} ({string.Join(", ", tdp.Bindings.Select(PrintBinding))})",
-        _ => $"#{p.GetType().Name}"
-    };
+        switch (p)
+        {
+            case LiteralPattern lit:
+                return FormatLiteralValue(lit.Value, lit.LiteralType);
+            case TypePattern tp:
+                string tpVarSuffix = tp.VariableName != null ? " " + tp.VariableName : "";
+                return $"is {tp.Type.Accept(this)}{tpVarSuffix}";
+            case NonePattern:
+                return "is None";
+            case CrashablePattern cp:
+                string cpErrorType = cp.ErrorType != null ? cp.ErrorType.Accept(this) : "Crashable";
+                string cpVarSuffix = cp.VariableName != null ? " " + cp.VariableName : "";
+                return $"is {cpErrorType}{cpVarSuffix}";
+            case ElsePattern ep:
+                return ep.VariableName != null ? $"else {ep.VariableName}" : "else";
+            case WildcardPattern:
+                return "_";
+            case IdentifierPattern ip:
+                return ip.Name;
+            case ExpressionPattern ep:
+                return ep.Expression.Accept(this);
+            case GuardPattern gp:
+                return $"{PrintPattern(gp.InnerPattern)} where {gp.Guard.Accept(this)}";
+            case FlagsPattern fp:
+                string flagsSep = fp.Connective == FlagsTestConnective.And ? " and " : " or ";
+                return $"is {string.Join(flagsSep, fp.FlagNames)}";
+            case DestructuringPattern dp:
+                return $"({string.Join(", ", dp.Bindings.Select(PrintBinding))})";
+            case TypeDestructuringPattern tdp:
+                return $"is {tdp.Type.Accept(this)} ({string.Join(", ", tdp.Bindings.Select(PrintBinding))})";
+            default:
+                return $"#{p.GetType().Name}";
+        }
+    }
 
     /// <summary>Renders one destructuring binding: <c>x: a</c> (renamed), <c>a</c> (positional),
     /// or <c>x: (nested)</c>.</summary>
@@ -408,22 +438,27 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         string s = StripSuffix(value, suffix).Replace("_", "");
         bool neg = s.StartsWith('-');
         if (neg) s = s[1..];
-        System.Numerics.BigInteger n;
-        bool ok;
+        if (!TryParsePrefixedInt(s, out System.Numerics.BigInteger n))
+            return StripSuffix(value, suffix).Replace("_", "");
+        string sign = neg ? "-" : "";
+        return sign + n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Parses an integer string that may carry a 0x/0b/0o prefix (with the sign already
+    /// stripped) into a <see cref="System.Numerics.BigInteger"/>. Returns false when the text is
+    /// not a valid integer in any supported base.</summary>
+    private static bool TryParsePrefixedInt(string s, out System.Numerics.BigInteger n)
+    {
         if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
             // Prefix "0" so the high nibble is never read as a sign bit.
-            ok = System.Numerics.BigInteger.TryParse("0" + s[2..],
+            return System.Numerics.BigInteger.TryParse("0" + s[2..],
                 System.Globalization.NumberStyles.HexNumber,
                 System.Globalization.CultureInfo.InvariantCulture, out n);
-        else if (s.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
-            ok = TryParseRadix(s[2..], 2, out n);
-        else if (s.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
-            ok = TryParseRadix(s[2..], 8, out n);
-        else
-            ok = System.Numerics.BigInteger.TryParse(s, out n);
-        if (!ok)
-            return StripSuffix(value, suffix).Replace("_", "");
-        return (neg ? "-" : "") + n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (s.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
+            return TryParseRadix(s[2..], 2, out n);
+        if (s.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
+            return TryParseRadix(s[2..], 8, out n);
+        return System.Numerics.BigInteger.TryParse(s, out n);
     }
 
     private static bool TryParseRadix(string digits, int radix, out System.Numerics.BigInteger n)
@@ -432,14 +467,19 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         if (digits.Length == 0) return false;
         foreach (char c in digits)
         {
-            int d = c is >= '0' and <= '9' ? c - '0'
-                : c is >= 'a' and <= 'f' ? c - 'a' + 10
-                : c is >= 'A' and <= 'F' ? c - 'A' + 10
-                : -1;
+            int d = CharDigitValue(c);
             if (d < 0 || d >= radix) return false;
             n = n * radix + d;
         }
         return true;
+    }
+
+    private static int CharDigitValue(char c)
+    {
+        if (c is >= '0' and <= '9') return c - '0';
+        if (c is >= 'a' and <= 'f') return c - 'a' + 10;
+        if (c is >= 'A' and <= 'F') return c - 'A' + 10;
+        return -1;
     }
 
     /// <summary>
@@ -461,8 +501,8 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         if (node.LiteralType is TokenType.UndecidedInteger or TokenType.UndecidedDecimal)
         {
             bool isInt = node.LiteralType == TokenType.UndecidedInteger;
-            string typeName = node.ResolvedType?.Name
-                ?? (isInt ? "Integer" : "Decimal");
+            string defaultTypeName = isInt ? "Integer" : "Decimal";
+            string typeName = node.ResolvedType?.Name ?? defaultTypeName;
             string v = isInt ? Int10(node.Value, "") : Real(node.Value, "");
             return $"{typeName}({v})";
         }
@@ -677,9 +717,13 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
                 ? string.Join(".", u.MemberVariablePath)
                 : "";
             string idx = u.Index != null ? $"[{u.Index.Accept(this)}]" : "";
-            string target = path.Length > 0 && idx.Length > 0
-                ? $"{path}{idx}"
-                : path.Length > 0 ? path : idx;
+            string target;
+            if (path.Length > 0 && idx.Length > 0)
+                target = $"{path}{idx}";
+            else if (path.Length > 0)
+                target = path;
+            else
+                target = idx;
             return $"{target}: {u.Value.Accept(this)}";
         });
         return $"with({node.Base.Accept(this)}, {string.Join(", ", updates)})";
@@ -717,7 +761,13 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     {
         string start = node.Start.Accept(this);
         string end = node.End.Accept(this);
-        string keyword = node.IsDescending ? "downto" : node.IsExclusive ? "til" : "to";
+        string keyword;
+        if (node.IsDescending)
+            keyword = "downto";
+        else if (node.IsExclusive)
+            keyword = "til";
+        else
+            keyword = "to";
         string step = node.Step != null ? $" by {node.Step.Accept(this)}" : "";
         return $"({start} {keyword} {end}{step})";
     }
@@ -866,11 +916,13 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     {
         // Spell out the type on every local: written annotation if present, else the inferred type
         // resolved from the initializer (so the dump has no implicit `var x = …` inference left).
-        string typeStr = node.Type != null
-            ? $": {node.Type.Accept(this)}"
-            : node.Initializer?.ResolvedType is { } inferred
-                ? $": {inferred.FullName}"
-                : "";
+        string typeStr;
+        if (node.Type != null)
+            typeStr = $": {node.Type.Accept(this)}";
+        else if (node.Initializer?.ResolvedType is { } inferred)
+            typeStr = $": {inferred.FullName}";
+        else
+            typeStr = "";
         string initStr = node.Initializer != null ? $" = {node.Initializer.Accept(this)}" : "";
         return $"{I}var {node.Name}{typeStr}{initStr}";
     }
@@ -935,11 +987,13 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
 
 
     /// <inheritdoc/>
-    public string VisitVariantReturnStatement(VariantReturnStatement node) =>
+    public string VisitVariantReturnStatement(VariantReturnStatement node)
+    {
         // Synthetic — no surface syntax. Reads as: return the failable-variant carrier for this
         // {Try|Check|Lookup} body, built from the {throw|absent|return|passthrough} site's value.
-        $"{I}return #carrier[{node.VariantKind}, {node.SiteKind}]" +
-        $"({(node.Value != null ? node.Value.Accept(this) : "")})";
+        string payload = node.Value != null ? node.Value.Accept(this) : "";
+        return $"{I}return #carrier[{node.VariantKind}, {node.SiteKind}]({payload})";
+    }
 
 
     /// <inheritdoc/>
@@ -1005,8 +1059,8 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     public string VisitEachStatement(EachStatement node)
     {
         // Runtime loop — lowered to loop+if before codegen; only appears in un-lowered generic defs.
-        string binder = node.Variable
-                        ?? (node.VariablePattern != null ? PrintPattern(node.VariablePattern) : "_");
+        string patternBinder = node.VariablePattern != null ? PrintPattern(node.VariablePattern) : "_";
+        string binder = node.Variable ?? patternBinder;
         var sb = new StringBuilder();
         sb.AppendLine($"{I}each {binder} in {node.Iterable.Accept(this)}");
         sb.Append(PrintBodyOf(node.Body));
@@ -1101,21 +1155,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     {
         var sb = new StringBuilder();
         string failStr = node.IsFailable ? "!" : "";
-        // Prefer resolved TypeInfo (module-qualified) for the signature's parameter/return types;
-        // the AST TypeExpressions in a signature carry no ResolvedType.
-        string returnStr;
-        string paramsStr;
-        if (node.ResolvedInfo is { } sig)
-        {
-            returnStr = sig.ReturnType != null ? $" -> {sig.ReturnType.FullName}" : " -> None";
-            paramsStr = string.Join(", ", sig.Parameters.Select(p => $"{p.Name}: {p.Type.FullName}"));
-        }
-        else
-        {
-            returnStr = node.ReturnType != null ? $" -> {node.ReturnType.Accept(this)}" : " -> None";
-            paramsStr = string.Join(", ", node.Parameters.Select(p =>
-                p.Type != null ? $"{p.Name}: {p.Type.Accept(this)}" : p.Name));
-        }
+        (string returnStr, string paramsStr) = BuildSignatureStrings(node);
         // Spell out the routine's own resolved generic args so monomorphized instantiations are distinct.
         string typeArgs = node.ResolvedInfo is { IsCreator: false, TypeArguments: { Count: > 0 } ta }
             ? $"[{string.Join(", ", ta.Select(RoutineInfo.GetTypeIdentity))}]"
@@ -1124,6 +1164,28 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         sb.AppendLine($"{I}routine {QualifyRoutineName(node)}{typeArgs}{failStr}({paramsStr}){returnStr}");
         sb.Append(PrintBodyOf(node.Body));
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>Resolves the return-type and parameter strings for a routine declaration's signature line.
+    /// Prefers the resolved <see cref="RoutineInfo"/> for module-qualified type names; falls back to the
+    /// raw AST type expressions when resolution has not run.</summary>
+    private (string ReturnStr, string ParamsStr) BuildSignatureStrings(RoutineDeclaration node)
+    {
+        // Prefer resolved TypeInfo (module-qualified) for the signature's parameter/return types;
+        // the AST TypeExpressions in a signature carry no ResolvedType.
+        if (node.ResolvedInfo is { } sig)
+        {
+            string ret = sig.ReturnType != null ? $" -> {sig.ReturnType.FullName}" : ReturnNoneSuffix;
+            string parms = string.Join(", ", sig.Parameters.Select(p => $"{p.Name}: {p.Type.FullName}"));
+            return (ret, parms);
+        }
+        else
+        {
+            string ret = node.ReturnType != null ? $" -> {node.ReturnType.Accept(this)}" : ReturnNoneSuffix;
+            string parms = string.Join(", ", node.Parameters.Select(p =>
+                p.Type != null ? $"{p.Name}: {p.Type.Accept(this)}" : p.Name));
+            return (ret, parms);
+        }
     }
 
     /// <summary>Module-qualifies a routine declaration name for the flat dump: member routines become
@@ -1259,7 +1321,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         {
             string returnStr = sig.ReturnType != null
                 ? $" -> {sig.ReturnType.Accept(this)}"
-                : " -> None";
+                : ReturnNoneSuffix;
             string paramsStr = string.Join(", ", sig.Parameters.Select(p =>
                 p.Type != null ? $"{p.Name}: {p.Type.Accept(this)}" : p.Name));
             sb.AppendLine($"{I}routine {sig.Name}({paramsStr}){returnStr}");
@@ -1344,7 +1406,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
                          .ToList();
         if (node.IsVariadic)
             pieces.Add("...");
-        string returnStr = node.ReturnType != null ? $" -> {node.ReturnType.Accept(this)}" : " -> None";
+        string returnStr = node.ReturnType != null ? $" -> {node.ReturnType.Accept(this)}" : ReturnNoneSuffix;
         return $"{AnnotationLines(node.Annotations)}{I}{danger}routine {realm}::{node.Name}{fail}{generics}({string.Join(", ", pieces)}){returnStr}";
     }
 

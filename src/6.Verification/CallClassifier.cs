@@ -1,3 +1,4 @@
+using SyntaxTree;
 using TypeModel.Symbols;
 
 namespace Compiler.Verification;

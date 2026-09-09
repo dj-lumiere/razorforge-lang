@@ -21,17 +21,13 @@ internal sealed class AutoWiredRegistrationPass
 
     private readonly TypeRegistry _registry;
 
-    /// <summary>(TypeFullName, ProtocolName) pairs that a type obeys only IMPLICITLY — marker-protocol
-    /// conferral or the structural `needs P everywhere` auto-conferral — as opposed to a user-written
-    /// `obeys P`. Everywhere-derive members (eq/cmp/…) attach only on EXPLICIT opt-in, so these are
-    /// excluded (their transitive parents are re-added via the explicit protocol's own obeys chain).</summary>
-    private readonly HashSet<(string TypeName, string ProtocolName)> _implicitConformances;
-
     public AutoWiredRegistrationPass(TypeRegistry registry,
         HashSet<(string TypeName, string ProtocolName)>? implicitConformances = null)
     {
         _registry = registry;
-        _implicitConformances = implicitConformances ?? [];
+        // implicitConformances is accepted for API compatibility but is not used internally;
+        // everywhere-derive opt-in is driven entirely by the explicit obeyed-protocol closure.
+        _ = implicitConformances;
     }
 
     public void Run(bool builderServiceImported = true)
@@ -43,9 +39,9 @@ internal sealed class AutoWiredRegistrationPass
         TypeSymbol? s64Type = _registry.LookupType(name: "S64");
         TypeSymbol? byteSizeType = _registry.LookupType(name: "ByteSize");
         TypeSymbol? noneType = _registry.LookupType(name: "None");
-        // SerialValue backs the auto-derived `serialize()` (Serializable). Registered only on the
-        // aggregate categories that `obey Serializable` (Record/Entity/Variant), mirroring how their
-        // WiredRoutinePass bodies are synthesized — promise==body (see [[serializable-serialvalue-impl]]).
+        // SerialValue backs the auto-derived serialize() (Serializable). Registered only on the
+        // aggregate categories that obey Serializable (Record/Entity/Variant), mirroring how their
+        // WiredRoutinePass bodies are synthesized — promise==body.
         TypeSymbol? serialValueType = _registry.LookupType(name: "SerialValue");
 
         // Look up List[T] for list-returning synthesized routines
@@ -55,144 +51,20 @@ internal sealed class AutoWiredRegistrationPass
             : null;
 
         // BuilderQuery helper-type closures (List[FieldInfo], List[ProtocolInfo],
-        // List[RoutineInfo]) are only resolved when the user program
-        // actually imports BuilderQuery. Otherwise GMP would drag in the full
-        // BTreeListNode/Owned/Array/ArrayIterator closure for every type via the
-        // metadata routines registered on each type.
-        TypeSymbol? listFieldInfoType = null;
-        TypeSymbol? listProtocolInfoType = null;
-        TypeSymbol? listRoutineInfoType = null;
-        if (builderServiceImported)
-        {
-            // FieldInfo/ProtocolInfo/RoutineInfo live in `module BuilderQuery` — qualify (a bare lookup
-            // depended on the cross-module short-name scan).
-            TypeSymbol? fieldInfoType = _registry.LookupType(name: "BuilderQuery.FieldInfo");
-            TypeSymbol? protocolInfoType = _registry.LookupType(name: "BuilderQuery.ProtocolInfo");
-            TypeSymbol? routineInfoType = _registry.LookupType(name: "BuilderQuery.RoutineInfo");
-
-            listFieldInfoType = listDef != null && fieldInfoType != null
-                ? _registry.GetOrCreateResolution(genericDef: listDef, typeArguments: [fieldInfoType])
-                : null;
-            listProtocolInfoType = listDef != null && protocolInfoType != null
-                ? _registry.GetOrCreateResolution(genericDef: listDef,
-                    typeArguments: [protocolInfoType])
-                : null;
-            listRoutineInfoType = listDef != null && routineInfoType != null
-                ? _registry.GetOrCreateResolution(genericDef: listDef,
-                    typeArguments: [routineInfoType])
-                : null;
-        }
+        // List[RoutineInfo]) are only resolved when the user program actually imports BuilderQuery.
+        // Otherwise GMP would drag in the full BTreeListNode/Owned/Array/ArrayIterator closure for
+        // every type via the metadata routines registered on each type.
+        (TypeSymbol? listFieldInfoType, TypeSymbol? listProtocolInfoType, TypeSymbol? listRoutineInfoType) =
+            ResolveBuilderInfoTypes(builderServiceImported: builderServiceImported, listDef: listDef);
 
         foreach (TypeSymbol type in _registry.GetTypesWithMemberRoutines())
         {
-            var existingMemberRoutines = _registry.GetMemberRoutinesForType(type: type)
-                                           .ToList();
-
-            // All types: represent(), diagnose() — auto-generated, overridable
-            if (textType != null)
-            {
-                MaybeRegisterWired(owner: type,
-                    name: RuntimeContract.Display.Represent,
-                    returnType: textType,
-                    existingMemberRoutines: existingMemberRoutines);
-                MaybeRegisterWired(owner: type,
-                    name: RuntimeContract.Display.Diagnose,
-                    returnType: textType,
-                    existingMemberRoutines: existingMemberRoutines);
-            }
-
-            // Serializable: serialize() -> SerialValue is UNIVERSAL — every value has one so the derived
-            // composite walk can call `me.field.serialize()` unconditionally (no `obeying` gate). Aggregate
-            // categories (Record/Entity/Variant) field-walk or scalar-box; a `choice`/`flags` enum has zero
-            // RF fields, so WiredRoutinePass's fields.Count==0 path boxes its `represent()` Text — the exact
-            // fallback the old gate's else-branch produced. Body synthesized in WiredRoutinePass.
-            if (serialValueType != null &&
-                type.Category is TypeCategory.Record or TypeCategory.Entity or TypeCategory.Variant
-                    or TypeCategory.Choice or TypeCategory.Flags)
-            {
-                MaybeRegisterWired(owner: type,
-                    name: RuntimeContract.Serialize,
-                    returnType: serialValueType,
-                    existingMemberRoutines: existingMemberRoutines);
-            }
-
-            // Unified destructor: every non-wrapper type gets a `dangerous` `destroy()`.
-            // RC wrappers (Owned/Retained/Tracked/...) supply their own custom `destroy` that
-            // delegates to the controller, so they're excluded here. The generated body is a
-            // no-op for now (full field-recursion + invalidate-me lands with the codegen
-            // unification); registering it lets explicit `me.field.destroy()` calls resolve.
-            if (noneType != null && !IsWrapperType(type: type))
-            {
-                MaybeRegisterDestroy(owner: type, noneType: noneType,
-                    existingMemberRoutines: existingMemberRoutines);
-            }
-
-            // Cycle-collector per-type hooks: every non-wrapper entity gets `roam_trace_impl()`
-            // (visits its Roamed fields) and `roam_free_impl()` (tears down non-Roamed fields + frees
-            // the entity). Only entities can be Roamed[T] (RoamController needs `T is EntityType`).
-            // Bodies are synthesized by WiredRoutinePass; unused ones are dead-code-eliminated.
-            if (noneType != null && type.Category == TypeCategory.Entity && !IsWrapperType(type: type))
-            {
-                MaybeRegisterRoamHook(owner: type, name: "roam_trace_impl", noneType: noneType,
-                    existingMemberRoutines: existingMemberRoutines);
-                MaybeRegisterRoamHook(owner: type, name: "roam_free_impl", noneType: noneType,
-                    existingMemberRoutines: existingMemberRoutines);
-            }
-
-            // All types: BuilderQuery metadata routines
-            BuilderInfoProvider.RegisterRoutinesOnType(type: type,
-                existingMemberRoutines: existingMemberRoutines,
-                registry: _registry,
-                textType: textType,
-                boolType: boolType,
-                u64Type: u64Type,
-                s64Type: s64Type,
-                listTextType: listTextType,
-                listFieldInfoType: listFieldInfoType,
-                listProtocolInfoType: listProtocolInfoType,
-                listRoutineInfoType: listRoutineInfoType,
+            RegisterForType(type: type,
+                textType: textType, boolType: boolType, u64Type: u64Type, s64Type: s64Type,
+                noneType: noneType, serialValueType: serialValueType, listDef: listDef,
+                listTextType: listTextType, listFieldInfoType: listFieldInfoType,
+                listProtocolInfoType: listProtocolInfoType, listRoutineInfoType: listRoutineInfoType,
                 byteSizeType: byteSizeType);
-
-            switch (type.Category)
-            {
-                case TypeCategory.Record:
-                    HandleRecordCategory(type: type, u64Type: u64Type,
-                        existingMemberRoutines: existingMemberRoutines);
-                    break;
-
-                case TypeCategory.Entity:
-                    HandleEntityCategory(type: type,
-                        existingMemberRoutines: existingMemberRoutines);
-                    break;
-
-                case TypeCategory.Choice:
-                    HandleChoiceCategory(type: type, u64Type: u64Type, boolType: boolType,
-                        s64Type: s64Type, textType: textType, listDef: listDef,
-                        existingMemberRoutines: existingMemberRoutines);
-                    break;
-
-                case TypeCategory.Crashable:
-                    HandleCrashableCategory(type: type, textType: textType,
-                        existingMemberRoutines: existingMemberRoutines);
-                    break;
-
-                case TypeCategory.Flags:
-                    HandleFlagsCategory(type: type, u64Type: u64Type, boolType: boolType,
-                        listDef: listDef, existingMemberRoutines: existingMemberRoutines);
-                    break;
-
-                case TypeCategory.Variant:
-                    HandleVariantCategory(type: type, textType: textType,
-                        existingMemberRoutines: existingMemberRoutines);
-                    break;
-            }
-
-            // Declaration-driven everywhere-derive registration: for each protocol P carrying a
-            // `needs P everywhere` self-constraint that this type OPTS INTO (`obeys P`) AND structurally
-            // satisfies (every member obeys P), register P's non-generated templated members (cmp/eq/…)
-            // from P's own declared signatures. Replaces the per-protocol hardcoded stubs above with the
-            // rule read straight from the stdlib protocol declaration (the `everywhere` self-constraint).
-            RegisterEverywhereDeriveMembers(type: type);
         }
 
         // Source location and caller standalone routines (injected at call site by codegen)
@@ -206,71 +78,223 @@ internal sealed class AutoWiredRegistrationPass
             u64Type: u64Type,
             s64Type: s64Type);
 
-        // Auto-register Text.create(from: T) for all concrete user types
-        // This makes every type structurally satisfy Representable[T]
+        // Auto-register Text.create(from: T) for all concrete user types so every type
+        // structurally satisfies Representable[T].
         if (textType != null)
         {
-            var textCreateMemberRoutines = _registry.GetMemberRoutinesForType(type: textType)
-                                             .Where(predicate: m => m.IsCreator)
-                                             .ToList();
-
-            foreach (TypeSymbol type in _registry.GetAllTypes())
-            {
-                if (type.Category is not (TypeCategory.Record or TypeCategory.Entity
-                    or TypeCategory.Choice or TypeCategory.Flags or TypeCategory.Variant))
-                {
-                    continue;
-                }
-
-                // Skip generic-definition types (T, Retained[T], List[T], etc. without
-                // concrete arg) and WrapperTypeInfo definitions — registering a create(from: T)
-                // for the bare wrapper produces a phantom Text.create(Core.Owned) symbol that
-                // overload-resolution can drift onto, then linker fails (no definition emitted).
-                if (type.IsGenericDefinition || type is WrapperTypeInfo)
-                {
-                    continue;
-                }
-
-                bool alreadyDefined = textCreateMemberRoutines.Any(predicate: m =>
-                    m.Parameters.Count == 1 &&
-                    m.Parameters[index: 0].Type.FullName == type.FullName);
-                if (alreadyDefined)
-                {
-                    continue;
-                }
-
-                _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
-                {
-                    Kind = RoutineKind.Creator,
-                    OwnerType = textType,
-                    Parameters = [new ParameterInfo(name: "from", type: type)],
-                    ReturnType = textType,
-                    IsFailable = false,
-                    DeclaredMutation = MutationCategory.Readonly,
-                    MutationCategory = MutationCategory.Readonly,
-                    Visibility = VisibilityModifier.Open,
-                    IsSynthesized = true
-                });
-            }
+            RegisterTextFromCreators(textType: textType);
         }
 
-        // Register BS per-type routines + represent/diagnose as universal memberRoutines.
-        // This allows T.data_size(), K.type_id(), T.represent(), etc. to resolve in
-        // generic function bodies where the receiver is a GenericParameterTypeInfo.
+        // Register builder-service routines + represent/diagnose as universal member routines so
+        // T.data_size(), K.type_id(), T.represent(), etc. resolve in generic function bodies.
+        RegisterUniversalTypeParamRoutines(
+            textType: textType, boolType: boolType, u64Type: u64Type, s64Type: s64Type,
+            noneType: noneType, listTextType: listTextType, listFieldInfoType: listFieldInfoType,
+            listProtocolInfoType: listProtocolInfoType, listRoutineInfoType: listRoutineInfoType,
+            byteSizeType: byteSizeType);
+    }
+
+    /// <summary>
+    /// Resolves the BuilderQuery list-wrapper types (List[FieldInfo], List[ProtocolInfo],
+    /// List[RoutineInfo]) when the user program imports BuilderQuery, or returns nulls otherwise.
+    /// Extracted from <see cref="Run"/> to reduce its cognitive complexity.
+    /// </summary>
+    private (TypeSymbol? ListFieldInfo, TypeSymbol? ListProtocolInfo, TypeSymbol? ListRoutineInfo)
+        ResolveBuilderInfoTypes(bool builderServiceImported, TypeSymbol? listDef)
+    {
+        if (!builderServiceImported)
+        {
+            return (null, null, null);
+        }
+
+        // FieldInfo/ProtocolInfo/RoutineInfo live in module BuilderQuery — qualify the lookup.
+        TypeSymbol? fieldInfoType = _registry.LookupType(name: "BuilderQuery.FieldInfo");
+        TypeSymbol? protocolInfoType = _registry.LookupType(name: "BuilderQuery.ProtocolInfo");
+        TypeSymbol? routineInfoType = _registry.LookupType(name: "BuilderQuery.RoutineInfo");
+
+        TypeSymbol? listFieldInfoType = listDef != null && fieldInfoType != null
+            ? _registry.GetOrCreateResolution(genericDef: listDef, typeArguments: [fieldInfoType])
+            : null;
+        TypeSymbol? listProtocolInfoType = listDef != null && protocolInfoType != null
+            ? _registry.GetOrCreateResolution(genericDef: listDef, typeArguments: [protocolInfoType])
+            : null;
+        TypeSymbol? listRoutineInfoType = listDef != null && routineInfoType != null
+            ? _registry.GetOrCreateResolution(genericDef: listDef, typeArguments: [routineInfoType])
+            : null;
+
+        return (listFieldInfoType, listProtocolInfoType, listRoutineInfoType);
+    }
+
+    /// <summary>
+    /// Registers all auto-derived member routines for a single type. Contains the body of the
+    /// main <see cref="Run"/> foreach loop, extracted to reduce cognitive complexity.
+    /// </summary>
+    private void RegisterForType(TypeSymbol type,
+        TypeSymbol? textType, TypeSymbol? boolType, TypeSymbol? u64Type, TypeSymbol? s64Type,
+        TypeSymbol? noneType, TypeSymbol? serialValueType, TypeSymbol? listDef,
+        TypeSymbol? listTextType, TypeSymbol? listFieldInfoType,
+        TypeSymbol? listProtocolInfoType, TypeSymbol? listRoutineInfoType,
+        TypeSymbol? byteSizeType)
+    {
+        var existingMemberRoutines = _registry.GetMemberRoutinesForType(type: type).ToList();
+
+        // All types: represent(), diagnose() — auto-generated, overridable
+        if (textType != null)
+        {
+            MaybeRegisterWired(owner: type,
+                name: RuntimeContract.Display.Represent,
+                returnType: textType,
+                existingMemberRoutines: existingMemberRoutines);
+            MaybeRegisterWired(owner: type,
+                name: RuntimeContract.Display.Diagnose,
+                returnType: textType,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // Serializable: serialize() -> SerialValue is UNIVERSAL — every value has one so the derived
+        // composite walk can call field.serialize() unconditionally (no obeying gate).
+        if (serialValueType != null &&
+            type.Category is TypeCategory.Record or TypeCategory.Entity or TypeCategory.Variant
+                or TypeCategory.Choice or TypeCategory.Flags)
+        {
+            MaybeRegisterWired(owner: type,
+                name: RuntimeContract.Serialize,
+                returnType: serialValueType,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // Unified destructor: every non-wrapper type gets a dangerous destroy().
+        if (noneType != null && !IsWrapperType(type: type))
+        {
+            MaybeRegisterDestroy(owner: type, noneType: noneType,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // Cycle-collector per-type hooks for non-wrapper entities.
+        if (noneType != null && type.Category == TypeCategory.Entity && !IsWrapperType(type: type))
+        {
+            MaybeRegisterRoamHook(owner: type, name: "roam_trace_impl", noneType: noneType,
+                existingMemberRoutines: existingMemberRoutines);
+            MaybeRegisterRoamHook(owner: type, name: "roam_free_impl", noneType: noneType,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // All types: BuilderQuery metadata routines
+        BuilderInfoProvider.RegisterRoutinesOnType(type: type,
+            existingMemberRoutines: existingMemberRoutines,
+            registry: _registry,
+            types: new BuilderQueryTypeSet(TextType: textType, BoolType: boolType,
+                U64Type: u64Type, S64Type: s64Type, ListTextType: listTextType,
+                ListFieldInfoType: listFieldInfoType, ListProtocolInfoType: listProtocolInfoType,
+                ListRoutineInfoType: listRoutineInfoType, ByteSizeType: byteSizeType));
+
+        switch (type.Category)
+        {
+            case TypeCategory.Record:
+                HandleRecordCategory(type: type, u64Type: u64Type,
+                    existingMemberRoutines: existingMemberRoutines);
+                break;
+
+            case TypeCategory.Entity:
+                HandleEntityCategory(type: type,
+                    existingMemberRoutines: existingMemberRoutines);
+                break;
+
+            case TypeCategory.Choice:
+                HandleChoiceCategory(type: type, u64Type: u64Type, boolType: boolType,
+                    s64Type: s64Type, textType: textType, listDef: listDef,
+                    existingMemberRoutines: existingMemberRoutines);
+                break;
+
+            case TypeCategory.Crashable:
+                HandleCrashableCategory(type: type, textType: textType,
+                    existingMemberRoutines: existingMemberRoutines);
+                break;
+
+            case TypeCategory.Flags:
+                HandleFlagsCategory(type: type, u64Type: u64Type, boolType: boolType,
+                    listDef: listDef, existingMemberRoutines: existingMemberRoutines);
+                break;
+
+            case TypeCategory.Variant:
+                HandleVariantCategory(type: type, textType: textType,
+                    existingMemberRoutines: existingMemberRoutines);
+                break;
+        }
+
+        // Declaration-driven everywhere-derive registration.
+        RegisterEverywhereDeriveMembers(type: type);
+    }
+
+    /// <summary>
+    /// Auto-registers <c>Text.create(from: T)</c> for every concrete user-defined type so that
+    /// every type structurally satisfies <c>Representable[T]</c>. Extracted from
+    /// <see cref="Run"/> to reduce its cognitive complexity.
+    /// </summary>
+    private void RegisterTextFromCreators(TypeSymbol textType)
+    {
+        var textCreateMemberRoutines = _registry.GetMemberRoutinesForType(type: textType)
+            .Where(predicate: m => m.IsCreator)
+            .ToList();
+
+        foreach (TypeSymbol type in _registry.GetAllTypes())
+        {
+            if (type.Category is not (TypeCategory.Record or TypeCategory.Entity
+                or TypeCategory.Choice or TypeCategory.Flags or TypeCategory.Variant))
+            {
+                continue;
+            }
+
+            // Skip generic-definition types and WrapperTypeInfo definitions — registering a
+            // create(from: T) for the bare wrapper produces a phantom Text.create(Core.Owned) symbol
+            // that overload-resolution can drift onto, then the linker fails (no definition emitted).
+            if (type.IsGenericDefinition || type is WrapperTypeInfo)
+            {
+                continue;
+            }
+
+            bool alreadyDefined = textCreateMemberRoutines.Any(predicate: m =>
+                m.Parameters.Count == 1 &&
+                m.Parameters[index: 0].Type.FullName == type.FullName);
+            if (alreadyDefined)
+            {
+                continue;
+            }
+
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
+            {
+                Kind = RoutineKind.Creator,
+                OwnerType = textType,
+                Parameters = [new ParameterInfo(name: "from", type: type)],
+                ReturnType = textType,
+                IsFailable = false,
+                DeclaredMutation = MutationCategory.Readonly,
+                MutationCategory = MutationCategory.Readonly,
+                Visibility = VisibilityModifier.Open,
+                IsSynthesized = true
+            });
+        }
+    }
+
+    /// <summary>
+    /// Registers builder-service routines and display/lifecycle routines on the universal
+    /// generic-parameter type <c>T</c>, so these resolve in any generic function body.
+    /// Extracted from <see cref="Run"/> to reduce its cognitive complexity.
+    /// </summary>
+    private void RegisterUniversalTypeParamRoutines(
+        TypeSymbol? textType, TypeSymbol? boolType, TypeSymbol? u64Type, TypeSymbol? s64Type,
+        TypeSymbol? noneType, TypeSymbol? listTextType, TypeSymbol? listFieldInfoType,
+        TypeSymbol? listProtocolInfoType, TypeSymbol? listRoutineInfoType, TypeSymbol? byteSizeType)
+    {
         var tParam = new GenericParameterTypeInfo(name: "T");
         var universalExisting = new List<RoutineInfo>();
         BuilderInfoProvider.RegisterRoutinesOnType(type: tParam,
             existingMemberRoutines: universalExisting,
             registry: _registry,
-            textType: textType,
-            boolType: boolType,
-            u64Type: u64Type,
-            s64Type: s64Type,
-            listTextType: listTextType,
-            listFieldInfoType: listFieldInfoType,
-            listProtocolInfoType: listProtocolInfoType,
-            listRoutineInfoType: listRoutineInfoType,
-            byteSizeType: byteSizeType);
+            types: new BuilderQueryTypeSet(TextType: textType, BoolType: boolType,
+                U64Type: u64Type, S64Type: s64Type, ListTextType: listTextType,
+                ListFieldInfoType: listFieldInfoType, ListProtocolInfoType: listProtocolInfoType,
+                ListRoutineInfoType: listRoutineInfoType, ByteSizeType: byteSizeType));
         if (textType != null)
         {
             MaybeRegisterWired(owner: tParam,
@@ -283,8 +307,7 @@ internal sealed class AutoWiredRegistrationPass
                 existingMemberRoutines: universalExisting);
         }
 
-        // `destroy` as a universal memberRoutine too — so `v.destroy()` resolves on a generic `T`
-        // (e.g. element teardown loops in `List[T].destroy`).
+        // destroy as a universal member routine so v.destroy() resolves on a generic T.
         if (noneType != null)
         {
             MaybeRegisterDestroy(owner: tParam, noneType: noneType,
@@ -703,8 +726,8 @@ internal sealed class AutoWiredRegistrationPass
     private void HandleVariantCategory(TypeSymbol type, TypeSymbol? textType,
         List<RoutineInfo> existingMemberRoutines)
     {
-        // Variants get auto-synthesized `represent` / `diagnose` so user-defined
-        // tagged unions render in f-strings and `show()` without manual impls.
+        // Variants get auto-synthesized represent/diagnose so user-defined
+        // tagged unions render in f-strings and show() without manual impls.
         // WiredRoutinePass.HandleVariant builds the bodies from the member list;
         // registration here makes the stubs visible to overload resolution and the
         // reachability sweep so the symbols actually get emitted by codegen.
@@ -889,23 +912,6 @@ internal sealed class AutoWiredRegistrationPass
         });
     }
 
-    /// <summary>
-    /// Registers a single-parameter readonly wired routine if not already defined.
-    /// </summary>
-    /// <summary>
-    /// Registers the auto-derive member routines conferred by every <c>needs P everywhere</c> protocol the
-    /// type opts into. The rule is read from the stdlib protocol declaration, not hardcoded per protocol:
-    /// a protocol with an <c>everywhere</c> self-constraint (Equatable/Comparable/Hashable/Assignable/…),
-    /// that <paramref name="type"/> both OBEYS (opt-in) and structurally satisfies (<see
-    /// cref="TypeRegistry.EverywhereObeys"/> — every member obeys P), contributes each of its non-generated
-    /// members that has a universal derive body. The member's signature comes from the protocol declaration,
-    /// with the protocol-self type (<c>Me</c>) substituted to the concrete type. Derived operators register
-    /// too when a universal DeriveText template exists for them (lt/le/gt/ge from cmp) — routed through the
-    /// same collector-materialized template path as cmp; those without a template (ne, notcontains) are still
-    /// produced by DerivedOperatorPass from eq/contains. Wrappers are excluded
-    /// (they override/forward eq/hash/cmp from their inner T). Idempotent via a live own-member check, so it
-    /// never double-registers a member the type already declares or an earlier pass registered.
-    /// </summary>
     /// <summary>Adds <paramref name="proto"/> and its full transitive parent chain to
     /// <paramref name="into"/> (canonical registry instances), keyed by name.</summary>
     private void AddProtocolAndParents(ProtocolTypeInfo proto,
@@ -937,7 +943,7 @@ internal sealed class AutoWiredRegistrationPass
         // derive on the DEF is what lets GMP monomorphize it onto each concrete instance. Its everywhere
         // condition is DEFERRED to instantiation (a generic-param member obeys P only for a concrete arg),
         // so the EverywhereObeys gate below is skipped for a def — the def carries the derive's
-        // `needs T obeys P` constraint, and a non-conforming instance simply never emits a used body.
+        // "needs T obeys P" constraint, and a non-conforming instance simply never emits a used body.
         bool isGenericDef = type.IsGenericDefinition;
 
         // memberCount drives the 0-memvar rule below (per member, not a whole-type skip).
@@ -987,106 +993,135 @@ internal sealed class AutoWiredRegistrationPass
 
             foreach (ProtocolMemberRoutineInfo member in p.MemberRoutines)
             {
-                // The catalog is the declarative source for whether a protocol member is a wired derive
-                // and whether it is a BASE derive or a DERIVED operator: a derived operator's
-                // `CapabilityWired` points at its base (≠ its own name); a base derive's points at itself.
-                if (member.HasDefaultImplementation || !member.IsInstanceMemberRoutine ||
-                    !Compiler.Declaration.WiredRoutineCatalog.TryGet(name: member.Name, entry: out WiredEntry we))
-                {
-                    continue;
-                }
-
-                // BASE derive (cmp/eq/hash/assign — CapabilityWired == own name) vs DERIVED operator
-                // (lt/le/gt/ge from cmp, ne from eq, notcontains from contains — CapabilityWired == base).
-                bool isDerivedOperator = we.CapabilityWired != member.Name;
-                int memberArity = member.ParameterTypes.Count;
-
-                if (isDerivedOperator)
-                {
-                    // A DERIVED operator registers here ONLY when a universal derive-template body exists for
-                    // it (DeriveText.rf lt/le/gt/ge → `me.cmp(you) == ME_SMALL` etc.). Routing these through
-                    // the everywhere-derive template mechanism (registered + materialized by the collector) is
-                    // what makes `a < b` resolve uniformly for Character/numerics/records — the C#
-                    // DerivedOperatorPass bodies did not survive the collector/warm codegen path. Delegation
-                    // derives WITHOUT a template (ne, notcontains) are still produced by DerivedOperatorPass,
-                    // so we skip them here rather than register stubs the collector cannot materialize.
-                    if (_registry.GetDeriveTemplate(name: member.Name, arity: memberArity, forType: type) is null)
-                    {
-                        continue;
-                    }
-                }
-                // A field-walk BASE derive is only VALID when every member obeys P (its body field-walks into
-                // `member.cmp/eq/…`). A concrete type that declares `obeys P` but fails this is a conformance
-                // error surfaced elsewhere; we don't fabricate an ill-typed body. A generic DEF defers to
-                // instantiation (everywhereObeys is forced true for a def above).
-                else if (!everywhereObeys)
-                {
-                    continue;
-                }
-
-                // 0-memvar rule (per member, not per type): a field-less type (an `@llvm` scalar like U64,
-                // an empty record, choice/flags) has no members to walk, so a FIELD-WALK BASE derive
-                // (eq/cmp/hash → returns Bool/ComparisonSign/U64) would produce a WRONG empty-walk body
-                // (`return true` / `SAME` / `0`) — such a type must IMPLEMENT those itself (`@override`).
-                // But an IDENTITY derive (assign/copy → returns `Me`) is CORRECT as `return me` even with no
-                // members, so it still auto-derives (signal = return type is the self type). A DELEGATION
-                // derive (lt = `me.cmp(you) == ME_SMALL`) is likewise correct regardless of member count —
-                // it calls the type's own cmp, native on a field-less scalar — so the rule does not gate it.
-                if (!isDerivedOperator && memberCount == 0 && member.ReturnType is not ProtocolSelfTypeInfo)
-                {
-                    continue;
-                }
-
-                // Uniform "already provided" check — NO type-category special rule: skip when the type
-                // already resolves a CONCRETE (non-abstract) impl of this member, whether a hand-written
-                // routine, an earlier hardcoded stub, or a native/wired op on an @llvm scalar (U64.cmp etc.).
-                // A resolution to the ABSTRACT protocol member (OwnerType is a protocol) does NOT count —
-                // that is the obligation this derive fulfils. Mirrors ComputeCapability's `direct` check.
-                // For a BASE derive, skip when the type already resolves a CONCRETE (non-abstract) impl of
-                // this member (a hand-written routine or a native/wired op on an @llvm scalar). A DERIVED
-                // operator (lt/le/gt/ge) is NOT gated by this: LookupMemberRoutine resolves the abstract
-                // Comparable.lt SUBSTITUTED to the implementer (owner rewritten to the type, so the
-                // `OwnerType is protocol` test can't see it's the abstract obligation), which would wrongly
-                // block the template-derived registration and re-open RF-S702. The derived operator is only
-                // ever provided by this template path (DerivedOperatorPass no longer emits it), so register it.
-                if (!isDerivedOperator &&
-                    _registry.LookupMemberRoutine(type: type, memberRoutineName: member.Name) is
-                        { OwnerType: not ProtocolTypeInfo })
-                {
-                    continue;
-                }
-
-                // Build the stub from the protocol's declared signature, substituting the self type.
-                var parameters = new List<ParameterInfo>();
-                for (int i = 0; i < member.ParameterTypes.Count; i++)
-                {
-                    TypeSymbol pt = member.ParameterTypes[index: i] is ProtocolSelfTypeInfo
-                        ? type
-                        : member.ParameterTypes[index: i];
-                    string pn = i < member.ParameterNames.Count ? member.ParameterNames[index: i] : $"arg{i}";
-                    parameters.Add(item: new ParameterInfo(name: pn, type: pt));
-                }
-
-                TypeSymbol? returnType = member.ReturnType is ProtocolSelfTypeInfo
-                    ? type
-                    : member.ReturnType;
-
-                _registry.RegisterRoutine(routine: new RoutineInfo(name: member.Name)
-                {
-                    Kind = RoutineKind.MemberRoutine,
-                    OwnerType = type,
-                    Parameters = parameters,
-                    ReturnType = returnType,
-                    IsFailable = member.IsFailable,
-                    DeclaredMutation = member.Mutation,
-                    MutationCategory = member.Mutation,
-                    Visibility = VisibilityModifier.Open,
-                    IsSynthesized = true
-                });
+                RegisterEverywhereDeriveMember(type: type, member: member,
+                    memberCount: memberCount, everywhereObeys: everywhereObeys);
             }
         }
     }
 
+    /// <summary>
+    /// Determines whether a single everywhere-derive protocol member should be skipped for
+    /// <paramref name="type"/>. Returns true when the member is not a valid wired derive candidate,
+    /// when the everywhere-obeys gate fails, when the 0-memvar rule fires, or when the type already
+    /// provides a concrete implementation. Extracted from
+    /// <see cref="RegisterEverywhereDeriveMembers"/> to reduce its cognitive complexity.
+    /// </summary>
+    private bool ShouldSkipEverywhereDeriveMember(TypeSymbol type, ProtocolMemberRoutineInfo member,
+        int memberCount, bool everywhereObeys, out bool isDerivedOperator)
+    {
+        isDerivedOperator = false;
+
+        // The catalog is the declarative source for whether a protocol member is a wired derive
+        // and whether it is a BASE derive or a DERIVED operator: a derived operator's
+        // `CapabilityWired` points at its base (≠ its own name); a base derive's points at itself.
+        if (member.HasDefaultImplementation || !member.IsInstanceMemberRoutine ||
+            !Compiler.Declaration.WiredRoutineCatalog.TryGet(name: member.Name, entry: out WiredEntry we))
+        {
+            return true;
+        }
+
+        // BASE derive (cmp/eq/hash/assign — CapabilityWired == own name) vs DERIVED operator
+        // (lt/le/gt/ge from cmp, ne from eq, notcontains from contains — CapabilityWired == base).
+        isDerivedOperator = we.CapabilityWired != member.Name;
+        int memberArity = member.ParameterTypes.Count;
+
+        if (isDerivedOperator)
+        {
+            // A DERIVED operator registers here ONLY when a universal derive-template body exists for
+            // it (DeriveText.rf lt/le/gt/ge → `me.cmp(you) == ME_SMALL` etc.). Routing these through
+            // the everywhere-derive template mechanism (registered + materialized by the collector) is
+            // what makes `a < b` resolve uniformly for Character/numerics/records — the C#
+            // DerivedOperatorPass bodies did not survive the collector/warm codegen path. Delegation
+            // derives WITHOUT a template (ne, notcontains) are still produced by DerivedOperatorPass,
+            // so we skip them here rather than register stubs the collector cannot materialize.
+            return _registry.GetDeriveTemplate(name: member.Name, arity: memberArity, forType: type) is null;
+        }
+
+        // A field-walk BASE derive is only VALID when every member obeys P (its body field-walks into
+        // `member.cmp/eq/…`). A concrete type that declares `obeys P` but fails this is a conformance
+        // error surfaced elsewhere; we don't fabricate an ill-typed body. A generic DEF defers to
+        // instantiation (everywhereObeys is forced true for a def above).
+        if (!everywhereObeys)
+        {
+            return true;
+        }
+
+        // 0-memvar rule (per member, not per type): a field-less type (an `@llvm` scalar like U64,
+        // an empty record, choice/flags) has no members to walk, so a FIELD-WALK BASE derive
+        // (eq/cmp/hash → returns Bool/ComparisonSign/U64) would produce a WRONG empty-walk body
+        // (`return true` / `SAME` / `0`) — such a type must IMPLEMENT those itself (`@override`).
+        // But an IDENTITY derive (assign/copy → returns `Me`) is CORRECT as `return me` even with no
+        // members, so it still auto-derives (signal = return type is the self type). A DELEGATION
+        // derive (lt = `me.cmp(you) == ME_SMALL`) is likewise correct regardless of member count —
+        // it calls the type's own cmp, native on a field-less scalar — so the rule does not gate it.
+        if (memberCount == 0 && member.ReturnType is not ProtocolSelfTypeInfo)
+        {
+            return true;
+        }
+
+        // Uniform "already provided" check — NO type-category special rule: skip when the type
+        // already resolves a CONCRETE (non-abstract) impl of this member, whether a hand-written
+        // routine, an earlier hardcoded stub, or a native/wired op on an @llvm scalar (U64.cmp etc.).
+        // A resolution to the ABSTRACT protocol member (OwnerType is a protocol) does NOT count —
+        // that is the obligation this derive fulfils. Mirrors ComputeCapability's `direct` check.
+        // For a BASE derive, skip when the type already resolves a CONCRETE (non-abstract) impl of
+        // this member (a hand-written routine or a native/wired op on an @llvm scalar). A DERIVED
+        // operator (lt/le/gt/ge) is NOT gated by this: LookupMemberRoutine resolves the abstract
+        // Comparable.lt SUBSTITUTED to the implementer (owner rewritten to the type, so the
+        // `OwnerType is protocol` test can't see it's the abstract obligation), which would wrongly
+        // block the template-derived registration and re-open RF-S702. The derived operator is only
+        // ever provided by this template path (DerivedOperatorPass no longer emits it), so register it.
+        return _registry.LookupMemberRoutine(type: type, memberRoutineName: member.Name) is
+            { OwnerType: not ProtocolTypeInfo };
+    }
+
+    /// <summary>
+    /// Registers a single everywhere-derive stub for <paramref name="member"/> on <paramref name="type"/>
+    /// when all eligibility gates pass. Builds the concrete parameter list by substituting
+    /// <see cref="ProtocolSelfTypeInfo"/> slots with the owner type. Extracted from
+    /// <see cref="RegisterEverywhereDeriveMembers"/> to reduce its cognitive complexity.
+    /// </summary>
+    private void RegisterEverywhereDeriveMember(TypeSymbol type, ProtocolMemberRoutineInfo member,
+        int memberCount, bool everywhereObeys)
+    {
+        if (ShouldSkipEverywhereDeriveMember(type: type, member: member, memberCount: memberCount,
+                everywhereObeys: everywhereObeys, isDerivedOperator: out _))
+        {
+            return;
+        }
+
+        // Build the stub from the protocol's declared signature, substituting the self type.
+        var parameters = new List<ParameterInfo>();
+        for (int i = 0; i < member.ParameterTypes.Count; i++)
+        {
+            TypeSymbol pt = member.ParameterTypes[index: i] is ProtocolSelfTypeInfo
+                ? type
+                : member.ParameterTypes[index: i];
+            string pn = i < member.ParameterNames.Count ? member.ParameterNames[index: i] : $"arg{i}";
+            parameters.Add(item: new ParameterInfo(name: pn, type: pt));
+        }
+
+        TypeSymbol? returnType = member.ReturnType is ProtocolSelfTypeInfo
+            ? type
+            : member.ReturnType;
+
+        _registry.RegisterRoutine(routine: new RoutineInfo(name: member.Name)
+        {
+            Kind = RoutineKind.MemberRoutine,
+            OwnerType = type,
+            Parameters = parameters,
+            ReturnType = returnType,
+            IsFailable = member.IsFailable,
+            DeclaredMutation = member.Mutation,
+            MutationCategory = member.Mutation,
+            Visibility = VisibilityModifier.Open,
+            IsSynthesized = true
+        });
+    }
+
+    /// <summary>
+    /// Registers a single-parameter readonly wired routine if not already defined.
+    /// </summary>
     private void MaybeRegisterWiredWithParam(TypeSymbol owner, string name, string paramName,
         TypeSymbol paramType, TypeSymbol returnType, List<RoutineInfo> existingMemberRoutines)
     {
@@ -1192,104 +1227,6 @@ internal sealed class AutoWiredRegistrationPass
             Visibility = VisibilityModifier.Open,
             IsSynthesized = true
         });
-    }
-
-    /// <summary>
-    /// Returns true if <paramref name="type"/> declares conformance to the named protocol
-    /// via <c>obeys</c>, either directly or transitively through a parent protocol.
-    /// Used to gate auto-derivation of <c>eq</c> / <c>hash</c> on records, entities,
-    /// choices, and flags — these are now opt-in rather than universal.
-    /// </summary>
-    /// <summary>
-    /// Returns true when every member-variable type on <paramref name="type"/> supports `eq`
-    /// — either it obeys `Equatable`, has an explicit `eq` memberRoutine, or is a primitive /
-    /// `@llvm("...")`-backed record (whose equality is a built-in instruction). Used to gate
-    /// auto-derivation of `eq` so entities holding non-equatable fields (e.g. `Array[T, N]`)
-    /// don't get a synthesised body whose recursion dead-ends at link time.
-    /// </summary>
-    private bool AllMemberVariablesHaveEquality(TypeSymbol type)
-    {
-        List<MemberVariableInfo>? members = type switch
-        {
-            RecordTypeInfo r => r.MemberVariables,
-            EntityTypeInfo e => e.MemberVariables,
-            _ => null
-        };
-        if (members == null) return true;
-
-        return members.All(m => TypeHasEquality(type: m.Type));
-    }
-
-    private bool TypeHasEquality(TypeSymbol type)
-    {
-        return TypeHasEquality(type: type, seen: new HashSet<string>(StringComparer.Ordinal));
-    }
-
-    /// <summary>
-    /// Recursive check for whether <paramref name="type"/> supports `eq`. Handles three layers:
-    /// (1) primitives / `@llvm` records — built-in IR equality;
-    /// (2) explicit `eq` memberRoutine or obeys `Equatable` — registered conformance;
-    /// (3) generic resolution like `Array[T, N]` — looks up the generic def's `eq` memberRoutine
-    /// and recursively verifies every `T obeys Equatable` constraint against the substituted
-    /// type args. Without (3), `Array[X, 64]` passes the check (because `Array.eq` exists
-    /// on the generic def) even though the body's recursion into `X.ne` link-errors.
-    /// </summary>
-    private bool TypeHasEquality(TypeSymbol type, HashSet<string> seen)
-    {
-        // Treat generic parameters and error / blank types as permissive (the constraint
-        // either narrows them later or they're already a no-op).
-        if (type is GenericParameterTypeInfo or ErrorTypeInfo || type.IsNone) return true;
-
-        // @llvm-backed records (numeric primitives, Bool, Character, Byte, Hijacked[T])
-        // get equality from the underlying IR instruction.
-        if (type is RecordTypeInfo { BackendType: not null }) return true;
-
-        // Cycle guard — recursive record / entity types must not loop here.
-        if (!seen.Add(item: type.FullName)) return true;
-
-        // For a generic resolution, the generic def's `eq` memberRoutine may carry
-        // `T obeys Equatable` constraints. Each such constraint must hold for the
-        // corresponding type argument.
-        TypeSymbol? genericDef = type switch
-        {
-            RecordTypeInfo r => r.GenericDefinition,
-            EntityTypeInfo e => e.GenericDefinition,
-            _ => null
-        };
-        if (genericDef != null && type.TypeArguments is { Count: > 0 } typeArgs &&
-            genericDef.GenericParameters is { Count: > 0 } gParams &&
-            gParams.Count == typeArgs.Count)
-        {
-            RoutineInfo? defEq = _registry.LookupMemberRoutine(type: genericDef, memberRoutineName: "eq");
-            if (defEq is { GenericConstraints: { } constraints })
-            {
-                foreach (GenericConstraintDeclaration c in constraints)
-                {
-                    if (c.ConstraintType != ConstraintKind.Obeys ||
-                        c.ConstraintTypes is not { Count: > 0 }) continue;
-                    int idx = -1;
-                    for (int i = 0; i < gParams.Count; i++)
-                    {
-                        if (gParams[index: i] == c.ParameterName) { idx = i; break; }
-                    }
-                    if (idx < 0) continue;
-                    TypeSymbol argType = typeArgs[index: idx];
-                    foreach (TypeExpression protoExpr in c.ConstraintTypes)
-                    {
-                        if (protoExpr.Name == EquatableProtocolName && !TypeHasEquality(type: argType, seen: seen))
-                            return false;
-                    }
-                }
-            }
-        }
-
-        // Explicit `eq` memberRoutine on the type (either user-defined or already auto-derived).
-        if (_registry.LookupMemberRoutine(type: type, memberRoutineName: "eq") != null) return true;
-
-        // Type declares obeys Equatable — we expect a `eq` will eventually be synthesised.
-        if (ObeysProtocol(type: type, protocolName: EquatableProtocolName)) return true;
-
-        return false;
     }
 
     private bool ObeysProtocol(TypeSymbol type, string protocolName)

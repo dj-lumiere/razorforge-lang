@@ -1019,7 +1019,7 @@ public record TypeConversionExpression(
 /// Used for generic operations like read!&lt;T&gt;() and write!&lt;T&gt;().
 /// </summary>
 /// <param name="Object">Expression representing the object being called</param>
-/// <param name="memberRoutineName">Name of the generic memberRoutine</param>
+/// <param name="MemberRoutineName">Name of the generic memberRoutine</param>
 /// <param name="TypeArguments">List of type arguments for the generic memberRoutine</param>
 /// <param name="Arguments">List of argument expressions passed to the memberRoutine</param>
 /// <param name="IsMemoryOperation">Whether this memberRoutine call uses ! syntax (memory operation)</param>

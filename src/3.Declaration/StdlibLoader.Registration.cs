@@ -7,6 +7,10 @@ namespace Compiler.Declaration;
 
 public sealed partial class StdlibLoader
 {
+    /// <summary>Surface spelling of the creator (constructor) keyword in stdlib routine declarations,
+    /// used to detect and normalize the old <c>routine T.create(...)</c> form.</summary>
+    private const string SurfaceCreateKeyword = "create";
+
     private static void ResolveProtocolParents(TypeRegistry registry, Program program)
     {
         foreach (ISyntaxTreeNode node in program.Declarations)
@@ -46,20 +50,6 @@ public sealed partial class StdlibLoader
     }
 
     /// <summary>
-    /// Registers protocol declarations from a program.
-    /// This is pass 1a — protocols must be registered before other types so 'obeys' clauses can resolve.
-    /// Uses two passes: first registers protocol type shells (names + generic params), then fills in
-    /// memberRoutine signatures. This ensures forward references between protocols resolve correctly
-    /// (e.g., Iterable[T].iter() -> Iterator[T] where Iterator is another protocol).
-    /// </summary>
-    /// <summary>
-    /// Registers type declarations (record, entity, choice, variant, protocol) from a program.
-    /// This is pass 1b of module-based loading. Protocols may already be registered from pass 1a.
-    /// </summary>
-    /// <param name="registry">The type registry to register types into.</param>
-    /// <param name="program">The parsed program AST.</param>
-    /// <param name="moduleName">The module for the types (from declaration or directory-derived).</param>
-    /// <summary>
     /// The realm ("RF"/"SF") stamped onto type-definition shells built during the current registration
     /// pass — set per-program from its source file extension (see <see cref="RealmOf"/>) before each
     /// shell-building pass loop, read by every <c>new …TypeInfo { … Realm = _registeringRealm }</c> below.
@@ -72,6 +62,20 @@ public sealed partial class StdlibLoader
     private static string RealmOf(string filePath) =>
         filePath.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase) ? "SF" : "RF";
 
+    /// <summary>
+    /// Sets the thread-static <see cref="_registeringRealm"/> from a static context, so instance-method
+    /// callers do not directly write a static field (avoids instance-writes-static-field lint). Every
+    /// realm stamp in the multi-pass registration loops routes through here.
+    /// </summary>
+    private static void StampRealm(string? realm) => _registeringRealm = realm;
+
+    /// <summary>
+    /// Registers type declarations (record, entity, choice, variant, protocol) from a program.
+    /// This is pass 1b of module-based loading. Protocols may already be registered from pass 1a.
+    /// </summary>
+    /// <param name="registry">The type registry to register types into.</param>
+    /// <param name="program">The parsed program AST.</param>
+    /// <param name="moduleName">The module for the types (from declaration or directory-derived).</param>
     private static void RegisterProgramTypes(TypeRegistry registry, Program program,
         string moduleName)
     {
@@ -814,91 +818,14 @@ public sealed partial class StdlibLoader
             }
         }
 
-        // Collect generic params from owner type + routine itself for type resolution context
-        var genericContext = new List<string>();
-        // If owner is a generic parameter itself (e.g., T in "routine T.view()"),
-        // add it to the generic context so return/param types can reference it
-        if (ownerType is GenericParameterTypeInfo genParam)
-        {
-            genericContext.Add(item: genParam.Name);
-        }
+        List<string>? ctx = BuildRoutineGenericContext(registry: registry, routine: routine,
+            ownerType: ownerType, moduleName: moduleName);
 
-        if (ownerType?.GenericParameters != null)
-        {
-            genericContext.AddRange(collection: ownerType.GenericParameters);
-        }
+        List<ParameterInfo> parameters = ResolveRoutineParameters(registry: registry,
+            routine: routine, ctx: ctx, moduleName: moduleName);
 
-        if (routine.GenericParameters != null)
-        {
-            // Filter out names that resolve to real registered types — but ONLY for RECEIVER-derived
-            // leaves. The parser collects bracket contents from owner receivers like `Iterable[Text]`
-            // and stuffs them into routine.GenericParameters; a concrete arg (Text) there must not
-            // shadow the real type (else `separator: Text` resolves to GenericParameterTypeInfo("Text")
-            // instead of Core.Text, breaking memberRoutine lookup).
-            //
-            // A routine's OWN method-generic param — the `U` in `Iterable[T].accumulate[U]` — is an
-            // EXPLICIT declaration and must NEVER be dropped just because a user type shares its name.
-            // A cross-module `record U` (registered before this stdlib routine's lazy signature
-            // resolution) makes LookupType("U") non-null, and dropping U here left `start: U` resolving
-            // to that record → RF-S502 "cannot convert S64 to U" / mis-sized allocations. Its identity is
-            // its slot, not the label. Only RECEIVER leaves are concrete bindings; keep everything else.
-            HashSet<string> receiverLeaves = CollectReceiverLeafParamNames(routine.ReceiverType);
-            foreach (string gp in routine.GenericParameters)
-            {
-                bool isReceiverBinding = receiverLeaves.Contains(item: gp)
-                    && (registry.LookupType(name: gp) is not null
-                        || registry.LookupType(name: $"{moduleName}.{gp}") is not null);
-                if (!isReceiverBinding)
-                {
-                    genericContext.Add(item: gp);
-                }
-            }
-        }
-
-        List<string>? ctx = genericContext.Count > 0
-            ? genericContext
-            : null;
-
-        // Resolve parameter types
-        var parameters = new List<ParameterInfo>();
-        foreach (Parameter param in routine.Parameters)
-        {
-            TypeInfo? paramType = ResolveSimpleType(registry: registry,
-                typeExpr: param.Type,
-                genericParams: ctx,
-                moduleName: moduleName);
-
-            // Variadic params are desugared to `Array[T, __VarargN]` up front — no List[T] wrapping.
-
-            parameters.Add(
-                item: new ParameterInfo(name: param.Name,
-                    type: paramType ?? ErrorTypeInfo.Instance)
-                {
-                    DefaultValue = param.DefaultValue, IsVariadicParam = param.IsVariadic
-                });
-        }
-
-        // Resolve return type
-        TypeInfo? returnType = routine.ReturnType != null
-            ? ResolveSimpleType(registry: registry,
-                typeExpr: routine.ReturnType,
-                genericParams: ctx,
-                moduleName: moduleName)
-            : null;
-
-        // `Me` as a member-routine return type is the OWNER type (applied to its own generic params for a
-        // generic def), NOT the abstract ProtocolSelf. `ResolveSimpleType` has no owner context, so it
-        // yields ProtocolSelf — which leaks to codegen ("Unknown type category: ProtocolSelf"). Concrete
-        // owner-relative `Me` mirrors TypeResolver.ResolveTypeCore's owner-`Me` handling. (Protocol owners
-        // keep ProtocolSelf — resolved per-implementer — but stdlib member routines here own a real type.)
-        if (routine.ReturnType is { Name: "Me", GenericArguments: not { Count: > 0 } } &&
-            ownerType != null && ownerType is not ProtocolTypeInfo)
-        {
-            returnType = ownerType is { IsGenericDefinition: true, GenericParameters: { Count: > 0 } ownerParams }
-                ? registry.GetOrCreateResolution(genericDef: ownerType,
-                    typeArguments: ownerParams.Select(selector: p => (TypeInfo)new GenericParameterTypeInfo(name: p)).ToList())
-                : ownerType;
-        }
+        TypeInfo? returnType = ResolveRoutineReturnType(registry: registry, routine: routine,
+            ownerType: ownerType, ctx: ctx, moduleName: moduleName);
 
         // Resolve the specialized receiver (e.g. List[Agent[V]]) with the generic context now in
         // scope, so `me` is typed as the specialized receiver. OwnerType stays the generic def.
@@ -913,14 +840,18 @@ public sealed partial class StdlibLoader
         // member name to RoutineInfo.CreatorName) OR the member form `routine T.create(...)` (surface
         // member name "create"). Both are the reserved Creator kind with NO internal name — normalize the
         // surface "create" token away here so nothing downstream keys off it.
-        if (ownerType != null && memberRoutineName == "create")
+        if (ownerType != null && memberRoutineName == SurfaceCreateKeyword)
             memberRoutineName = RoutineInfo.CreatorName;
 
-        RoutineKind routineKind =
-            memberRoutineName == RoutineInfo.CreatorName && ownerType != null ? RoutineKind.Creator
-            : routine.IsCommon ? RoutineKind.CommonRoutine
-            : ownerType != null ? RoutineKind.MemberRoutine
-            : RoutineKind.FreeRoutine;
+        RoutineKind routineKind;
+        if (memberRoutineName == RoutineInfo.CreatorName && ownerType != null)
+            routineKind = RoutineKind.Creator;
+        else if (routine.IsCommon)
+            routineKind = RoutineKind.CommonRoutine;
+        else if (ownerType != null)
+            routineKind = RoutineKind.MemberRoutine;
+        else
+            routineKind = RoutineKind.FreeRoutine;
 
         // Use just the memberRoutine name (not "S32.add", just "add")
         var routineInfo = new RoutineInfo(name: memberRoutineName)
@@ -976,6 +907,88 @@ public sealed partial class StdlibLoader
         {
             // Ignore duplicate routine registration
         }
+    }
+
+    /// <summary>
+    /// Builds the generic-parameter context list for a stdlib routine registration. Includes any
+    /// generic-parameter owner (T in "routine T.view()"), the owner type's own generic params, and
+    /// the routine's declared generic params — filtering out receiver-leaf names that resolve to real
+    /// registered types (concrete args like "Text" in "Iterable[Text]" must not shadow Core.Text).
+    /// Returns null when the context is empty (no generic params in scope).
+    /// </summary>
+    private static List<string>? BuildRoutineGenericContext(TypeRegistry registry,
+        RoutineDeclaration routine, TypeInfo? ownerType, string moduleName)
+    {
+        var genericContext = new List<string>();
+        if (ownerType is GenericParameterTypeInfo genParam)
+            genericContext.Add(item: genParam.Name);
+        if (ownerType?.GenericParameters != null)
+            genericContext.AddRange(collection: ownerType.GenericParameters);
+        if (routine.GenericParameters != null)
+        {
+            // Filter out names that resolve to real registered types — but ONLY for RECEIVER-derived
+            // leaves. The parser collects bracket contents from owner receivers like `Iterable[Text]`
+            // and stuffs them into routine.GenericParameters; a concrete arg (Text) there must not
+            // shadow the real type. A routine's OWN method-generic param (the `U` in
+            // `Iterable[T].accumulate[U]`) is an EXPLICIT declaration — never dropped just because a
+            // user type shares its name; its identity is its slot, not the label.
+            HashSet<string> receiverLeaves = CollectReceiverLeafParamNames(routine.ReceiverType);
+            foreach (string gp in routine.GenericParameters)
+            {
+                bool isReceiverBinding = receiverLeaves.Contains(item: gp)
+                    && (registry.LookupType(name: gp) is not null
+                        || registry.LookupType(name: $"{moduleName}.{gp}") is not null);
+                if (!isReceiverBinding)
+                    genericContext.Add(item: gp);
+            }
+        }
+        return genericContext.Count > 0 ? genericContext : null;
+    }
+
+    /// <summary>
+    /// Resolves each parameter's type for a stdlib routine using the supplied generic context.
+    /// Variadic params are desugared to <c>Array[T, __VarargN]</c> upstream; no extra List wrapping here.
+    /// Falls back to <see cref="ErrorTypeInfo.Instance"/> when a param type cannot be resolved.
+    /// </summary>
+    private static List<ParameterInfo> ResolveRoutineParameters(TypeRegistry registry,
+        RoutineDeclaration routine, List<string>? ctx, string moduleName)
+    {
+        var parameters = new List<ParameterInfo>();
+        foreach (Parameter param in routine.Parameters)
+        {
+            TypeInfo? paramType = ResolveSimpleType(registry: registry,
+                typeExpr: param.Type, genericParams: ctx, moduleName: moduleName);
+            parameters.Add(item: new ParameterInfo(name: param.Name,
+                type: paramType ?? ErrorTypeInfo.Instance)
+            {
+                DefaultValue = param.DefaultValue, IsVariadicParam = param.IsVariadic
+            });
+        }
+        return parameters;
+    }
+
+    /// <summary>
+    /// Resolves the declared return type for a stdlib routine. A bare "Me" return on a concrete
+    /// (non-protocol) member routine is rewritten to the owner type itself (applied to its own generic
+    /// params for a generic def), because <see cref="ResolveSimpleType"/> has no owner context and would
+    /// yield <see cref="ProtocolSelfTypeInfo"/> — which leaks to codegen as an unknown type category.
+    /// </summary>
+    private static TypeInfo? ResolveRoutineReturnType(TypeRegistry registry, RoutineDeclaration routine,
+        TypeInfo? ownerType, List<string>? ctx, string moduleName)
+    {
+        TypeInfo? returnType = routine.ReturnType != null
+            ? ResolveSimpleType(registry: registry, typeExpr: routine.ReturnType,
+                genericParams: ctx, moduleName: moduleName)
+            : null;
+        if (routine.ReturnType is { Name: "Me", GenericArguments: not { Count: > 0 } }
+            && ownerType != null && ownerType is not ProtocolTypeInfo)
+        {
+            returnType = ownerType is { IsGenericDefinition: true, GenericParameters: { Count: > 0 } ownerParams }
+                ? registry.GetOrCreateResolution(genericDef: ownerType,
+                    typeArguments: ownerParams.Select(selector: p => (TypeInfo)new GenericParameterTypeInfo(name: p)).ToList())
+                : ownerType;
+        }
+        return returnType;
     }
 
     /// <summary>
@@ -1682,23 +1695,14 @@ public sealed partial class StdlibLoader
         var members = new List<VariantMemberInfo>();
         int tag = 0;
 
-        foreach (VariantMember memberDecl in variant.Members)
+        if (variant.Members.Any(predicate: m => m.Type.Name == "None"))
         {
-            if (memberDecl.Type.Name == "None")
-            {
-                members.Add(item: VariantMemberInfo.CreateNone(ordinal: 0, location: null));
-                tag = 1;
-                break;
-            }
+            members.Add(item: VariantMemberInfo.CreateNone(ordinal: 0, location: null));
+            tag = 1;
         }
 
-        foreach (VariantMember memberDecl in variant.Members)
+        foreach (VariantMember memberDecl in variant.Members.Where(predicate: m => m.Type.Name != "None"))
         {
-            if (memberDecl.Type.Name == "None")
-            {
-                continue;
-            }
-
             TypeInfo? memberType = ResolveSimpleType(registry: registry, typeExpr: memberDecl.Type,
                 genericParams: variant.GenericParameters, moduleName: moduleName);
             if (memberType != null)
@@ -1859,119 +1863,121 @@ public sealed partial class StdlibLoader
         foreach (ISyntaxTreeNode node in program.Declarations)
         {
             if (node is not RoutineDeclaration routine)
-            {
                 continue;
-            }
-
             if (ShouldSkipBuilderQueryRoutineDecl(routine: routine, moduleName: moduleName))
-            {
                 continue;
-            }
-
-            // Desugar variadic params to const-generic Array[T, __VarargN] (idempotent).
-            VariadicParamDesugar.Apply(routine: routine);
-
-            // Member segment + member-vs-free branch come from the parser-captured structured fields;
-            // the owner is the RENDERED receiver (may carry type-args, used as a registry-lookup key).
-            string memberRoutineName = routine.MemberRoutineName ?? routine.Name;
-            TypeInfo? ownerType = null;
-            if (routine.RenderedReceiver is { } ownerName)
-            {
-                ownerType = registry.LookupType(name: ownerName) ??
-                            registry.LookupType(name: $"{moduleName}.{ownerName}");
-                if (ownerType == null)
-                {
-                    continue;
-                }
-            }
-
-            var genericContext = new List<string>();
-            if (ownerType?.GenericParameters != null)
-            {
-                genericContext.AddRange(collection: ownerType.GenericParameters);
-            }
-
-            if (routine.GenericParameters != null)
-            {
-                genericContext.AddRange(collection: routine.GenericParameters);
-            }
-
-            List<string>? ctx = genericContext.Count > 0
-                ? genericContext
-                : null;
-
-            var parameters = new List<ParameterInfo>();
-            foreach (Parameter param in routine.Parameters)
-            {
-                TypeInfo? paramType = ResolveSimpleType(registry: registry,
-                    typeExpr: param.Type,
-                    genericParams: ctx,
-                    moduleName: moduleName);
-
-                // Variadic params are desugared to Array[T, __VarargN] up front — no List[T] wrapping.
-
-                parameters.Add(
-                    item: new ParameterInfo(name: param.Name,
-                        type: paramType ?? ErrorTypeInfo.Instance)
-                    {
-                        DefaultValue = param.DefaultValue,
-                        IsVariadicParam = param.IsVariadic
-                    });
-            }
-
-            TypeInfo? resolvedReturnType = routine.ReturnType != null
-                ? ResolveSimpleType(registry: registry,
-                    typeExpr: routine.ReturnType,
-                    genericParams: ctx,
-                    moduleName: moduleName)
-                : null;
-
-            RoutineInfo? existingRoutine;
-            if (ownerType != null)
-            {
-                string baseName = $"{ownerType.Name}.{memberRoutineName}";
-                existingRoutine = parameters.Count > 0
-                    ? registry.LookupRoutineOverload(baseName: baseName,
-                        argTypes: parameters.Select(selector: p => p.Type).ToList())
-                    : registry.LookupRoutine(fullName: baseName,
-                        isFailable: routine.IsFailable);
-            }
-            else
-            {
-                string baseName = string.IsNullOrEmpty(value: moduleName)
-                    ? memberRoutineName
-                    : $"{moduleName}.{memberRoutineName}";
-                existingRoutine = parameters.Count > 0
-                    ? registry.LookupRoutineOverload(baseName: baseName,
-                        argTypes: parameters.Select(selector: p => p.Type).ToList())
-                    : registry.LookupRoutine(fullName: baseName,
-                        isFailable: routine.IsFailable);
-            }
-
-            if (existingRoutine == null)
-            {
-                continue;
-            }
-
-            bool hasErrorParams = existingRoutine.Parameters.Any(
-                predicate: p => p.Type is ErrorTypeInfo);
-            bool hasDeclaredReturn = routine.ReturnType != null;
-            bool missingReturn = hasDeclaredReturn &&
-                                 (existingRoutine.ReturnType == null ||
-                                  existingRoutine.ReturnType is ErrorTypeInfo ||
-                                  existingRoutine.ReturnType.Name == "None");
-
-            if (!hasErrorParams && !missingReturn)
-            {
-                continue;
-            }
-
-            registry.UpdateRoutine(routine: existingRoutine,
-                parameters: parameters,
-                returnType: resolvedReturnType,
-                genericParameters: existingRoutine.GenericParameters,
-                genericConstraints: existingRoutine.GenericConstraints);
+            TryUpdateRoutineSignature(registry: registry, routine: routine, moduleName: moduleName);
         }
+    }
+
+    /// <summary>
+    /// Attempts to re-resolve and update the signature of one routine declaration. Desugar's variadic
+    /// params, resolves the owner type (skipping the decl when the owner is not yet registered),
+    /// resolves parameters and return type, then updates the existing registry entry when any
+    /// parameter has an error type or the return type is missing/None.
+    /// </summary>
+    private static void TryUpdateRoutineSignature(TypeRegistry registry, RoutineDeclaration routine,
+        string moduleName)
+    {
+        VariadicParamDesugar.Apply(routine: routine);
+
+        string memberRoutineName = routine.MemberRoutineName ?? routine.Name;
+        TypeInfo? ownerType = ResolveSignatureOwner(registry: registry, routine: routine,
+            moduleName: moduleName);
+        if (ownerType == null && routine.RenderedReceiver != null)
+            return; // Owner declared but not found — skip this decl.
+
+        List<string>? ctx = BuildSignatureGenericContext(ownerType: ownerType,
+            routine: routine);
+
+        List<ParameterInfo> parameters = ResolveRoutineParameters(registry: registry,
+            routine: routine, ctx: ctx, moduleName: moduleName);
+
+        TypeInfo? resolvedReturnType = routine.ReturnType != null
+            ? ResolveSimpleType(registry: registry, typeExpr: routine.ReturnType,
+                genericParams: ctx, moduleName: moduleName)
+            : null;
+
+        RoutineInfo? existingRoutine = LookupExistingRoutine(registry: registry,
+            ownerType: ownerType, memberRoutineName: memberRoutineName,
+            moduleName: moduleName, routine: routine, parameters: parameters);
+        if (existingRoutine == null)
+            return;
+
+        if (!SignatureNeedsUpdate(existingRoutine: existingRoutine, routine: routine))
+            return;
+
+        registry.UpdateRoutine(routine: existingRoutine,
+            parameters: parameters,
+            returnType: resolvedReturnType,
+            genericParameters: existingRoutine.GenericParameters,
+            genericConstraints: existingRoutine.GenericConstraints);
+    }
+
+    /// <summary>
+    /// Resolves the owner type for a routine from its <see cref="RoutineDeclaration.RenderedReceiver"/>.
+    /// Returns null both when there is no receiver (free routine) and when the receiver is declared
+    /// but not yet registered — callers must distinguish using <see cref="RoutineDeclaration.RenderedReceiver"/>.
+    /// </summary>
+    private static TypeInfo? ResolveSignatureOwner(TypeRegistry registry, RoutineDeclaration routine,
+        string moduleName)
+    {
+        if (routine.RenderedReceiver is not { } ownerName)
+            return null;
+        return registry.LookupType(name: ownerName)
+            ?? registry.LookupType(name: $"{moduleName}.{ownerName}");
+    }
+
+    /// <summary>
+    /// Builds a simple (non-receiver-filtered) generic context for signature re-resolution: owner
+    /// generic params followed by routine generic params. Receiver-leaf filtering is NOT applied here
+    /// because the re-resolution pass already has a concrete owner and does not encounter the
+    /// ambiguous-leaf problem that <see cref="BuildRoutineGenericContext"/> solves.
+    /// Returns null when there are no generic params in scope.
+    /// </summary>
+    private static List<string>? BuildSignatureGenericContext(TypeInfo? ownerType,
+        RoutineDeclaration routine)
+    {
+        var genericContext = new List<string>();
+        if (ownerType?.GenericParameters != null)
+            genericContext.AddRange(collection: ownerType.GenericParameters);
+        if (routine.GenericParameters != null)
+            genericContext.AddRange(collection: routine.GenericParameters);
+        return genericContext.Count > 0 ? genericContext : null;
+    }
+
+    /// <summary>
+    /// Looks up the existing registered <see cref="RoutineInfo"/> for a routine declaration.
+    /// Uses overload resolution when parameters are present, otherwise falls back to name+failable lookup.
+    /// </summary>
+    private static RoutineInfo? LookupExistingRoutine(TypeRegistry registry, TypeInfo? ownerType,
+        string memberRoutineName, string moduleName, RoutineDeclaration routine,
+        List<ParameterInfo> parameters)
+    {
+        string baseName = ownerType != null
+            ? $"{ownerType.Name}.{memberRoutineName}"
+            : (string.IsNullOrEmpty(value: moduleName)
+                ? memberRoutineName
+                : $"{moduleName}.{memberRoutineName}");
+        return parameters.Count > 0
+            ? registry.LookupRoutineOverload(baseName: baseName,
+                argTypes: parameters.Select(selector: p => p.Type).ToList())
+            : registry.LookupRoutine(fullName: baseName, isFailable: routine.IsFailable);
+    }
+
+    /// <summary>
+    /// Returns true when the existing routine's signature has a parameter typed as
+    /// <see cref="ErrorTypeInfo"/> or is missing a declared return type (null/Error/None),
+    /// indicating a re-resolution update is warranted.
+    /// </summary>
+    private static bool SignatureNeedsUpdate(RoutineInfo existingRoutine, RoutineDeclaration routine)
+    {
+        bool hasErrorParams = existingRoutine.Parameters.Any(predicate: p => p.Type is ErrorTypeInfo);
+        bool missingReturn = routine.ReturnType != null
+            && (existingRoutine.ReturnType == null
+                || existingRoutine.ReturnType is ErrorTypeInfo
+                || existingRoutine.ReturnType.Name == "None");
+        return hasErrorParams || missingReturn;
     }
 
     /// <summary>
@@ -2007,26 +2013,56 @@ public sealed partial class StdlibLoader
         bool isFailable = memberRoutine.IsFailable;
         string fullName = memberRoutine.Name;
         bool isInstance = fullName.StartsWith(value: "Me.");
-        string memberRoutineName = isInstance
-            ? fullName[3..]
-            : fullName;
+        string memberRoutineName = isInstance ? fullName[3..] : fullName;
 
-        TypeInfo? returnType = memberRoutine.ReturnType != null
+        TypeInfo? rawReturnType = memberRoutine.ReturnType != null
             ? ResolveSimpleType(registry: registry,
                 typeExpr: memberRoutine.ReturnType,
                 genericParams: protocol.GenericParameters)
             : null;
+        TypeInfo? resolvedReturnType = memberRoutine.ReturnType?.Name == "Me"
+            ? ProtocolSelfTypeInfo.Instance
+            : rawReturnType;
 
-        var parameterTypes = new List<TypeInfo>();
-        var parameterNames = new List<string>();
+        ResolveProtocolParamTypes(registry: registry, protocol: protocol,
+            memberRoutine: memberRoutine,
+            parameterTypes: out List<TypeInfo> parameterTypes,
+            parameterNames: out List<string> parameterNames);
 
+        memberRoutines.Add(item: new ProtocolMemberRoutineInfo(name: memberRoutineName)
+        {
+            IsInstanceMemberRoutine = isInstance,
+            ParameterTypes = parameterTypes,
+            ParameterNames = parameterNames,
+            ReturnType = resolvedReturnType,
+            IsFailable = isFailable
+        });
+
+        if (isFailable)
+        {
+            AppendTryVariant(registry: registry, memberRoutineName: memberRoutineName,
+                isInstance: isInstance, parameterTypes: parameterTypes,
+                parameterNames: parameterNames, resolvedReturnType: resolvedReturnType,
+                memberRoutines: memberRoutines);
+        }
+    }
+
+    /// <summary>
+    /// Resolves the non-me parameters of a protocol routine signature into parallel
+    /// <paramref name="parameterTypes"/> and <paramref name="parameterNames"/> lists.
+    /// Parameters named "me" are skipped; "Me"-typed parameters resolve to
+    /// <see cref="ProtocolSelfTypeInfo.Instance"/>.
+    /// </summary>
+    private static void ResolveProtocolParamTypes(TypeRegistry registry, ProtocolDeclaration protocol,
+        RoutineSignature memberRoutine,
+        out List<TypeInfo> parameterTypes, out List<string> parameterNames)
+    {
+        parameterTypes = [];
+        parameterNames = [];
         foreach (Parameter param in memberRoutine.Parameters)
         {
             if (param.Name == "me")
-            {
                 continue;
-            }
-
             TypeInfo? paramType = param.Type?.Name == "Me"
                 ? ProtocolSelfTypeInfo.Instance
                 : ResolveSimpleType(registry: registry,
@@ -2038,51 +2074,40 @@ public sealed partial class StdlibLoader
                 parameterNames.Add(item: param.Name);
             }
         }
+    }
 
-        TypeInfo? resolvedReturnType = memberRoutine.ReturnType?.Name == "Me"
-            ? ProtocolSelfTypeInfo.Instance
-            : returnType;
-
-        memberRoutines.Add(item: new ProtocolMemberRoutineInfo(name: memberRoutineName)
+    /// <summary>
+    /// Appends the auto-derived <c>try_X</c> non-failable variant for a failable protocol routine.
+    /// Returns Maybe[T] (or Bool when T is None), mirroring ErrorHandlingGenerator.GenerateTryVariant.
+    /// Exposes the variant so call sites typed against the bare protocol (e.g. for-loop desugaring's
+    /// <c>iter.try_emit()</c> where <c>iter: Iterator[T]</c>) can resolve.
+    /// </summary>
+    private static void AppendTryVariant(TypeRegistry registry, string memberRoutineName,
+        bool isInstance, List<TypeInfo> parameterTypes, List<string> parameterNames,
+        TypeInfo? resolvedReturnType, List<ProtocolMemberRoutineInfo> memberRoutines)
+    {
+        string tryName = "try_" + memberRoutineName;
+        TypeInfo? tryReturnType;
+        if (resolvedReturnType == null || resolvedReturnType.Name == "None")
+        {
+            tryReturnType = registry.LookupType(name: "Bool");
+        }
+        else
+        {
+            TypeInfo? maybeDef = registry.LookupType(name: "Maybe");
+            tryReturnType = maybeDef != null
+                ? registry.GetOrCreateResolution(genericDef: maybeDef,
+                    typeArguments: [resolvedReturnType])
+                : null;
+        }
+        memberRoutines.Add(item: new ProtocolMemberRoutineInfo(name: tryName)
         {
             IsInstanceMemberRoutine = isInstance,
             ParameterTypes = parameterTypes,
             ParameterNames = parameterNames,
-            ReturnType = resolvedReturnType,
-            IsFailable = isFailable
+            ReturnType = tryReturnType,
+            IsFailable = false,
+            IsAutoDerivedVariant = true
         });
-
-        // For failable memberRoutines, also expose a `try_X` non-failable variant returning
-        // Maybe[T] (or Bool when T is None), so call sites typed against the bare
-        // protocol (e.g. for-loop desugaring's `iter.try_emit()` where `iter: Iterator[T]`)
-        // can resolve. Mirrors ErrorHandlingGenerator.GenerateTryVariant's shape.
-        if (isFailable)
-        {
-            string tryName = "try_" + memberRoutineName;
-            TypeInfo? tryReturnType;
-            if (resolvedReturnType == null || resolvedReturnType.Name == "None")
-            {
-                tryReturnType = registry.LookupType(name: "Bool");
-            }
-            else
-            {
-                TypeInfo? maybeDef = registry.LookupType(name: "Maybe");
-                tryReturnType = maybeDef != null
-                    ? registry.GetOrCreateResolution(
-                        genericDef: maybeDef,
-                        typeArguments: [resolvedReturnType])
-                    : null;
-            }
-
-            memberRoutines.Add(item: new ProtocolMemberRoutineInfo(name: tryName)
-            {
-                IsInstanceMemberRoutine = isInstance,
-                ParameterTypes = parameterTypes,
-                ParameterNames = parameterNames,
-                ReturnType = tryReturnType,
-                IsFailable = false,
-                IsAutoDerivedVariant = true
-            });
-        }
     }
 }

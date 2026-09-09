@@ -530,7 +530,7 @@ public partial class Parser
     /// Builds the IsPatternExpression for the destructuring / single-binding / simple-type-check forms
     /// after the type is parsed and flags/None special cases are ruled out.
     /// </summary>
-    private Expression BuildIsPatternExpression(Expression expr, TypeExpression type, bool isNegated,
+    private IsPatternExpression BuildIsPatternExpression(Expression expr, TypeExpression type, bool isNegated,
         SourceLocation location)
     {
         switch (isNegated)

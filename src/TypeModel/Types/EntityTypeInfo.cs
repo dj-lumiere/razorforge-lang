@@ -84,6 +84,8 @@ public class EntityTypeInfo : TypeInfo
 
     /// Tracks in-progress CreateInstance calls to break cycles from self-referential types
     /// (e.g., BTreeListNode[T] containing List[BTreeListNode[T]]).
+    /// [ThreadStatic] fields cannot have non-null initializers (the initializer only runs for the
+    /// main thread); use the lazy-init property <see cref="CreatingInstances"/> to access them.
     [ThreadStatic]
     private static HashSet<string>? _creatingInstances;
 
@@ -91,8 +93,15 @@ public class EntityTypeInfo : TypeInfo
     /// self-references in member types return the same object rather than an empty shell.
     /// This ensures BTreeListNode[T].children has a List whose element type IS the outer
     /// BTreeListNode[T] instance, not a zero-member placeholder.
+    /// [ThreadStatic] fields cannot have non-null initializers; use <see cref="InProgressEntities"/>.
     [ThreadStatic]
     private static Dictionary<string, EntityTypeInfo>? _inProgressEntities;
+
+    /// <summary>Per-thread lazy-initialized set of in-progress cycle keys.</summary>
+    private static HashSet<string> CreatingInstances => _creatingInstances ??= [];
+
+    /// <summary>Per-thread lazy-initialized map of in-progress entity instances keyed by cycle key.</summary>
+    private static Dictionary<string, EntityTypeInfo> InProgressEntities => _inProgressEntities ??= new();
 
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">Thrown if this is not a generic definition.</exception>
@@ -145,13 +154,11 @@ public class EntityTypeInfo : TypeInfo
         // Detect cycles from self-referential member types (e.g., BTreeListNode[T].children:
         // List[BTreeListNode[T]]). Return the in-progress entity so the recursive reference
         // points to the same object that will have its members filled in below.
-        _creatingInstances ??= [];
-        _inProgressEntities ??= new Dictionary<string, EntityTypeInfo>();
-        if (!_creatingInstances.Add(item: cycleKey))
+        if (!CreatingInstances.Add(item: cycleKey))
         {
             // Return the partially-built entity if available; a fresh empty shell otherwise
             // (the shell case should not normally occur since we always register below first).
-            return _inProgressEntities.TryGetValue(key: cycleKey, value: out EntityTypeInfo? inProgress)
+            return InProgressEntities.TryGetValue(key: cycleKey, value: out EntityTypeInfo? inProgress)
                 ? inProgress
                 : BuildEntityShell(resolvedName: resolvedName,
                     substitutedProtocols: substitutedProtocols,
@@ -166,7 +173,7 @@ public class EntityTypeInfo : TypeInfo
             substitutedProtocols: substitutedProtocols,
             substitutedBindings: substitutedBindings,
             typeArguments: typeArguments);
-        _inProgressEntities[key: cycleKey] = entity;
+        InProgressEntities[key: cycleKey] = entity;
 
         try
         {
@@ -182,8 +189,8 @@ public class EntityTypeInfo : TypeInfo
         }
         finally
         {
-            _creatingInstances.Remove(item: cycleKey);
-            _inProgressEntities.Remove(key: cycleKey);
+            CreatingInstances.Remove(item: cycleKey);
+            InProgressEntities.Remove(key: cycleKey);
         }
     }
 

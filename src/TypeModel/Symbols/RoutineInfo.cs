@@ -86,15 +86,19 @@ public sealed class RoutineInfo
     {
         get
         {
-            string baseName = OwnerType != null
-                ? IsCreator
-                    // A creator carries NO member name (identity is Kind==Creator). Its key is the owner
-                    // type identity + params — never `Owner.create`.
+            string baseName;
+            if (OwnerType != null)
+            {
+                // A creator carries NO member name (identity is Kind==Creator). Its key is the owner
+                // type identity + params — never `Owner.create`.
+                baseName = IsCreator
                     ? GetTypeIdentity(type: OwnerType)
-                    : $"{GetTypeIdentity(type: OwnerType)}.{Name}"
-                : string.IsNullOrEmpty(value: Module)
-                    ? Name
-                    : $"{Module}.{Name}";
+                    : $"{GetTypeIdentity(type: OwnerType)}.{Name}";
+            }
+            else
+            {
+                baseName = string.IsNullOrEmpty(value: Module) ? Name : $"{Module}.{Name}";
+            }
             if (TypeArguments is { Count: > 0 })
             {
                 string typeArgs = string.Join(separator: ",",
@@ -659,7 +663,7 @@ public sealed class RoutineInfo
     {
         return comptime.TryFold(
                 resolveTypeParam: name => substitution.TryGetValue(key: name, value: out TypeSymbol? s)
-                    ? s as TypeInfo
+                    ? s
                     : null,
                 pointerSize: 8, out long folded)
             ? new ConstGenericValueTypeInfo(literalText: folded.ToString(),
@@ -669,7 +673,7 @@ public sealed class RoutineInfo
     }
 
     // Substitute inside a routine type's parameter and return types.
-    private static TypeSymbol SubstituteRoutineType(RoutineTypeInfo routineType,
+    private static RoutineTypeInfo SubstituteRoutineType(RoutineTypeInfo routineType,
         Dictionary<string, TypeSymbol> substitution)
     {
         var substitutedParams = routineType.ParameterTypes
@@ -683,7 +687,7 @@ public sealed class RoutineInfo
     }
 
     // Substitute inside a tuple type's element types.
-    private static TypeSymbol SubstituteTupleType(TupleTypeInfo tupleType,
+    private static TupleTypeInfo SubstituteTupleType(TupleTypeInfo tupleType,
         Dictionary<string, TypeSymbol> substitution)
     {
         var substitutedElements = tupleType.ElementTypes

@@ -13,26 +13,26 @@ namespace Compiler.Diagnostics;
 public static class DiagnosticFlags
 {
     /// <summary>Print per-phase <c>[SA]</c>/<c>[phase]</c> timing. Was <c>RAZORFORGE_PHASE_TIMING</c>.</summary>
-    public static bool PhaseTiming;
+    public static bool PhaseTiming { get; set; }
 
     /// <summary>Survey unresolved marker-protocol conformances. Was <c>RF_MARKER_SURVEY</c>.</summary>
 
     /// <summary>Print codegen DCE prune statistics. Was <c>RF_PRUNE_STATS</c>.</summary>
-    public static bool PruneStats;
+    public static bool PruneStats { get; set; }
 
     /// <summary>Trace ORC-JIT lowering stages. Was <c>RAZORFORGE_JIT_TRACE</c>.</summary>
-    public static bool JitTrace;
+    public static bool JitTrace { get; set; }
 
     /// <summary>Keep the emitted LLVM IR as <c>&lt;entry&gt;.ll</c> next to the source (<c>dump-ir</c>).
     /// When set, <c>buildandrun</c> takes the local AOT path (skips the daemon / in-memory ORC-JIT, which
     /// never write a <c>.ll</c>) and the <c>.ll</c> is NOT cleaned up — so the IR is inspectable after a run.</summary>
-    public static bool DumpIr;
+    public static bool DumpIr { get; set; }
 
     /// <summary>Path to dump the routine-reachability set, or null. Was <c>RF_REACHABILITY_DUMP</c>.</summary>
-    public static string? ReachabilityDump;
+    public static string? ReachabilityDump { get; set; }
 
     /// <summary>Path to dump the maysuspend analysis, or null. Was <c>RF_MAYSUSPEND_DUMP</c>.</summary>
-    public static string? MaySuspendDump;
+    public static string? MaySuspendDump { get; set; }
 
     /// <summary>Clears every flag. Call at the start of each build (esp. each daemon request) so a prior
     /// request's flags never leak into the next.</summary>

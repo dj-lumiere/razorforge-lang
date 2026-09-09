@@ -18,7 +18,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Known wired memberRoutines that are valid operator/special memberRoutines. Derived from the single source
     /// of truth <see cref="Compiler.Declaration.WiredRoutineCatalog"/> (entries flagged
-    /// <see cref="Compiler.Declaration.WiredView.KnownWired"/>).
+    /// <see cref="Compiler.Declaration.WiredViews.KnownWired"/>).
     /// </summary>
     private static readonly HashSet<string> KnownWiredMemberRoutines =
         Compiler.Declaration.WiredRoutineCatalog.BuildKnownWiredMemberRoutines();
@@ -43,7 +43,7 @@ public sealed partial class SemanticVerifier
     /// Maps operator wired memberRoutines to their required protocols. Types must follow the protocol to
     /// define the operator memberRoutine. Derived from the single source of truth
     /// <see cref="Compiler.Declaration.WiredRoutineCatalog"/> (entries flagged
-    /// <see cref="Compiler.Declaration.WiredView.ProtocolDecl"/>).
+    /// <see cref="Compiler.Declaration.WiredViews.ProtocolDecl"/>).
     /// </summary>
     private static readonly Dictionary<string, List<string>> WiredToProtocols =
         Compiler.Declaration.WiredRoutineCatalog.BuildWiredToProtocols();

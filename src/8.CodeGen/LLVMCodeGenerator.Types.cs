@@ -150,8 +150,8 @@ public partial class LlvmCodeGenerator
             // Entities (and Crashable, an entity subclass) -> pointer to LLVM struct
             EntityTypeInfo => "ptr",
 
-            // Wrappers (Viewing, Modifying, Hijacked, etc.) -> all pointers at LLVM level
-            // TODO: This is redundant
+            // Wrappers (Viewing, Modifying, Hijacked, etc.) -> all pointers at LLVM level.
+            // All wrapper kinds lower to a bare pointer; the semantic distinction exists only in the type system.
             WrapperTypeInfo => "ptr",
 
             // A marker borrow protocol (Accessing[X]/Controlling[X]) is representation-transparent to its
@@ -316,23 +316,6 @@ public partial class LlvmCodeGenerator
     private string GetCarrierLlvmType(TypeInfo type) => GetLlvmType(type: type);
 
     /// <summary>
-    /// Returns the named LLVM type for a Maybe[T] carrier given the inner value type T.
-    /// Looks up the resolved Maybe[T] in the registry; falls back to constructing the name directly.
-    /// </summary>
-    private string GetMaybeCarrierLlvmType(TypeInfo valueType)
-    {
-        TypeInfo? def = _registry.LookupType(name: "Maybe");
-        if (def != null)
-        {
-            TypeInfo? resolved = _registry.TryGetResolution(genericDef: def, typeArguments: [valueType]);
-            if (resolved != null)
-                return GetLlvmType(type: resolved);
-        }
-        // Carriers live in `module Core`; match the module-qualified canonical name (GetRecordTypeName).
-        return $"%{Q(name: $"Record.Core.Maybe[{valueType.FullName}]")}";
-    }
-
-    /// <summary>
     /// Returns the named LLVM type for a Lookup[T] carrier given the inner value type T.
     /// </summary>
     private string GetLookupCarrierLlvmType(TypeInfo valueType)
@@ -379,15 +362,8 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static string Q(string name)
     {
-        foreach (char c in name)
-        {
-            if (!char.IsLetterOrDigit(c: c) && c != '$' && c != '.' && c != '_' && c != '-')
-            {
-                return $"\"{name}\"";
-            }
-        }
-
-        return name;
+        bool needsQuoting = name.Any(c => !char.IsLetterOrDigit(c) && c != '$' && c != '.' && c != '_' && c != '-');
+        return needsQuoting ? $"\"{name}\"" : name;
     }
 
     /// <summary>
@@ -542,7 +518,7 @@ public partial class LlvmCodeGenerator
     // -----------------------------------------------------------------------------
 
     /// <summary>Bundles a memberRoutine lookup result with fully-resolved context for codegen emission.</summary>
-    private record ResolvedMemberRoutine(
+    private sealed record ResolvedMemberRoutine(
         RoutineInfo Routine,
         TypeInfo OwnerType,
         bool IsFailable,
@@ -557,7 +533,6 @@ public partial class LlvmCodeGenerator
     /// Generic instantiation must already be complete before this runs.
     /// </summary>
     private ResolvedMemberRoutine? ResolveMemberRoutine(TypeInfo receiverType, string memberRoutineName,
-        bool? isFailable = null,
         List<TypeInfo>? memberRoutineTypeArgs = null,
         List<TypeInfo>? argTypes = null)
     {

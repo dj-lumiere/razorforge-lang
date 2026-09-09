@@ -14,6 +14,7 @@ public sealed partial class SemanticVerifier
     private const string ViewingWrapperName = Compiler.Declaration.RuntimeContract.Viewing;
     private const string ConsultingWrapperName = Compiler.Declaration.RuntimeContract.Consulting;
     private const string ScopedNoEscapeHint = "(none — scoped, can't escape)";
+    private const string ShareVerb = "a.share()";
 
     private bool IsNestedModifying(Expression source)
     {
@@ -161,7 +162,7 @@ public sealed partial class SemanticVerifier
     /// Read-only wrappers (Viewing, Consulting) can only call @readonly memberRoutines.
     /// </summary>
     /// <param name="wrapperType">The wrapper type being used.</param>
-    /// <param name="member routine">The memberRoutine being called.</param>
+    /// <param name="memberRoutine">The memberRoutine being called.</param>
     /// <param name="location">Source location for error reporting.</param>
     private void ValidateReadOnlyWrapperMemberRoutineAccess(TypeSymbol wrapperType, RoutineInfo memberRoutine,
         SourceLocation location)
@@ -214,10 +215,10 @@ public sealed partial class SemanticVerifier
     private static readonly Dictionary<string, string> NonTriviallyAssignableWrappers =
         new(StringComparer.Ordinal)
         {
-            [Compiler.Declaration.RuntimeContract.Retained] = "a.share()",
-            [Compiler.Declaration.RuntimeContract.Tracked] = "a.share()",
-            [Compiler.Declaration.RuntimeContract.Guarded] = "a.share()",
-            [Compiler.Declaration.RuntimeContract.Witnessed] = "a.share()",
+            [Compiler.Declaration.RuntimeContract.Retained] = ShareVerb,
+            [Compiler.Declaration.RuntimeContract.Tracked] = ShareVerb,
+            [Compiler.Declaration.RuntimeContract.Guarded] = ShareVerb,
+            [Compiler.Declaration.RuntimeContract.Witnessed] = ShareVerb,
             [ViewingWrapperName] = ScopedNoEscapeHint,
             [ModifyingWrapperName] = ScopedNoEscapeHint,
             [ConsultingWrapperName] = ScopedNoEscapeHint,
@@ -306,39 +307,58 @@ public sealed partial class SemanticVerifier
     /// of field names leading to it, or null when no offender exists.</returns>
     private static (string Wrapper, string Path)? FindNonTriviallyAssignableWrapper(TypeSymbol type)
     {
-        return FindCore(type: type, prefix: "", visited: new HashSet<string>(StringComparer.Ordinal));
+        return FindNonTriviallyAssignableWrapperCore(
+            type: type, prefix: "", visited: new HashSet<string>(StringComparer.Ordinal));
+    }
 
-        (string, string)? FindCore(TypeSymbol type, string prefix, HashSet<string> visited)
+    private static (string, string)? FindNonTriviallyAssignableWrapperCore(
+        TypeSymbol type, string prefix, HashSet<string> visited)
+    {
+        string baseName = type.BareName;
+        if (NonTriviallyAssignableWrappers.ContainsKey(key: baseName))
+            return (baseName, prefix.Length == 0 ? "<value>" : prefix);
+
+        if (type is RecordTypeInfo record &&
+            !(record is { IsGenericDefinition: true, TypeArguments: not { Count: > 0 } }))
         {
-            string baseName = type.BareName;
-            if (NonTriviallyAssignableWrappers.ContainsKey(key: baseName))
-            {
-                return (baseName, prefix.Length == 0 ? "<value>" : prefix);
-            }
-            if (type is RecordTypeInfo record &&
-                !(record is { IsGenericDefinition: true, TypeArguments: not { Count: > 0 } }))
-            {
-                if (!visited.Add(item: record.FullName))
-                    return null;
-                foreach (MemberVariableInfo member in record.MemberVariables)
-                {
-                    string childPath = prefix.Length == 0 ? member.Name : $"{prefix}.{member.Name}";
-                    var found = FindCore(type: member.Type, prefix: childPath, visited: visited);
-                    if (found != null) return found;
-                }
-            }
-            else if (type is TupleTypeInfo tuple)
-            {
-                if (!visited.Add(item: tuple.FullName))
-                    return null;
-                for (int i = 0; i < tuple.ElementTypes.Count; i++)
-                {
-                    string childPath = prefix.Length == 0 ? $".{i}" : $"{prefix}.{i}";
-                    var found = FindCore(type: tuple.ElementTypes[index: i], prefix: childPath, visited: visited);
-                    if (found != null) return found;
-                }
-            }
-            return null;
+            return FindInRecord(record: record, prefix: prefix, visited: visited);
         }
+
+        if (type is TupleTypeInfo tuple)
+        {
+            return FindInTuple(tuple: tuple, prefix: prefix, visited: visited);
+        }
+
+        return null;
+    }
+
+    private static (string, string)? FindInRecord(
+        RecordTypeInfo record, string prefix, HashSet<string> visited)
+    {
+        if (!visited.Add(item: record.FullName))
+            return null;
+        foreach (MemberVariableInfo member in record.MemberVariables)
+        {
+            string childPath = prefix.Length == 0 ? member.Name : $"{prefix}.{member.Name}";
+            var found = FindNonTriviallyAssignableWrapperCore(
+                type: member.Type, prefix: childPath, visited: visited);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static (string, string)? FindInTuple(
+        TupleTypeInfo tuple, string prefix, HashSet<string> visited)
+    {
+        if (!visited.Add(item: tuple.FullName))
+            return null;
+        for (int i = 0; i < tuple.ElementTypes.Count; i++)
+        {
+            string childPath = prefix.Length == 0 ? $".{i}" : $"{prefix}.{i}";
+            var found = FindNonTriviallyAssignableWrapperCore(
+                type: tuple.ElementTypes[index: i], prefix: childPath, visited: visited);
+            if (found != null) return found;
+        }
+        return null;
     }
 }

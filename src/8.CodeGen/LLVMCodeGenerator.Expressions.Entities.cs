@@ -42,7 +42,7 @@ public partial class LlvmCodeGenerator
         int size = entity.HeapBlockSize(pointerSize: _pointerSizeBytes);
 
         // Allocate memory
-        // TODO(C41): route through a typed allocator abstraction rather than calling rf_allocate_dynamic directly.
+        // A future refactor (C41) should route through a typed allocator abstraction rather than calling rf_allocate_dynamic directly.
         string rawPtr = NextTemp();
         EmitLine(sb: sb, line: $"  {rawPtr} = call ptr @rf_allocate_dynamic(i64 {size})");
 
@@ -231,7 +231,7 @@ public partial class LlvmCodeGenerator
         // now MOVE too (EmitEntityAllocation no longer retains them): their arg is an owned rvalue
         // (`.roam()` / fresh promote), so consuming is a no-op for the rvalue shape and correctly drops
         // any bare source local — matching every other moved field.
-        foreach ((string fieldName, Expression fieldExpr) in expr.MemberVariables)
+        foreach ((string _, Expression fieldExpr) in expr.MemberVariables)
         {
             ConsumeTransferredLocalOwnership(expr: fieldExpr);
         }
@@ -240,6 +240,54 @@ public partial class LlvmCodeGenerator
         return EmitEntityAllocation(sb: sb,
             entity: entity,
             memberVariableValues: memberVariableValues);
+    }
+
+    /// <summary>
+    /// Emits entity construction: heap-allocate and initialize fields.
+    /// </summary>
+    private string EmitEntityConstruction(StringBuilder sb, EntityTypeInfo entity,
+        List<Expression> arguments)
+    {
+        string typeName = GetEntityTypeName(entity: entity);
+        // Allocate entity on heap
+        string sizeTemp = NextTemp();
+        EmitLine(sb: sb, line: $"  {sizeTemp} = getelementptr {typeName}, ptr null, i32 1");
+        string size = NextTemp();
+        EmitLine(sb: sb, line: $"  {size} = ptrtoint ptr {sizeTemp} to i64");
+        string entityPtr = NextTemp();
+        EmitLine(sb: sb, line: $"  {entityPtr} = call ptr @rf_allocate_dynamic(i64 {size})");
+
+        // Initialize fields. Named arguments may be written in any order; bind each field to the
+        // argument whose name matches it (falling back to positional for unnamed args). Every field —
+        // including a Roamed[T] one — MOVES its argument's reference into the field (no retain). In
+        // Suflae, RetainConstructionArg has already made the arg an OWNED rvalue (a `.roam()` copy of a
+        // borrow, or a fresh promote), so the field takes ownership of that single reference; retaining
+        // again would double-count and defeat cycle collection (see EmitEntityAllocation).
+        var argsToConsume = new List<Expression>();
+        for (int i = 0; i < entity.MemberVariables.Count; i++)
+        {
+            MemberVariableInfo field = entity.MemberVariables[index: i];
+            Expression? fieldArg = FindConstructorArgForMemberVariable(arguments: arguments,
+                fieldName: field.Name, positionalIndex: i);
+            if (fieldArg == null)
+                continue;
+            Expression arg = fieldArg is NamedArgumentExpression named ? named.Value : fieldArg;
+            string value = EmitExpression(sb: sb, expr: arg);
+            string fieldType = GetLlvmType(type: field.Type);
+            string fieldPtr = NextTemp();
+            EmitLine(sb: sb,
+                line: $"  {fieldPtr} = getelementptr {typeName}, ptr {entityPtr}, i32 0, i32 {i}");
+            EmitLine(sb: sb, line: $"  store {fieldType} {value}, ptr {fieldPtr}");
+            argsToConsume.Add(item: fieldArg);
+        }
+
+        // Field initializers with `steal` transfer ownership from local entity vars into
+        // the new entity. Drop the source locals from the cleanup set so the function-exit
+        // rf_invalidate pass doesn't free the same allocation now held by the field. (Roamed fields
+        // are excluded — they were retained above, and their arg keeps its own reference.)
+        ConsumeTransferredCallOwnership(arguments: argsToConsume);
+
+        return entityPtr;
     }
 
     /// <summary>
@@ -276,6 +324,51 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>
+    /// Constructs a record from a list of positional arguments (for TypeName(args...) calls).
+    /// </summary>
+    private string EmitRecordConstruction(StringBuilder sb, RecordTypeInfo record,
+        List<Expression> arguments)
+    {
+        // Backend-annotated or single-member-variable wrapper: just return the inner value
+        if (record.BackendType != null &&
+            arguments.Count <= 1)
+        {
+            string argValue = EmitExpression(sb: sb, expr: arguments[index: 0]);
+            if (record.BackendType != null)
+            {
+                string targetLlvm = GetLlvmType(type: record);
+                TypeInfo? argType = GetExpressionType(expr: arguments[index: 0]);
+                string argLlvm = argType != null
+                    ? GetLlvmType(type: argType)
+                    : targetLlvm;
+                if (argLlvm != targetLlvm)
+                {
+                    return EmitBackendScalarCast(sb: sb,
+                        value: argValue,
+                        sourceType: argType,
+                        targetType: record);
+                }
+            }
+
+            return argValue;
+        }
+
+        // Multi-member-variable record: build the struct value through the shared memberwise builder.
+        // Named arguments may be written in any order; bind each field to the argument whose name
+        // matches it (falling back to positional for unnamed args) so a record literal/constructor
+        // written out of field-declaration order stores each value into the correct field.
+        return EmitMemberwiseRecordStruct(sb: sb, record: record,
+            valueForField: (i, field) =>
+            {
+                Expression? fieldArg = FindConstructorArgForMemberVariable(arguments: arguments,
+                    fieldName: field.Name, positionalIndex: i);
+                if (fieldArg == null) return null;
+                Expression arg = fieldArg is NamedArgumentExpression named ? named.Value : fieldArg;
+                return EmitExpression(sb: sb, expr: arg);
+            });
+    }
+
+    /// <summary>
     /// Builds a Result[T]/Lookup[T] carrier through an alloca so the success payload can be stored at
     /// its full width into the inline <c>[N x i8]</c> buffer (field 1). Zero-inits, stores the
     /// <c>type_id</c> (field 0, i64), and — when a payload member is present — typed-stores it into the
@@ -306,9 +399,12 @@ public partial class LlvmCodeGenerator
             if (field.Name == "payload")
             {
                 TypeInfo? payloadType = GetExpressionType(expr: valueExpr);
-                storeType = payloadType is EntityTypeInfo or CrashableTypeInfo
-                    ? "ptr"
-                    : payloadType != null ? GetLlvmType(type: payloadType) : "i64";
+                if (payloadType is EntityTypeInfo or CrashableTypeInfo)
+                    storeType = "ptr";
+                else if (payloadType != null)
+                    storeType = GetLlvmType(type: payloadType);
+                else
+                    storeType = "i64";
             }
             else
             {
@@ -403,99 +499,6 @@ public partial class LlvmCodeGenerator
         return argLlvm != targetLlvm
             ? EmitBackendScalarCast(sb: sb, value: argValue, sourceType: argType, targetType: record)
             : argValue;
-    }
-
-/// <summary>
-    /// Constructs a record from a list of positional arguments (for TypeName(args...) calls).
-    /// </summary>
-    private string EmitRecordConstruction(StringBuilder sb, RecordTypeInfo record,
-        List<Expression> arguments)
-    {
-        // Backend-annotated or single-member-variable wrapper: just return the inner value
-        if (record.BackendType != null &&
-            arguments.Count <= 1)
-        {
-            string argValue = EmitExpression(sb: sb, expr: arguments[index: 0]);
-            if (record.BackendType != null)
-            {
-                string targetLlvm = GetLlvmType(type: record);
-                TypeInfo? argType = GetExpressionType(expr: arguments[index: 0]);
-                string argLlvm = argType != null
-                    ? GetLlvmType(type: argType)
-                    : targetLlvm;
-                if (argLlvm != targetLlvm)
-                {
-                    return EmitBackendScalarCast(sb: sb,
-                        value: argValue,
-                        sourceType: argType,
-                        targetType: record);
-                }
-            }
-
-            return argValue;
-        }
-
-        // Multi-member-variable record: build the struct value through the shared memberwise builder.
-        // Named arguments may be written in any order; bind each field to the argument whose name
-        // matches it (falling back to positional for unnamed args) so a record literal/constructor
-        // written out of field-declaration order stores each value into the correct field.
-        return EmitMemberwiseRecordStruct(sb: sb, record: record,
-            valueForField: (i, field) =>
-            {
-                Expression? fieldArg = FindConstructorArgForMemberVariable(arguments: arguments,
-                    fieldName: field.Name, positionalIndex: i);
-                if (fieldArg == null) return null;
-                Expression arg = fieldArg is NamedArgumentExpression named ? named.Value : fieldArg;
-                return EmitExpression(sb: sb, expr: arg);
-            });
-    }
-
-    /// <summary>
-    /// Emits entity construction: heap-allocate and initialize fields.
-    /// </summary>
-    private string EmitEntityConstruction(StringBuilder sb, EntityTypeInfo entity,
-        List<Expression> arguments)
-    {
-        string typeName = GetEntityTypeName(entity: entity);
-        // Allocate entity on heap
-        string sizeTemp = NextTemp();
-        EmitLine(sb: sb, line: $"  {sizeTemp} = getelementptr {typeName}, ptr null, i32 1");
-        string size = NextTemp();
-        EmitLine(sb: sb, line: $"  {size} = ptrtoint ptr {sizeTemp} to i64");
-        string entityPtr = NextTemp();
-        EmitLine(sb: sb, line: $"  {entityPtr} = call ptr @rf_allocate_dynamic(i64 {size})");
-
-        // Initialize fields. Named arguments may be written in any order; bind each field to the
-        // argument whose name matches it (falling back to positional for unnamed args). Every field —
-        // including a Roamed[T] one — MOVES its argument's reference into the field (no retain). In
-        // Suflae, RetainConstructionArg has already made the arg an OWNED rvalue (a `.roam()` copy of a
-        // borrow, or a fresh promote), so the field takes ownership of that single reference; retaining
-        // again would double-count and defeat cycle collection (see EmitEntityAllocation).
-        var argsToConsume = new List<Expression>();
-        for (int i = 0; i < entity.MemberVariables.Count; i++)
-        {
-            MemberVariableInfo field = entity.MemberVariables[index: i];
-            Expression? fieldArg = FindConstructorArgForMemberVariable(arguments: arguments,
-                fieldName: field.Name, positionalIndex: i);
-            if (fieldArg == null)
-                continue;
-            Expression arg = fieldArg is NamedArgumentExpression named ? named.Value : fieldArg;
-            string value = EmitExpression(sb: sb, expr: arg);
-            string fieldType = GetLlvmType(type: field.Type);
-            string fieldPtr = NextTemp();
-            EmitLine(sb: sb,
-                line: $"  {fieldPtr} = getelementptr {typeName}, ptr {entityPtr}, i32 0, i32 {i}");
-            EmitLine(sb: sb, line: $"  store {fieldType} {value}, ptr {fieldPtr}");
-            argsToConsume.Add(item: fieldArg);
-        }
-
-        // Field initializers with `steal` transfer ownership from local entity vars into
-        // the new entity. Drop the source locals from the cleanup set so the function-exit
-        // rf_invalidate pass doesn't free the same allocation now held by the field. (Roamed fields
-        // are excluded — they were retained above, and their arg keeps its own reference.)
-        ConsumeTransferredCallOwnership(arguments: argsToConsume);
-
-        return entityPtr;
     }
 
     /// <summary>
@@ -1088,7 +1091,7 @@ public partial class LlvmCodeGenerator
             TryReinstantiateEntity(genericDef: genDef, typeArguments: entity.TypeArguments,
                 memberVariableName: memberVariableName, out EntityTypeInfo? fromGenDef))
         {
-            return fromGenDef;
+            return fromGenDef!;
         }
 
         // Fallback: look up the generic definition from the registry
@@ -1098,7 +1101,7 @@ public partial class LlvmCodeGenerator
             TryReinstantiateEntity(genericDef: lookupDef, typeArguments: entity.TypeArguments,
                 memberVariableName: memberVariableName, out EntityTypeInfo? fromLookup))
         {
-            return fromLookup;
+            return fromLookup!;
         }
 
         return entity;

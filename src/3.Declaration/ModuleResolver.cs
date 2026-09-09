@@ -38,19 +38,13 @@ public sealed class ModuleResolver
     }
 
     /// <summary>
-    /// Registers a parsed file into the import index.
-    /// Called by <see cref="BuildDriver"/> after parsing each file (stdlib pre-scan + project files).
-    /// </summary>
-    /// <param name="filePath">Absolute path to the source file.</param>
-    /// <param name="moduleName">The module name — either from a ModuleDeclaration or derived from the file path.</param>
-    /// <param name="ast">The parsed program AST to extract exported symbol names from.</param>
-    /// <summary>
     /// Bulk-seeds import-index entries from a cached snapshot (see <see cref="IndexSnapshot"/>), skipping the
     /// per-file parse that <see cref="BuildDriver"/>'s stdlib pre-scan would otherwise do. The stdlib index is
     /// invariant across a daemon's warm requests (the stdlib source + host target don't change), so building it
     /// once and re-seeding it each request replaces ~0.8 s of re-tokenize/re-parse per compile. Uses
     /// <c>TryAdd</c> so an existing (project/library) entry is never clobbered.
     /// </summary>
+    /// <param name="entries">The snapshot entries to seed, mapping module/symbol keys to file paths.</param>
     public void SeedIndex(IReadOnlyDictionary<string, string> entries)
     {
         foreach ((string key, string path) in entries)
@@ -62,6 +56,14 @@ public sealed class ModuleResolver
     public IReadOnlyDictionary<string, string> IndexSnapshot() =>
         new Dictionary<string, string>(dictionary: _index, comparer: StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Registers a parsed file into the import index so its module and exported type/routine names
+    /// can be resolved by subsequent <c>import</c> statements. Called by <see cref="BuildDriver"/>
+    /// after parsing each file (stdlib pre-scan + project files).
+    /// </summary>
+    /// <param name="filePath">Absolute path to the source file.</param>
+    /// <param name="moduleName">The module name — either from a <c>ModuleDeclaration</c> or derived from the file path.</param>
+    /// <param name="ast">The parsed program AST to extract exported symbol names from.</param>
     public void RegisterFile(string filePath, string moduleName, Program ast)
     {
         // Register the module itself for bare imports: `import Module`
@@ -71,33 +73,25 @@ public sealed class ModuleResolver
         {
             switch (node)
             {
-                case RecordDeclaration { Name: var n }:
-                    _index.TryAdd(key: $"{moduleName}.{n}", value: filePath);
-                    break;
-                case EntityDeclaration { Name: var n }:
-                    _index.TryAdd(key: $"{moduleName}.{n}", value: filePath);
-                    break;
-                case ChoiceDeclaration { Name: var n }:
-                    _index.TryAdd(key: $"{moduleName}.{n}", value: filePath);
-                    break;
-                case FlagsDeclaration { Name: var n }:
-                    _index.TryAdd(key: $"{moduleName}.{n}", value: filePath);
-                    break;
-                case VariantDeclaration { Name: var n }:
-                    _index.TryAdd(key: $"{moduleName}.{n}", value: filePath);
-                    break;
-                case CrashableDeclaration { Name: var n }:
-                    _index.TryAdd(key: $"{moduleName}.{n}", value: filePath);
-                    break;
-                case ProtocolDeclaration { Name: var n }:
-                    _index.TryAdd(key: $"{moduleName}.{n}", value: filePath);
+                case RecordDeclaration or EntityDeclaration or ChoiceDeclaration
+                    or FlagsDeclaration or VariantDeclaration or CrashableDeclaration
+                    or ProtocolDeclaration or PresetDeclaration:
+                    string typeName = node switch
+                    {
+                        RecordDeclaration r => r.Name,
+                        EntityDeclaration e => e.Name,
+                        ChoiceDeclaration c => c.Name,
+                        FlagsDeclaration f => f.Name,
+                        VariantDeclaration v => v.Name,
+                        CrashableDeclaration cr => cr.Name,
+                        ProtocolDeclaration p => p.Name,
+                        _ => ((PresetDeclaration)node).Name
+                    };
+                    _index.TryAdd(key: $"{moduleName}.{typeName}", value: filePath);
                     break;
                 case DefineDeclaration { OldName: var original, NewName: var alias }:
                     _index.TryAdd(key: $"{moduleName}.{original}", value: filePath);
                     _index.TryAdd(key: $"{moduleName}.{alias}", value: filePath);
-                    break;
-                case PresetDeclaration { Name: var n }:
-                    _index.TryAdd(key: $"{moduleName}.{n}", value: filePath);
                     break;
                 case RoutineDeclaration { Name: var n } when !n.Contains(value: '.'):
                     // Module-level routines only; member routines have "Type.name" as their Name
