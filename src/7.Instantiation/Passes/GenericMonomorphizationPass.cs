@@ -2323,8 +2323,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 string paramName = ownerGenericDef.GenericParameters[index: i];
                 // Don't overwrite a universal-owner mapping (e.g. T->BTreeListNode[Byte] from case 2)
                 // with the owner's own type argument (e.g. T->Byte from BTreeListNode[T]).
-                if (!typeSubs.ContainsKey(key: paramName))
-                    typeSubs[paramName] = ownerType.TypeArguments[index: i];
+                typeSubs.TryAdd(paramName, ownerType.TypeArguments[index: i]);
             }
         }
 
@@ -2484,18 +2483,11 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             if (expectedParamNames != null && decl.Parameters.Count == expectedParamNames.Count)
             {
                 bool namesMatch = ParamNamesMatch(decl: decl, expectedParamNames: expectedParamNames);
-                if (namesMatch)
+                if (namesMatch && !ExpectedParameterTypesMismatch(decl, expectedParamTypeNames))
                 {
                     // Param names alone don't disambiguate same-name-different-type overloads
                     // (e.g. `create(from: Set[T])` vs `create(from: SortedSet[T])`). When type
                     // names are supplied, require those to match too.
-                    if (expectedParamTypeNames != null &&
-                        decl.Parameters.Count == expectedParamTypeNames.Count
-                        && !ParamTypesMatch(decl: decl, expectedParamTypeNames: expectedParamTypeNames))
-                    {
-                        countOnlyMatch ??= decl;
-                        continue;
-                    }
                     return decl;
                 }
                 countOnlyMatch ??= decl;
@@ -2507,6 +2499,10 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
         return countOnlyMatch ?? firstMatch;
     }
+
+    private static bool ExpectedParameterTypesMismatch(RoutineDeclaration decl, List<string?>? expectedTypes) =>
+        expectedTypes != null && decl.Parameters.Count == expectedTypes.Count &&
+        !ParamTypesMatch(decl: decl, expectedParamTypeNames: expectedTypes);
 
     /// <summary>Returns true when every parameter name in <paramref name="decl"/> matches the expected list.</summary>
     private static bool ParamNamesMatch(RoutineDeclaration decl, List<string> expectedParamNames)

@@ -682,7 +682,7 @@ public sealed partial class StdlibLoader
         }
 
         // Generic parameter name (T, K, V) -> placeholder for substitution
-        if (genericParams != null && genericParams.Contains(value: typeName))
+        if (genericParams?.Contains(value: typeName) == true)
         {
             return new GenericParameterTypeInfo(name: typeName);
         }

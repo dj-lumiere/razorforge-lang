@@ -818,99 +818,8 @@ public partial class Parser
         // CONTROL FLOW STATEMENTS
         // ═══════════════════════════════════════════════════════════════════════════
 
-        if (CheckAndAdvance(type: TokenType.If))
-        {
-            return ParseIfStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.Unless))
-        {
-            return ParseUnlessStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.While))
-        {
-            return ParseWhileStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.Loop))
-        {
-            return ParseLoopStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.Each))
-        {
-            return ParseEachStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.Expand))
-        {
-            return ParseExpandStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.When))
-        {
-            return ParseWhenStatement();
-        }
-
-        // ═══════════════════════════════════════════════════════════════════════════
-        // JUMP STATEMENTS
-        // ═══════════════════════════════════════════════════════════════════════════
-
-        if (CheckAndAdvance(type: TokenType.Return))
-        {
-            return ParseReturnStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.Becomes))
-        {
-            return ParseBecomesStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.Break))
-        {
-            return ParseBreakStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.Continue))
-        {
-            return ParseContinueStatement();
-        }
-
-        // ═══════════════════════════════════════════════════════════════════════════
-        // SPECIAL STATEMENTS
-        // ═══════════════════════════════════════════════════════════════════════════
-
-        if (CheckAndAdvance(type: TokenType.Pass))
-        {
-            return ParsePassStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.Throw))
-        {
-            return ParseThrowStatement(isFatal: false);
-        }
-
-        if (CheckAndAdvance(type: TokenType.Pierce))
-        {
-            return ParseThrowStatement(isFatal: true);
-        }
-
-        // Using block (scoped resource management with indented body)
-        if (CheckAndAdvance(type: TokenType.Using))
-        {
-            return ParseUsingStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.Absent))
-        {
-            return ParseAbsentStatement();
-        }
-
-        if (CheckAndAdvance(type: TokenType.Discard))
-        {
-            return ParseDiscardStatement();
-        }
+        Statement? keywordStatement = ParseKeywordStatement();
+        if (keywordStatement != null) return keywordStatement;
 
         // ═══════════════════════════════════════════════════════════════════════════
         // RF-ONLY: MEMORY/SCOPE BLOCKS
@@ -952,4 +861,64 @@ public partial class Parser
 
         return ParseExpressionStatement();
     }
+    private Statement? ParseKeywordStatement()
+    {
+        switch (CurrentToken.Type)
+        {
+            case TokenType.If:
+                Advance();
+                return ParseIfStatement();
+            case TokenType.Unless:
+                Advance();
+                return ParseUnlessStatement();
+            case TokenType.While:
+                Advance();
+                return ParseWhileStatement();
+            case TokenType.Loop:
+                Advance();
+                return ParseLoopStatement();
+            case TokenType.Each:
+                Advance();
+                return ParseEachStatement();
+            case TokenType.Expand:
+                Advance();
+                return ParseExpandStatement();
+            case TokenType.When:
+                Advance();
+                return ParseWhenStatement();
+            case TokenType.Return:
+                Advance();
+                return ParseReturnStatement();
+            case TokenType.Becomes:
+                Advance();
+                return ParseBecomesStatement();
+            case TokenType.Break:
+                Advance();
+                return ParseBreakStatement();
+            case TokenType.Continue:
+                Advance();
+                return ParseContinueStatement();
+            case TokenType.Pass:
+                Advance();
+                return ParsePassStatement();
+            case TokenType.Throw:
+                Advance();
+                return ParseThrowStatement(isFatal: false);
+            case TokenType.Pierce:
+                Advance();
+                return ParseThrowStatement(isFatal: true);
+            case TokenType.Using:
+                Advance();
+                return ParseUsingStatement();
+            case TokenType.Absent:
+                Advance();
+                return ParseAbsentStatement();
+            case TokenType.Discard:
+                Advance();
+                return ParseDiscardStatement();
+            default:
+                return null;
+        }
+    }
+
 }

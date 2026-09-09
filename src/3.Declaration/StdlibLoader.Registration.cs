@@ -806,16 +806,7 @@ public sealed partial class StdlibLoader
         // declared names into the AST decl's GenericParameters, the single list every downstream reader
         // (registration below, signature resolution, call-site inference, monomorphization) consults, so
         // `T` behaves exactly like a bracket param. Mutates the shared decl; idempotent.
-        if (routine.GenericConstraints is { } typeNameDecls)
-        {
-            foreach (GenericConstraintDeclaration gc in typeNameDecls)
-            {
-                if (gc.ConstraintType != ConstraintKind.AnyType) continue;
-                routine.GenericParameters ??= [];
-                if (!routine.GenericParameters.Contains(item: gc.ParameterName))
-                    routine.GenericParameters.Add(item: gc.ParameterName);
-            }
-        }
+        RoutineGenericParameters.AddConstraintDeclarations(routine);
 
         List<string>? ctx = BuildRoutineGenericContext(registry: registry, routine: routine,
             ownerType: ownerType, moduleName: moduleName);

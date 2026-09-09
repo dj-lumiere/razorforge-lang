@@ -492,16 +492,7 @@ public static class ModularStdlibCache
     private static IEnumerable<object> Neighbors(object o)
     {
         Type t = o.GetType();
-        if (o is string || t.IsPrimitive || t.IsEnum || t == typeof(decimal)) yield break;
-
-        if (o is Array arr)
-        {
-            foreach (object? e in arr)
-            {
-                if (e != null && !IsInline(e)) yield return e;
-            }
-            yield break;
-        }
+        if (IsInline(o)) yield break;
 
         if (o is IDictionary dict)
         {

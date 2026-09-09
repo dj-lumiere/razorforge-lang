@@ -82,72 +82,8 @@ public partial class LlvmCodeGenerator
             IsSynthesized: false, IsCreator: true
         } && constructedType is EntityTypeInfo;
 
-        // A synthesized ALL-FIELDS memberwise creator has NO body — it exists only so SA can resolve
-        // `Type(...)` construction (e.g. `throw VerificationFailedError()`, classified as a DirectRoutine
-        // call with a null ConstructedType). Codegen MUST inline the field-init; emitting a call would
-        // reference an undefined symbol. Body-bearing synthesized creators (numeric conversions, variant
-        // extractors) take NON-field params, so the params-match-fields test below excludes them.
-        if (resolvedRoutine is { IsSynthesized: true, IsCreator: true, OwnerType: { } mwOwner }
-            && MemberwiseCreatorMatchesFields(creator: resolvedRoutine, owner: mwOwner))
-        {
-            switch (mwOwner)
-            {
-                case CrashableTypeInfo mwCrashable:
-                    return EmitCrashableConstruction(sb: sb, crashable: mwCrashable, arguments: arguments);
-                case EntityTypeInfo mwEntity:
-                    return EmitEntityConstruction(sb: sb, entity: mwEntity, arguments: arguments);
-                case RecordTypeInfo mwRecord:
-                    return EmitRecordConstruction(sb: sb, record: mwRecord, arguments: arguments);
-            }
-        }
-
-        switch (loweringKind)
-        {
-            // ValueConversion (`x.D128()`-style casts) is NOT inlined here: it falls through to the
-            // routine-call path, which resolves `Target.create(from: source)` and calls it. The
-            // creator's body is the conversion (scalar cast for primitives, BID/IEEE encode for
-            // carrier records) — the backend must not re-decide it with a scalar cast.
-            case CallLoweringKind.CollectionConstruction when constructedType != null:
-                return EmitCollectionLiteralConstructor(sb: sb,
-                    resolvedType: constructedType,
-                    arguments: arguments);
-            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when constructedType is RecordTypeInfo
-            {
-                BackendType: not null
-            } directRecord && arguments.Count == 1 &&
-                ShouldInlineDirectBackendConstruction(record: directRecord,
-                    arg: arguments[index: 0],
-                    resolvedRoutine: resolvedRoutine):
-                return EmitRecordConstruction(sb: sb, record: directRecord, arguments: arguments);
-            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when constructedType is RecordTypeInfo
-                {
-                    MemberVariables.Count: > 0
-                } ctorRecord &&
-                arguments.Count == ctorRecord.MemberVariables.Count && arguments.All(
-                    predicate: a =>
-                        a is NamedArgumentExpression namedArg &&
-                        ctorRecord.MemberVariables.Any(
-                            predicate: mv => mv.Name == namedArg.Name)):
-                return EmitRecordConstruction(sb: sb, record: ctorRecord, arguments: arguments);
-            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when !routesToUserCreate && constructedType is EntityTypeInfo
-                {
-                    MemberVariables.Count: > 0
-                } ctorEntity &&
-                arguments.Count == ctorEntity.MemberVariables.Count && arguments.All(
-                    predicate: a =>
-                        a is NamedArgumentExpression namedArg &&
-                        ctorEntity.MemberVariables.Any(
-                            predicate: mv => mv.Name == namedArg.Name)):
-                return EmitEntityConstruction(sb: sb, entity: ctorEntity, arguments: arguments);
-            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when constructedType is CrashableTypeInfo ctorCrashable &&
-                arguments.Count == ctorCrashable.MemberVariables.Count && arguments.All(
-                    predicate: a => ctorCrashable.MemberVariables.Count == 0 ||
-                                    a is NamedArgumentExpression namedArg &&
-                                    ctorCrashable.MemberVariables.Any(
-                                        predicate: mv => mv.Name == namedArg.Name)):
-                return EmitCrashableConstruction(sb: sb, crashable: ctorCrashable,
-                    arguments: arguments);
-        }
+        if (TryEmitAnnotatedConstruction(sb, arguments, resolvedRoutine, constructedType, loweringKind, routesToUserCreate) is { } construction)
+            return construction;
 
         ValidateAnnotatedConstructorOrConversion(functionName: functionName,
             arguments: arguments,
@@ -202,41 +138,7 @@ public partial class LlvmCodeGenerator
         // Written-order argument types for overload normalization. Mirrors the CPtr handling below
         // so a bare-routine -> CPtr reference contributes the CPtr type (it never has its own
         // expression type).
-        var writtenArgTypes = new List<TypeInfo>();
-        for (int argIdx = 0; argIdx < arguments.Count; argIdx++)
-        {
-            Expression arg = arguments[index: argIdx];
-            Expression argInner = arg is NamedArgumentExpression namedArg ? namedArg.Value : arg;
-            TypeInfo? paramTy;
-            if (arg is NamedArgumentExpression na)
-            {
-                paramTy = routine?.Parameters.FirstOrDefault(predicate: p => p.Name == na.Name)?.Type;
-            }
-            else
-            {
-                paramTy = routine != null && argIdx < routine.Parameters.Count
-                    ? routine.Parameters[index: argIdx].Type
-                    : null;
-            }
-            bool ptyTakesCFnPtr = paramTy?.Name == "CPtr"
-                || (routine?.IsForeign == true && paramTy is RoutineTypeInfo);
-            if (ptyTakesCFnPtr
-                && argInner is IdentifierExpression cptrRef
-                && _registry.LookupRoutineByName(name: cptrRef.Name) is not null)
-            {
-                writtenArgTypes.Add(item: paramTy!);
-                continue;
-            }
-
-            TypeInfo? argType = GetExpressionType(expr: arg);
-            if (argType == null)
-            {
-                throw new InvalidOperationException(
-                    message:
-                    $"Cannot determine type for argument in function call to '{functionName}'");
-            }
-            writtenArgTypes.Add(item: argType);
-        }
+        List<TypeInfo> writtenArgTypes = GetFreeCallArgumentTypes(functionName, arguments, routine);
 
         routine = NormalizeResolvedRoutineReference(routine: routine,
             receiverType: null,
@@ -256,109 +158,7 @@ public partial class LlvmCodeGenerator
                 argValues: argValues, argTypes: argTypes, argTypeInfos: argTypeInfos);
         }
 
-        // Build the call
-        string mangledName = routine != null
-            ? MangleRoutineName(routine: routine)
-            : DecorateRoutineSymbolName(baseName: SanitizeLlvmName(name: functionName),
-                isFailable: isFailableCallSyntax);
-
-        // Ensure the function is declared (generates 'declare' and tracks in _generatedRoutines)
-        if (routine != null)
-        {
-            GenerateRoutineDeclaration(routine: routine);
-        }
-        else
-        {
-            _generatedRoutines.Add(item: mangledName);
-        }
-
-        // For external("C") functions, F16 (half) params must be bitcast to i16 (C ABI)
-        bool isCExtern = routine is { CallingConvention: "C" };
-        if (isCExtern)
-        {
-            for (int i = 0; i < argTypes.Count; i++)
-            {
-                if (argTypes[index: i] == "half")
-                {
-                    string bits = NextTemp();
-                    EmitLine(sb: sb,
-                        line: $"  {bits} = bitcast half {argValues[index: i]} to i16");
-                    argValues[index: i] = bits;
-                    argTypes[index: i] = "i16";
-                }
-            }
-        }
-
-        string returnType = routine?.ReturnType != null
-            ? GetLlvmType(type: routine.ReturnType)
-            : "void";
-        // Failable routines return T directly -> they crash on failure, no carrier needed
-
-        string callReturnType = isCExtern && returnType == "half"
-            ? "i16"
-            : returnType;
-
-        // Struct returns classified Indirect by the ABI come back through a hidden sret pointer:
-        // external("C") returning structs > 8 bytes (Win-x64 MSVC), or an RF routine whose return
-        // is ABI-Indirect. The declaration, definition, and every return already agree (see
-        // ReturnsViaSret); the call must pass the result slot as the first argument and load it back.
-        bool needsSret = routine != null &&
-            (isCExtern ? NeedsCExternSret(routine: routine) : ReturnsViaSret(routine: routine));
-        if (needsSret)
-        {
-            // Allocate space for the result, pass as sret pointer, call as void, then load
-            string sretPtr = NextTemp();
-            EmitEntryAlloca(llvmName: sretPtr, llvmType: returnType);
-            // Insert sret pointer as first argument
-            argTypes.Insert(index: 0, item: $"ptr sret({returnType})");
-            argValues.Insert(index: 0, item: sretPtr);
-            string args = BuildCallArgs(types: argTypes, values: argValues);
-            EmitLine(sb: sb, line: $"  call void @{mangledName}({args})");
-            ConsumeTransferredCallOwnership(arguments: arguments);
-            // Load the result from the sret allocation
-            string result = NextTemp();
-            EmitLine(sb: sb, line: $"  {result} = load {returnType}, ptr {sretPtr}");
-            return result;
-        }
-
-        // Coerced (Phase 2) struct return: the callee returns the ABI integer form; call it as that,
-        // then reinterpret the result back into the struct value.
-        string? calleeCoerce = routine != null && !isCExtern ? ReturnCoerceType(routine: routine) : null;
-        if (calleeCoerce != null)
-        {
-            string result = NextTemp();
-            string args = BuildCallArgs(types: argTypes, values: argValues);
-            EmitLine(sb: sb, line: $"  {result} = call {calleeCoerce} @{mangledName}({args})");
-            ConsumeTransferredCallOwnership(arguments: arguments);
-            return CoerceAbiToStruct(sb: sb, abiValue: result, abiType: calleeCoerce,
-                structLlvm: returnType);
-        }
-
-        if (callReturnType == "void")
-        {
-            // Void return - no result
-            string args = BuildCallArgs(types: argTypes, values: argValues);
-            EmitLine(sb: sb, line: $"  call void @{mangledName}({args})");
-            ConsumeTransferredCallOwnership(arguments: arguments);
-            return "undef";
-        }
-        else
-        {
-            // Has return value
-            string result = NextTemp();
-            string args = BuildCallArgs(types: argTypes, values: argValues);
-            EmitLine(sb: sb, line: $"  {result} = call {callReturnType} @{mangledName}({args})");
-            ConsumeTransferredCallOwnership(arguments: arguments);
-            // For external("C") F16 return, bitcast i16 back to half
-            if (isCExtern && returnType == "half" && callReturnType == "i16")
-            {
-                string halfResult = NextTemp();
-                EmitLine(sb: sb, line: $"  {halfResult} = bitcast i16 {result} to half");
-                return halfResult;
-            }
-
-            return result;
-        }
+        return EmitFreeCallInstruction(sb, arguments, routine, functionName, isFailableCallSyntax, argValues, argTypes);
     }
 
     /// <summary>
@@ -417,15 +217,7 @@ public partial class LlvmCodeGenerator
             int p = argIdx;
             if (a is NamedArgumentExpression na)
             {
-                p = -1;
-                for (int k = 0; k < paramCount; k++)
-                {
-                    if (routine.Parameters[index: k].Name == na.Name)
-                    {
-                        p = k;
-                        break;
-                    }
-                }
+                p = FindNamedParameterSlot(routine, na.Name, paramCount);
 
                 if (p < 0)
                 {
@@ -550,10 +342,7 @@ public partial class LlvmCodeGenerator
         // Direct named-field construction: when all arg names match field names exactly,
         // emit struct construction directly (avoids create infinite recursion).
         if (calledType is RecordTypeInfo { MemberVariables.Count: > 0 } record &&
-            arguments.Count == record.MemberVariables.Count && arguments.All(
-                predicate: a =>
-                    a is NamedArgumentExpression named &&
-                    record.MemberVariables.Any(predicate: mv => mv.Name == named.Name)))
+            ArgumentsMatchFields(arguments, record.MemberVariables))
         {
             return EmitRecordConstruction(sb: sb, record: record, arguments: arguments);
         }
@@ -567,20 +356,13 @@ public partial class LlvmCodeGenerator
 
         if (!routesToUserCreate &&
             calledType is EntityTypeInfo { MemberVariables.Count: > 0 } entity &&
-            arguments.Count == entity.MemberVariables.Count && arguments.All(
-                predicate: a =>
-                    a is NamedArgumentExpression named2 &&
-                    entity.MemberVariables.Any(predicate: mv => mv.Name == named2.Name)))
+            ArgumentsMatchFields(arguments, entity.MemberVariables))
         {
             return EmitEntityConstruction(sb: sb, entity: entity, arguments: arguments);
         }
 
         if (calledType is CrashableTypeInfo crashable &&
-            arguments.Count == crashable.MemberVariables.Count && arguments.All(
-                predicate: a => crashable.MemberVariables.Count == 0 ||
-                                a is NamedArgumentExpression named3 &&
-                                crashable.MemberVariables.Any(
-                                    predicate: mv => mv.Name == named3.Name)))
+            ArgumentsMatchFields(arguments, crashable.MemberVariables))
         {
             return EmitCrashableConstruction(sb: sb, crashable: crashable, arguments: arguments);
         }
@@ -729,37 +511,7 @@ public partial class LlvmCodeGenerator
         (string receiver, TypeInfo? receiverType) = ResolveMemberRoutineCallReceiver(sb: sb,
             member: member);
 
-        switch (receiverType)
-        {
-            case null:
-            {
-                string objDesc = member.Object switch
-                {
-                    IdentifierExpression id => $"identifier '{id.Name}'",
-                    CallExpression { Callee: MemberExpression m2 } c =>
-                        $"call .{m2.MemberName}() (ResolvedType={c.ResolvedType?.Name ?? "null"})",
-                    _ => member.Object.GetType().Name
-                };
-                throw new InvalidOperationException(
-                    message: $"Cannot determine receiver type for member routine call .{member.MemberName} on {objDesc}");
-            }
-            // WrapperTypeInfo (e.g., Hijacked[Byte]) has FullName="Hijacked[Core.Byte]" (Module=null,
-            // inner FullName used for type args) which LookupMemberRoutine can't resolve and emits a wrong
-            // mangled name. Always normalize to the real RecordTypeInfo (FullName="Core.Hijacked[Byte]")
-            // so both LookupMemberRoutine and LLVM name mangling work correctly.
-            case WrapperTypeInfo wrapperReceiver:
-            {
-                TypeInfo? wrapperDef = _registry.LookupType(name: wrapperReceiver.Name);
-                if (wrapperDef is { IsGenericDefinition: true } &&
-                    wrapperReceiver.TypeArguments is { Count: > 0 })
-                {
-                    receiverType = _registry.GetOrCreateResolution(genericDef: wrapperDef,
-                        typeArguments: wrapperReceiver.TypeArguments);
-                }
-
-                break;
-            }
-        }
+        receiverType = NormalizeMemberReceiverType(member, receiverType);
 
         // Transparent protocol (e.g., Accessing[Text] with no declared memberRoutines): dispatch through
         // the first concrete type argument T. Both representations are ptr in LLVM, so no cast needed.
@@ -783,54 +535,14 @@ public partial class LlvmCodeGenerator
         // numeric `create` bodies do the real cast (e.g. U64.create(from: U8) = zero_extend),
         // which is also why F128 is correct here: its i128 backend is an IEEE bit carrier, so a
         // scalar cast would reinterpret integer bits as float bits (the old s128→F128 NaN bug).
-        if (loweringKind == CallLoweringKind.TypeConstructor && memberRoutine != null)
-        {
-            string convMangled = MangleRoutineName(routine: memberRoutine);
-            GenerateRoutineDeclaration(routine: memberRoutine);
-            string convRetTy = memberRoutine.ReturnType != null
-                ? GetLlvmType(type: memberRoutine.ReturnType)
-                : "ptr";
-            string convSrcLlvm = GetLlvmType(type: receiverType);
-            string convSrcVal = receiver;
-            if (ReceiverPassedByRef(receiverType: receiverType))
-            {
-                convSrcVal = NextTemp();
-                EmitLine(sb: sb,
-                    line: $"  {convSrcVal} = load {convSrcLlvm}, ptr {receiver}");
-            }
-
-            string convResult = NextTemp();
-            EmitLine(sb: sb,
-                line:
-                $"  {convResult} = call {convRetTy} @{convMangled}({convSrcLlvm} {convSrcVal})");
-            return convResult;
-        }
+        if (EmitMemberConversionCall(sb, loweringKind, receiver, receiverType, memberRoutine) is { } resultEmitMemberConversionCall) return resultEmitMemberConversionCall;
 
         // Consulting[T, P] / Amending[T, P] are `@llvm("ptr")` tokens whose pointer targets the shared
         // GuardController[T, P], NOT the guarded entity. When the resolved memberRoutine is a FORWARDED entity
         // memberRoutine (owned by the inner T — e.g. `c.bump()`), the callee's `me` must be the entity, so
         // project the receiver through `controller.data`. Token-own memberRoutines (enter/exit/refer/
         // control/represent/diagnose/destroy, owned by the token itself) keep the controller ptr.
-        if (memberRoutine is { OwnerType: { } memberRoutineOwner } &&
-            receiverType is RecordTypeInfo tokenRec &&
-            GetGenericBaseName(type: tokenRec) is Declaration.RuntimeContract.Consulting or Declaration.RuntimeContract.Amending &&
-            tokenRec.TypeArguments is { Count: > 1 } &&
-            tokenRec.TypeArguments[index: 0] is EntityTypeInfo tokenInner &&
-            memberRoutineOwner.FullName == tokenInner.FullName)
-        {
-            string policyName = tokenRec.TypeArguments[index: 1].FullName;
-            TypeInfo? ctrlType =
-                _registry.LookupType(name: $"GuardController[{tokenInner.FullName}, {policyName}]")
-                ?? _registry.LookupType(
-                    name: $"Core.GuardController[{tokenInner.FullName}, {policyName}]");
-            if (ctrlType is EntityTypeInfo ctrlEntity)
-            {
-                receiver = EmitEntityMemberVariableRead(sb: sb,
-                    entityPtr: receiver,
-                    entity: ctrlEntity,
-                    memberVariableName: "data");
-            }
-        }
+        ProjectGuardedMemberReceiver(sb, ref receiver, receiverType, memberRoutine);
 
         // Suflae `Roamed[E]` receiver transparency is now lowered to real AST nodes by
         // RoamedProjectionLoweringPass (Phase 8): a bare-`me` inner memberRoutine's receiver is rewritten to
@@ -991,60 +703,7 @@ public partial class LlvmCodeGenerator
         // Build the call -> for resolved generic types (e.g., List[Character].add_last),
         // use the resolved type name even if the memberRoutine was found via the base type
         string mangledName;
-        if (typeArguments is { Count: > 0 } && memberRoutine != null)
-        {
-            if (memberRoutine is { IsGenericDefinition: true, GenericParameters: { Count: > 0 } gParams } &&
-                gParams.Count == typeArguments.Count)
-            {
-                var resolvedTypeArgs = typeArguments
-                    .Select(selector: ta => ResolveTypeExpression(typeExpr: ta))
-                    .Where(predicate: t => t != null)
-                    .Cast<TypeInfo>()
-                    .ToList();
-                if (resolvedTypeArgs.Count == typeArguments.Count)
-                {
-                    memberRoutine = _registry.GetOrCreateRoutineResolution(genericDef: memberRoutine,
-                        typeArguments: resolvedTypeArgs);
-                }
-            }
-
-            if (memberRoutine.IsGenericDefinition)
-            {
-                throw new InvalidOperationException(
-                    $"Explicit member routine generic call '{receiverType.FullName}.{member.MemberName}' reached LLVM codegen unresolved.");
-            }
-
-            mangledName = MangleRoutineName(routine: memberRoutine);
-        }
-        else if (memberRoutine != null)
-        {
-            // When the memberRoutine is fully concrete (non-generic owner, concrete type),
-            // MangleRoutineName produces the correct name directly -> no registry re-lookup needed.
-            // Fall back to ResolveMemberRoutine only when the carried routine still has a generic/universal owner
-            // (e.g., owner is GenericParameterTypeInfo or the generic definition itself), in which case
-            // we re-derive from the concrete receiverType.
-            if (memberRoutine is { IsGenericDefinition: false, OwnerType: not GenericParameterTypeInfo and not { IsGenericDefinition: true } })
-            {
-                mangledName = MangleRoutineName(routine: memberRoutine);
-            }
-            else
-            {
-                // Owner is still generic -> re-derive concrete memberRoutine from receiverType.
-                ResolvedMemberRoutine? resolved = ResolveMemberRoutine(receiverType: receiverType,
-                    memberRoutineName: memberRoutine.Name);
-                mangledName = resolved?.MangledName ??
-                    Q(name: DecorateRoutineSymbolName(
-                        baseName: $"{receiverType.FullName}.{SanitizeLlvmName(name: member.MemberName)}",
-                        isFailable: memberRoutine.IsFailable));
-            }
-        }
-        else
-        {
-            throw new InvalidOperationException(
-                $"member routine '{member.MemberName}' on '{receiverType.FullName}' could not be resolved after all re-lookup attempts. " +
-                $"loweringKind={loweringKind}, resolvedRoutine={(resolvedRoutine?.RegistryKey ?? "<null>")}. " +
-                $"Routine: {_currentEmittingRoutine?.Name ?? "<unknown>"} (owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"}).");
-        }
+        ResolveMemberCallSymbol(member, resolvedRoutine, typeArguments, loweringKind, receiverType, ref memberRoutine, out mangledName);
 
         // Ensure the memberRoutine is declared (so the multi-pass stdlib loop can compile its body)
         // Skip for protocol-owned memberRoutines -> they can't be declared with protocol types in LLVM IR
@@ -1112,34 +771,7 @@ public partial class LlvmCodeGenerator
     {
         var (memberRoutine, memberRoutineTakesReceiver, resolvedReturnType, mangledName) = spec;
 
-        // Coerce explicit struct value args to byval (the ABI-Indirect arg form) before the call.
-        if (memberRoutine != null)
-        {
-            int recvOffset = memberRoutineTakesReceiver ? 1 : 0;
-            int explicitCount =
-                Math.Min(val1: argValues.Count - recvOffset, val2: memberRoutine.Parameters.Count);
-            for (int i = 0; i < explicitCount; i++)
-            {
-                int ai = i + recvOffset;
-                if (TryCoerceArgToByval(sb: sb, argValue: argValues[index: ai],
-                        actualType: argTypeInfos[index: ai],
-                        parameterType: memberRoutine.Parameters[index: i].Type,
-                        callee: memberRoutine,
-                        out string bv, out string bt))
-                {
-                    argValues[index: ai] = bv;
-                    argTypes[index: ai] = bt;
-                }
-                else if (TryCoerceArgToRegister(sb: sb, argValue: argValues[index: ai],
-                             parameterType: memberRoutine.Parameters[index: i].Type,
-                             callee: memberRoutine,
-                             out string rv, out string rt))
-                {
-                    argValues[index: ai] = rv;
-                    argTypes[index: ai] = rt;
-                }
-            }
-        }
+        CoerceMemberCallArguments(sb, memberRoutine, memberRoutineTakesReceiver, argValues, argTypes, argTypeInfos);
 
         string returnType = resolvedReturnType != null
             ? GetLlvmType(type: resolvedReturnType)
@@ -1277,15 +909,7 @@ public partial class LlvmCodeGenerator
             int p = j;
             if (a is NamedArgumentExpression na)
             {
-                p = -1;
-                for (int k = 0; k < paramCount; k++)
-                {
-                    if (memberRoutine.Parameters[index: k].Name == na.Name)
-                    {
-                        p = k;
-                        break;
-                    }
-                }
+                p = FindNamedParameterSlot(memberRoutine, na.Name, paramCount);
 
                 if (p < 0)
                 {
@@ -2071,6 +1695,407 @@ public partial class LlvmCodeGenerator
     private static bool ReceiverPassedByRef(TypeInfo? receiverType) =>
         IsByRefMeRecord(ownerType: receiverType);
 
+    private static int FindNamedParameterSlot(RoutineInfo routine, string name, int paramCount)
+    {
+        for (int i = 0; i < paramCount; i++)
+        {
+            if (routine.Parameters[i].Name == name) return i;
+        }
+        return -1;
+    }
+
+    private static bool ArgumentsMatchFields(List<Expression> arguments, List<MemberVariableInfo> fields) =>
+        arguments.Count == fields.Count && arguments.All(argument =>
+            argument is NamedArgumentExpression named && fields.Any(field => field.Name == named.Name));
+
+    private string? TryEmitAnnotatedConstruction(StringBuilder sb, List<Expression> arguments, RoutineInfo? resolvedRoutine, TypeInfo? constructedType, CallLoweringKind loweringKind, bool routesToUserCreate)
+    {
+        // A synthesized ALL-FIELDS memberwise creator has NO body — it exists only so SA can resolve
+        // `Type(...)` construction (e.g. `throw VerificationFailedError()`, classified as a DirectRoutine
+        // call with a null ConstructedType). Codegen MUST inline the field-init; emitting a call would
+        // reference an undefined symbol. Body-bearing synthesized creators (numeric conversions, variant
+        // extractors) take NON-field params, so the params-match-fields test below excludes them.
+        if (resolvedRoutine is { IsSynthesized: true, IsCreator: true, OwnerType: { } mwOwner }
+            && MemberwiseCreatorMatchesFields(creator: resolvedRoutine, owner: mwOwner))
+        {
+            switch (mwOwner)
+            {
+                case CrashableTypeInfo mwCrashable:
+                    return EmitCrashableConstruction(sb: sb, crashable: mwCrashable, arguments: arguments);
+                case EntityTypeInfo mwEntity:
+                    return EmitEntityConstruction(sb: sb, entity: mwEntity, arguments: arguments);
+                case RecordTypeInfo mwRecord:
+                    return EmitRecordConstruction(sb: sb, record: mwRecord, arguments: arguments);
+            }
+        }
+
+        switch (loweringKind)
+        {
+            // ValueConversion (`x.D128()`-style casts) is NOT inlined here: it falls through to the
+            // routine-call path, which resolves `Target.create(from: source)` and calls it. The
+            // creator's body is the conversion (scalar cast for primitives, BID/IEEE encode for
+            // carrier records) — the backend must not re-decide it with a scalar cast.
+            case CallLoweringKind.CollectionConstruction when constructedType != null:
+                return EmitCollectionLiteralConstructor(sb: sb,
+                    resolvedType: constructedType,
+                    arguments: arguments);
+            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when constructedType is RecordTypeInfo
+            {
+                BackendType: not null
+            } directRecord && arguments.Count == 1 &&
+                ShouldInlineDirectBackendConstruction(record: directRecord,
+                    arg: arguments[index: 0],
+                    resolvedRoutine: resolvedRoutine):
+                return EmitRecordConstruction(sb: sb, record: directRecord, arguments: arguments);
+            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when constructedType is RecordTypeInfo
+                {
+                    MemberVariables.Count: > 0
+                } ctorRecord &&
+                ArgumentsMatchFields(arguments, ctorRecord.MemberVariables):
+                return EmitRecordConstruction(sb: sb, record: ctorRecord, arguments: arguments);
+            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when !routesToUserCreate && constructedType is EntityTypeInfo
+                {
+                    MemberVariables.Count: > 0
+                } ctorEntity &&
+                ArgumentsMatchFields(arguments, ctorEntity.MemberVariables):
+                return EmitEntityConstruction(sb: sb, entity: ctorEntity, arguments: arguments);
+            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when constructedType is CrashableTypeInfo ctorCrashable &&
+                ArgumentsMatchFields(arguments, ctorCrashable.MemberVariables):
+                return EmitCrashableConstruction(sb: sb, crashable: ctorCrashable,
+                    arguments: arguments);
+        }
+        return null;
+    }
+
+    private List<TypeInfo> GetFreeCallArgumentTypes(string functionName, List<Expression> arguments, RoutineInfo? routine)
+    {
+        var writtenArgTypes = new List<TypeInfo>();
+        for (int argIdx = 0; argIdx < arguments.Count; argIdx++)
+        {
+            Expression arg = arguments[index: argIdx];
+            Expression argInner = arg is NamedArgumentExpression namedArg ? namedArg.Value : arg;
+            TypeInfo? paramTy;
+            FindFreeArgumentParameterType(routine, argIdx, arg, out paramTy);
+            bool ptyTakesCFnPtr = paramTy?.Name == "CPtr"
+                || (routine?.IsForeign == true && paramTy is RoutineTypeInfo);
+            if (ptyTakesCFnPtr
+                && argInner is IdentifierExpression cptrRef
+                && _registry.LookupRoutineByName(name: cptrRef.Name) is not null)
+            {
+                writtenArgTypes.Add(item: paramTy!);
+                continue;
+            }
+
+            TypeInfo? argType = GetExpressionType(expr: arg);
+            if (argType == null)
+            {
+                throw new InvalidOperationException(
+                    message:
+                    $"Cannot determine type for argument in function call to '{functionName}'");
+            }
+            writtenArgTypes.Add(item: argType);
+        }
+        return writtenArgTypes;
+    }
+
+    private string EmitFreeCallInstruction(StringBuilder sb, List<Expression> arguments, RoutineInfo? routine, string functionName, bool isFailableCallSyntax, List<string> argValues, List<string> argTypes)
+    {
+        // Build the call
+        string mangledName = routine != null
+            ? MangleRoutineName(routine: routine)
+            : DecorateRoutineSymbolName(baseName: SanitizeLlvmName(name: functionName),
+                isFailable: isFailableCallSyntax);
+
+        // Ensure the function is declared (generates 'declare' and tracks in _generatedRoutines)
+        if (routine != null)
+        {
+            GenerateRoutineDeclaration(routine: routine);
+        }
+        else
+        {
+            _generatedRoutines.Add(item: mangledName);
+        }
+
+        // For external("C") functions, F16 (half) params must be bitcast to i16 (C ABI)
+        bool isCExtern = routine is { CallingConvention: "C" };
+        if (isCExtern)
+        {
+            for (int i = 0; i < argTypes.Count; i++)
+            {
+                if (argTypes[index: i] == "half")
+                {
+                    string bits = NextTemp();
+                    EmitLine(sb: sb,
+                        line: $"  {bits} = bitcast half {argValues[index: i]} to i16");
+                    argValues[index: i] = bits;
+                    argTypes[index: i] = "i16";
+                }
+            }
+        }
+
+        string returnType = routine?.ReturnType != null
+            ? GetLlvmType(type: routine.ReturnType)
+            : "void";
+        // Failable routines return T directly -> they crash on failure, no carrier needed
+
+        string callReturnType = isCExtern && returnType == "half"
+            ? "i16"
+            : returnType;
+
+        // Struct returns classified Indirect by the ABI come back through a hidden sret pointer:
+        // external("C") returning structs > 8 bytes (Win-x64 MSVC), or an RF routine whose return
+        // is ABI-Indirect. The declaration, definition, and every return already agree (see
+        // ReturnsViaSret); the call must pass the result slot as the first argument and load it back.
+        bool needsSret = routine != null &&
+            (isCExtern ? NeedsCExternSret(routine: routine) : ReturnsViaSret(routine: routine));
+        if (needsSret)
+        {
+            // Allocate space for the result, pass as sret pointer, call as void, then load
+            string sretPtr = NextTemp();
+            EmitEntryAlloca(llvmName: sretPtr, llvmType: returnType);
+            // Insert sret pointer as first argument
+            argTypes.Insert(index: 0, item: $"ptr sret({returnType})");
+            argValues.Insert(index: 0, item: sretPtr);
+            string args = BuildCallArgs(types: argTypes, values: argValues);
+            EmitLine(sb: sb, line: $"  call void @{mangledName}({args})");
+            ConsumeTransferredCallOwnership(arguments: arguments);
+            // Load the result from the sret allocation
+            string result = NextTemp();
+            EmitLine(sb: sb, line: $"  {result} = load {returnType}, ptr {sretPtr}");
+            return result;
+        }
+
+        // Coerced (Phase 2) struct return: the callee returns the ABI integer form; call it as that,
+        // then reinterpret the result back into the struct value.
+        string? calleeCoerce = routine != null && !isCExtern ? ReturnCoerceType(routine: routine) : null;
+        if (calleeCoerce != null)
+        {
+            string result = NextTemp();
+            string args = BuildCallArgs(types: argTypes, values: argValues);
+            EmitLine(sb: sb, line: $"  {result} = call {calleeCoerce} @{mangledName}({args})");
+            ConsumeTransferredCallOwnership(arguments: arguments);
+            return CoerceAbiToStruct(sb: sb, abiValue: result, abiType: calleeCoerce,
+                structLlvm: returnType);
+        }
+
+        if (callReturnType == "void")
+        {
+            // Void return - no result
+            string args = BuildCallArgs(types: argTypes, values: argValues);
+            EmitLine(sb: sb, line: $"  call void @{mangledName}({args})");
+            ConsumeTransferredCallOwnership(arguments: arguments);
+            return "undef";
+        }
+        else
+        {
+            // Has return value
+            string result = NextTemp();
+            string args = BuildCallArgs(types: argTypes, values: argValues);
+            EmitLine(sb: sb, line: $"  {result} = call {callReturnType} @{mangledName}({args})");
+            ConsumeTransferredCallOwnership(arguments: arguments);
+            // For external("C") F16 return, bitcast i16 back to half
+            if (isCExtern && returnType == "half" && callReturnType == "i16")
+            {
+                string halfResult = NextTemp();
+                EmitLine(sb: sb, line: $"  {halfResult} = bitcast i16 {result} to half");
+                return halfResult;
+            }
+
+            return result;
+        }
+    }
+
+    private void CoerceMemberCallArguments(StringBuilder sb, RoutineInfo? memberRoutine, bool memberRoutineTakesReceiver, List<string> argValues, List<string> argTypes, List<TypeInfo> argTypeInfos)
+    {
+        // Coerce explicit struct value args to byval (the ABI-Indirect arg form) before the call.
+        if (memberRoutine != null)
+        {
+            int recvOffset = memberRoutineTakesReceiver ? 1 : 0;
+            int explicitCount =
+                Math.Min(val1: argValues.Count - recvOffset, val2: memberRoutine.Parameters.Count);
+            for (int i = 0; i < explicitCount; i++)
+            {
+                int ai = i + recvOffset;
+                if (TryCoerceArgToByval(sb: sb, argValue: argValues[index: ai],
+                        actualType: argTypeInfos[index: ai],
+                        parameterType: memberRoutine.Parameters[index: i].Type,
+                        callee: memberRoutine,
+                        out string bv, out string bt))
+                {
+                    argValues[index: ai] = bv;
+                    argTypes[index: ai] = bt;
+                }
+                else if (TryCoerceArgToRegister(sb: sb, argValue: argValues[index: ai],
+                             parameterType: memberRoutine.Parameters[index: i].Type,
+                             callee: memberRoutine,
+                             out string rv, out string rt))
+                {
+                    argValues[index: ai] = rv;
+                    argTypes[index: ai] = rt;
+                }
+            }
+        }
+    }
+
+
+    private static void FindFreeArgumentParameterType(RoutineInfo? routine, int argIdx, Expression arg, out TypeInfo? paramTy)
+    {
+        if (arg is NamedArgumentExpression na)
+        {
+            paramTy = routine?.Parameters.FirstOrDefault(predicate: p => p.Name == na.Name)?.Type;
+        }
+        else
+        {
+            paramTy = routine != null && argIdx < routine.Parameters.Count
+                ? routine.Parameters[index: argIdx].Type
+                : null;
+        }
+    }
+
+    private void ResolveMemberCallSymbol(MemberExpression member, RoutineInfo? resolvedRoutine, List<TypeExpression>? typeArguments, CallLoweringKind loweringKind, TypeInfo receiverType, ref RoutineInfo? memberRoutine, out string mangledName)
+    {
+        if (typeArguments is { Count: > 0 } && memberRoutine != null)
+        {
+            if (memberRoutine is { IsGenericDefinition: true, GenericParameters: { Count: > 0 } gParams } &&
+                gParams.Count == typeArguments.Count)
+            {
+                var resolvedTypeArgs = typeArguments
+                    .Select(selector: ta => ResolveTypeExpression(typeExpr: ta))
+                    .Where(predicate: t => t != null)
+                    .Cast<TypeInfo>()
+                    .ToList();
+                if (resolvedTypeArgs.Count == typeArguments.Count)
+                {
+                    memberRoutine = _registry.GetOrCreateRoutineResolution(genericDef: memberRoutine,
+                        typeArguments: resolvedTypeArgs);
+                }
+            }
+        
+            if (memberRoutine.IsGenericDefinition)
+            {
+                throw new InvalidOperationException(
+                    $"Explicit member routine generic call '{receiverType.FullName}.{member.MemberName}' reached LLVM codegen unresolved.");
+            }
+        
+            mangledName = MangleRoutineName(routine: memberRoutine);
+        }
+        else if (memberRoutine != null)
+        {
+            // When the memberRoutine is fully concrete (non-generic owner, concrete type),
+            // MangleRoutineName produces the correct name directly -> no registry re-lookup needed.
+            // Fall back to ResolveMemberRoutine only when the carried routine still has a generic/universal owner
+            // (e.g., owner is GenericParameterTypeInfo or the generic definition itself), in which case
+            // we re-derive from the concrete receiverType.
+            if (memberRoutine is { IsGenericDefinition: false, OwnerType: not GenericParameterTypeInfo and not { IsGenericDefinition: true } })
+            {
+                mangledName = MangleRoutineName(routine: memberRoutine);
+            }
+            else
+            {
+                // Owner is still generic -> re-derive concrete memberRoutine from receiverType.
+                ResolvedMemberRoutine? resolved = ResolveMemberRoutine(receiverType: receiverType,
+                    memberRoutineName: memberRoutine.Name);
+                mangledName = resolved?.MangledName ??
+                    Q(name: DecorateRoutineSymbolName(
+                        baseName: $"{receiverType.FullName}.{SanitizeLlvmName(name: member.MemberName)}",
+                        isFailable: memberRoutine.IsFailable));
+            }
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                $"member routine '{member.MemberName}' on '{receiverType.FullName}' could not be resolved after all re-lookup attempts. " +
+                $"loweringKind={loweringKind}, resolvedRoutine={(resolvedRoutine?.RegistryKey ?? "<null>")}. " +
+                $"Routine: {_currentEmittingRoutine?.Name ?? "<unknown>"} (owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"}).");
+        }
+    }
+
+    private void ProjectGuardedMemberReceiver(StringBuilder sb, ref string receiver, TypeInfo receiverType, RoutineInfo? memberRoutine)
+    {
+        if (memberRoutine is { OwnerType: { } memberRoutineOwner } &&
+            receiverType is RecordTypeInfo tokenRec &&
+            GetGenericBaseName(type: tokenRec) is Declaration.RuntimeContract.Consulting or Declaration.RuntimeContract.Amending &&
+            tokenRec.TypeArguments is { Count: > 1 } &&
+            tokenRec.TypeArguments[index: 0] is EntityTypeInfo tokenInner &&
+            memberRoutineOwner.FullName == tokenInner.FullName)
+        {
+            string policyName = tokenRec.TypeArguments[index: 1].FullName;
+            TypeInfo? ctrlType =
+                _registry.LookupType(name: $"GuardController[{tokenInner.FullName}, {policyName}]")
+                ?? _registry.LookupType(
+                    name: $"Core.GuardController[{tokenInner.FullName}, {policyName}]");
+            if (ctrlType is EntityTypeInfo ctrlEntity)
+            {
+                receiver = EmitEntityMemberVariableRead(sb: sb,
+                    entityPtr: receiver,
+                    entity: ctrlEntity,
+                    memberVariableName: "data");
+            }
+        }
+    }
+
+    private string? EmitMemberConversionCall(StringBuilder sb, CallLoweringKind loweringKind, string receiver, TypeInfo receiverType, RoutineInfo? memberRoutine)
+    {
+        if (loweringKind == CallLoweringKind.TypeConstructor && memberRoutine != null)
+        {
+            string convMangled = MangleRoutineName(routine: memberRoutine);
+            GenerateRoutineDeclaration(routine: memberRoutine);
+            string convRetTy = memberRoutine.ReturnType != null
+                ? GetLlvmType(type: memberRoutine.ReturnType)
+                : "ptr";
+            string convSrcLlvm = GetLlvmType(type: receiverType);
+            string convSrcVal = receiver;
+            if (ReceiverPassedByRef(receiverType: receiverType))
+            {
+                convSrcVal = NextTemp();
+                EmitLine(sb: sb,
+                    line: $"  {convSrcVal} = load {convSrcLlvm}, ptr {receiver}");
+            }
+        
+            string convResult = NextTemp();
+            EmitLine(sb: sb,
+                line:
+                $"  {convResult} = call {convRetTy} @{convMangled}({convSrcLlvm} {convSrcVal})");
+            return convResult;
+        }
+        return null;
+    }
+
+    private TypeInfo NormalizeMemberReceiverType(MemberExpression member, TypeInfo? receiverType)
+    {
+        switch (receiverType)
+        {
+            case null:
+            {
+                string objDesc = member.Object switch
+                {
+                    IdentifierExpression id => $"identifier '{id.Name}'",
+                    CallExpression { Callee: MemberExpression m2 } c =>
+                        $"call .{m2.MemberName}() (ResolvedType={c.ResolvedType?.Name ?? "null"})",
+                    _ => member.Object.GetType().Name
+                };
+                throw new InvalidOperationException(
+                    message: $"Cannot determine receiver type for member routine call .{member.MemberName} on {objDesc}");
+            }
+            // WrapperTypeInfo (e.g., Hijacked[Byte]) has FullName="Hijacked[Core.Byte]" (Module=null,
+            // inner FullName used for type args) which LookupMemberRoutine can't resolve and emits a wrong
+            // mangled name. Always normalize to the real RecordTypeInfo (FullName="Core.Hijacked[Byte]")
+            // so both LookupMemberRoutine and LLVM name mangling work correctly.
+            case WrapperTypeInfo wrapperReceiver:
+            {
+                TypeInfo? wrapperDef = _registry.LookupType(name: wrapperReceiver.Name);
+                if (wrapperDef is { IsGenericDefinition: true } &&
+                    wrapperReceiver.TypeArguments is { Count: > 0 })
+                {
+                    receiverType = _registry.GetOrCreateResolution(genericDef: wrapperDef,
+                        typeArguments: wrapperReceiver.TypeArguments);
+                }
+        
+                break;
+            }
+        }
+        return receiverType;
+    }
 }
 
 /// <summary>
@@ -2101,4 +2126,5 @@ internal sealed record RoutineCallRequest(
     /// — this structured flag records failability instead of a trailing `!` in the name.
     /// </summary>
     public bool IsFailable { get; init; }
+
 }

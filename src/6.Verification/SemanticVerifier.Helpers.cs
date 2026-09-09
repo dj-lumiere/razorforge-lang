@@ -451,13 +451,16 @@ public sealed partial class SemanticVerifier
                     location: argExpr.Location);
             }
 
-            Expression argValue = argExpr is NamedArgumentExpression namedArg ? namedArg.Value : argExpr;
+            Expression argValue = UnwrapNamedArgument(argExpr);
             ValidateImplicitWrapperCopyArg(routine: routine, param: param, paramType: paramType,
                 argExpr: argExpr, argValue: argValue, argType: argType);
             ValidateBareEntityConsumingArg(routine: routine, param: param, paramType: paramType,
                 argValue: argValue, argType: argType);
         }
     }
+
+    private static Expression UnwrapNamedArgument(Expression argument) =>
+        argument is NamedArgumentExpression named ? named.Value : argument;
 
     /// <summary>
     /// Resolves the effective type for <paramref name="param"/> by substituting owner-level or
@@ -744,10 +747,7 @@ public sealed partial class SemanticVerifier
             return IsRoutineAssignableTo(srcRoutine, tgtRoutine);
 
         // Variant auto-wrap: a value whose type matches a variant member is implicitly coerced.
-        if (target is VariantTypeInfo variantTarget &&
-            variantTarget.Members.Any(predicate: member =>
-                member.Type != null &&
-                (member.Type.Name == source.Name || member.Type.FullName == source.FullName)))
+        if (IsVariantMemberAssignable(source, target))
             return true;
 
         // Generic type matching.
@@ -760,11 +760,7 @@ public sealed partial class SemanticVerifier
                 || ImplementsProtocol(type: source, protocolName: target.Name);
 
         // Const generic: `needs N is U64` — N is a U64 value at runtime.
-        if (source is GenericParameterTypeInfo srcGen &&
-            ConstGenericMatches(paramName: srcGen.Name, otherTypeName: target.Name))
-            return true;
-        if (target is GenericParameterTypeInfo tgtGen &&
-            ConstGenericMatches(paramName: tgtGen.Name, otherTypeName: source.Name))
+        if (IsConstGenericAssignable(source, target))
             return true;
 
         // Maybe auto-wrap cases.
@@ -772,13 +768,24 @@ public sealed partial class SemanticVerifier
             return true;
 
         // Raw entity E → Owned[E]: a freshly produced entity transfers ownership.
-        if (source.Category == TypeCategory.Entity &&
-            IsOwnedOf(type: target, out TypeSymbol? ownedInnerOfTarget) &&
-            (source.Name == ownedInnerOfTarget.Name || source.FullName == ownedInnerOfTarget.FullName))
-            return true;
-
-        return false;
+        return IsOwnedEntityAssignable(source, target);
     }
+
+    private static bool IsOwnedEntityAssignable(TypeSymbol source, TypeSymbol target) =>
+        source.Category == TypeCategory.Entity &&
+        IsOwnedOf(type: target, out TypeSymbol? inner) &&
+        (source.Name == inner.Name || source.FullName == inner.FullName);
+
+    private static bool IsVariantMemberAssignable(TypeSymbol source, TypeSymbol target) =>
+        target is VariantTypeInfo variant && variant.Members.Any(member =>
+            member.Type != null &&
+            (member.Type.Name == source.Name || member.Type.FullName == source.FullName));
+
+    private bool IsConstGenericAssignable(TypeSymbol source, TypeSymbol target) =>
+        (source is GenericParameterTypeInfo srcGen &&
+            ConstGenericMatches(paramName: srcGen.Name, otherTypeName: target.Name)) ||
+        (target is GenericParameterTypeInfo tgtGen &&
+            ConstGenericMatches(paramName: tgtGen.Name, otherTypeName: source.Name));
 
     /// <summary>
     /// Returns true when the Suflae entity↔Roamed assignability rule applies: a bare entity and its
@@ -1501,14 +1508,8 @@ public sealed partial class SemanticVerifier
         // protocol that obeys Iterable), trust the dispatch and take the
         // element type from the type-arg. Any concrete value bound will
         // implement Iterable structurally.
-        if (iterableType is ProtocolTypeInfo iproto)
-        {
-            string baseName = (iproto.GenericDefinition ?? iproto).BareName;
-            if (baseName == IterableProtocolName && iproto.TypeArguments is { Count: > 0 })
-            {
-                return iproto.TypeArguments[index: 0];
-            }
-        }
+        if (TryGetProtocolIterableElement(iterableType) is { } protocolElement)
+            return protocolElement;
 
         // Generic-parameter receiver constrained to Iterable[X]: take the element type directly
         // from the constraint's type argument to avoid leaking the unsubstituted generic param T.
@@ -1574,6 +1575,12 @@ public sealed partial class SemanticVerifier
             location: location);
         return ErrorTypeInfo.Instance;
     }
+
+    private static TypeSymbol? TryGetProtocolIterableElement(TypeSymbol type) =>
+        type is ProtocolTypeInfo { TypeArguments: { Count: > 0 } arguments } protocol
+        && (protocol.GenericDefinition ?? protocol).BareName == IterableProtocolName
+            ? arguments[0]
+            : null;
 
     /// <summary>
     /// Walks the <c>Obeys Iterable[X]</c> constraints on the generic parameter named

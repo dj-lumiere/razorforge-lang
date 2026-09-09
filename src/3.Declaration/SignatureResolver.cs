@@ -124,16 +124,7 @@ internal sealed class SignatureResolver
         // surface form) — fold declared names into the AST decl's GenericParameters HERE (SA layer, not
         // the parser) BEFORE they are read below, so `T` resolves in the signature/body and is inferable
         // at call sites exactly like a bracket param. Mutates the shared decl; idempotent.
-        if (routine.GenericConstraints is { } typeNameDecls)
-        {
-            foreach (GenericConstraintDeclaration gc in typeNameDecls)
-            {
-                if (gc.ConstraintType != ConstraintKind.AnyType) continue;
-                routine.GenericParameters ??= [];
-                if (!routine.GenericParameters.Contains(item: gc.ParameterName))
-                    routine.GenericParameters.Add(item: gc.ParameterName);
-            }
-        }
+        RoutineGenericParameters.AddConstraintDeclarations(routine);
 
         // Filter routine.GenericParameters to exclude names that resolve to real types in the
         // registry — but ONLY for RECEIVER-derived leaves. The parser collects leaf identifiers from a
@@ -807,23 +798,7 @@ internal sealed class SignatureResolver
         ProtocolMemberRoutineInfo protoMemberRoutine, ProtocolTypeInfo protocol, SourceLocation? location)
     {
         // Build substitution map for generic protocols (e.g., Supplier[S32]: T -> S32)
-        Dictionary<string, string>? substitution = null;
-        if (protocol.TypeArguments is { Count: > 0 })
-        {
-            ProtocolTypeInfo genericDef = protocol.GenericDefinition ?? protocol;
-            if (genericDef.GenericParameters is { Count: > 0 })
-            {
-                substitution = new Dictionary<string, string>();
-                for (int i = 0;
-                     i < genericDef.GenericParameters.Count &&
-                     i < protocol.TypeArguments.Count;
-                     i++)
-                {
-                    substitution[key: genericDef.GenericParameters[index: i]] =
-                        protocol.TypeArguments[index: i].Name;
-                }
-            }
-        }
+        Dictionary<string, string>? substitution = BuildProtocolSubstitution(protocol);
 
         // Bare `obeys Indexable` without type args: treat the protocol's generic parameters
         // as inferred-from-impl. We record the first binding we see for each param and check
@@ -1202,4 +1177,26 @@ internal sealed class SignatureResolver
     private static bool IsCarrierType(TypeSymbol type) => GetCarrierBaseName(type: type) != null;
 
     private static bool IsMaybeType(TypeSymbol type) => GetCarrierBaseName(type: type) == "Maybe";
+    private static Dictionary<string, string>? BuildProtocolSubstitution(ProtocolTypeInfo protocol)
+    {
+        Dictionary<string, string>? substitution = null;
+        if (protocol.TypeArguments is { Count: > 0 })
+        {
+            ProtocolTypeInfo genericDef = protocol.GenericDefinition ?? protocol;
+            if (genericDef.GenericParameters is { Count: > 0 })
+            {
+                substitution = new Dictionary<string, string>();
+                for (int i = 0;
+                     i < genericDef.GenericParameters.Count &&
+                     i < protocol.TypeArguments.Count;
+                     i++)
+                {
+                    substitution[key: genericDef.GenericParameters[index: i]] =
+                        protocol.TypeArguments[index: i].Name;
+                }
+            }
+        }
+        return substitution;
+    }
+
 }

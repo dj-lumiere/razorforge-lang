@@ -1902,8 +1902,8 @@ public sealed partial class TypeRegistry
         // Exclude four categories of routines from codegen output:
         // - Innate routines: buildtime-only stubs (type_name, module_name, etc.) that
         //   BuilderQueryInliningPass folds to literals; they have no body and must never reach codegen.
-        // - Routines on generic-definition owner types: bodies are synthesised per concrete instance;
-        //   emitting them for the definition produces unfilled generic placeholders in LLVM IR.
+        // Generic owner definitions are excluded because their bodies are synthesized for each
+        // concrete instance; emitting a definition would leave generic placeholders in LLVM IR.
         // - Routines on None owners: None lowers to LLVM void, which is illegal as a parameter type.
         // - Routines on non-live concrete generic owner types: phantom instantiations.
         // When requireLive is false (base build): keep every concrete non-generic-def routine regardless
@@ -2048,14 +2048,7 @@ public sealed partial class TypeRegistry
         if (genericDef != null && !ReferenceEquals(objA: genericDef, objB: type) &&
             _routinesByOwner.TryGetValue(key: RealmRegistryKey(type: genericDef), value: out Dictionary<string, List<RoutineInfo>>? defByName))
         {
-            foreach (RoutineInfo m in OwnerMemberRoutines(byName: defByName))
-            {
-                // Universal (T-owned) memberRoutines are not the type's OWN memberRoutines — skip them so the
-                // no-owner T.destroy stub never leaks in for a borrowed referent.
-                if (m.OwnerType is GenericParameterTypeInfo) continue;
-                RoutineInfo? sub = SubstituteMemberRoutineForOwner(memberRoutine: m, resolvedOwner: type);
-                if (sub != null) result.Add(item: sub);
-            }
+            AddResolvedOwnMemberRoutines(type, defByName, result);
         }
 
         _memberRoutinesForTypeCache[key: type.RealmQualifiedName] = result;
@@ -2396,4 +2389,16 @@ public sealed partial class TypeRegistry
     }
 
     #endregion
+    private void AddResolvedOwnMemberRoutines(TypeInfo type, Dictionary<string, List<RoutineInfo>> defByName, List<RoutineInfo> result)
+    {
+        foreach (RoutineInfo m in OwnerMemberRoutines(byName: defByName))
+        {
+            // Universal (T-owned) memberRoutines are not the type's OWN memberRoutines — skip them so the
+            // no-owner T.destroy stub never leaks in for a borrowed referent.
+            if (m.OwnerType is GenericParameterTypeInfo) continue;
+            RoutineInfo? sub = SubstituteMemberRoutineForOwner(memberRoutine: m, resolvedOwner: type);
+            if (sub != null) result.Add(item: sub);
+        }
+    }
+
 }

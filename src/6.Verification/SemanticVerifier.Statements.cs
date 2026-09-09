@@ -113,15 +113,7 @@ public sealed partial class SemanticVerifier
         // A user-defined `destroy` replaces the compiler-generated memory teardown (field
         // recursion + invalidate `me`), so the author owns freeing `me` and its fields. Require
         // `dangerous` so this opt-in to manual memory management is explicit at the declaration.
-        bool isDestroyDecl = routine.Name == "destroy"
-            || routine.Name.EndsWith(value: ".destroy", comparisonType: StringComparison.Ordinal);
-        if (isDestroyDecl && !routine.IsDangerous)
-        {
-            ReportError(code: SemanticDiagnosticCode.DestroyMustBeDangerous,
-                message: "A user-defined `destroy` must be marked `dangerous` — overriding it " +
-                         "makes you responsible for freeing `me` and its owned fields.",
-                location: routine.Location);
-        }
+        ValidateDestroyDeclaration(routine);
 
         // Construct the base name matching how the routine was registered.
         (string baseName, TypeSymbol? routineOwnerType) = ComputeRoutineBaseName(routine: routine);
@@ -705,19 +697,7 @@ public sealed partial class SemanticVerifier
                 location: varDecl.Location);
         }
 
-        // If we have both type annotation and initializer, verify compatibility
-        if (varDecl is { Type: not null, Initializer: not null })
-        {
-            TypeSymbol initType =
-                AnalyzeExpression(expression: varDecl.Initializer, expectedType: varType);
-            if (!IsAssignableTo(source: initType, target: varType))
-            {
-                ReportError(code: SemanticDiagnosticCode.VariableInitializerTypeMismatch,
-                    message:
-                    $"Cannot assign value of type '{initType.Name}' to variable of type '{varType.Name}'.",
-                    location: varDecl.Location);
-            }
-        }
+        ValidateVariableInitializer(varDecl, varType);
 
         CheckVariableCopyRestrictions(varDecl: varDecl, varType: varType);
 
@@ -729,7 +709,7 @@ public sealed partial class SemanticVerifier
         // inferred from a nullable entity read (`var n = a.optField`) or a `none` literal — so member
         // access on it is gated until a null-check.
         bool varIsNullable = annotatedNullable ||
-            (varDecl.Type == null && varDecl.Initializer != null &&
+            (varDecl is { Type: null, Initializer: not null } &&
              IsNullableEntityRead(expr: varDecl.Initializer));
 
         // Suflae: assigning a possibly-none value into a NON-NULL entity variable (`var x: E = <nullable>`
@@ -1156,4 +1136,34 @@ public sealed partial class SemanticVerifier
     }
 
     #endregion
+    private void ValidateDestroyDeclaration(RoutineDeclaration routine)
+    {
+        bool isDestroyDecl = routine.Name == "destroy"
+            || routine.Name.EndsWith(value: ".destroy", comparisonType: StringComparison.Ordinal);
+        if (isDestroyDecl && !routine.IsDangerous)
+        {
+            ReportError(code: SemanticDiagnosticCode.DestroyMustBeDangerous,
+                message: "A user-defined `destroy` must be marked `dangerous` — overriding it " +
+                         "makes you responsible for freeing `me` and its owned fields.",
+                location: routine.Location);
+        }
+    }
+
+    private void ValidateVariableInitializer(VariableDeclaration varDecl, TypeSymbol varType)
+    {
+        // If we have both type annotation and initializer, verify compatibility
+        if (varDecl is { Type: not null, Initializer: not null })
+        {
+            TypeSymbol initType =
+                AnalyzeExpression(expression: varDecl.Initializer, expectedType: varType);
+            if (!IsAssignableTo(source: initType, target: varType))
+            {
+                ReportError(code: SemanticDiagnosticCode.VariableInitializerTypeMismatch,
+                    message:
+                    $"Cannot assign value of type '{initType.Name}' to variable of type '{varType.Name}'.",
+                    location: varDecl.Location);
+            }
+        }
+    }
+
 }

@@ -1478,8 +1478,8 @@ internal partial class Program
 
     /// <summary>
     /// Phase 3 of the multi-file build: runs LLVM IR codegen over the analyzed programs, optionally
-    /// dumps the AST, and writes the IR to <paramref name="outputFile"/> or invokes the
-    /// <paramref name="irCallback"/>. Returns 0 on success.
+    /// dumps the AST, and writes the IR to the output file or invokes the IR callback
+    /// configured in <paramref name="p3"/>. Returns 0 on success.
     /// </summary>
     private static int RunPhase3Codegen(
         Phase3Context p3,

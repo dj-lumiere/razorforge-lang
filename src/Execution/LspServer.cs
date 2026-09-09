@@ -976,6 +976,8 @@ public static class LspServer
 
     /// <summary>Returns true when the method name is in the rejected set directly, or is a compiler-generated
     /// failable variant (<c>try_</c>/<c>check_</c>/<c>lookup_</c>) whose base name is rejected.</summary>
+    private static readonly string[] MethodLookupPrefixes = ["try_", "check_", "lookup_"];
+
     private static bool IsMethodRejected(string name, HashSet<string> rejected)
     {
         if (rejected.Contains(item: name))
@@ -983,7 +985,7 @@ public static class LspServer
             return true;
         }
 
-        return new[] { "try_", "check_", "lookup_" }
+        return MethodLookupPrefixes
             .Any(pfx => name.StartsWith(value: pfx, comparisonType: StringComparison.Ordinal) &&
                         rejected.Contains(item: name[pfx.Length..]));
     }

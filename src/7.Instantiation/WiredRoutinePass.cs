@@ -115,7 +115,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         {
             if (!routine.IsSynthesized) continue;
             if (SynthesizedBodyAlreadyPresent(routine: routine)) continue;
-            TryHandleConcreteRoutine(routine: routine,
+            HandleConcreteRoutine(routine: routine,
                 types: new WiredTypeBundle(textType, boolType, u64Type, s32Type,
                     logicBreachedErrorType, listTypeDef, listTextType));
         }
@@ -139,11 +139,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                        .Any(r => r.Name == routine.Name && !r.IsSynthesized);
 
     /// <summary>
-    /// Applies the concrete-routine synthesis pipeline to a single synthesized routine and returns
-    /// true when any handler consumed it (variant arm ctor, explicit override skip, BuilderQuery,
-    /// or hook/dispatch). A return of false means no synthesis applied — not an error.
+    /// Applies the concrete-routine synthesis pipeline to a single synthesized routine,
+    /// stopping when a constructor, explicit override, or BuilderQuery handler consumes it.
     /// </summary>
-    private bool TryHandleConcreteRoutine(RoutineInfo routine, WiredTypeBundle types)
+    private void HandleConcreteRoutine(RoutineInfo routine, WiredTypeBundle types)
     {
         var (textType, boolType, u64Type, s32Type, logicBreachedErrorType, listTypeDef, listTextType) = types;
         // Auto-generated variant arm constructors (handled before the by-NAME explicit-impl skip
@@ -153,29 +152,28 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         if (TryBuildVariantArmConstructorBody(routine: routine, body: out Statement? armCtorBody))
         {
             ctx.VariantBodies[key: routine.RegistryKey] = armCtorBody!;
-            return true;
+            return;
         }
 
         // Skip if an explicit (non-synthesized) implementation already exists in the registry.
         // This prevents synthesized bodies from overriding custom stdlib implementations
         // such as Witnessed[T,P].represent / diagnose defined in Witnessed.rf.
-        if (HasExplicitOverride(routine: routine)) return true;
+        if (HasExplicitOverride(routine: routine)) return;
 
         // BuilderQuery constant routines apply to all owner types; check by name first.
         if (routine.OwnerType != null && TryHandleBuilderQueryConstant(routine: routine,
                 textType: textType, u64Type: u64Type, boolType: boolType, listTextType: listTextType))
-            return true;
+            return;
 
         // Standalone BuilderQuery constants (no owner type): page_size, target_os, etc.
         if (routine.OwnerType == null && TryHandleStandaloneBuilderQueryConstant(
                 routine: routine, textType: textType, u64Type: u64Type))
-            return true;
+            return;
 
         // Cycle-collector per-type hooks + unified destructor + owner-type dispatch.
         TrySynthesizeHookOrDispatch(routine: routine, textType: textType, boolType: boolType,
             u64Type: u64Type, s32Type: s32Type,
             logicBreachedErrorType: logicBreachedErrorType, listTypeDef: listTypeDef);
-        return false;
     }
 
     /// <summary>

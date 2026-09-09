@@ -387,7 +387,7 @@ internal sealed class IteratorInlineLoweringPass
         }
     }
 
-    private Statement RewriteNextStatement(Statement stmt, NextBodyRewriteContext ctx)
+    private static Statement RewriteNextStatement(Statement stmt, NextBodyRewriteContext ctx)
     {
         switch (stmt)
         {

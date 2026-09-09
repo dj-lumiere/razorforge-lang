@@ -885,8 +885,8 @@ public partial class LlvmCodeGenerator
             // module-private regardless of its own modifier (owner-secrecy cap), so decorate `secret`
             // when EITHER the routine or its owner type is secret. `open` is the default → not emitted.
             // (`posted` is member-variable-only — routines are only secret/open/external.)
-            bool ownerSecret = r.OwnerType is { Visibility: VisibilityModifier.Secret };
-            if (r.Visibility == VisibilityModifier.Secret || ownerSecret) attrs.Add(item: "secret");
+            if (r is { Visibility: VisibilityModifier.Secret } or
+                { OwnerType.Visibility: VisibilityModifier.Secret }) attrs.Add(item: "secret");
             if (r.IsSuspended) attrs.Add(item: "suspended");
             else if (r.IsThreaded) attrs.Add(item: "threaded");
             attrs.Sort();

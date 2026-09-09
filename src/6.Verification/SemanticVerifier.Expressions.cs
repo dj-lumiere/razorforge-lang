@@ -438,9 +438,7 @@ public sealed partial class SemanticVerifier
     {
         // Comptime `expand` gate: a comparison/equality on a comptime member value (me.$nameof(m)) is a
         // gated wired op (eq/cmp) — it needs the enclosing template's `needs P everywhere` guarantee.
-        if (WiredNameForOperator(op: binary.Operator) is { } opWired
-            && (binary.Left is SpliceMemberExpression || binary.Right is SpliceMemberExpression))
-            EnforceComptimeMemberGate(wiredName: opWired, location: binary.Location);
+        EnforceBinaryComptimeMemberGate(binary);
 
         // Re-binding (lhs = rhs) revives a stolen-from identifier: clear deadref
         // BEFORE analyzing the LHS so the deadref-read check doesn't fire.
@@ -716,13 +714,17 @@ public sealed partial class SemanticVerifier
             return ErrorTypeInfo.Instance;
         }
 
-        TypeSymbol returnType = memberRoutine.ReturnType ?? leftType;
-        if (returnType is ProtocolSelfTypeInfo)
-        {
-            returnType = leftType;
-        }
+        return ResolveOperatorReturnType(memberRoutine, leftType);
+    }
 
-        return returnType;
+    private static TypeSymbol ResolveOperatorReturnType(RoutineInfo routine, TypeSymbol leftType) =>
+        routine.ReturnType is null or ProtocolSelfTypeInfo ? leftType : routine.ReturnType;
+
+    private void EnforceBinaryComptimeMemberGate(BinaryExpression binary)
+    {
+        if (WiredNameForOperator(op: binary.Operator) is { } opWired
+            && (binary.Left is SpliceMemberExpression || binary.Right is SpliceMemberExpression))
+            EnforceComptimeMemberGate(wiredName: opWired, location: binary.Location);
     }
 
     /// <summary>

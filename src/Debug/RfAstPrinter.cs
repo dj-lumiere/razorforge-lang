@@ -1193,22 +1193,20 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     /// back to prefixing the ambient module.</summary>
     private string QualifyRoutineName(RoutineDeclaration node)
     {
-        if (node.ResolvedInfo is { } ri)
+        if (node.ResolvedInfo is not { } ri) return QualifyDecl(node.Name);
+
+        string bareName = ri.Name;   // Name is canonically bare; `!` lives in IsFailable
+        if (ri.OwnerType != null)
         {
-            string bareName = ri.Name;   // Name is canonically bare; `!` lives in IsFailable
-            if (ri.OwnerType != null)
-            {
-                // Constructor: `routine Type(...)`, not `routine Type.create(...)`.
-                if (ri.IsCreator)
-                    return ri.OwnerType.FullName;
-                string mod = string.IsNullOrEmpty(ri.OwnerType.Module) ? _currentModule : ri.OwnerType.Module;
-                string owner = ri.OwnerType.Name;
-                return string.IsNullOrEmpty(mod) ? $"{owner}.{bareName}" : $"{mod}.{owner}.{bareName}";
-            }
-            string m = string.IsNullOrEmpty(ri.Module) ? _currentModule : ri.Module;
-            return string.IsNullOrEmpty(m) ? bareName : $"{m}.{bareName}";
+            // Constructor: `routine Type(...)`, not `routine Type.create(...)`.
+            if (ri.IsCreator)
+                return ri.OwnerType.FullName;
+            string mod = string.IsNullOrEmpty(ri.OwnerType.Module) ? _currentModule : ri.OwnerType.Module;
+            string owner = ri.OwnerType.Name;
+            return string.IsNullOrEmpty(mod) ? $"{owner}.{bareName}" : $"{mod}.{owner}.{bareName}";
         }
-        return string.IsNullOrEmpty(_currentModule) ? node.Name : $"{_currentModule}.{node.Name}";
+        string m = string.IsNullOrEmpty(ri.Module) ? _currentModule : ri.Module;
+        return string.IsNullOrEmpty(m) ? bareName : $"{m}.{bareName}";
     }
 
     /// <summary>Module-qualifies a type/preset declaration name for the flat dump.</summary>

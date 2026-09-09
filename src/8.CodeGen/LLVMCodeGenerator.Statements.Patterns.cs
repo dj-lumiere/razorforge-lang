@@ -272,7 +272,7 @@ public partial class LlvmCodeGenerator
 
     /// <summary>
     /// Emits a narrowed carrier else arm: extracts the inner T value into the bound variable, emits the
-    /// clause body, and (unless the body self-terminates) branches to <paramref name="endLabel"/>,
+    /// clause body, and (unless the body self-terminates) branches to the end label in <paramref name="jumpTargets"/>,
     /// clearing <paramref name="allTerminated"/>.
     /// </summary>
     private void EmitNarrowedCarrierElseArm(StringBuilder sb, Statement clauseBody, string subject,
