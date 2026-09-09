@@ -73,67 +73,34 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// </summary>
     private (List<Statement> Hoisted, Statement Lowered) LowerStatement(Statement stmt)
     {
-        switch (stmt)
+        return stmt switch
         {
             // -- Compound: recurse into children --------------------------------
-
-            case BlockStatement b:
-                return LowerBlockStatement(b: b);
-
-            case IfStatement ifs:
-                return LowerIfStatement(ifs: ifs);
-
-            case WhileStatement w:
-                return LowerWhileStatement(w: w);
-
-            case LoopStatement loop:
-                return LowerLoopStatement(loop: loop, stmt: stmt);
-
-            case WhenStatement w:
-                return LowerWhenStatement(w: w);
-
-            case UsingStatement u:
-                return LowerUsingStatement(u: u);
-
-            case DangerStatement d:
-                return LowerDangerStatement(d: d, stmt: stmt);
-
+            BlockStatement b => LowerBlockStatement(b: b),
+            IfStatement ifs => LowerIfStatement(ifs: ifs),
+            WhileStatement w => LowerWhileStatement(w: w),
+            LoopStatement loop => LowerLoopStatement(loop: loop, stmt: stmt),
+            WhenStatement w => LowerWhenStatement(w: w),
+            UsingStatement u => LowerUsingStatement(u: u),
+            DangerStatement d => LowerDangerStatement(d: d, stmt: stmt),
             // -- Simple: lower the contained expressions -------------------------
-
-            case AssignmentStatement asgn:
-                return LowerAssignmentStatement(asgn: asgn, stmt: stmt);
-
-            case DeclarationStatement
+            AssignmentStatement asgn => LowerAssignmentStatement(asgn: asgn, stmt: stmt),
+            DeclarationStatement
             {
                 Declaration: VariableDeclaration { Initializer: not null } vd
-            } decl:
-                return LowerDeclarationStatement(decl: decl, vd: vd, stmt: stmt);
-
-            case ReturnStatement { Value: not null } ret:
-                return LowerReturnStatement(ret: ret, stmt: stmt);
-
-            case ExpressionStatement { Expression: CompoundAssignmentExpression } es:
-                return LowerCompoundAssignmentStatement(es: es);
-
-            case ExpressionStatement es:
-                return LowerExpressionStatement(es: es, stmt: stmt);
-
-            case DiscardStatement ds:
-                return LowerDiscardStatement(ds: ds, stmt: stmt);
-
-            case BecomesStatement bs:
-                return LowerBecomesStatement(bs: bs, stmt: stmt);
-
-            case ThrowStatement t:
-                return LowerThrowStatement(t: t, stmt: stmt);
-
+            } decl => LowerDeclarationStatement(decl: decl, vd: vd, stmt: stmt),
+            ReturnStatement { Value: not null } ret => LowerReturnStatement(ret: ret, stmt: stmt),
+            ExpressionStatement { Expression: CompoundAssignmentExpression } es =>
+                LowerCompoundAssignmentStatement(es: es),
+            ExpressionStatement es => LowerExpressionStatement(es: es, stmt: stmt),
+            DiscardStatement ds => LowerDiscardStatement(ds: ds, stmt: stmt),
+            BecomesStatement bs => LowerBecomesStatement(bs: bs, stmt: stmt),
+            ThrowStatement t => LowerThrowStatement(t: t, stmt: stmt),
             // D-AST-7: recurse into variant return value expressions.
-            case VariantReturnStatement { Value: not null } vrs:
-                return LowerVariantReturnStatement(vrs: vrs, stmt: stmt);
-
-            default:
-                return ([], stmt);
-        }
+            VariantReturnStatement { Value: not null } vrs => LowerVariantReturnStatement(vrs: vrs,
+                stmt: stmt),
+            _ => ([], stmt)
+        };
     }
 
     private (List<Statement> Hoisted, Statement Lowered) LowerBlockStatement(BlockStatement b)
@@ -425,124 +392,70 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// </summary>
     private (List<Statement> Hoisted, Expression Expr) LowerExpr(Expression expr)
     {
-        switch (expr)
+        return expr switch
         {
             // -- Step 0: flow-narrowed read ---------------------------------------
             // `x` narrowed to a single arm/payload of a carrier/variant (SA set NarrowedFrom =
             // declared aggregate, ResolvedType = the arm). Rewrite the read into a payload extraction
             // from the full underlying value so codegen loads the arm, not the whole aggregate.
-            case IdentifierExpression { NarrowedFrom: not null } narrowedId:
-                return LowerNarrowedIdentifier(narrowedId: narrowedId);
-
+            IdentifierExpression { NarrowedFrom: not null } narrowedId => LowerNarrowedIdentifier(
+                narrowedId: narrowedId),
             // -- Step 1a: chained comparisons -------------------------------------
             // Multi-comparison chains (a <= b <= c) are lowered to pairwise comparisons
             // joined by And. The And must then be further lowered to ConditionalExpression.
-            case ChainedComparisonExpression chain:
-                return LowerChainedComparisonExpr(chain: chain);
-
+            ChainedComparisonExpression chain => LowerChainedComparisonExpr(chain: chain),
             // -- Steps 1b/1e/1f-2/1f-3/1g/1h/1h-2/1j: binary expression dispatch ---
-            case BinaryExpression bin:
-                return LowerBinaryExpr(bin: bin, expr: expr);
-
+            BinaryExpression bin => LowerBinaryExpr(bin: bin, expr: expr),
             // -- Step 1c: force-unwrap (!!) -- handled by OperatorLoweringPass --------
             // !! is desugared to operand.unwrap() in OperatorLoweringPass so that
             // stdlib bodies (which bypass ExpressionLoweringPass) are also covered.
-
             // -- Step 1d: optional member access (?.) -----------------------------
-            case OptionalMemberExpression optMember:
-                return LowerOptionalMember(optMember: optMember);
-
+            OptionalMemberExpression optMember => LowerOptionalMember(optMember: optMember),
             // -- Step 1f: carrier absence checks (is None / is None) -------------
-            case IsPatternExpression ipe:
-                return LowerIsPatternExpression(ipe: ipe);
-
+            IsPatternExpression ipe => LowerIsPatternExpression(ipe: ipe),
             // -- Step 1i: logical not -> ConditionalExpression ----------------------
             // Lowers "not x" to a conditional: true branch yields false, false branch yields true.
             // BitwiseNot (~) on FlagsTypeInfo stays as UnaryExpression for OperatorLoweringPass.
-            case UnaryExpression { Operator: UnaryOperator.Not } notExpr:
-                return LowerLogicalNot(notExpr: notExpr);
-
-            case UnaryExpression unary:
-                return LowerGenericUnary(unary: unary, expr: expr);
-
-            case CallExpression call:
-                return LowerCallExpr(call: call, expr: expr);
-
-            case MemberExpression mem:
-                return LowerMemberExpr(mem: mem, expr: expr);
-
-            case IndexExpression idx:
-                return LowerIndexExpr(idx: idx, expr: expr);
-
-            case NamedArgumentExpression named:
+            UnaryExpression { Operator: UnaryOperator.Not } notExpr => LowerLogicalNot(
+                notExpr: notExpr),
+            UnaryExpression unary => LowerGenericUnary(unary: unary, expr: expr),
+            CallExpression call => LowerCallExpr(call: call, expr: expr),
+            MemberExpression mem => LowerMemberExpr(mem: mem, expr: expr),
+            IndexExpression idx => LowerIndexExpr(idx: idx, expr: expr),
+            NamedArgumentExpression named =>
                 // Strip the wrapper -- after SA the argument is already in its correct position.
-                return LowerExpr(expr: named.Value);
-
-            case CreatorExpression creator:
-                return LowerCreatorExpr(creator: creator, expr: expr);
-
-            case WithExpression withExpr:
-                return LowerWithExpression(withExpr: withExpr);
-
-            case GenericMemberRoutineCallExpression gmc:
-                return LowerGenericMemberRoutineCall(gmc: gmc, expr: expr);
-
-            case CompoundAssignmentExpression compound:
-                return LowerCompoundAssignment(compound: compound);
-
-            case StealExpression steal:
+                LowerExpr(expr: named.Value),
+            CreatorExpression creator => LowerCreatorExpr(creator: creator, expr: expr),
+            WithExpression withExpr => LowerWithExpression(withExpr: withExpr),
+            GenericMemberRoutineCallExpression gmc => LowerGenericMemberRoutineCall(gmc: gmc,
+                expr: expr),
+            CompoundAssignmentExpression compound => LowerCompoundAssignment(compound: compound),
+            StealExpression steal =>
                 // Strip the wrapper -- ownership transfer semantics are only needed during SA.
-                return LowerExpr(expr: steal.Operand);
-
-            case InsertedTextExpression ftext:
-                return LowerInsertedText(ftext: ftext, expr: expr);
-
-            case ConditionalExpression cond:
-                return LowerConditionalExpr(cond: cond);
-
-            case TupleLiteralExpression tuple:
-                return LowerTupleLiteral(tuple: tuple);
-
-            case ListLiteralExpression list:
-                return LowerListLiteral(list: list);
-
-            case SetLiteralExpression set:
-                return LowerSetLiteral(set: set);
-
-            case DictLiteralExpression dict:
-                return LowerDictLiteral(dict: dict);
-
-            case DictEntryLiteralExpression dictEntry:
-                return LowerDictEntryLiteral(dictEntry: dictEntry);
-
-            case FlagsTestExpression flagsTest:
-                return LowerFlagsTest(flagsTest: flagsTest);
-
-            case RangeExpression range:
-                return LowerRange(range: range);
-
-            case WhenExpression whenExpr:
-                return LowerWhenExpr(whenExpr: whenExpr, expr: expr);
-
-            case IdentifierExpression id:
-                return LowerIdentifierExpr(id: id, expr: expr);
-
+                LowerExpr(expr: steal.Operand),
+            InsertedTextExpression ftext => LowerInsertedText(ftext: ftext, expr: expr),
+            ConditionalExpression cond => LowerConditionalExpr(cond: cond),
+            TupleLiteralExpression tuple => LowerTupleLiteral(tuple: tuple),
+            ListLiteralExpression list => LowerListLiteral(list: list),
+            SetLiteralExpression set => LowerSetLiteral(set: set),
+            DictLiteralExpression dict => LowerDictLiteral(dict: dict),
+            DictEntryLiteralExpression dictEntry => LowerDictEntryLiteral(dictEntry: dictEntry),
+            FlagsTestExpression flagsTest => LowerFlagsTest(flagsTest: flagsTest),
+            RangeExpression range => LowerRange(range: range),
+            WhenExpression whenExpr => LowerWhenExpr(whenExpr: whenExpr, expr: expr),
+            IdentifierExpression id => LowerIdentifierExpr(id: id, expr: expr),
             // Bare unsuffixed literals: rewrite LiteralType to the SA-resolved concrete type
             // so codegen never receives UndecidedInteger / UndecidedDecimal tokens.
-            case LiteralExpression { LiteralType: TokenType.UndecidedInteger } undecInt:
-                return ([],
-                    undecInt with
-                    {
-                        LiteralType = ResolveUndecidedIntegerLiteral(undecInt: undecInt)
-                    });
-
-            case LiteralExpression { LiteralType: TokenType.UndecidedDecimal } undecDec:
-                return ([],
-                    undecDec with
-                    {
-                        LiteralType = ResolveUndecidedDecimalLiteral(undecDec: undecDec)
-                    });
-
+            LiteralExpression { LiteralType: TokenType.UndecidedInteger } undecInt => ([],
+                undecInt with
+                {
+                    LiteralType = ResolveUndecidedIntegerLiteral(undecInt: undecInt)
+                }),
+            LiteralExpression { LiteralType: TokenType.UndecidedDecimal } undecDec => ([],
+                undecDec with
+                {
+                    LiteralType = ResolveUndecidedDecimalLiteral(undecDec: undecDec)
+                }),
             // Lambda bodies are lifted to top-level routines by LambdaLiftingPass, which runs
             // AFTER this pass — so the lifted body is never lowered again. Descend into the body
             // here so its undecided-integer and undecided-decimal literals get a concrete token type.
@@ -551,15 +464,9 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             // Lambda bodies are expression-position and cannot carry hoisted statements, so only
             // rewrite when lowering produced none; complex bodies with coalesce or optional-member
             // access fall through unchanged.
-            case LambdaExpression lambda:
-                return LowerLambdaExpr(lambda: lambda, expr: expr);
-
-            default:
-                // LiteralExpression, TypeExpression,
-                // BlockExpression, TypeConversionExpression, GenericMemberExpression:
-                // no sub-expressions that need lowering.
-                return ([], expr);
-        }
+            LambdaExpression lambda => LowerLambdaExpr(lambda: lambda, expr: expr),
+            _ => ([], expr)
+        };
     }
 
     // Step 0: rewrites a flow-narrowed identifier to a carrier/variant payload extraction.

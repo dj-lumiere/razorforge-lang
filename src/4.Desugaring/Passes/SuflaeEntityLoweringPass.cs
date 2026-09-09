@@ -166,45 +166,30 @@ internal sealed class SuflaeEntityLoweringPass
 
     private Statement LowerStatement(Statement stmt)
     {
-        switch (stmt)
+        return stmt switch
         {
-            case BlockStatement block:
-                return LowerBlockStatement(block: block);
-            case DeclarationStatement
+            BlockStatement block => LowerBlockStatement(block: block),
+            DeclarationStatement
             {
                 Declaration: VariableDeclaration { Initializer: not null } vd
-            } ds:
-                return LowerDeclarationStatement(stmt: stmt, ds: ds, vd: vd);
-            case AssignmentStatement assign:
-                return LowerAssignmentStatement(stmt: stmt, assign: assign);
-            case ReturnStatement { Value: not null } ret:
-                return LowerReturnStatement(stmt: stmt, ret: ret);
-            case ExpressionStatement
+            } ds => LowerDeclarationStatement(stmt: stmt, ds: ds, vd: vd),
+            AssignmentStatement assign => LowerAssignmentStatement(stmt: stmt, assign: assign),
+            ReturnStatement { Value: not null } ret => LowerReturnStatement(stmt: stmt, ret: ret),
+            ExpressionStatement
             {
                 Expression: BinaryExpression { Operator: BinaryOperator.Assign } bin
-            } es:
-                return LowerBinaryAssignStatement(stmt: stmt, es: es, bin: bin);
-            case ExpressionStatement es:
-                return LowerExpressionStatement(stmt: stmt, es: es);
-            case DiscardStatement dis:
-                return LowerDiscardStatement(stmt: stmt, dis: dis);
-            case IfStatement ifs:
-                return LowerIfStatement(stmt: stmt, ifs: ifs);
-            case WhileStatement w:
-                return LowerWhileStatement(stmt: stmt, w: w);
-            case LoopStatement loop:
-                return LowerLoopStatement(stmt: stmt, loop: loop);
-            case EachStatement f:
-                return LowerEachStatement(stmt: stmt, f: f);
-            case WhenStatement whenStmt:
-                return LowerWhenStatement(stmt: stmt, whenStmt: whenStmt);
-            case UsingStatement u:
-                return LowerUsingStatement(stmt: stmt, u: u);
-            case DangerStatement d:
-                return LowerDangerStatement(stmt: stmt, d: d);
-            default:
-                return stmt;
-        }
+            } es => LowerBinaryAssignStatement(stmt: stmt, es: es, bin: bin),
+            ExpressionStatement es => LowerExpressionStatement(stmt: stmt, es: es),
+            DiscardStatement dis => LowerDiscardStatement(stmt: stmt, dis: dis),
+            IfStatement ifs => LowerIfStatement(stmt: stmt, ifs: ifs),
+            WhileStatement w => LowerWhileStatement(stmt: stmt, w: w),
+            LoopStatement loop => LowerLoopStatement(stmt: stmt, loop: loop),
+            EachStatement f => LowerEachStatement(stmt: stmt, f: f),
+            WhenStatement whenStmt => LowerWhenStatement(stmt: stmt, whenStmt: whenStmt),
+            UsingStatement u => LowerUsingStatement(stmt: stmt, u: u),
+            DangerStatement d => LowerDangerStatement(stmt: stmt, d: d),
+            _ => stmt
+        };
     }
 
     private Statement LowerExpressionStatement(Statement stmt, ExpressionStatement es)
@@ -426,81 +411,66 @@ internal sealed class SuflaeEntityLoweringPass
 
     private Expression LowerExpression(Expression expr)
     {
-        switch (expr)
+        return expr switch
         {
             // A creator that yields a bare SF entity -> `.roam()` : Roamed[E].
-            case CreatorExpression creator when creator.ResolvedType is EntityTypeInfo ce:
-                return WrapInRoam(inner: creator, entity: ce);
-
+            CreatorExpression creator when creator.ResolvedType is EntityTypeInfo ce => WrapInRoam(
+                inner: creator,
+                entity: ce),
             // A collection literal (`[1,2,3]` / `{…}`) is an entity rvalue just like a constructor call —
             // it resolves to a bare `Core.List`/`Set`/`Dict` entity, so an SF entity slot must `.roam()` it
             // (else a bare-list pointer is bound to a `Roamed` handle and reinterpreted as a controller →
             // AccessViolation on first access). ExpressionLoweringPass later expands the literal to a
             // `create + add_last` temp; the `.roam()` wraps that temp reference.
-            case ListLiteralExpression when expr.ResolvedType is EntityTypeInfo le:
-                return WrapInRoam(inner: expr, entity: le);
-            case SetLiteralExpression when expr.ResolvedType is EntityTypeInfo se:
-                return WrapInRoam(inner: expr, entity: se);
-            case DictLiteralExpression when expr.ResolvedType is EntityTypeInfo de:
-                return WrapInRoam(inner: expr, entity: de);
-
+            ListLiteralExpression when expr.ResolvedType is EntityTypeInfo le => WrapInRoam(
+                inner: expr,
+                entity: le),
+            SetLiteralExpression when expr.ResolvedType is EntityTypeInfo se => WrapInRoam(
+                inner: expr,
+                entity: se),
+            DictLiteralExpression when expr.ResolvedType is EntityTypeInfo de => WrapInRoam(
+                inner: expr,
+                entity: de),
             // Reference to a local we've retyped to Roamed[E] -> flip its resolved type so aliasing
             // and access see the wrapper.
-            case IdentifierExpression id
-                when _roamedLocals.TryGetValue(key: id.Name, value: out WrapperTypeInfo? w) &&
-                     id.ResolvedType is EntityTypeInfo:
-                return RetypeIdentifier(id: id, w: w);
-
-            case MemberExpression m:
-                return LowerMemberExpression(m: m);
-
+            IdentifierExpression id when _roamedLocals.TryGetValue(key: id.Name,
+                                             value: out WrapperTypeInfo? w) &&
+                                         id.ResolvedType is EntityTypeInfo => RetypeIdentifier(
+                id: id,
+                w: w),
+            MemberExpression m => LowerMemberExpression(m: m),
             // `d[i]` on a Roamed container: recurse into the receiver so its identifier retypes to
             // Roamed[E] (else the getitem receiver stays bare-typed and OperatorLoweringPass lowers it
             // to `Dict.getitem` with the raw RoamController handle — RoamedProjectionLoweringPass then
             // can't see it's Roamed and skips the `raw_inner()` projection, crashing at runtime).
-            case IndexExpression ix:
-                return LowerIndexExpression(ix: ix);
-
+            IndexExpression ix => LowerIndexExpression(ix: ix),
             // `x is None` / `x isnot None` on a nullable entity reference (`E?` = Roamed[E]): rewrite
             // to `x.is_none()` (negated -> `not x.is_none()`). Done HERE (before reachability) so the
             // Roamed[E].is_none() instance gets seeded/instantiated for the concrete entity; codegen has
             // no direct IsPattern lowering for a Roamed handle. The frontend already narrowed the flow.
-            case IsPatternExpression ipe
-                when ipe.Pattern is NonePattern or TypePattern { Type.Name: "None" }:
-                return LowerNoneIsPattern(ipe: ipe);
-
+            IsPatternExpression ipe when ipe.Pattern is NonePattern or TypePattern
+            {
+                Type.Name: "None"
+            } => LowerNoneIsPattern(ipe: ipe),
             // A call — INCLUDING a constructor call `E(...)`, which is a CallExpression (not a
             // CreatorExpression) at this phase — that produces a bare SF entity: recurse into its
             // parts, then `.roam()` the whole value.
-            case CallExpression call:
-                return LowerCallExpression(call: call);
-
+            CallExpression call => LowerCallExpression(call: call),
             // A generic-instance construction like `List[Node]()` stays a GenericMemberRoutineCallExpression
             // through codegen (the explicit `[T]` args keep it out of CallExpression form), so it must
             // be promoted here too — else a bare SF container never gets a RoamController and cycle
             // collection reads its raw buffer as a controller and crashes. Mirror the CallExpression
             // construction path: recurse args, retain Roamed-field args, then `.roam()` (promote).
-            case GenericMemberRoutineCallExpression gmce:
-                return LowerGenericMemberRoutineCall(gmce: gmce);
-
+            GenericMemberRoutineCallExpression gmce => LowerGenericMemberRoutineCall(gmce: gmce),
             // f-string: recurse into each embedded `{ expr }` so entity references inside it retype
             // (else e.g. `f"{b.size}"` reads `b` as a bare entity — actually the RoamController — and
             // returns the refcount instead of the field).
-            case InsertedTextExpression fstr:
-                return LowerInsertedText(fstr: fstr);
-
-            case BinaryExpression bin:
-                return LowerBinaryExpression(bin: bin);
-
-            case UnaryExpression un:
-                return LowerUnaryExpression(un: un);
-
-            case NamedArgumentExpression namedArg:
-                return LowerNamedArgumentExpression(namedArg: namedArg);
-
-            default:
-                return expr;
-        }
+            InsertedTextExpression fstr => LowerInsertedText(fstr: fstr),
+            BinaryExpression bin => LowerBinaryExpression(bin: bin),
+            UnaryExpression un => LowerUnaryExpression(un: un),
+            NamedArgumentExpression namedArg => LowerNamedArgumentExpression(namedArg: namedArg),
+            _ => expr
+        };
     }
 
     private static IdentifierExpression RetypeIdentifier(IdentifierExpression id,

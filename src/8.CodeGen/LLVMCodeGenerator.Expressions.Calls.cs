@@ -1667,21 +1667,15 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private string EmitLvalueAddress(StringBuilder sb, Expression expr)
     {
-        switch (expr)
+        return expr switch
         {
-            case NamedArgumentExpression named:
+            NamedArgumentExpression named =>
                 // `f(name: lvalue)` — the address of the named argument is the address of its value.
-                return EmitLvalueAddress(sb: sb, expr: named.Value);
-            case IdentifierExpression id:
-                return EmitIdentifierLvalueAddress(id: id);
-            case MemberExpression member:
-                return EmitMemberLvalueAddress(sb: sb, member: member, expr: expr);
-            default:
-                // Rvalue receiver (call result, constructor, literal, …): no stable storage exists,
-                // so spill the value to a temp and return its address. Lets a by-ref record memberRoutine
-                // (or get_address/hijack) take the address of a temporary.
-                return EmitSpillToTempAddress(sb: sb, expr: expr);
-        }
+                EmitLvalueAddress(sb: sb, expr: named.Value),
+            IdentifierExpression id => EmitIdentifierLvalueAddress(id: id),
+            MemberExpression member => EmitMemberLvalueAddress(sb: sb, member: member, expr: expr),
+            _ => EmitSpillToTempAddress(sb: sb, expr: expr)
+        };
     }
 
     /// <summary>Address of a named local/parameter — or an aggregate preset's <c>@preset.*</c> global.</summary>
@@ -1910,49 +1904,42 @@ public partial class LlvmCodeGenerator
             }
         }
 
-        switch (loweringKind)
+        return loweringKind switch
         {
             // ValueConversion (`x.D128()`-style casts) is NOT inlined here: it falls through to the
             // routine-call path, which resolves `Target.create(from: source)` and calls it. The
             // creator's body is the conversion (scalar cast for primitives, BID/IEEE encode for
             // carrier records) — the backend must not re-decide it with a scalar cast.
-            case CallLoweringKind.CollectionConstruction when constructedType != null:
-                return EmitCollectionLiteralConstructor(sb: sb,
+            CallLoweringKind.CollectionConstruction when constructedType != null =>
+                EmitCollectionLiteralConstructor(sb: sb,
                     resolvedType: constructedType,
-                    arguments: arguments);
-            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction
-                when constructedType is RecordTypeInfo
-                {
-                    BackendType: not null
-                } directRecord && arguments.Count == 1 && ShouldInlineDirectBackendConstruction(
-                    record: directRecord,
+                    arguments: arguments),
+            CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when
+                constructedType is RecordTypeInfo { BackendType: not null } directRecord &&
+                arguments.Count == 1 &&
+                ShouldInlineDirectBackendConstruction(record: directRecord,
                     arg: arguments[index: 0],
-                    resolvedRoutine: resolvedRoutine):
-                return EmitRecordConstruction(sb: sb, record: directRecord, arguments: arguments);
-            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction
-                when constructedType is RecordTypeInfo
-                {
-                    MemberVariables.Count: > 0
-                } ctorRecord && ArgumentsMatchFields(arguments: arguments,
-                    fields: ctorRecord.MemberVariables):
-                return EmitRecordConstruction(sb: sb, record: ctorRecord, arguments: arguments);
-            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction
-                when !routesToUserCreate && constructedType is EntityTypeInfo
-                {
-                    MemberVariables.Count: > 0
-                } ctorEntity && ArgumentsMatchFields(arguments: arguments,
-                    fields: ctorEntity.MemberVariables):
-                return EmitEntityConstruction(sb: sb, entity: ctorEntity, arguments: arguments);
-            case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction
-                when constructedType is CrashableTypeInfo ctorCrashable &&
-                     ArgumentsMatchFields(arguments: arguments,
-                         fields: ctorCrashable.MemberVariables):
-                return EmitCrashableConstruction(sb: sb,
+                    resolvedRoutine: resolvedRoutine) => EmitRecordConstruction(sb: sb,
+                    record: directRecord,
+                    arguments: arguments),
+            CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when
+                constructedType is RecordTypeInfo { MemberVariables.Count: > 0 } ctorRecord &&
+                ArgumentsMatchFields(arguments: arguments, fields: ctorRecord.MemberVariables) =>
+                EmitRecordConstruction(sb: sb, record: ctorRecord, arguments: arguments),
+            CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when
+                !routesToUserCreate &&
+                constructedType is EntityTypeInfo { MemberVariables.Count: > 0 } ctorEntity &&
+                ArgumentsMatchFields(arguments: arguments, fields: ctorEntity.MemberVariables) =>
+                EmitEntityConstruction(sb: sb, entity: ctorEntity, arguments: arguments),
+            CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when
+                constructedType is CrashableTypeInfo ctorCrashable &&
+                ArgumentsMatchFields(arguments: arguments, fields: ctorCrashable.MemberVariables)
+                => EmitCrashableConstruction(sb: sb,
                     crashable: ctorCrashable,
-                    arguments: arguments);
-        }
+                    arguments: arguments),
+            _ => null
+        };
 
-        return null;
     }
 
     private List<TypeInfo> GetFreeCallArgumentTypes(string functionName,

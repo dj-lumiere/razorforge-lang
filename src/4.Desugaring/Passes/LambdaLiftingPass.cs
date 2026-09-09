@@ -397,269 +397,281 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         List<string>? inheritedGenericParameters,
         List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
-        switch (expression)
+        return expression switch
         {
-            case LambdaExpression lambda:
-                return LiftLambda(lambda: lambda,
-                    scope: scope,
-                    inheritedGenericParameters: inheritedGenericParameters,
-                    inheritedGenericConstraints: inheritedGenericConstraints,
-                    includeMe: includeMe);
-
-            case BinaryExpression binary:
-                return CopyResolvedType(rewritten: binary with
-                    {
-                        Left = RewriteExpression(expression: binary.Left,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        Right = RewriteExpression(expression: binary.Right,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: binary);
-
-            case UnaryExpression unary:
-                return CopyResolvedType(rewritten: unary with
-                    {
-                        Operand = RewriteExpression(expression: unary.Operand,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: unary);
-
-            case CallExpression
-            {
-                Callee: LambdaExpression { Captures.Count: > 0 } capLambda
-            } call:
-                return LiftCapturingLambdaIife(call: call,
+            LambdaExpression lambda => LiftLambda(lambda: lambda,
+                scope: scope,
+                inheritedGenericParameters: inheritedGenericParameters,
+                inheritedGenericConstraints: inheritedGenericConstraints,
+                includeMe: includeMe),
+            BinaryExpression binary => CopyResolvedType(rewritten: binary with
+                {
+                    Left = RewriteExpression(expression: binary.Left,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Right = RewriteExpression(expression: binary.Right,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: binary),
+            UnaryExpression unary => CopyResolvedType(rewritten: unary with
+                {
+                    Operand = RewriteExpression(expression: unary.Operand,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: unary),
+            CallExpression { Callee: LambdaExpression { Captures.Count: > 0 } capLambda } call =>
+                LiftCapturingLambdaIife(call: call,
                     lambda: capLambda,
                     scope: scope,
                     inheritedGenericParameters: inheritedGenericParameters,
                     inheritedGenericConstraints: inheritedGenericConstraints,
-                    includeMe: includeMe);
-
-            case CallExpression call:
-                return CopyResolvedType(rewritten: call with
-                    {
-                        Callee = RewriteExpression(expression: call.Callee,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        Arguments = call.Arguments
-                                        .Select(selector: arg => RewriteExpression(expression: arg,
-                                             scope: scope,
-                                             inheritedGenericParameters:
-                                             inheritedGenericParameters,
-                                             inheritedGenericConstraints:
-                                             inheritedGenericConstraints,
-                                             includeMe: includeMe))
-                                        .ToList()
-                    },
-                    original: call);
-
-            case MemberExpression member:
-                return CopyResolvedType(rewritten: member with
-                    {
-                        Object = RewriteExpression(expression: member.Object,
+                    includeMe: includeMe),
+            CallExpression call => CopyResolvedType(rewritten: call with
+                {
+                    Callee = RewriteExpression(expression: call.Callee,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Arguments = call.Arguments
+                                    .Select(selector: arg => RewriteExpression(expression: arg,
+                                         scope: scope,
+                                         inheritedGenericParameters: inheritedGenericParameters,
+                                         inheritedGenericConstraints: inheritedGenericConstraints,
+                                         includeMe: includeMe))
+                                    .ToList()
+                },
+                original: call),
+            MemberExpression member => CopyResolvedType(rewritten: member with
+                {
+                    Object = RewriteExpression(expression: member.Object,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: member),
+            OptionalMemberExpression optionalMember => CopyResolvedType(
+                rewritten: optionalMember with
+                {
+                    Object = RewriteExpression(expression: optionalMember.Object,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: optionalMember),
+            IndexExpression index => CopyResolvedType(rewritten: index with
+                {
+                    Object = RewriteExpression(expression: index.Object,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Index = RewriteExpression(expression: index.Index,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: index),
+            ConditionalExpression conditional => CopyResolvedType(rewritten: conditional with
+                {
+                    Condition =
+                    RewriteExpression(expression: conditional.Condition,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    TrueExpression =
+                    RewriteExpression(expression: conditional.TrueExpression,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    FalseExpression = RewriteExpression(expression: conditional.FalseExpression,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: conditional),
+            RangeExpression range => CopyResolvedType(rewritten: range with
+                {
+                    Start = RewriteExpression(expression: range.Start,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    End = RewriteExpression(expression: range.End,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Step = range.Step != null
+                        ? RewriteExpression(expression: range.Step,
                             scope: scope,
                             inheritedGenericParameters: inheritedGenericParameters,
                             inheritedGenericConstraints: inheritedGenericConstraints,
                             includeMe: includeMe)
-                    },
-                    original: member);
-
-            case OptionalMemberExpression optionalMember:
-                return CopyResolvedType(rewritten: optionalMember with
-                    {
-                        Object = RewriteExpression(expression: optionalMember.Object,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: optionalMember);
-
-            case IndexExpression index:
-                return CopyResolvedType(rewritten: index with
-                    {
-                        Object = RewriteExpression(expression: index.Object,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        Index = RewriteExpression(expression: index.Index,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: index);
-
-            case ConditionalExpression conditional:
-                return CopyResolvedType(rewritten: conditional with
-                    {
-                        Condition =
-                        RewriteExpression(expression: conditional.Condition,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        TrueExpression =
-                        RewriteExpression(expression: conditional.TrueExpression,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        FalseExpression = RewriteExpression(
-                            expression: conditional.FalseExpression,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: conditional);
-
-            case RangeExpression range:
-                return CopyResolvedType(rewritten: range with
-                    {
-                        Start = RewriteExpression(expression: range.Start,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        End = RewriteExpression(expression: range.End,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        Step = range.Step != null
-                            ? RewriteExpression(expression: range.Step,
-                                scope: scope,
-                                inheritedGenericParameters: inheritedGenericParameters,
-                                inheritedGenericConstraints: inheritedGenericConstraints,
-                                includeMe: includeMe)
-                            : null
-                    },
-                    original: range);
-
-            case CreatorExpression creator:
-                return CopyResolvedType(rewritten: creator with
-                    {
-                        MemberVariables = creator.MemberVariables
-                                                 .Select(selector: mv => (mv.Name,
-                                                      RewriteExpression(expression: mv.Value,
-                                                          scope: scope,
-                                                          inheritedGenericParameters:
-                                                          inheritedGenericParameters,
-                                                          inheritedGenericConstraints:
-                                                          inheritedGenericConstraints,
-                                                          includeMe: includeMe)))
-                                                 .ToList()
-                    },
-                    original: creator);
-
-            case WithExpression withExpr:
-                return CopyResolvedType(rewritten: withExpr with
-                    {
-                        Base = RewriteExpression(expression: withExpr.Base,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        Updates = withExpr.Updates
-                                          .Select(selector: update => (update.MemberVariablePath,
-                                               update.Index != null
-                                                   ? RewriteExpression(expression: update.Index,
-                                                       scope: scope,
-                                                       inheritedGenericParameters:
-                                                       inheritedGenericParameters,
-                                                       inheritedGenericConstraints:
-                                                       inheritedGenericConstraints,
-                                                       includeMe: includeMe)
-                                                   : null,
-                                               RewriteExpression(expression: update.Value,
+                        : null
+                },
+                original: range),
+            CreatorExpression creator => CopyResolvedType(rewritten: creator with
+                {
+                    MemberVariables = creator.MemberVariables
+                                             .Select(selector: mv => (mv.Name,
+                                                  RewriteExpression(expression: mv.Value,
+                                                      scope: scope,
+                                                      inheritedGenericParameters:
+                                                      inheritedGenericParameters,
+                                                      inheritedGenericConstraints:
+                                                      inheritedGenericConstraints,
+                                                      includeMe: includeMe)))
+                                             .ToList()
+                },
+                original: creator),
+            WithExpression withExpr => CopyResolvedType(rewritten: withExpr with
+                {
+                    Base = RewriteExpression(expression: withExpr.Base,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Updates = withExpr.Updates
+                                      .Select(selector: update => (update.MemberVariablePath,
+                                           update.Index != null
+                                               ? RewriteExpression(expression: update.Index,
                                                    scope: scope,
                                                    inheritedGenericParameters:
                                                    inheritedGenericParameters,
                                                    inheritedGenericConstraints:
                                                    inheritedGenericConstraints,
-                                                   includeMe: includeMe)))
-                                          .ToList()
-                    },
-                    original: withExpr);
-
-            case GenericMemberRoutineCallExpression genericCall:
-                return CopyResolvedType(rewritten: genericCall with
-                    {
-                        Object = RewriteExpression(expression: genericCall.Object,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        Arguments = genericCall.Arguments
-                                               .Select(selector: arg =>
-                                                    RewriteExpression(expression: arg,
-                                                        scope: scope,
-                                                        inheritedGenericParameters:
-                                                        inheritedGenericParameters,
-                                                        inheritedGenericConstraints:
-                                                        inheritedGenericConstraints,
-                                                        includeMe: includeMe))
-                                               .ToList()
-                    },
-                    original: genericCall);
-
-            case GenericMemberExpression genericMember:
-                return CopyResolvedType(rewritten: genericMember with
-                    {
-                        Object = RewriteExpression(expression: genericMember.Object,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: genericMember);
-
-            case NamedArgumentExpression namedArgument:
-                return CopyResolvedType(rewritten: namedArgument with
-                    {
-                        Value = RewriteExpression(expression: namedArgument.Value,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: namedArgument);
-
-            case ListLiteralExpression list:
-                return CopyResolvedType(rewritten: list with
-                    {
-                        Elements = list.Elements
-                                       .Select(selector: element =>
-                                            RewriteExpression(expression: element,
-                                                scope: scope,
-                                                inheritedGenericParameters:
-                                                inheritedGenericParameters,
-                                                inheritedGenericConstraints:
-                                                inheritedGenericConstraints,
-                                                includeMe: includeMe))
-                                       .ToList()
-                    },
-                    original: list);
-
-            case SetLiteralExpression set:
-                return CopyResolvedType(rewritten: set with
-                    {
-                        Elements = set.Elements
-                                      .Select(selector: element =>
-                                           RewriteExpression(expression: element,
+                                                   includeMe: includeMe)
+                                               : null,
+                                           RewriteExpression(expression: update.Value,
+                                               scope: scope,
+                                               inheritedGenericParameters:
+                                               inheritedGenericParameters,
+                                               inheritedGenericConstraints:
+                                               inheritedGenericConstraints,
+                                               includeMe: includeMe)))
+                                      .ToList()
+                },
+                original: withExpr),
+            GenericMemberRoutineCallExpression genericCall => CopyResolvedType(
+                rewritten: genericCall with
+                {
+                    Object = RewriteExpression(expression: genericCall.Object,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Arguments = genericCall.Arguments
+                                           .Select(selector: arg =>
+                                                RewriteExpression(expression: arg,
+                                                    scope: scope,
+                                                    inheritedGenericParameters:
+                                                    inheritedGenericParameters,
+                                                    inheritedGenericConstraints:
+                                                    inheritedGenericConstraints,
+                                                    includeMe: includeMe))
+                                           .ToList()
+                },
+                original: genericCall),
+            GenericMemberExpression genericMember => CopyResolvedType(rewritten: genericMember with
+                {
+                    Object = RewriteExpression(expression: genericMember.Object,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: genericMember),
+            NamedArgumentExpression namedArgument => CopyResolvedType(rewritten: namedArgument with
+                {
+                    Value = RewriteExpression(expression: namedArgument.Value,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: namedArgument),
+            ListLiteralExpression list => CopyResolvedType(rewritten: list with
+                {
+                    Elements = list.Elements
+                                   .Select(selector: element => RewriteExpression(
+                                        expression: element,
+                                        scope: scope,
+                                        inheritedGenericParameters: inheritedGenericParameters,
+                                        inheritedGenericConstraints: inheritedGenericConstraints,
+                                        includeMe: includeMe))
+                                   .ToList()
+                },
+                original: list),
+            SetLiteralExpression set => CopyResolvedType(rewritten: set with
+                {
+                    Elements = set.Elements
+                                  .Select(selector: element => RewriteExpression(
+                                       expression: element,
+                                       scope: scope,
+                                       inheritedGenericParameters: inheritedGenericParameters,
+                                       inheritedGenericConstraints: inheritedGenericConstraints,
+                                       includeMe: includeMe))
+                                  .ToList()
+                },
+                original: set),
+            DictLiteralExpression dict => CopyResolvedType(rewritten: dict with
+                {
+                    Pairs = dict.Pairs
+                                .Select(selector: pair => (
+                                     RewriteExpression(expression: pair.Key,
+                                         scope: scope,
+                                         inheritedGenericParameters: inheritedGenericParameters,
+                                         inheritedGenericConstraints: inheritedGenericConstraints,
+                                         includeMe: includeMe),
+                                     RewriteExpression(expression: pair.Value,
+                                         scope: scope,
+                                         inheritedGenericParameters: inheritedGenericParameters,
+                                         inheritedGenericConstraints: inheritedGenericConstraints,
+                                         includeMe: includeMe)))
+                                .ToList()
+                },
+                original: dict),
+            TupleLiteralExpression tuple => CopyResolvedType(rewritten: tuple with
+                {
+                    Elements = tuple.Elements
+                                    .Select(selector: element => RewriteExpression(
+                                         expression: element,
+                                         scope: scope,
+                                         inheritedGenericParameters: inheritedGenericParameters,
+                                         inheritedGenericConstraints: inheritedGenericConstraints,
+                                         includeMe: includeMe))
+                                    .ToList()
+                },
+                original: tuple),
+            TypeConversionExpression conversion => CopyResolvedType(rewritten: conversion with
+                {
+                    Expression = RewriteExpression(expression: conversion.Expression,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: conversion),
+            ChainedComparisonExpression chained => CopyResolvedType(rewritten: chained with
+                {
+                    Operands = chained.Operands
+                                      .Select(selector: operand =>
+                                           RewriteExpression(expression: operand,
                                                scope: scope,
                                                inheritedGenericParameters:
                                                inheritedGenericParameters,
@@ -667,245 +679,154 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                                                inheritedGenericConstraints,
                                                includeMe: includeMe))
                                       .ToList()
-                    },
-                    original: set);
-
-            case DictLiteralExpression dict:
-                return CopyResolvedType(rewritten: dict with
-                    {
-                        Pairs = dict.Pairs
-                                    .Select(selector: pair => (
-                                         RewriteExpression(expression: pair.Key,
-                                             scope: scope,
-                                             inheritedGenericParameters:
-                                             inheritedGenericParameters,
-                                             inheritedGenericConstraints:
-                                             inheritedGenericConstraints,
-                                             includeMe: includeMe),
-                                         RewriteExpression(expression: pair.Value,
-                                             scope: scope,
-                                             inheritedGenericParameters:
-                                             inheritedGenericParameters,
-                                             inheritedGenericConstraints:
-                                             inheritedGenericConstraints,
-                                             includeMe: includeMe)))
-                                    .ToList()
-                    },
-                    original: dict);
-
-            case TupleLiteralExpression tuple:
-                return CopyResolvedType(rewritten: tuple with
-                    {
-                        Elements = tuple.Elements
-                                        .Select(selector: element =>
-                                             RewriteExpression(expression: element,
+                },
+                original: chained),
+            BlockExpression block => CopyResolvedType(rewritten: block with
+                {
+                    Value = RewriteExpression(expression: block.Value,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: block),
+            DictEntryLiteralExpression dictEntry => CopyResolvedType(rewritten: dictEntry with
+                {
+                    Key = RewriteExpression(expression: dictEntry.Key,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Value = RewriteExpression(expression: dictEntry.Value,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: dictEntry),
+            IsPatternExpression isPattern => CopyResolvedType(rewritten: isPattern with
+                {
+                    Expression = RewriteExpression(expression: isPattern.Expression,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Pattern = RewritePatternExpressions(pattern: isPattern.Pattern,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: isPattern),
+            FlagsTestExpression flagsTest => CopyResolvedType(rewritten: flagsTest with
+                {
+                    Subject = RewriteExpression(expression: flagsTest.Subject,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: flagsTest),
+            InsertedTextExpression inserted => CopyResolvedType(rewritten: inserted with
+                {
+                    Parts = inserted.Parts
+                                    .Select(selector: part => part is ExpressionPart expressionPart
+                                         ? expressionPart with
+                                         {
+                                             Expression = RewriteExpression(
+                                                 expression: expressionPart.Expression,
                                                  scope: scope,
                                                  inheritedGenericParameters:
                                                  inheritedGenericParameters,
                                                  inheritedGenericConstraints:
                                                  inheritedGenericConstraints,
-                                                 includeMe: includeMe))
-                                        .ToList()
-                    },
-                    original: tuple);
-
-            case TypeConversionExpression conversion:
-                return CopyResolvedType(rewritten: conversion with
-                    {
-                        Expression = RewriteExpression(expression: conversion.Expression,
+                                                 includeMe: includeMe)
+                                         }
+                                         : part)
+                                    .ToList()
+                },
+                original: inserted),
+            StealExpression steal => CopyResolvedType(rewritten: steal with
+                {
+                    Operand = RewriteExpression(expression: steal.Operand,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: steal),
+            WaitforExpression waitfor => CopyResolvedType(rewritten: waitfor with
+                {
+                    Operand = RewriteExpression(expression: waitfor.Operand,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Timeout = waitfor.Timeout != null
+                        ? RewriteExpression(expression: waitfor.Timeout,
                             scope: scope,
                             inheritedGenericParameters: inheritedGenericParameters,
                             inheritedGenericConstraints: inheritedGenericConstraints,
                             includeMe: includeMe)
-                    },
-                    original: conversion);
-
-            case ChainedComparisonExpression chained:
-                return CopyResolvedType(rewritten: chained with
-                    {
-                        Operands = chained.Operands
-                                          .Select(selector: operand =>
-                                               RewriteExpression(expression: operand,
-                                                   scope: scope,
-                                                   inheritedGenericParameters:
-                                                   inheritedGenericParameters,
-                                                   inheritedGenericConstraints:
-                                                   inheritedGenericConstraints,
-                                                   includeMe: includeMe))
-                                          .ToList()
-                    },
-                    original: chained);
-
-            case BlockExpression block:
-                return CopyResolvedType(rewritten: block with
-                    {
-                        Value = RewriteExpression(expression: block.Value,
+                        : null
+                },
+                original: waitfor),
+            DependentWaitforExpression dependentWaitfor => CopyResolvedType(
+                rewritten: dependentWaitfor with
+                {
+                    Operand = RewriteExpression(expression: dependentWaitfor.Operand,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Dependencies = dependentWaitfor.Dependencies
+                                                   .Select(selector: dependency => dependency with
+                                                    {
+                                                        DependencyExpr = RewriteExpression(
+                                                            expression:
+                                                            dependency.DependencyExpr,
+                                                            scope: scope,
+                                                            inheritedGenericParameters:
+                                                            inheritedGenericParameters,
+                                                            inheritedGenericConstraints:
+                                                            inheritedGenericConstraints,
+                                                            includeMe: includeMe)
+                                                    })
+                                                   .ToList(),
+                    Timeout = dependentWaitfor.Timeout != null
+                        ? RewriteExpression(expression: dependentWaitfor.Timeout,
                             scope: scope,
                             inheritedGenericParameters: inheritedGenericParameters,
                             inheritedGenericConstraints: inheritedGenericConstraints,
                             includeMe: includeMe)
-                    },
-                    original: block);
-
-            case DictEntryLiteralExpression dictEntry:
-                return CopyResolvedType(rewritten: dictEntry with
-                    {
-                        Key = RewriteExpression(expression: dictEntry.Key,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        Value = RewriteExpression(expression: dictEntry.Value,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: dictEntry);
-
-            case IsPatternExpression isPattern:
-                return CopyResolvedType(rewritten: isPattern with
-                    {
-                        Expression = RewriteExpression(expression: isPattern.Expression,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        Pattern = RewritePatternExpressions(pattern: isPattern.Pattern,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: isPattern);
-
-            case FlagsTestExpression flagsTest:
-                return CopyResolvedType(rewritten: flagsTest with
-                    {
-                        Subject = RewriteExpression(expression: flagsTest.Subject,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: flagsTest);
-
-            case InsertedTextExpression inserted:
-                return CopyResolvedType(rewritten: inserted with
-                    {
-                        Parts = inserted.Parts
-                                        .Select(selector: part =>
-                                             part is ExpressionPart expressionPart
-                                                 ? expressionPart with
-                                                 {
-                                                     Expression = RewriteExpression(
-                                                         expression: expressionPart.Expression,
-                                                         scope: scope,
-                                                         inheritedGenericParameters:
-                                                         inheritedGenericParameters,
-                                                         inheritedGenericConstraints:
-                                                         inheritedGenericConstraints,
-                                                         includeMe: includeMe)
-                                                 }
-                                                 : part)
-                                        .ToList()
-                    },
-                    original: inserted);
-
-            case StealExpression steal:
-                return CopyResolvedType(rewritten: steal with
-                    {
-                        Operand = RewriteExpression(expression: steal.Operand,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: steal);
-
-            case WaitforExpression waitfor:
-                return CopyResolvedType(rewritten: waitfor with
-                    {
-                        Operand = RewriteExpression(expression: waitfor.Operand,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        Timeout = waitfor.Timeout != null
-                            ? RewriteExpression(expression: waitfor.Timeout,
-                                scope: scope,
-                                inheritedGenericParameters: inheritedGenericParameters,
-                                inheritedGenericConstraints: inheritedGenericConstraints,
-                                includeMe: includeMe)
-                            : null
-                    },
-                    original: waitfor);
-
-            case DependentWaitforExpression dependentWaitfor:
-                return CopyResolvedType(rewritten: dependentWaitfor with
-                    {
-                        Operand = RewriteExpression(expression: dependentWaitfor.Operand,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe),
-                        Dependencies = dependentWaitfor.Dependencies
-                                                       .Select(selector: dependency =>
-                                                            dependency with
-                                                            {
-                                                                DependencyExpr = RewriteExpression(
-                                                                    expression:
-                                                                    dependency.DependencyExpr,
-                                                                    scope: scope,
-                                                                    inheritedGenericParameters:
-                                                                    inheritedGenericParameters,
-                                                                    inheritedGenericConstraints:
-                                                                    inheritedGenericConstraints,
-                                                                    includeMe: includeMe)
-                                                            })
-                                                       .ToList(),
-                        Timeout = dependentWaitfor.Timeout != null
-                            ? RewriteExpression(expression: dependentWaitfor.Timeout,
-                                scope: scope,
-                                inheritedGenericParameters: inheritedGenericParameters,
-                                inheritedGenericConstraints: inheritedGenericConstraints,
-                                includeMe: includeMe)
-                            : null
-                    },
-                    original: dependentWaitfor);
-
-            case CarrierPayloadExpression payload:
-                return CopyResolvedType(rewritten: payload with
-                    {
-                        Carrier = RewriteExpression(expression: payload.Carrier,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: payload);
-
-            case BackIndexExpression backIndex:
-                return CopyResolvedType(rewritten: backIndex with
-                    {
-                        Operand = RewriteExpression(expression: backIndex.Operand,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                    },
-                    original: backIndex);
-
-            case WhenExpression whenExpr:
-                return RewriteWhenExpression(whenExpr: whenExpr,
-                    scope: scope,
-                    inheritedGenericParameters: inheritedGenericParameters,
-                    inheritedGenericConstraints: inheritedGenericConstraints,
-                    includeMe: includeMe);
-
-            default:
-                return expression;
-        }
+                        : null
+                },
+                original: dependentWaitfor),
+            CarrierPayloadExpression payload => CopyResolvedType(rewritten: payload with
+                {
+                    Carrier = RewriteExpression(expression: payload.Carrier,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: payload),
+            BackIndexExpression backIndex => CopyResolvedType(rewritten: backIndex with
+                {
+                    Operand = RewriteExpression(expression: backIndex.Operand,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                },
+                original: backIndex),
+            WhenExpression whenExpr => RewriteWhenExpression(whenExpr: whenExpr,
+                scope: scope,
+                inheritedGenericParameters: inheritedGenericParameters,
+                inheritedGenericConstraints: inheritedGenericConstraints,
+                includeMe: includeMe),
+            _ => expression
+        };
     }
 
     private Expression RewriteWhenExpression(WhenExpression whenExpr, HashSet<string> scope,

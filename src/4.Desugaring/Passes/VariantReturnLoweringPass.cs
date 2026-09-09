@@ -226,27 +226,22 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
     /// </summary>
     protected override Statement VisitVariantReturn(VariantReturnStatement s)
     {
-        switch (s)
+        return s switch
         {
-            case { VariantKind: ErrorHandlingVariantKind.TryBool }:
-                return LowerTryBoolVariant(vr: s);
-
+            { VariantKind: ErrorHandlingVariantKind.TryBool } => LowerTryBoolVariant(vr: s),
             // Try → Maybe[T] (a plain `{present: Bool, value: T}` record) built with a real
             // CreatorExpression: present carries the value; throw / absent / return-a-crashable = absent.
-            case { VariantKind: ErrorHandlingVariantKind.Try }
-                when _carrierReturn is RecordTypeInfo maybe:
-                return LowerTryVariant(vr: s, maybe: maybe);
-
+            { VariantKind: ErrorHandlingVariantKind.Try } when
+                _carrierReturn is RecordTypeInfo maybe => LowerTryVariant(vr: s, maybe: maybe),
             // Check → Result[T] / Lookup → Lookup[T] (record { type_id: U64, payload: CPtr }): build the
             // record directly. type_id = FNV of the payload type (matches the reader); the payload is the
             // entity/error POINTER stored straight into the CPtr slot. Absent = type_id 0, payload zeroed.
             // Scalar payloads still need a reinterpret-to-CPtr, so those fall through to codegen for now.
-            case { VariantKind: ErrorHandlingVariantKind.Check or ErrorHandlingVariantKind.Lookup }
-                when _carrierReturn is RecordTypeInfo carrier:
-                return LowerCheckLookupVariant(statement: s, vr: s, carrier: carrier);
-
-            default:
-                return s;
-        }
+            { VariantKind: ErrorHandlingVariantKind.Check or ErrorHandlingVariantKind.Lookup } when
+                _carrierReturn is RecordTypeInfo carrier => LowerCheckLookupVariant(statement: s,
+                    vr: s,
+                    carrier: carrier),
+            _ => s
+        };
     }
 }

@@ -124,29 +124,19 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     /// </summary>
     private Statement LowerStatement(Statement stmt)
     {
-        switch (stmt)
+        return stmt switch
         {
-            case EachStatement f:
-                return LowerEach(eachStmt: f);
-            case DestructuringStatement ds:
-                return LowerDestructuring(destruct: ds);
-            case BlockStatement b:
-                return LowerBlock(b: b);
-            case WhileStatement w:
-                return LowerWhile(whileStmt: w);
-            case LoopStatement loop:
-                return LowerLoop(loop: loop);
-            case IfStatement ifs:
-                return LowerIf(ifs: ifs);
-            case WhenStatement w:
-                return LowerWhen(w: w);
-            case UsingStatement u:
-                return LowerUsing(u: u);
-            case DangerStatement d:
-                return LowerDanger(d: d);
-            default:
-                return stmt;
-        }
+            EachStatement f => LowerEach(eachStmt: f),
+            DestructuringStatement ds => LowerDestructuring(destruct: ds),
+            BlockStatement b => LowerBlock(b: b),
+            WhileStatement w => LowerWhile(whileStmt: w),
+            LoopStatement loop => LowerLoop(loop: loop),
+            IfStatement ifs => LowerIf(ifs: ifs),
+            WhenStatement w => LowerWhen(w: w),
+            UsingStatement u => LowerUsing(u: u),
+            DangerStatement d => LowerDanger(d: d),
+            _ => stmt
+        };
     }
 
     private BlockStatement LowerBlock(BlockStatement b)

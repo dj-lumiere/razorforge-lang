@@ -118,29 +118,23 @@ public sealed partial class SemanticVerifier
             return (annotated, false, false);
         }
 
-        switch (annotated)
+        return annotated switch
         {
             // bare `E` -> non-null Roamed[E]
-            case EntityTypeInfo entity:
-                return (
-                    _registry.GetOrCreateResolution(genericDef: roamedDef,
-                        typeArguments: [entity]), false, true);
-
+            EntityTypeInfo entity => (
+                _registry.GetOrCreateResolution(genericDef: roamedDef, typeArguments: [entity]),
+                false, true),
             // `E?` (= Maybe[E]) -> nullable Roamed[E]
-            case RecordTypeInfo
+            RecordTypeInfo
             {
                 GenericDefinition.Name: "Maybe", TypeArguments: [EntityTypeInfo inner]
-            }:
-                return (
-                    _registry.GetOrCreateResolution(genericDef: roamedDef, typeArguments: [inner]),
-                    true, true);
-
+            } => (
+                _registry.GetOrCreateResolution(genericDef: roamedDef, typeArguments: [inner]),
+                true, true),
             // Already a Roamed[E] (e.g. an annotation that spelled the wrapper directly) — non-null slot.
-            case RecordTypeInfo { GenericDefinition.Name: Declaration.RuntimeContract.Roamed }:
-                return (annotated, false, true);
-
-            default:
-                return (annotated, false, false);
-        }
+            RecordTypeInfo { GenericDefinition.Name: Declaration.RuntimeContract.Roamed } => (
+                annotated, false, true),
+            _ => (annotated, false, false)
+        };
     }
 }

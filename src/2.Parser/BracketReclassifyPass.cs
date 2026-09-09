@@ -116,109 +116,83 @@ internal static class BracketReclassifyPass
     /// </summary>
     public static TypeExpression ExpressionToTypeArg(Expression expr)
     {
-        switch (expr)
+        return expr switch
         {
-            case IdentifierExpression id:
-                return new TypeExpression(Name: id.Name,
-                    GenericArguments: null,
-                    Location: id.Location);
-
+            IdentifierExpression id => new TypeExpression(Name: id.Name,
+                GenericArguments: null,
+                Location: id.Location),
             // Projection chain `a/b/c` -> flattened name "a/b/c" (mirrors ParseBaseType's slash path).
-            case BinaryExpression { Operator: BinaryOperator.TrueDivide } bin:
-                return new TypeExpression(Name: FlattenProjection(bin: bin),
-                    GenericArguments: null,
-                    Location: bin.Location);
-
+            BinaryExpression { Operator: BinaryOperator.TrueDivide } bin => new TypeExpression(
+                Name: FlattenProjection(bin: bin),
+                GenericArguments: null,
+                Location: bin.Location),
             // Const-generic literal -> literal text as the type name (mirrors ParseTypeOrConstGeneric).
-            case LiteralExpression lit:
-                return new TypeExpression(Name: LiteralText(lit: lit),
-                    GenericArguments: null,
-                    Location: lit.Location);
-
+            LiteralExpression lit => new TypeExpression(Name: LiteralText(lit: lit),
+                GenericArguments: null,
+                Location: lit.Location),
             // Nested generic instantiation as a type argument, e.g. Array[U64, N].
-            case GenericMemberExpression gme:
-                return new TypeExpression(Name: gme.MemberName,
-                    GenericArguments: gme.TypeArguments,
-                    Location: gme.Location);
-
-            case GenericMemberRoutineCallExpression gmc:
-                return new TypeExpression(Name: gmc.MemberRoutineName,
-                    GenericArguments: gmc.TypeArguments,
-                    Location: gmc.Location);
-
+            GenericMemberExpression gme => new TypeExpression(Name: gme.MemberName,
+                GenericArguments: gme.TypeArguments,
+                Location: gme.Location),
+            GenericMemberRoutineCallExpression gmc => new TypeExpression(
+                Name: gmc.MemberRoutineName,
+                GenericArguments: gmc.TypeArguments,
+                Location: gmc.Location),
             // A single-argument nested bracket (List[S64]) reclassifies to an IndexExpression when
             // seen in isolation; as a TYPE argument it is a nested generic instantiation. The Object
             // supplies the type name and the Index becomes the single (recursive) type argument.
-            case IndexExpression idx:
-                return NestedIndexToTypeArg(idx: idx);
-
+            IndexExpression idx => NestedIndexToTypeArg(idx: idx),
             // Qualified type name a.b -> "a.b" (mirrors the dotted type path).
-            case MemberExpression mem:
-                return new TypeExpression(Name: QualifiedName(mem: mem),
-                    GenericArguments: null,
-                    Location: mem.Location);
-
+            MemberExpression mem => new TypeExpression(Name: QualifiedName(mem: mem),
+                GenericArguments: null,
+                Location: mem.Location),
             // Unary negation on a const-generic literal (e.g. FixedInt[-1]) -> "-<literal>".
-            case UnaryExpression { Operator: UnaryOperator.Minus, Operand: LiteralExpression neg }:
-                return new TypeExpression(Name: "-" + LiteralText(lit: neg),
+            UnaryExpression { Operator: UnaryOperator.Minus, Operand: LiteralExpression neg } =>
+                new TypeExpression(Name: "-" + LiteralText(lit: neg),
                     GenericArguments: null,
-                    Location: expr.Location);
-
+                    Location: expr.Location),
             // A comptime type-position splice `${m.type}` as a (possibly nested) generic argument —
             // e.g. `hijacked_from[${m.type}]` / `blank[Hijacked[${m.type}]]`. Bracket contents parse as
             // EXPRESSIONS first, so the splice arrives as a SpliceExpression wrapping `m.type`; mirror
             // ParseBaseType's `${m.type}` handling by producing the SpliceHandle TypeExpression the
             // resolver expects (only `.type` is valid in a type position — other projections fall through
             // to the resolver's diagnostic).
-            case SpliceExpression
+            SpliceExpression
             {
                 Inner: MemberExpression
                 {
                     Object: IdentifierExpression spliceHandle, MemberName: "type"
                 }
-            } se:
-                return new TypeExpression(Name: "splice",
-                    GenericArguments: null,
-                    Location: se.Location,
-                    SpliceHandle: spliceHandle.Name);
-
+            } se => new TypeExpression(Name: "splice",
+                GenericArguments: null,
+                Location: se.Location,
+                SpliceHandle: spliceHandle.Name),
             // The brace-less form of the same TYPE splice: `$typeof(m)` as a generic argument, e.g.
             // `hijacked_from[$typeof(m)]`. The splice wraps a `typeof(handle)` call; mirror the `${m.type}`
             // reclassification above by producing the SpliceHandle TypeExpression the resolver expects.
-            case SpliceExpression
+            SpliceExpression
             {
                 Inner: CallExpression
                 {
                     Callee: IdentifierExpression { Name: "typeof" },
                     Arguments: [IdentifierExpression typeofHandle]
                 }
-            } seOf:
-                return new TypeExpression(Name: "splice",
-                    GenericArguments: null,
-                    Location: seOf.Location,
-                    SpliceHandle: typeofHandle.Name);
-
+            } seOf => new TypeExpression(Name: "splice",
+                GenericArguments: null,
+                Location: seOf.Location,
+                SpliceHandle: typeofHandle.Name),
             // A comptime VALUE-position splice as a const-generic argument, e.g.
             // `Array[U8, ${max(T.data_size().byte_size(), 8)}]`. Unlike the `${m.type}` TYPE splice above,
             // the inner is a scalar comptime expression; carry it on ComptimeValue for the monomorphizer
             // to fold into a ConstGenericValueTypeInfo once the concrete type args are known.
-            case SpliceExpression valueSplice:
-                return new TypeExpression(Name: "splice_value",
-                    GenericArguments: null,
-                    Location: valueSplice.Location,
-                    ComptimeValue: valueSplice.Inner);
-
+            SpliceExpression valueSplice => new TypeExpression(Name: "splice_value",
+                GenericArguments: null,
+                Location: valueSplice.Location,
+                ComptimeValue: valueSplice.Inner),
             // A TypeExpression already (should not normally occur from bracket parsing) passes through.
-            case TypeExpression te:
-                return te;
-
-            default:
-                // Best-effort: produce an empty name so the resolver can surface a proper diagnostic.
-                // All named expression types are handled by the cases above, so none remain here.
-                return new TypeExpression(Name: "",
-                    GenericArguments: null,
-                    Location: expr.Location);
-        }
+            TypeExpression te => te,
+            _ => new TypeExpression(Name: "", GenericArguments: null, Location: expr.Location)
+        };
     }
 
     /// <summary>

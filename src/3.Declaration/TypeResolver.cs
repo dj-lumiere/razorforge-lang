@@ -327,26 +327,22 @@ internal sealed class TypeResolver
         // Lower entity type ARGUMENTS first (List[Box] → List[Roamed[Box]]), then wrap the top level.
         resolved = RoamTypeArguments(resolved: resolved, roamedDef: roamedDef);
 
-        switch (resolved)
+        return resolved switch
         {
-            case EntityTypeInfo entity:
-                return _sa._registry.GetOrCreateResolution(genericDef: roamedDef,
-                    typeArguments: [entity]);
-            case RecordTypeInfo
+            EntityTypeInfo entity => _sa._registry.GetOrCreateResolution(genericDef: roamedDef,
+                typeArguments: [entity]),
+            RecordTypeInfo
             {
                 GenericDefinition.Name: MaybeTypeName,
                 TypeArguments: [EntityTypeInfo innerEntity]
-            }:
-                return _sa._registry.GetOrCreateResolution(genericDef: roamedDef,
-                    typeArguments: [innerEntity]);
-            case RecordTypeInfo
+            } => _sa._registry.GetOrCreateResolution(genericDef: roamedDef,
+                typeArguments: [innerEntity]),
+            RecordTypeInfo
             {
                 GenericDefinition.Name: MaybeTypeName, TypeArguments: [{ } innerRoamed]
-            } when IsRoamed(type: innerRoamed):
-                return innerRoamed;
-            default:
-                return resolved;
-        }
+            } when IsRoamed(type: innerRoamed) => innerRoamed,
+            _ => resolved
+        };
     }
 
     /// <summary>

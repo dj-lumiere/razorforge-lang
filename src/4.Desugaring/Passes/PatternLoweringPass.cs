@@ -395,29 +395,20 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
         {
             WhenClause clause = loweredClauses[index: i];
             Statement body = clause.Body;
-            switch (clause.Pattern)
+            chain = clause.Pattern switch
             {
-                case ElsePattern:
-                case WildcardPattern:
+                ElsePattern or WildcardPattern =>
                     // Always-matching: becomes the unconditional else.
-                    chain = body;
-                    break;
-
-                case ExpressionPattern ep:
-                {
-                    chain = new IfStatement(Condition: ep.Expression,
-                        ThenStatement: body,
-                        ElseStatement: chain,
-                        Location: loc);
-                    break;
-                }
-
-                default:
-                    throw new InvalidOperationException(
-                        message:
-                        $"Unexpected pattern type '{clause.Pattern.GetType().Name}' in subject-less when. " +
-                        "Only ElsePattern, WildcardPattern, and ExpressionPattern are valid in subject-less when clauses.");
-            }
+                    body,
+                ExpressionPattern ep => new IfStatement(Condition: ep.Expression,
+                    ThenStatement: body,
+                    ElseStatement: chain,
+                    Location: loc),
+                _ => throw new InvalidOperationException(
+                    message:
+                    $"Unexpected pattern type '{clause.Pattern.GetType().Name}' in subject-less when. " +
+                    "Only ElsePattern, WildcardPattern, and ExpressionPattern are valid in subject-less when clauses.")
+            };
         }
 
         return chain ?? new BlockStatement(Statements: [], Location: loc);

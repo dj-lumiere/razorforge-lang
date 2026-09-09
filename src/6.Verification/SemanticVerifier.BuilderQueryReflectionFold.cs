@@ -84,31 +84,28 @@ public partial class SemanticVerifier
 
     private Statement FoldReflectionStmt(Statement stmt)
     {
-        switch (stmt)
+        return stmt switch
         {
-            case BlockStatement b: return FoldBlockStmt(stmt: stmt, b: b);
-            case IfStatement ifs: return FoldIfStmt(stmt: stmt, ifs: ifs);
-            case WhileStatement w: return FoldWhileStmt(stmt: stmt, w: w);
-            case LoopStatement loop: return FoldLoopStmt(stmt: stmt, loop: loop);
-            case EachStatement f: return FoldEachStmt(stmt: stmt, f: f);
-            case WhenStatement ws: return FoldWhenStmt(stmt: stmt, ws: ws);
-            case ReturnStatement { Value: not null } ret:
-                return FoldReturnStmt(stmt: stmt, ret: ret);
-            case AssignmentStatement asg: return FoldAssignmentStmt(stmt: stmt, asg: asg);
-            case DeclarationStatement
+            BlockStatement b => FoldBlockStmt(stmt: stmt, b: b),
+            IfStatement ifs => FoldIfStmt(stmt: stmt, ifs: ifs),
+            WhileStatement w => FoldWhileStmt(stmt: stmt, w: w),
+            LoopStatement loop => FoldLoopStmt(stmt: stmt, loop: loop),
+            EachStatement f => FoldEachStmt(stmt: stmt, f: f),
+            WhenStatement ws => FoldWhenStmt(stmt: stmt, ws: ws),
+            ReturnStatement { Value: not null } ret => FoldReturnStmt(stmt: stmt, ret: ret),
+            AssignmentStatement asg => FoldAssignmentStmt(stmt: stmt, asg: asg),
+            DeclarationStatement
             {
                 Declaration: VariableDeclaration { Initializer: not null } vd
-            } ds:
-                return FoldDeclarationStmt(stmt: stmt, ds: ds, vd: vd);
-            case ExpressionStatement es: return FoldExpressionStmt(stmt: stmt, es: es);
-            case DiscardStatement dsc: return FoldDiscardStmt(stmt: stmt, dsc: dsc);
-            case ThrowStatement ts: return FoldThrowStmt(stmt: stmt, ts: ts);
-            case BecomesStatement bs: return FoldBecomesStmt(stmt: stmt, bs: bs);
-            case UsingStatement us: return FoldUsingStmt(stmt: stmt, us: us);
-            case DangerStatement dg: return FoldDangerStmt(stmt: stmt, dg: dg);
-            default:
-                return stmt;
-        }
+            } ds => FoldDeclarationStmt(stmt: stmt, ds: ds, vd: vd),
+            ExpressionStatement es => FoldExpressionStmt(stmt: stmt, es: es),
+            DiscardStatement dsc => FoldDiscardStmt(stmt: stmt, dsc: dsc),
+            ThrowStatement ts => FoldThrowStmt(stmt: stmt, ts: ts),
+            BecomesStatement bs => FoldBecomesStmt(stmt: stmt, bs: bs),
+            UsingStatement us => FoldUsingStmt(stmt: stmt, us: us),
+            DangerStatement dg => FoldDangerStmt(stmt: stmt, dg: dg),
+            _ => stmt
+        };
     }
 
     private Statement FoldBlockStmt(Statement stmt, BlockStatement b)
@@ -312,39 +309,36 @@ public partial class SemanticVerifier
 
     private Expression FoldReflectionExprStructural(Expression expr)
     {
-        switch (expr)
+        return expr switch
         {
-            case BinaryExpression bin: return FoldBinaryExpr(expr: expr, bin: bin);
-            case UnaryExpression un: return FoldUnaryExpr(expr: expr, un: un);
-            case CallExpression call: return FoldCallExpr(expr: expr, call: call);
-            case NamedArgumentExpression na: return FoldNamedArgumentExpr(expr: expr, na: na);
-            case MemberExpression mem: return FoldMemberExpr(expr: expr, mem: mem);
-            case OptionalMemberExpression om: return FoldOptionalMemberExpr(expr: expr, om: om);
-            case IndexExpression ix: return FoldIndexExpr(expr: expr, ix: ix);
-            case TypeConversionExpression cv: return FoldTypeConversionExpr(expr: expr, cv: cv);
-            case StealExpression st: return FoldStealExpr(expr: expr, st: st);
-            case GenericMemberRoutineCallExpression gmc:
-                return FoldGenericMemberRoutineCallExpr(expr: expr, gmc: gmc);
-            case GenericMemberExpression gm: return FoldGenericMemberExpr(expr: expr, gm: gm);
-            case IsPatternExpression ip: return FoldIsPatternExpr(expr: expr, ip: ip);
-            case FlagsTestExpression ft: return FoldFlagsTestExpr(expr: expr, ft: ft);
-            case ChainedComparisonExpression ch:
-                return FoldChainedComparisonExpr(expr: expr, ch: ch);
-            case CompoundAssignmentExpression cp:
-                return FoldCompoundAssignmentExpr(expr: expr, cp: cp);
-            case RangeExpression rg: return FoldRangeExpr(expr: expr, rg: rg);
-            case ConditionalExpression co: return FoldConditionalExpr(expr: expr, co: co);
-            case TupleLiteralExpression tp: return FoldTupleLiteralExpr(expr: expr, tp: tp);
-            case ListLiteralExpression ll: return FoldListLiteralExpr(expr: expr, ll: ll);
-            case SetLiteralExpression se: return FoldSetLiteralExpr(expr: expr, se: se);
-            case DictLiteralExpression di: return FoldDictLiteralExpr(expr: expr, di: di);
-            case CreatorExpression cr: return FoldCreatorExpr(expr: expr, cr: cr);
-            case InsertedTextExpression fs: return FoldInsertedTextExpr(expr: expr, fs: fs);
-            case BlockExpression bl: return FoldBlockExpr(expr: expr, bl: bl);
-            case CarrierPayloadExpression cpe: return FoldCarrierPayloadExpr(expr: expr, cpe: cpe);
-            default:
-                return expr;
-        }
+            BinaryExpression bin => FoldBinaryExpr(expr: expr, bin: bin),
+            UnaryExpression un => FoldUnaryExpr(expr: expr, un: un),
+            CallExpression call => FoldCallExpr(expr: expr, call: call),
+            NamedArgumentExpression na => FoldNamedArgumentExpr(expr: expr, na: na),
+            MemberExpression mem => FoldMemberExpr(expr: expr, mem: mem),
+            OptionalMemberExpression om => FoldOptionalMemberExpr(expr: expr, om: om),
+            IndexExpression ix => FoldIndexExpr(expr: expr, ix: ix),
+            TypeConversionExpression cv => FoldTypeConversionExpr(expr: expr, cv: cv),
+            StealExpression st => FoldStealExpr(expr: expr, st: st),
+            GenericMemberRoutineCallExpression gmc => FoldGenericMemberRoutineCallExpr(expr: expr,
+                gmc: gmc),
+            GenericMemberExpression gm => FoldGenericMemberExpr(expr: expr, gm: gm),
+            IsPatternExpression ip => FoldIsPatternExpr(expr: expr, ip: ip),
+            FlagsTestExpression ft => FoldFlagsTestExpr(expr: expr, ft: ft),
+            ChainedComparisonExpression ch => FoldChainedComparisonExpr(expr: expr, ch: ch),
+            CompoundAssignmentExpression cp => FoldCompoundAssignmentExpr(expr: expr, cp: cp),
+            RangeExpression rg => FoldRangeExpr(expr: expr, rg: rg),
+            ConditionalExpression co => FoldConditionalExpr(expr: expr, co: co),
+            TupleLiteralExpression tp => FoldTupleLiteralExpr(expr: expr, tp: tp),
+            ListLiteralExpression ll => FoldListLiteralExpr(expr: expr, ll: ll),
+            SetLiteralExpression se => FoldSetLiteralExpr(expr: expr, se: se),
+            DictLiteralExpression di => FoldDictLiteralExpr(expr: expr, di: di),
+            CreatorExpression cr => FoldCreatorExpr(expr: expr, cr: cr),
+            InsertedTextExpression fs => FoldInsertedTextExpr(expr: expr, fs: fs),
+            BlockExpression bl => FoldBlockExpr(expr: expr, bl: bl),
+            CarrierPayloadExpression cpe => FoldCarrierPayloadExpr(expr: expr, cpe: cpe),
+            _ => expr
+        };
     }
 
     private Expression FoldBinaryExpr(Expression expr, BinaryExpression bin)
@@ -677,35 +671,30 @@ public partial class SemanticVerifier
     /// </summary>
     private List<string>? ComputeReflectionStrings(TypeInfo owner, string routineName)
     {
-        switch (routineName)
+        return routineName switch
         {
-            case "protocols":
-                return owner switch
-                {
-                    RecordTypeInfo r => r.ImplementedProtocols
-                                         .Select(selector: p => p.Name)
-                                         .ToList(),
-                    EntityTypeInfo e => e.ImplementedProtocols
-                                         .Select(selector: p => p.Name)
-                                         .ToList(),
-                    _ => new List<string>()
-                };
-            case "routine_names":
-                return _registry.GetMemberRoutinesForType(type: owner)
-                                .Select(selector: r => r.Name)
-                                .Distinct()
-                                .ToList();
-            case "generic_args":
-                return owner.TypeArguments
-                           ?.Select(selector: t => t.Name)
-                            .ToList() ?? owner.GenericParameters?.ToList() ?? new List<string>();
-            case "annotations":
-                return owner.Annotations?.ToList() ?? new List<string>();
-            case "dependencies":
-                return _registry.GetModuleDependencies(module: owner.Module)
-                                .ToList();
-            default:
-                return null;
-        }
+            "protocols" => owner switch
+            {
+                RecordTypeInfo r => r.ImplementedProtocols
+                                     .Select(selector: p => p.Name)
+                                     .ToList(),
+                EntityTypeInfo e => e.ImplementedProtocols
+                                     .Select(selector: p => p.Name)
+                                     .ToList(),
+                _ => new List<string>()
+            },
+            "routine_names" => _registry.GetMemberRoutinesForType(type: owner)
+                                        .Select(selector: r => r.Name)
+                                        .Distinct()
+                                        .ToList(),
+            "generic_args" => owner.TypeArguments
+                                  ?.Select(selector: t => t.Name)
+                                   .ToList() ?? owner.GenericParameters?.ToList() ??
+                new List<string>(),
+            "annotations" => owner.Annotations?.ToList() ?? new List<string>(),
+            "dependencies" => _registry.GetModuleDependencies(module: owner.Module)
+                                       .ToList(),
+            _ => null
+        };
     }
 }

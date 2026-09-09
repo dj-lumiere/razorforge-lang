@@ -527,77 +527,60 @@ internal sealed class IteratorInlineLoweringPass
 
     private static Statement RewriteNextStatement(Statement stmt, NextBodyRewriteContext ctx)
     {
-        switch (stmt)
+        return stmt switch
         {
-            case ReturnStatement ret:
-                return BuildReturnReplacement(retValue: ret.Value, ctx: ctx, loc: ret.Location);
-
-            case AbsentStatement:
+            ReturnStatement ret => BuildReturnReplacement(retValue: ret.Value,
+                ctx: ctx,
+                loc: ret.Location),
+            AbsentStatement =>
                 // Clone the loop's none-clause body so the two inline sites never share a node.
-                return CloneStatement(stmt: ctx.NoneClauseBody, ctx: ctx);
-
-            case ThrowStatement:
+                CloneStatement(stmt: ctx.NoneClauseBody, ctx: ctx),
+            ThrowStatement =>
                 // Propagates unchanged (but still rename identifiers inside the error expression).
-                return CloneStatement(stmt: stmt, ctx: ctx);
-
-            case BlockStatement block:
-                return block with
-                {
-                    Statements = block.Statements
-                                      .Select(selector: s =>
-                                           RewriteNextStatement(stmt: s, ctx: ctx))
-                                      .ToList()
-                };
-
-            case IfStatement ifs:
-                return ifs with
-                {
-                    Condition = CloneExpression(expr: ifs.Condition, ctx: ctx),
-                    ThenStatement = RewriteNextStatement(stmt: ifs.ThenStatement, ctx: ctx),
-                    ElseStatement = ifs.ElseStatement != null
-                        ? RewriteNextStatement(stmt: ifs.ElseStatement, ctx: ctx)
-                        : null
-                };
-
-            case WhenStatement w:
-                return w with
-                {
-                    Expression = CloneExpression(expr: w.Expression, ctx: ctx),
-                    Clauses = w.Clauses
-                               .Select(selector: c => c with
-                                {
-                                    Pattern = ClonePattern(pattern: c.Pattern, ctx: ctx),
-                                    Body = RewriteNextStatement(stmt: c.Body, ctx: ctx)
-                                })
-                               .ToList()
-                };
-
-            case UsingStatement u:
-                return u with
-                {
-                    Resource = CloneExpression(expr: u.Resource, ctx: ctx),
-                    Body = RewriteNextStatement(stmt: u.Body, ctx: ctx),
-                    FallbackBody = u.FallbackBody != null
-                        ? RewriteNextStatement(stmt: u.FallbackBody, ctx: ctx)
-                        : null
-                };
-
-            case DangerStatement d:
-                return d with
-                {
-                    Body = (BlockStatement)RewriteNextStatement(stmt: d.Body, ctx: ctx)
-                };
-
+                CloneStatement(stmt: stmt, ctx: ctx),
+            BlockStatement block => block with
+            {
+                Statements = block.Statements
+                                  .Select(selector: s => RewriteNextStatement(stmt: s, ctx: ctx))
+                                  .ToList()
+            },
+            IfStatement ifs => ifs with
+            {
+                Condition = CloneExpression(expr: ifs.Condition, ctx: ctx),
+                ThenStatement = RewriteNextStatement(stmt: ifs.ThenStatement, ctx: ctx),
+                ElseStatement = ifs.ElseStatement != null
+                    ? RewriteNextStatement(stmt: ifs.ElseStatement, ctx: ctx)
+                    : null
+            },
+            WhenStatement w => w with
+            {
+                Expression = CloneExpression(expr: w.Expression, ctx: ctx),
+                Clauses = w.Clauses
+                           .Select(selector: c => c with
+                            {
+                                Pattern = ClonePattern(pattern: c.Pattern, ctx: ctx),
+                                Body = RewriteNextStatement(stmt: c.Body, ctx: ctx)
+                            })
+                           .ToList()
+            },
+            UsingStatement u => u with
+            {
+                Resource = CloneExpression(expr: u.Resource, ctx: ctx),
+                Body = RewriteNextStatement(stmt: u.Body, ctx: ctx),
+                FallbackBody = u.FallbackBody != null
+                    ? RewriteNextStatement(stmt: u.FallbackBody, ctx: ctx)
+                    : null
+            },
+            DangerStatement d => d with
+            {
+                Body = (BlockStatement)RewriteNextStatement(stmt: d.Body, ctx: ctx)
+            },
             // Loops must never appear (the gate excludes them); guard defensively.
-            case LoopStatement:
-            case WhileStatement:
-            case EachStatement:
+            LoopStatement or WhileStatement or EachStatement =>
                 // Should be unreachable — fall back to a plain clone rather than crash.
-                return CloneStatement(stmt: stmt, ctx: ctx);
-
-            default:
-                return CloneStatement(stmt: stmt, ctx: ctx);
-        }
+                CloneStatement(stmt: stmt, ctx: ctx),
+            _ => CloneStatement(stmt: stmt, ctx: ctx)
+        };
     }
 
     /// <summary>

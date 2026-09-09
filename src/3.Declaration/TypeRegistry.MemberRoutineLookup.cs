@@ -786,51 +786,43 @@ public sealed partial class TypeRegistry
     private bool ImplementerSatisfiesConstraint(TypeInfo implementer,
         GenericConstraintDeclaration constraint)
     {
-        switch (constraint.ConstraintType)
+        return constraint.ConstraintType switch
         {
-            case ConstraintKind.VariantType:
-                return implementer is VariantTypeInfo;
-            case ConstraintKind.ChoiceType:
-                return implementer is ChoiceTypeInfo;
-            case ConstraintKind.FlagsType:
-                return implementer is FlagsTypeInfo;
-            case ConstraintKind.TupleType:
-                return implementer is TupleTypeInfo;
-            case ConstraintKind.RoutineType:
-                return implementer is RoutineTypeInfo;
-            case ConstraintKind.Crashable:
-                return implementer is CrashableTypeInfo;
-            case ConstraintKind.RedirectType:
+            ConstraintKind.VariantType => implementer is VariantTypeInfo,
+            ConstraintKind.ChoiceType => implementer is ChoiceTypeInfo,
+            ConstraintKind.FlagsType => implementer is FlagsTypeInfo,
+            ConstraintKind.TupleType => implementer is TupleTypeInfo,
+            ConstraintKind.RoutineType => implementer is RoutineTypeInfo,
+            ConstraintKind.Crashable => implementer is CrashableTypeInfo,
+            ConstraintKind.RedirectType =>
                 // A field-less aggregate: an empty record, or a scalar kind (choice/flags carry no
                 // member variables). Its `allmemvarof` is empty, so the base field-walk is degenerate.
-                return implementer switch
+                implementer switch
                 {
                     RecordTypeInfo r => r.MemberVariables.Count == 0,
                     EntityTypeInfo e => e.MemberVariables.Count == 0,
                     _ => false
-                };
-            case ConstraintKind.EntityType:
+                },
+            ConstraintKind.EntityType =>
                 // `is EntityType` — an entity. A crashable IS an entity subtype (heap-allocated), so it
                 // satisfies this directly: it reuses the entity derives (notably `destroy` = field-walk +
                 // `hijack().invalidate()`) rather than needing a duplicate CrashableType template. Its
                 // crashable-specific members (represent/diagnose/crash_message) still come from
                 // HandleCrashable via DispatchByOwnerType, which routes by owner type before any template.
-                return implementer is EntityTypeInfo;
-            case ConstraintKind.RecordType:
+                implementer is EntityTypeInfo,
+            ConstraintKind.RecordType =>
                 // `is RecordType` — a plain value record; exclude the sum/enum/tuple record
                 // subtypes, which have their own more-specific kind gates.
-                return implementer is RecordTypeInfo;
-            case ConstraintKind.Obeys:
+                implementer is RecordTypeInfo,
+            ConstraintKind.Obeys =>
                 // TypeObeysProtocol folds in the reflexive marker-protocol rule, so no separate check here.
-                return constraint.ConstraintTypes?.All(predicate: p =>
-                    TypeObeysProtocol(type: implementer, protocolName: p.Name)) ?? true;
-            case ConstraintKind.AnyType:
+                constraint.ConstraintTypes?.All(predicate: p =>
+                    TypeObeysProtocol(type: implementer, protocolName: p.Name)) ?? true,
+            ConstraintKind.AnyType =>
                 // `is TypeName` — a bare type-parameter declaration; satisfied by every type.
-                return true;
-            default:
-                // Unknown/unsupported gate — treat as satisfied so it never wrongly excludes.
-                return true;
-        }
+                true,
+            _ => true
+        };
     }
 
     /// <summary>

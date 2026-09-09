@@ -85,89 +85,68 @@ public static class AstWalker
     // -------- Statements --------
     private static IEnumerable<object>? EnumerateStatementChildren(object node)
     {
-        switch (node)
+        return node switch
         {
-            case ExpressionStatement s:
-                return new object[]
-                {
-                    s.Expression
-                };
-            case DeclarationStatement s:
-                return new object[]
-                {
-                    s.Declaration
-                };
-            case AssignmentStatement s:
-                return new object[]
-                {
-                    s.Target,
-                    s.Value
-                };
-            case DestructuringStatement s:
-                return new object[]
-                {
-                    s.Pattern,
-                    s.Initializer
-                };
-            case ReturnStatement s:
-                return s.Value != null
-                    ? new object[]
-                    {
-                        s.Value
-                    }
-                    : Enumerable.Empty<object>();
-            case BecomesStatement s:
-                return new object[]
+            ExpressionStatement s => new object[]
+            {
+                s.Expression
+            },
+            DeclarationStatement s => new object[]
+            {
+                s.Declaration
+            },
+            AssignmentStatement s => new object[]
+            {
+                s.Target,
+                s.Value
+            },
+            DestructuringStatement s => new object[]
+            {
+                s.Pattern,
+                s.Initializer
+            },
+            ReturnStatement s => s.Value != null
+                ? new object[]
                 {
                     s.Value
-                };
-            case ThrowStatement s:
-                return new object[]
+                }
+                : Enumerable.Empty<object>(),
+            BecomesStatement s => new object[]
+            {
+                s.Value
+            },
+            ThrowStatement s => new object[]
+            {
+                s.Error
+            },
+            VariantReturnStatement s => s.Value != null
+                ? new object[]
                 {
-                    s.Error
-                };
-            case VariantReturnStatement s:
-                return s.Value != null
-                    ? new object[]
-                    {
-                        s.Value
-                    }
-                    : Enumerable.Empty<object>();
-            case DiscardStatement s:
-                return new object[]
-                {
-                    s.Expression
-                };
-            case IfStatement s:
-                return IfStatementChildren(s: s);
-            case WhileStatement s:
-                return WhileStatementChildren(s: s);
-            case LoopStatement s:
-                return new object[]
-                {
-                    s.Body
-                };
-            case EachStatement s:
-                return EachStatementChildren(s: s);
-            case BlockStatement s:
-                return BlockStatementChildren(s: s);
-            case WhenStatement s:
-                return WhenStatementChildren(s: s);
-            case DangerStatement s:
-                return new object[]
-                {
-                    s.Body
-                };
-            case UsingStatement s:
-                return UsingStatementChildren(s: s);
-            case AbsentStatement:
-            case PassStatement:
-            case BreakStatement:
-            case ContinueStatement:
-                return Enumerable.Empty<object>();
-            default:
-                return null;
-        }
+                    s.Value
+                }
+                : Enumerable.Empty<object>(),
+            DiscardStatement s => new object[]
+            {
+                s.Expression
+            },
+            IfStatement s => IfStatementChildren(s: s),
+            WhileStatement s => WhileStatementChildren(s: s),
+            LoopStatement s => new object[]
+            {
+                s.Body
+            },
+            EachStatement s => EachStatementChildren(s: s),
+            BlockStatement s => BlockStatementChildren(s: s),
+            WhenStatement s => WhenStatementChildren(s: s),
+            DangerStatement s => new object[]
+            {
+                s.Body
+            },
+            UsingStatement s => UsingStatementChildren(s: s),
+            AbsentStatement or PassStatement or BreakStatement or ContinueStatement => Enumerable
+               .Empty<object>(),
+            _ => null
+        };
     }
 
     private static IEnumerable<object> IfStatementChildren(IfStatement s)
@@ -235,146 +214,109 @@ public static class AstWalker
     // -------- Expressions --------
     private static IEnumerable<object>? EnumerateExpressionChildren(object node)
     {
-        switch (node)
+        return node switch
         {
-            case InsertedTextExpression e:
-                return InsertedTextExpressionChildren(e: e);
-            case ListLiteralExpression e:
-                return ListLiteralExpressionChildren(e: e);
-            case SetLiteralExpression e:
-                return SetLiteralExpressionChildren(e: e);
-            case DictLiteralExpression e:
-                return DictLiteralExpressionChildren(e: e);
-            case TupleLiteralExpression e:
-                return TupleLiteralExpressionChildren(e: e);
-            case CompoundAssignmentExpression e:
-                return new object[]
-                {
-                    e.Target,
-                    e.Value
-                };
-            case BinaryExpression e:
-                return new object[]
-                {
-                    e.Left,
-                    e.Right
-                };
-            case UnaryExpression e:
-                return new object[]
-                {
-                    e.Operand
-                };
-            case CallExpression e:
-                return CallExpressionChildren(e: e);
-            case NamedArgumentExpression e:
-                return new object[]
-                {
-                    e.Value
-                };
-            case DictEntryLiteralExpression e:
-                return new object[]
-                {
-                    e.Key,
-                    e.Value
-                };
-            case CreatorExpression e:
-                return CreatorExpressionChildren(e: e);
-            case WithExpression e:
-                return WithExpressionChildren(e: e);
-            case MemberExpression e:
-                return new object[]
-                {
-                    e.Object
-                };
-            case OptionalMemberExpression e:
-                return new object[]
-                {
-                    e.Object
-                };
-            case IndexExpression e:
-                return new object[]
-                {
-                    e.Object,
-                    e.Index
-                };
-            case ConditionalExpression e:
-                return new object[]
-                {
-                    e.Condition,
-                    e.TrueExpression,
-                    e.FalseExpression
-                };
-            case BlockExpression e:
-                return new object[]
-                {
-                    e.Value
-                };
-            case ChainedComparisonExpression e:
-                return ChainedComparisonExpressionChildren(e: e);
-            case RangeExpression e:
-                return RangeExpressionChildren(e: e);
-            case LambdaExpression e:
-                return LambdaExpressionChildren(e: e);
-            case TypeExpression e:
-                return TypeExpressionChildren(e: e);
-            case TypeConversionExpression e:
-                return new object[]
-                {
-                    e.Expression
-                };
-            case GenericMemberRoutineCallExpression e:
-                return GenericMemberRoutineCallExpressionChildren(e: e);
-            case GenericMemberExpression e:
-                return GenericMemberExpressionChildren(e: e);
-            case TypeIdExpression e:
-                return new object[]
-                {
-                    e.Type
-                };
-            case CarrierPayloadExpression e:
-                return new object[]
-                {
-                    e.Carrier,
-                    e.ConcreteType
-                };
-            case CrashableDispatchExpression e:
-                return new object[]
-                {
-                    e.Carrier
-                };
-            case IsPatternExpression e:
-                return new object[]
-                {
-                    e.Expression,
-                    e.Pattern
-                };
-            case FlagsTestExpression e:
-                return new object[]
-                {
-                    e.Subject
-                };
-            case WhenExpression e:
-                return WhenExpressionChildren(e: e);
-            case StealExpression e:
-                return new object[]
-                {
-                    e.Operand
-                };
-            case WaitforExpression e:
-                return WaitforExpressionChildren(e: e);
-            case DependentWaitforExpression e:
-                return DependentWaitforExpressionChildren(e: e);
-            case BackIndexExpression e:
-                return new object[]
-                {
-                    e.Operand
-                };
-            case LiteralExpression:
-            case IdentifierExpression:
-                return Enumerable.Empty<object>();
-            default:
-                return null;
-        }
+            InsertedTextExpression e => InsertedTextExpressionChildren(e: e),
+            ListLiteralExpression e => ListLiteralExpressionChildren(e: e),
+            SetLiteralExpression e => SetLiteralExpressionChildren(e: e),
+            DictLiteralExpression e => DictLiteralExpressionChildren(e: e),
+            TupleLiteralExpression e => TupleLiteralExpressionChildren(e: e),
+            CompoundAssignmentExpression e => new object[]
+            {
+                e.Target,
+                e.Value
+            },
+            BinaryExpression e => new object[]
+            {
+                e.Left,
+                e.Right
+            },
+            UnaryExpression e => new object[]
+            {
+                e.Operand
+            },
+            CallExpression e => CallExpressionChildren(e: e),
+            NamedArgumentExpression e => new object[]
+            {
+                e.Value
+            },
+            DictEntryLiteralExpression e => new object[]
+            {
+                e.Key,
+                e.Value
+            },
+            CreatorExpression e => CreatorExpressionChildren(e: e),
+            WithExpression e => WithExpressionChildren(e: e),
+            MemberExpression e => new object[]
+            {
+                e.Object
+            },
+            OptionalMemberExpression e => new object[]
+            {
+                e.Object
+            },
+            IndexExpression e => new object[]
+            {
+                e.Object,
+                e.Index
+            },
+            ConditionalExpression e => new object[]
+            {
+                e.Condition,
+                e.TrueExpression,
+                e.FalseExpression
+            },
+            BlockExpression e => new object[]
+            {
+                e.Value
+            },
+            ChainedComparisonExpression e => ChainedComparisonExpressionChildren(e: e),
+            RangeExpression e => RangeExpressionChildren(e: e),
+            LambdaExpression e => LambdaExpressionChildren(e: e),
+            TypeExpression e => TypeExpressionChildren(e: e),
+            TypeConversionExpression e => new object[]
+            {
+                e.Expression
+            },
+            GenericMemberRoutineCallExpression e =>
+                GenericMemberRoutineCallExpressionChildren(e: e),
+            GenericMemberExpression e => GenericMemberExpressionChildren(e: e),
+            TypeIdExpression e => new object[]
+            {
+                e.Type
+            },
+            CarrierPayloadExpression e => new object[]
+            {
+                e.Carrier,
+                e.ConcreteType
+            },
+            CrashableDispatchExpression e => new object[]
+            {
+                e.Carrier
+            },
+            IsPatternExpression e => new object[]
+            {
+                e.Expression,
+                e.Pattern
+            },
+            FlagsTestExpression e => new object[]
+            {
+                e.Subject
+            },
+            WhenExpression e => WhenExpressionChildren(e: e),
+            StealExpression e => new object[]
+            {
+                e.Operand
+            },
+            WaitforExpression e => WaitforExpressionChildren(e: e),
+            DependentWaitforExpression e => DependentWaitforExpressionChildren(e: e),
+            BackIndexExpression e => new object[]
+            {
+                e.Operand
+            },
+            LiteralExpression or IdentifierExpression => Enumerable.Empty<object>(),
+            _ => null
+        };
     }
 
     private static IEnumerable<object> InsertedTextExpressionChildren(InsertedTextExpression e)
@@ -589,54 +531,39 @@ public static class AstWalker
     // -------- Patterns --------
     private static IEnumerable<object>? EnumeratePatternChildren(object node)
     {
-        switch (node)
+        return node switch
         {
-            case TypePattern p:
-                return TypePatternChildren(p: p);
-            case NegatedTypePattern p:
-                return new object[]
+            TypePattern p => TypePatternChildren(p: p),
+            NegatedTypePattern p => new object[]
+            {
+                p.Type
+            },
+            ExpressionPattern p => new object[]
+            {
+                p.Expression
+            },
+            ComparisonPattern p => new object[]
+            {
+                p.Value
+            },
+            VariantPattern p => VariantPatternChildren(p: p),
+            GuardPattern p => new object[]
+            {
+                p.InnerPattern,
+                p.Guard
+            },
+            CrashablePattern p => p.ErrorType != null
+                ? new object[]
                 {
-                    p.Type
-                };
-            case ExpressionPattern p:
-                return new object[]
-                {
-                    p.Expression
-                };
-            case ComparisonPattern p:
-                return new object[]
-                {
-                    p.Value
-                };
-            case VariantPattern p:
-                return VariantPatternChildren(p: p);
-            case GuardPattern p:
-                return new object[]
-                {
-                    p.InnerPattern,
-                    p.Guard
-                };
-            case CrashablePattern p:
-                return p.ErrorType != null
-                    ? new object[]
-                    {
-                        p.ErrorType
-                    }
-                    : Enumerable.Empty<object>();
-            case DestructuringPattern p:
-                return DestructuringPatternChildren(p: p);
-            case TypeDestructuringPattern p:
-                return TypeDestructuringPatternChildren(p: p);
-            case LiteralPattern:
-            case IdentifierPattern:
-            case FlagsPattern:
-            case WildcardPattern:
-            case NonePattern:
-            case ElsePattern:
-                return Enumerable.Empty<object>();
-            default:
-                return null;
-        }
+                    p.ErrorType
+                }
+                : Enumerable.Empty<object>(),
+            DestructuringPattern p => DestructuringPatternChildren(p: p),
+            TypeDestructuringPattern p => TypeDestructuringPatternChildren(p: p),
+            LiteralPattern or IdentifierPattern or FlagsPattern or WildcardPattern or NonePattern
+                or ElsePattern => Enumerable.Empty<object>(),
+            _ => null
+        };
     }
 
     private static IEnumerable<object> TypePatternChildren(TypePattern p)
@@ -682,43 +609,27 @@ public static class AstWalker
     // -------- Declarations --------
     private static IEnumerable<object>? EnumerateDeclarationChildren(object node)
     {
-        switch (node)
+        return node switch
         {
-            case VariableDeclaration d:
-                return VariableDeclarationChildren(d: d);
-            case RoutineDeclaration d:
-                return RoutineDeclarationChildren(d: d);
-            case EntityDeclaration d:
-                return EntityDeclarationChildren(d: d);
-            case RecordDeclaration d:
-                return RecordDeclarationChildren(d: d);
-            case ChoiceDeclaration d:
-                return ChoiceDeclarationChildren(d: d);
-            case CrashableDeclaration d:
-                return CrashableDeclarationChildren(d: d);
-            case VariantDeclaration d:
-                return VariantDeclarationChildren(d: d);
-            case ProtocolDeclaration d:
-                return ProtocolDeclarationChildren(d: d);
-            case PresetDeclaration d:
-                return new object[]
-                {
-                    d.Type,
-                    d.Value
-                };
-            case ExternalDeclaration d:
-                return ExternalDeclarationChildren(d: d);
-            case ExternalBlockDeclaration d:
-                return ExternalBlockDeclarationChildren(d: d);
-            case PassDeclaration:
-            case FlagsDeclaration:
-            case ModuleDeclaration:
-            case ImportDeclaration:
-            case DefineDeclaration:
-                return Enumerable.Empty<object>();
-            default:
-                return null;
-        }
+            VariableDeclaration d => VariableDeclarationChildren(d: d),
+            RoutineDeclaration d => RoutineDeclarationChildren(d: d),
+            EntityDeclaration d => EntityDeclarationChildren(d: d),
+            RecordDeclaration d => RecordDeclarationChildren(d: d),
+            ChoiceDeclaration d => ChoiceDeclarationChildren(d: d),
+            CrashableDeclaration d => CrashableDeclarationChildren(d: d),
+            VariantDeclaration d => VariantDeclarationChildren(d: d),
+            ProtocolDeclaration d => ProtocolDeclarationChildren(d: d),
+            PresetDeclaration d => new object[]
+            {
+                d.Type,
+                d.Value
+            },
+            ExternalDeclaration d => ExternalDeclarationChildren(d: d),
+            ExternalBlockDeclaration d => ExternalBlockDeclarationChildren(d: d),
+            PassDeclaration or FlagsDeclaration or ModuleDeclaration or ImportDeclaration
+                or DefineDeclaration => Enumerable.Empty<object>(),
+            _ => null
+        };
     }
 
     private static IEnumerable<object> VariableDeclarationChildren(VariableDeclaration d)
@@ -841,52 +752,42 @@ public static class AstWalker
     // -------- Auxiliary records --------
     private static IEnumerable<object>? EnumerateAuxiliaryChildren(object node)
     {
-        switch (node)
+        return node switch
         {
-            case WhenClause c:
-                return new object[]
+            WhenClause c => new object[]
+            {
+                c.Pattern,
+                c.Body
+            },
+            DestructuringBinding b => b.NestedPattern != null
+                ? new object[]
                 {
-                    c.Pattern,
-                    c.Body
-                };
-            case DestructuringBinding b:
-                return b.NestedPattern != null
-                    ? new object[]
-                    {
-                        b.NestedPattern
-                    }
-                    : Enumerable.Empty<object>();
-            case Parameter p:
-                return ParameterChildren(p: p);
-            case ChoiceCase c:
-                return c.Value != null
-                    ? new object[]
-                    {
-                        c.Value
-                    }
-                    : Enumerable.Empty<object>();
-            case VariantMember m:
-                return new object[]
+                    b.NestedPattern
+                }
+                : Enumerable.Empty<object>(),
+            Parameter p => ParameterChildren(p: p),
+            ChoiceCase c => c.Value != null
+                ? new object[]
                 {
-                    m.Type
-                };
-            case RoutineSignature r:
-                return RoutineSignatureChildren(r: r);
-            case TaskDependency d:
-                return new object[]
-                {
-                    d.DependencyExpr
-                };
-            case ExpressionPart ep:
-                return new object[]
-                {
-                    ep.Expression
-                };
-            case TextPart:
-                return Enumerable.Empty<object>();
-            default:
-                return null;
-        }
+                    c.Value
+                }
+                : Enumerable.Empty<object>(),
+            VariantMember m => new object[]
+            {
+                m.Type
+            },
+            RoutineSignature r => RoutineSignatureChildren(r: r),
+            TaskDependency d => new object[]
+            {
+                d.DependencyExpr
+            },
+            ExpressionPart ep => new object[]
+            {
+                ep.Expression
+            },
+            TextPart => Enumerable.Empty<object>(),
+            _ => null
+        };
     }
 
     private static IEnumerable<object> ParameterChildren(Parameter p)

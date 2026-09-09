@@ -608,101 +608,75 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private void HandleEntityGenericDefWired(RoutineInfo routine, EntityTypeInfo entity,
         TypeInfo textType, TypeInfo boolType, TypeInfo? u64Type)
     {
-        switch (routine.Name)
+        ctx.VariantBodies[key: routine.RegistryKey] = routine.Name switch
         {
-            case RepresentMemberRoutineName:
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: entity,
-                        synthesized: routine,
-                        memberRoutineName: RepresentMemberRoutineName) ??
-                    BuildTextBody(ownerType: entity,
-                        fields: entity.MemberVariables,
-                        textType: textType,
-                        diagnose: false);
-                break;
-            case DiagnoseMemberRoutineName:
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: entity,
-                        synthesized: routine,
-                        memberRoutineName: DiagnoseMemberRoutineName) ??
-                    BuildTextBody(ownerType: entity,
-                        fields: entity.MemberVariables,
-                        textType: textType,
-                        diagnose: true);
-                break;
-            case "eq":
-                ctx.VariantBodies[key: routine.RegistryKey] = entity.MemberVariables.Count == 0
-                    ? BuildReturnTrueBody(boolType: boolType)
-                    : BuildEqBody(ownerType: entity,
-                        fields: entity.MemberVariables,
-                        boolType: boolType);
-                break;
-            case HashMemberRoutineName when entity.MemberVariables.Count > 0 && u64Type != null &&
-                                            routine.Parameters.Count == 0:
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildHashBody(ownerType: entity,
+            RepresentMemberRoutineName => CloneUniversalDeriveBody(ownerType: entity,
+                synthesized: routine,
+                memberRoutineName: RepresentMemberRoutineName) ?? BuildTextBody(ownerType: entity,
+                fields: entity.MemberVariables,
+                textType: textType,
+                diagnose: false),
+            DiagnoseMemberRoutineName => CloneUniversalDeriveBody(ownerType: entity,
+                synthesized: routine,
+                memberRoutineName: DiagnoseMemberRoutineName) ?? BuildTextBody(ownerType: entity,
+                fields: entity.MemberVariables,
+                textType: textType,
+                diagnose: true),
+            "eq" => entity.MemberVariables.Count == 0
+                ? BuildReturnTrueBody(boolType: boolType)
+                : BuildEqBody(ownerType: entity,
                     fields: entity.MemberVariables,
-                    u64Type: u64Type);
-                break;
-            case HashMemberRoutineName when entity.MemberVariables.Count > 0 && u64Type != null &&
-                                            routine.Parameters.Count == 2:
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    BuildSecureHashBody(ownerType: entity,
-                        fields: entity.MemberVariables,
-                        u64Type: u64Type);
-                break;
-        }
+                    boolType: boolType),
+            HashMemberRoutineName when entity.MemberVariables.Count > 0 && u64Type != null &&
+                                       routine.Parameters.Count == 0 => BuildHashBody(
+                ownerType: entity,
+                fields: entity.MemberVariables,
+                u64Type: u64Type),
+            HashMemberRoutineName when entity.MemberVariables.Count > 0 && u64Type != null &&
+                                       routine.Parameters.Count == 2 => BuildSecureHashBody(
+                ownerType: entity,
+                fields: entity.MemberVariables,
+                u64Type: u64Type),
+            _ => ctx.VariantBodies[key: routine.RegistryKey]
+        };
     }
 
     private void HandleRecordGenericDefWired(RoutineInfo routine, RecordTypeInfo record,
         TypeInfo textType, TypeInfo boolType, TypeInfo? s32Type,
         TypeInfo? u64Type)
     {
-        switch (routine.Name)
+        ctx.VariantBodies[key: routine.RegistryKey] = routine.Name switch
         {
-            case RepresentMemberRoutineName:
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildTextBody(ownerType: record,
+            RepresentMemberRoutineName => BuildTextBody(ownerType: record,
+                fields: record.MemberVariables,
+                textType: textType,
+                diagnose: false),
+            DiagnoseMemberRoutineName => BuildTextBody(ownerType: record,
+                fields: record.MemberVariables,
+                textType: textType,
+                diagnose: true),
+            "eq" => BuildEqBody(ownerType: record,
+                fields: record.MemberVariables,
+                boolType: boolType),
+            HashMemberRoutineName when u64Type != null && routine.Parameters.Count == 0 =>
+                BuildHashBody(ownerType: record, fields: record.MemberVariables, u64Type: u64Type),
+            HashMemberRoutineName when u64Type != null && routine.Parameters.Count == 2 =>
+                BuildSecureHashBody(ownerType: record,
                     fields: record.MemberVariables,
-                    textType: textType,
-                    diagnose: false);
-                break;
-            case DiagnoseMemberRoutineName:
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildTextBody(ownerType: record,
-                    fields: record.MemberVariables,
-                    textType: textType,
-                    diagnose: true);
-                break;
-            case "eq":
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildEqBody(ownerType: record,
-                    fields: record.MemberVariables,
-                    boolType: boolType);
-                break;
-            case HashMemberRoutineName when u64Type != null && routine.Parameters.Count == 0:
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildHashBody(ownerType: record,
-                    fields: record.MemberVariables,
-                    u64Type: u64Type);
-                break;
-            case HashMemberRoutineName when u64Type != null && routine.Parameters.Count == 2:
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    BuildSecureHashBody(ownerType: record,
-                        fields: record.MemberVariables,
-                        u64Type: u64Type);
-                break;
-            case "cmp" when s32Type != null:
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildCmpBody(ownerType: record,
-                    fields: record.MemberVariables,
-                    s32Type: s32Type,
-                    boolType: boolType);
-                break;
+                    u64Type: u64Type),
+            "cmp" when s32Type != null => BuildCmpBody(ownerType: record,
+                fields: record.MemberVariables,
+                s32Type: s32Type,
+                boolType: boolType),
             // `assign` (shallow store) / `copy` (deep) on a GENERIC-DEFINITION record: the field-walk
             // `BuildRecordCopyBody` (same body `HandleRecord` uses for a generic def — CloneUniversalDeriveBody
             // is null for a def). Registering the DEF body here is REQUIRED so GMP can monomorphize it onto
             // each concrete instance (`Maybe[S32].assign`); without it an auto-derived carrier assign/copy was
             // declared+called but never defined (over-prune). Mirrors how eq/cmp/hash/represent above emit.
-            case AssignMemberRoutineName:
-            case DuplicateMemberRoutineName:
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildRecordCopyBody(record: record);
-                break;
-        }
+            AssignMemberRoutineName or DuplicateMemberRoutineName => BuildRecordCopyBody(
+                record: record),
+            _ => ctx.VariantBodies[key: routine.RegistryKey]
+        };
     }
 
     //  Per-type handlers
@@ -1123,34 +1097,23 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private void HandleCrashable(RoutineInfo routine, CrashableTypeInfo crashable,
         TypeInfo textType)
     {
-        switch (routine.Name)
+        ctx.VariantBodies[key: routine.RegistryKey] = routine.Name switch
         {
-            case RepresentMemberRoutineName:
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    BuildCrashableRepresentBody(crashable: crashable);
-                break;
-
-            case DiagnoseMemberRoutineName:
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    BuildCrashableDiagnoseBody(crashable: crashable, textType: textType);
-                break;
-
-            case "crash_title":
-                ctx.VariantBodies[key: routine.RegistryKey] = new ReturnStatement(
-                    Value: new LiteralExpression(Value: crashable.CrashTitle,
-                        LiteralType: TokenType.TextLiteral,
-                        Location: _synthLoc) { ResolvedType = textType },
-                    Location: _synthLoc);
-                break;
-
-            case Declaration.RuntimeContract.CrashMessage:
+            RepresentMemberRoutineName => BuildCrashableRepresentBody(crashable: crashable),
+            DiagnoseMemberRoutineName => BuildCrashableDiagnoseBody(crashable: crashable,
+                textType: textType),
+            "crash_title" => new ReturnStatement(
+                Value: new LiteralExpression(Value: crashable.CrashTitle,
+                    LiteralType: TokenType.TextLiteral,
+                    Location: _synthLoc) { ResolvedType = textType },
+                Location: _synthLoc),
+            Declaration.RuntimeContract.CrashMessage =>
                 // Default crash_message for a crashable that declared none: fall back to the
                 // always-synthesized title. A user-declared crash_message overrides this (the wired
                 // routine is only registered when absent — see AutoWiredRegistrationPass).
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    BuildCrashableCrashMessageBody(crashable: crashable);
-                break;
-        }
+                BuildCrashableCrashMessageBody(crashable: crashable),
+            _ => ctx.VariantBodies[key: routine.RegistryKey]
+        };
     }
 
     private void HandleChoice(RoutineInfo routine, ChoiceTypeInfo choice, TypeInfo textType,
@@ -4345,38 +4308,31 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // is synthesized by the main-loop hook as usual.
         SynthesizeVariantArmExtractors(variant: variant);
 
-        switch (routine.Name)
+        ctx.VariantBodies[key: routine.RegistryKey] = routine.Name switch
         {
-            case RepresentMemberRoutineName:
+            RepresentMemberRoutineName =>
                 // The `@override needs T is variant` derive template (arm-dispatch via `branchof`) is
                 // selected for a variant; falls back to the C# builder if absent.
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: variant,
-                        synthesized: routine,
-                        memberRoutineName: RepresentMemberRoutineName) ??
-                    BuildVariantRepresentBody(variant: variant, textType: textType);
-                break;
-
-            case DiagnoseMemberRoutineName:
+                CloneUniversalDeriveBody(ownerType: variant,
+                    synthesized: routine,
+                    memberRoutineName: RepresentMemberRoutineName) ??
+                BuildVariantRepresentBody(variant: variant, textType: textType),
+            DiagnoseMemberRoutineName =>
                 // TAG-dispatch from the `@override … needs T is VariantType` derive template
                 // (`branchof` + `m.type_id` + `v.diagnose()`); falls back to the C# builder.
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: variant,
-                        synthesized: routine,
-                        memberRoutineName: DiagnoseMemberRoutineName) ??
-                    BuildVariantDiagnoseBody(variant: variant, textType: textType);
-                break;
-
-            case DuplicateMemberRoutineName:
+                CloneUniversalDeriveBody(ownerType: variant,
+                    synthesized: routine,
+                    memberRoutineName: DiagnoseMemberRoutineName) ??
+                BuildVariantDiagnoseBody(variant: variant, textType: textType),
+            DuplicateMemberRoutineName =>
                 // TAG-dispatch deep copy from the `@override … needs T is VariantType` derive
                 // template (arm reconstruction `is ${m.type} v => Me(from: v.copy())`); C# fallback.
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    CloneUniversalDeriveBody(ownerType: variant,
-                        synthesized: routine,
-                        memberRoutineName: DuplicateMemberRoutineName) ??
-                    BuildVariantCopyBody(variant: variant);
-                break;
-        }
+                CloneUniversalDeriveBody(ownerType: variant,
+                    synthesized: routine,
+                    memberRoutineName: DuplicateMemberRoutineName) ??
+                BuildVariantCopyBody(variant: variant),
+            _ => ctx.VariantBodies[key: routine.RegistryKey]
+        };
     }
 
     /// <summary>

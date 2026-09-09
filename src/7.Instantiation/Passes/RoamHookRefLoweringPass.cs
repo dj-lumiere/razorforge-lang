@@ -55,44 +55,23 @@ internal sealed class RoamHookRefLoweringPass
     // expression carrying the hook call. Leaf mutation happens in RewriteExpr.
     private Statement RewriteStmt(Statement stmt)
     {
-        switch (stmt)
+        return stmt switch
         {
-            case BlockStatement block:
-                return RewriteBlock(block: block);
-
-            case DeclarationStatement
+            BlockStatement block => RewriteBlock(block: block),
+            DeclarationStatement
             {
                 Declaration: VariableDeclaration { Initializer: { } init } vd
-            } ds:
-                return RewriteDeclStmt(ds: ds, vd: vd, init: init);
-
-            case ExpressionStatement es:
-                return RewriteExprStmt(es: es);
-
-            case ReturnStatement { Value: { } rv } ret:
-                return RewriteReturnStmt(ret: ret, rv: rv);
-
-            case AssignmentStatement asg:
-                return RewriteAssignStmt(asg: asg);
-
-            case IfStatement ifs:
-                return RewriteIf(ifs: ifs);
-
-            case LoopStatement loop:
-                return RewriteLoopStmt(loop: loop);
-
-            case WhileStatement w:
-                return RewriteWhileStmt(w: w);
-
-            case WhenStatement w:
-                return RewriteWhen(when: w);
-
-            case DangerStatement d:
-                return RewriteDangerStmt(d: d);
-
-            default:
-                return stmt;
-        }
+            } ds => RewriteDeclStmt(ds: ds, vd: vd, init: init),
+            ExpressionStatement es => RewriteExprStmt(es: es),
+            ReturnStatement { Value: { } rv } ret => RewriteReturnStmt(ret: ret, rv: rv),
+            AssignmentStatement asg => RewriteAssignStmt(asg: asg),
+            IfStatement ifs => RewriteIf(ifs: ifs),
+            LoopStatement loop => RewriteLoopStmt(loop: loop),
+            WhileStatement w => RewriteWhileStmt(w: w),
+            WhenStatement w => RewriteWhen(when: w),
+            DangerStatement d => RewriteDangerStmt(d: d),
+            _ => stmt
+        };
     }
 
     private DeclarationStatement RewriteDeclStmt(DeclarationStatement ds, VariableDeclaration vd,

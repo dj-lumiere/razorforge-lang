@@ -200,33 +200,31 @@ internal sealed class LiteralLoweringPass : AstRewriter
     {
         SourceLocation loc = literal.Location;
 
-        switch (literal.Value)
+        return literal.Value switch
         {
-            case char ch:
-                return MakeCharacterCreator(
-                    codepoint: char.ConvertToUtf32(s: ch.ToString(), index: 0),
-                    loc: loc);
-
-            case string s when IsByteSizeLiteralType(type: literal.LiteralType):
-                return MakeByteSizeCreator(text: s, loc: loc);
-
-            case string s when IsDurationLiteralType(type: literal.LiteralType):
-                return MakeDurationCreator(text: s, literalType: literal.LiteralType, loc: loc);
-
-            case string s when literal.LiteralType == TokenType.CharacterLiteral:
-                return MakeCharacterCreator(codepoint: s.Length > 0
+            char ch => MakeCharacterCreator(
+                codepoint: char.ConvertToUtf32(s: ch.ToString(), index: 0),
+                loc: loc),
+            string s when IsByteSizeLiteralType(type: literal.LiteralType) => MakeByteSizeCreator(
+                text: s,
+                loc: loc),
+            string s when IsDurationLiteralType(type: literal.LiteralType) => MakeDurationCreator(
+                text: s,
+                literalType: literal.LiteralType,
+                loc: loc),
+            string s when literal.LiteralType == TokenType.CharacterLiteral =>
+                MakeCharacterCreator(codepoint: s.Length > 0
                         ? char.ConvertToUtf32(s: s, index: 0)
                         : 0,
-                    loc: loc);
+                    loc: loc),
+            string s when literal.LiteralType == TokenType.ByteLetterLiteral => MakeByteCreator(
+                byteValue: s.Length > 0
+                    ? s[index: 0] & 0xFF
+                    : 0,
+                loc: loc),
+            _ => null
+        };
 
-            case string s when literal.LiteralType == TokenType.ByteLetterLiteral:
-                return MakeByteCreator(byteValue: s.Length > 0
-                        ? s[index: 0] & 0xFF
-                        : 0,
-                    loc: loc);
-        }
-
-        return null;
     }
 
     /// <summary>
@@ -294,34 +292,31 @@ internal sealed class LiteralLoweringPass : AstRewriter
         string mag = raw[..j]
            .Replace(oldValue: "_", newValue: "");
 
-        switch (literal.LiteralType)
+        return literal.LiteralType switch
         {
-            case TokenType.J32Literal when _c32Type != null:
-                return MakeComplexCreator(typeName: "C32",
-                    type: _c32Type,
-                    mag: mag,
-                    compLit: TokenType.F32Literal,
-                    compType: _f32Type,
-                    loc: loc);
-            case TokenType.J64Literal when _c64Type != null:
-                return MakeComplexCreator(typeName: "C64",
-                    type: _c64Type,
-                    mag: mag,
-                    compLit: TokenType.F64Literal,
-                    compType: _f64Type,
-                    loc: loc);
-            case TokenType.J128Literal when _c128Type != null:
-                return MakeComplexCreator(typeName: "C128",
-                    type: _c128Type,
-                    mag: mag,
-                    compLit: TokenType.F128Literal,
-                    compType: _f128Type,
-                    loc: loc);
-            case TokenType.JnLiteral
-                when _complexType != null && _realType != null && _realFromLiteral != null:
+            TokenType.J32Literal when _c32Type != null => MakeComplexCreator(typeName: "C32",
+                type: _c32Type,
+                mag: mag,
+                compLit: TokenType.F32Literal,
+                compType: _f32Type,
+                loc: loc),
+            TokenType.J64Literal when _c64Type != null => MakeComplexCreator(typeName: "C64",
+                type: _c64Type,
+                mag: mag,
+                compLit: TokenType.F64Literal,
+                compType: _f64Type,
+                loc: loc),
+            TokenType.J128Literal when _c128Type != null => MakeComplexCreator(typeName: "C128",
+                type: _c128Type,
+                mag: mag,
+                compLit: TokenType.F128Literal,
+                compType: _f128Type,
+                loc: loc),
+            TokenType.JnLiteral when _complexType != null && _realType != null &&
+                                     _realFromLiteral != null =>
                 // Complex components are arbitrary-precision Real -> from_literal calls
                 // (the creator's args are not re-lowered, so build them already-lowered here).
-                return new CreatorExpression(TypeName: "Complex",
+                new CreatorExpression(TypeName: "Complex",
                     TypeArguments: null,
                     MemberVariables:
                     [
@@ -336,10 +331,9 @@ internal sealed class LiteralLoweringPass : AstRewriter
                             fromLiteral: _realFromLiteral,
                             loc: loc))
                     ],
-                    Location: loc) { ResolvedType = _complexType };
-            default:
-                return null;
-        }
+                    Location: loc) { ResolvedType = _complexType },
+            _ => null
+        };
     }
 
     /// <summary>Builds <c>&lt;CType&gt;(real: 0&lt;suffix&gt;, imag: &lt;mag&gt;&lt;suffix&gt;)</c> for a
