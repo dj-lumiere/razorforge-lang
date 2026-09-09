@@ -759,6 +759,15 @@ public sealed partial class SemanticVerifier
         }
 
 
+        TrackSpecialVariableRegistrations(varDecl: varDecl, varType: varType);
+    }
+
+    /// <summary>
+    /// Registers post-declaration side-effects for variables with special tracking needs:
+    /// Guarded/Witnessed handle identity (RF-S630) and Lookup dismantlement tracking (#161).
+    /// </summary>
+    private void TrackSpecialVariableRegistrations(VariableDeclaration varDecl, TypeSymbol varType)
+    {
         // RF-S630: track the controller identity of a Guarded/Witnessed handle so the
         // readers-XOR-writer check keys on the shared DATA, not the variable name — a clone
         // (`var s2 = s.share()`) inherits `s`'s identity and so conflicts with it.

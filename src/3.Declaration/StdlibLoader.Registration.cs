@@ -780,7 +780,9 @@ public sealed partial class StdlibLoader
             registry.LookupType(name: gp) is null &&
             registry.LookupType(name: $"{moduleName}.{gp}") is null &&
             System.Text.RegularExpressions.Regex.IsMatch(input: bracketContent,
-                pattern: $@"\b{System.Text.RegularExpressions.Regex.Escape(str: gp)}\b")) ?? false;
+                pattern: $@"\b{System.Text.RegularExpressions.Regex.Escape(str: gp)}\b",
+                options: System.Text.RegularExpressions.RegexOptions.None,
+                matchTimeout: TimeSpan.FromSeconds(value: 1))) ?? false;
         if (hasGenericParamInReceiver)
         {
             // GENERIC specialization (e.g. List[Agent[V]]): register under the generic def

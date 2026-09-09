@@ -1001,10 +1001,19 @@ public partial class LlvmCodeGenerator
                 attrs.Add(item: "dangerous");
             }
 
-            // Visibility is an attribute too. A member of a `secret` (module-private) type is itself
-            // module-private regardless of its own modifier (owner-secrecy cap), so decorate `secret`
-            // when EITHER the routine or its owner type is secret. `open` is the default → not emitted.
-            // (`posted` is member-variable-only — routines are only secret/open/external.)
+            AddVisibilityAndConcurrencyAttrs(r: r, attrs: attrs);
+
+            attrs.Sort();
+            return $"[{string.Join(separator: ", ", values: attrs)}] ";
+        }
+
+        // Visibility is an attribute too. A member of a `secret` (module-private) type is itself
+        // module-private regardless of its own modifier (owner-secrecy cap), so decorate `secret`
+        // when EITHER the routine or its owner type is secret. `open` is the default → not emitted.
+        // (`posted` is member-variable-only — routines are only secret/open/external.)
+        // Suspended/threaded are mutually exclusive concurrency markers.
+        static void AddVisibilityAndConcurrencyAttrs(RoutineInfo r, List<string> attrs)
+        {
             if (r is { Visibility: VisibilityModifier.Secret } or
                 { OwnerType.Visibility: VisibilityModifier.Secret })
             {
@@ -1019,9 +1028,6 @@ public partial class LlvmCodeGenerator
             {
                 attrs.Add(item: "threaded");
             }
-
-            attrs.Sort();
-            return $"[{string.Join(separator: ", ", values: attrs)}] ";
         }
 
         // Labeled parameter list — `(label: Core.Type, …)` — the label participates in overload

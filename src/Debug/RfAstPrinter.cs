@@ -224,9 +224,11 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         // memberRoutines whose owner type has no printed definition here (e.g. its def was a filtered generic
         // template) — emit them so nothing is dropped.
         foreach (List<string> orphaned in buckets.MemberRoutinesByOwner.Values)
-        foreach (string memberRoutine in orphaned)
         {
-            Emit(text: memberRoutine);
+            foreach (string memberRoutine in orphaned)
+            {
+                Emit(text: memberRoutine);
+            }
         }
 
         foreach (string free in buckets.FreeRoutines)

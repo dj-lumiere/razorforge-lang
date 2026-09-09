@@ -19,6 +19,7 @@ namespace Builder;
 /// per-object context (slab + section ranges) is a managed object kept alive through a <see cref="GCHandle"/>
 /// passed as the callbacks' <c>Opaque</c>.
 /// </summary>
+#pragma warning disable S6640 // unsafe blocks are required for Win32 VirtualAlloc/VirtualProtect and ORC callback interop
 internal static unsafe partial class OrcContiguousMemoryManager
 {
     // 64 MiB reserved+committed per linked object. Windows demand-pages committed memory, so the resident

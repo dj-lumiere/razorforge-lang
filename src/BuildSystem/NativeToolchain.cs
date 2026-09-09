@@ -127,6 +127,7 @@ internal static class NativeToolchain
     internal static int BuildNativeRuntime(string exeDir, string nativeBuildDir)
     {
         string buildArgs = $"--build \"{nativeBuildDir}\"";
+
         var psi = new ProcessStartInfo
         {
             FileName = "cmake",

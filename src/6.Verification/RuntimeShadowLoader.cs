@@ -39,9 +39,13 @@ public static class RuntimeShadowLoader
             return;
         }
 
+        #pragma warning disable S5443 // Temp dir is the correct location for per-process shadow copies of the runtime dll
+
         string tempDir = Path.GetTempPath();
         string shadow = Path.Combine(path1: tempDir,
             path2: $"{RuntimeLib}_compiler_{Environment.ProcessId}.dll");
+
+        #pragma warning restore S5443
 
         try
         {

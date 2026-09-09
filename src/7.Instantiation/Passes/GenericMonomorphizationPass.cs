@@ -964,10 +964,12 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 {
                     foreach (TypeInfo owner in _reachedOwners.ToArray()
                                                              .OfType<CrashableTypeInfo>())
-                    foreach (string member in dispatchMembers)
                     {
-                        Discover(r: _ctx.Registry.LookupMemberRoutine(type: owner,
-                            memberRoutineName: member));
+                        foreach (string member in dispatchMembers)
+                        {
+                            Discover(r: _ctx.Registry.LookupMemberRoutine(type: owner,
+                                memberRoutineName: member));
+                        }
                     }
                 }
             } while (_worklist.Count > 0);
@@ -3105,14 +3107,10 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             // vs create(from: SortedList[T]) which both have 1 parameter.
             if (expectedParamNames != null && decl.Parameters.Count == expectedParamNames.Count)
             {
-                bool namesMatch =
-                    ParamNamesMatch(decl: decl, expectedParamNames: expectedParamNames);
-                if (namesMatch && !ExpectedParameterTypesMismatch(decl: decl,
-                        expectedTypes: expectedParamTypeNames))
+                if (MatchCandidateByParamNamesAndTypes(decl: decl,
+                        expectedParamNames: expectedParamNames,
+                        expectedParamTypeNames: expectedParamTypeNames))
                 {
-                    // Param names alone don't disambiguate same-name-different-type overloads
-                    // (e.g. `create(from: Set[T])` vs `create(from: SortedSet[T])`). When type
-                    // names are supplied, require those to match too.
                     return decl;
                 }
 
@@ -3124,6 +3122,19 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
 
         return countOnlyMatch ?? firstMatch;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="decl"/> is an exact match on both parameter names and
+    /// types (when types are supplied). Param names alone don't disambiguate same-name-different-type
+    /// overloads (e.g. <c>create(from: Set[T])</c> vs <c>create(from: SortedSet[T])</c>), so both
+    /// checks are required.
+    /// </summary>
+    private static bool MatchCandidateByParamNamesAndTypes(RoutineDeclaration decl,
+        List<string> expectedParamNames, List<string?>? expectedParamTypeNames)
+    {
+        return ParamNamesMatch(decl: decl, expectedParamNames: expectedParamNames) &&
+               !ExpectedParameterTypesMismatch(decl: decl, expectedTypes: expectedParamTypeNames);
     }
 
     private static bool ExpectedParameterTypesMismatch(RoutineDeclaration decl,

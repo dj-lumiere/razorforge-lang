@@ -626,15 +626,6 @@ public partial class LlvmCodeGenerator
         // Member-conversions (`obj.Text()`, `index.U64!()`) are handled above via the
         // TypeConstructor intercept using the SA-stamped `create`. Any DirectMemberRoutine that
         // still reaches here with no resolved memberRoutine is a semantic-verifier contract violation.
-        if (memberRoutine == null && loweringKind is CallLoweringKind.DirectMemberRoutine)
-        {
-            throw new InvalidOperationException(
-                message:
-                $"member routine call .{member.MemberName} on {receiverType.FullName} reached codegen " +
-                $"with loweringKind={loweringKind} but no resolved member routine [enclosing={_currentRoutineDiagName}]. Semantic verifier" +
-                $" must resolve this.");
-        }
-
         // SA contract: a member call either resolves to a concrete routine (stamped on the call)
         // or is rejected (RF-S458 for `.field()` typos, the dynamic-field `ptr` closure call is
         // classified DynamicCall and handled above). A non-null resolvedRoutine that codegen can't
@@ -643,13 +634,9 @@ public partial class LlvmCodeGenerator
         // `.field()` (call) are distinct forms, so calling a data member is now an SA error, not a
         // silent field read (task #23 — codegen emits the resolved routine, it does not rediscover
         // intent).
-        if (memberRoutine == null && resolvedRoutine != null)
-        {
-            throw new InvalidOperationException(
-                message:
-                $"SA-resolved routine '{resolvedRoutine.RegistryKey}' could not be located as a " +
-                $"member routine on {receiverType.FullName}.{member.MemberName} during codegen.");
-        }
+        AssertMemberRoutineReachable(member: member, memberRoutine: memberRoutine,
+            resolvedRoutine: resolvedRoutine, loweringKind: loweringKind,
+            receiverType: receiverType, currentRoutineDiagName: _currentRoutineDiagName);
 
         // Build argument list: receiver first, then explicit arguments.
         // Skip the receiver for routines that don't take an implicit `me`:
@@ -658,39 +645,16 @@ public partial class LlvmCodeGenerator
         // Prepending a phantom receiver for these shifts every actual argument by one
         // slot in the LLVM call, corrupting all reads (e.g. Moment.create(year:2026,...)
         // saw year=zeroinitializer-cast and emitted timestamps in the wrong century).
-        bool memberRoutineTakesReceiver =
-            !(memberRoutine?.IsCommon == true || memberRoutine?.IsCreator == true);
-        List<string> argValues = memberRoutineTakesReceiver
-            ? new List<string> { receiver }
-            : new List<string>();
-        string receiverLlvmType = ReceiverPassedByRef(receiverType: receiverType)
-            ? "ptr"
-            : GetParameterLlvmType(type: receiverType);
-        List<string> argTypes = memberRoutineTakesReceiver
-            ? new List<string> { receiverLlvmType }
-            : new List<string>();
-        List<TypeInfo> argTypeInfos = memberRoutineTakesReceiver
-            ? new List<TypeInfo> { receiverType }
-            : new List<TypeInfo>();
+        bool memberRoutineTakesReceiver = InitializeMemberCallArgLists(receiver: receiver,
+            receiverType: receiverType, memberRoutine: memberRoutine,
+            argValues: out List<string> argValues, argTypes: out List<string> argTypes,
+            argTypeInfos: out List<TypeInfo> argTypeInfos);
 
         // Collect explicit argument TYPES in writing order (for overload resolution below). The
         // VALUES are emitted later, in parameter-declaration order, so member-call arguments
         // evaluate in declaration order — matching free routines — regardless of the call-site
         // writing order. argValues/argTypes hold only the receiver for now; the reordered slot loop
         // (or the unresolved-memberRoutine fallback) rebuilds them.
-        foreach (Expression arg in arguments)
-        {
-            TypeInfo? argType = GetExpressionType(expr: arg);
-            if (argType == null)
-            {
-                throw new InvalidOperationException(
-                    message:
-                    $"Cannot determine type for argument in member routine call to '{member.MemberName}'");
-            }
-
-            argTypeInfos.Add(item: argType);
-        }
-
         // Synthesized/lowered bodies (programmatic eq/cmp/hash, operator-lowered calls) never
         // pass through SemanticVerifier, so they arrive without a stamped ResolvedRoutine. Once the
         // concrete argument types are known, resolve the exact overload here so failable operators
@@ -700,54 +664,21 @@ public partial class LlvmCodeGenerator
         // `LookupMemberRoutine(name)` that resolved a non-failable name to its failable variant was
         // removed: that failability-masking is now an SA error (`obj.foo()` when only `foo!`
         // exists), so codegen no longer needs to paper over it (task #23).
-        int receiverSkip = memberRoutineTakesReceiver
-            ? 1
-            : 0;
-        if (memberRoutine == null)
-        {
-            // Signature-only lookup (name + arg types), empty argTypes matching the 0-param overload. NO
-            // name-only fallback: never-fail means the UPSTREAM passes make an unresolved member call
-            // unreachable here, not that codegen papers over it. An unresolved call hits the loud throw below.
-            var concreteArgTypes = argTypeInfos.Skip(count: receiverSkip)
-                                               .ToList();
-            memberRoutine = _registry.LookupMemberRoutineOverload(type: receiverType,
-                memberRoutineName: memberRoutineName,
-                argTypes: concreteArgTypes);
-        }
-
-        memberRoutine = NormalizeResolvedRoutineReference(routine: memberRoutine,
-            receiverType: receiverType,
-            returnType: null,
-            argTypes: argTypeInfos.Skip(count: receiverSkip)
-                                  .ToList());
+        memberRoutine = FillArgTypeInfosAndNormalizeRoutine(memberRoutineName: memberRoutineName,
+            arguments: arguments, argTypeInfos: argTypeInfos,
+            memberRoutineTakesReceiver: memberRoutineTakesReceiver,
+            receiverType: receiverType, memberRoutine: memberRoutine);
 
         // Last-chance: memberRoutine-generic on a concrete owner (e.g., Array[T,N].getitem[I]).
         // Neither OLP nor GenericAstRewriter may have resolved it; infer I from the actual
         // call-site argument types and request monomorphization now.
-        RoutineInfo? genericMemberRoutineForInference = memberRoutine switch
-        {
-            { IsGenericDefinition: true, GenericParameters.Count: > 0 } genericDefMemberRoutine =>
-                genericDefMemberRoutine,
-            { GenericDefinition: { GenericParameters.Count: > 0 } genericDefinition } when
-                RoutineHasUnresolvedTypeArguments(routine: memberRoutine) => genericDefinition,
-            _ => null
-        };
-
         // codegen NEVER infers method-generic type arguments from the call's argument types and
         // monomorphizes on the fly — that is upstream's job (GenericMonomorphizationPass / the demand
         // collector). A generic member routine reaching here WITHOUT explicit `[...]` type arguments (which
         // the block far below still instantiates) is an upstream resolution gap → hard error, never inference.
-        if (genericMemberRoutineForInference is
-                { OwnerType: not (null or GenericParameterTypeInfo or ProtocolTypeInfo) } &&
-            !genericMemberRoutineForInference.OwnerType.IsGenericDefinition &&
-            typeArguments is not { Count: > 0 })
-        {
-            throw new InvalidOperationException(
-                message:
-                $"Generic member routine '{receiverType.FullName}.{memberRoutineName}' reached codegen " +
-                "unresolved (no explicit type arguments) — it must be monomorphized upstream. codegen is a " +
-                "never-fail translator; it does not infer generic type arguments.");
-        }
+        ValidateGenericMemberRoutineResolved(receiverType: receiverType,
+            memberRoutineName: memberRoutineName, typeArguments: typeArguments,
+            memberRoutine: memberRoutine);
 
         // LLVM intrinsic template memberRoutine call (e.g., buf.read![U8](offset)) — emits its own
         // arguments (and reorders named args internally), so it bypasses the deferred slot loop
@@ -806,47 +737,13 @@ public partial class LlvmCodeGenerator
         // Ensure the memberRoutine is declared (so the multi-pass stdlib loop can compile its body)
         // Skip for protocol-owned memberRoutines -> they can't be declared with protocol types in LLVM IR
         // the monomorphized version (with concrete receiver type) will generate its own declaration.
-        if (memberRoutine is { OwnerType: not ProtocolTypeInfo })
-        {
-            GenerateRoutineDeclaration(routine: memberRoutine);
-        }
-
         // Use the semantic-layer-resolved return type.
         // Universal memberRoutine (OwnerType = GenericParameterTypeInfo "T"): substitute T -> receiverType
         // BEFORE applying outer _typeSubstitutions -> the outer context may map T to something else
         // (e.g., T -> S64 in add_first[T=S64]), which would corrupt the universal T in Retained[T].
-        TypeInfo? resolvedReturnType = memberRoutine?.ReturnType;
-        if (resolvedReturnType != null)
-        {
-            if (memberRoutine?.OwnerType is GenericParameterTypeInfo universalOwnerParam)
-            {
-                resolvedReturnType = SubstituteGenericParamInType(type: resolvedReturnType,
-                    paramName: universalOwnerParam.Name,
-                    concreteType: receiverType);
-            }
-            else
-            {
-                resolvedReturnType = ApplyTypeSubstitutions(type: resolvedReturnType);
-            }
-        }
-
-        // For resolved generic memberRoutines, also emit a declaration with the resolved name
-        if (!_generatedRoutines.Contains(item: mangledName))
-        {
-            if (memberRoutine != null)
-            {
-                GenerateRoutineDeclaration(routine: memberRoutine, nameOverride: mangledName);
-            }
-            else
-            {
-                string retType = resolvedReturnType != null
-                    ? GetLlvmType(type: resolvedReturnType)
-                    : "void";
-                _rfRoutineDeclarations[key: mangledName] =
-                    $"declare {retType} @{mangledName}({string.Join(separator: ", ", values: argTypes)})";
-                _generatedRoutines.Add(item: mangledName);
-            }
-        }
+        // For resolved generic memberRoutines, also emit a declaration with the resolved name.
+        TypeInfo? resolvedReturnType = ResolveReturnTypeAndDeclareSymbol(memberRoutine: memberRoutine,
+            mangledName: mangledName, receiverType: receiverType, argTypes: argTypes);
 
         return EmitMemberRoutineCallInstruction(sb: sb,
             arguments: arguments,
@@ -864,6 +761,12 @@ public partial class LlvmCodeGenerator
         bool MemberRoutineTakesReceiver,
         TypeInfo? ResolvedReturnType,
         string MangledName);
+
+    private readonly record struct FreeCallSpec(
+        string MangledName,
+        string ReturnType,
+        string CallReturnType,
+        bool IsCExtern);
 
     /// <summary>
     /// Applies ABI coercions (byval / register) to the explicit arguments and emits the final
@@ -937,6 +840,287 @@ public partial class LlvmCodeGenerator
             EmitLine(sb: sb, line: $"  {result} = call {returnType} @{mangledName}({args})");
             ConsumeTransferredCallOwnership(arguments: arguments);
             return result;
+        }
+    }
+
+    // ── Helpers extracted from EmitMemberRoutineCall to keep cognitive complexity ≤ 15 ────────────
+
+    /// <summary>
+    /// Throws when a member routine that must be resolved by the semantic verifier is missing.
+    /// Covers two contract violations: a DirectMemberRoutine call with no resolved routine, and a
+    /// SA-stamped routine that codegen can no longer locate in the registry.
+    /// </summary>
+    private static void AssertMemberRoutineReachable(MemberExpression member,
+        RoutineInfo? memberRoutine, RoutineInfo? resolvedRoutine,
+        CallLoweringKind loweringKind, TypeInfo receiverType, string? currentRoutineDiagName)
+    {
+        if (memberRoutine == null && loweringKind is CallLoweringKind.DirectMemberRoutine)
+        {
+            throw new InvalidOperationException(
+                message:
+                $"member routine call .{member.MemberName} on {receiverType.FullName} reached codegen " +
+                $"with loweringKind={loweringKind} but no resolved member routine [enclosing={currentRoutineDiagName}]. Semantic verifier" +
+                $" must resolve this.");
+        }
+
+        if (memberRoutine == null && resolvedRoutine != null)
+        {
+            throw new InvalidOperationException(
+                message:
+                $"SA-resolved routine '{resolvedRoutine.RegistryKey}' could not be located as a " +
+                $"member routine on {receiverType.FullName}.{member.MemberName} during codegen.");
+        }
+    }
+
+    /// <summary>
+    /// Initialises the three parallel argument accumulation lists for a member routine call,
+    /// prepending the receiver to each when the routine takes an implicit <c>me</c>.
+    /// Returns true when the routine takes a receiver (i.e. is neither common nor a creator).
+    /// </summary>
+    private bool InitializeMemberCallArgLists(string receiver, TypeInfo receiverType,
+        RoutineInfo? memberRoutine, out List<string> argValues, out List<string> argTypes,
+        out List<TypeInfo> argTypeInfos)
+    {
+        bool takesReceiver = !(memberRoutine?.IsCommon == true || memberRoutine?.IsCreator == true);
+        argValues = takesReceiver ? new List<string> { receiver } : new List<string>();
+        string receiverLlvmType = ReceiverPassedByRef(receiverType: receiverType)
+            ? "ptr"
+            : GetParameterLlvmType(type: receiverType);
+        argTypes = takesReceiver ? new List<string> { receiverLlvmType } : new List<string>();
+        argTypeInfos = takesReceiver ? new List<TypeInfo> { receiverType } : new List<TypeInfo>();
+        return takesReceiver;
+    }
+
+    /// <summary>
+    /// Appends each explicit argument's type to <paramref name="argTypeInfos"/>, then resolves
+    /// the member routine overload (when none was stamped upstream) and normalises the reference.
+    /// </summary>
+    private RoutineInfo? FillArgTypeInfosAndNormalizeRoutine(string memberRoutineName,
+        List<Expression> arguments, List<TypeInfo> argTypeInfos, bool memberRoutineTakesReceiver,
+        TypeInfo receiverType, RoutineInfo? memberRoutine)
+    {
+        foreach (Expression arg in arguments)
+        {
+            TypeInfo? argType = GetExpressionType(expr: arg);
+            if (argType == null)
+            {
+                throw new InvalidOperationException(
+                    message:
+                    $"Cannot determine type for argument in member routine call to '{memberRoutineName}'");
+            }
+
+            argTypeInfos.Add(item: argType);
+        }
+
+        int receiverSkip = memberRoutineTakesReceiver ? 1 : 0;
+        if (memberRoutine == null)
+        {
+            // Signature-only lookup (name + arg types). No name-only fallback — upstream passes
+            // must make an unresolved member call unreachable here.
+            var concreteArgTypes = argTypeInfos.Skip(count: receiverSkip).ToList();
+            memberRoutine = _registry.LookupMemberRoutineOverload(type: receiverType,
+                memberRoutineName: memberRoutineName,
+                argTypes: concreteArgTypes);
+        }
+
+        return NormalizeResolvedRoutineReference(routine: memberRoutine,
+            receiverType: receiverType,
+            returnType: null,
+            argTypes: argTypeInfos.Skip(count: receiverSkip).ToList());
+    }
+
+    /// <summary>
+    /// Validates that a method-generic member routine has been monomorphized upstream before
+    /// reaching codegen. Codegen is a never-fail translator and never infers type arguments.
+    /// </summary>
+    private static void ValidateGenericMemberRoutineResolved(TypeInfo receiverType,
+        string memberRoutineName, List<TypeExpression>? typeArguments, RoutineInfo? memberRoutine)
+    {
+        RoutineInfo? genericMemberRoutineForInference = memberRoutine switch
+        {
+            { IsGenericDefinition: true, GenericParameters.Count: > 0 } genericDefMemberRoutine =>
+                genericDefMemberRoutine,
+            { GenericDefinition: { GenericParameters.Count: > 0 } genericDefinition } when
+                RoutineHasUnresolvedTypeArguments(routine: memberRoutine) => genericDefinition,
+            _ => null
+        };
+
+        if (genericMemberRoutineForInference is
+                { OwnerType: not (null or GenericParameterTypeInfo or ProtocolTypeInfo) } &&
+            !genericMemberRoutineForInference.OwnerType.IsGenericDefinition &&
+            typeArguments is not { Count: > 0 })
+        {
+            throw new InvalidOperationException(
+                message:
+                $"Generic member routine '{receiverType.FullName}.{memberRoutineName}' reached codegen " +
+                "unresolved (no explicit type arguments) — it must be monomorphized upstream. codegen is a " +
+                "never-fail translator; it does not infer generic type arguments.");
+        }
+    }
+
+    /// <summary>
+    /// Emits a <c>GenerateRoutineDeclaration</c> for the routine (when not protocol-owned), resolves
+    /// the return type (applying generic-param substitution for universal receivers), and emits a
+    /// declaration for the mangled name when it has not been generated yet.
+    /// </summary>
+    private TypeInfo? ResolveReturnTypeAndDeclareSymbol(RoutineInfo? memberRoutine,
+        string mangledName, TypeInfo receiverType, List<string> argTypes)
+    {
+        if (memberRoutine is { OwnerType: not ProtocolTypeInfo })
+        {
+            GenerateRoutineDeclaration(routine: memberRoutine);
+        }
+
+        TypeInfo? resolvedReturnType = memberRoutine?.ReturnType;
+        if (resolvedReturnType != null)
+        {
+            if (memberRoutine?.OwnerType is GenericParameterTypeInfo universalOwnerParam)
+            {
+                resolvedReturnType = SubstituteGenericParamInType(type: resolvedReturnType,
+                    paramName: universalOwnerParam.Name,
+                    concreteType: receiverType);
+            }
+            else
+            {
+                resolvedReturnType = ApplyTypeSubstitutions(type: resolvedReturnType);
+            }
+        }
+
+        if (!_generatedRoutines.Contains(item: mangledName))
+        {
+            if (memberRoutine != null)
+            {
+                GenerateRoutineDeclaration(routine: memberRoutine, nameOverride: mangledName);
+            }
+            else
+            {
+                string retType = resolvedReturnType != null
+                    ? GetLlvmType(type: resolvedReturnType)
+                    : "void";
+                _rfRoutineDeclarations[key: mangledName] =
+                    $"declare {retType} @{mangledName}({string.Join(separator: ", ", values: argTypes)})";
+                _generatedRoutines.Add(item: mangledName);
+            }
+        }
+
+        return resolvedReturnType;
+    }
+
+    // ── Helpers extracted from EmitFreeCallInstruction to keep cognitive complexity ≤ 15 ──────────
+
+    /// <summary>
+    /// Iterates the argument lists in place and bitcasts any <c>half</c> (F16) argument to
+    /// <c>i16</c>, as required by the C ABI on all supported targets.
+    /// </summary>
+    private void CoerceCExternF16Arguments(StringBuilder sb, List<string> argValues,
+        List<string> argTypes)
+    {
+        for (int i = 0; i < argTypes.Count; i++)
+        {
+            if (argTypes[index: i] == "half")
+            {
+                string bits = NextTemp();
+                EmitLine(sb: sb, line: $"  {bits} = bitcast half {argValues[index: i]} to i16");
+                argValues[index: i] = bits;
+                argTypes[index: i] = "i16";
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emits the final LLVM call instruction for a free-function call and returns the result
+    /// temporary. Handles all four return paths: sret (ABI-indirect struct), coerced struct
+    /// (Phase-2 ABI integer), void, and normal value (including C-extern F16 bitcast round-trip).
+    /// </summary>
+    private string EmitFreeCallAndGetResult(StringBuilder sb, List<Expression> arguments,
+        RoutineInfo? routine, FreeCallSpec spec, List<string> argTypes, List<string> argValues)
+    {
+        (string mangledName, string returnType, string callReturnType, bool isCExtern) = spec;
+        bool needsSret = routine != null && (isCExtern
+            ? NeedsCExternSret(routine: routine)
+            : ReturnsViaSret(routine: routine));
+        if (needsSret)
+        {
+            string sretPtr = NextTemp();
+            EmitEntryAlloca(llvmName: sretPtr, llvmType: returnType);
+            argTypes.Insert(index: 0, item: $"ptr sret({returnType})");
+            argValues.Insert(index: 0, item: sretPtr);
+            string args = BuildCallArgs(types: argTypes, values: argValues);
+            EmitLine(sb: sb, line: $"  call void @{mangledName}({args})");
+            ConsumeTransferredCallOwnership(arguments: arguments);
+            string result = NextTemp();
+            EmitLine(sb: sb, line: $"  {result} = load {returnType}, ptr {sretPtr}");
+            return result;
+        }
+
+        string? calleeCoerce = routine != null && !isCExtern
+            ? ReturnCoerceType(routine: routine)
+            : null;
+        if (calleeCoerce != null)
+        {
+            string result = NextTemp();
+            string args = BuildCallArgs(types: argTypes, values: argValues);
+            EmitLine(sb: sb, line: $"  {result} = call {calleeCoerce} @{mangledName}({args})");
+            ConsumeTransferredCallOwnership(arguments: arguments);
+            return CoerceAbiToStruct(sb: sb,
+                abiValue: result,
+                abiType: calleeCoerce,
+                structLlvm: returnType);
+        }
+
+        if (callReturnType == "void")
+        {
+            string args = BuildCallArgs(types: argTypes, values: argValues);
+            EmitLine(sb: sb, line: $"  call void @{mangledName}({args})");
+            ConsumeTransferredCallOwnership(arguments: arguments);
+            return "undef";
+        }
+
+        string callResult = NextTemp();
+        string argsStr = BuildCallArgs(types: argTypes, values: argValues);
+        EmitLine(sb: sb, line: $"  {callResult} = call {callReturnType} @{mangledName}({argsStr})");
+        ConsumeTransferredCallOwnership(arguments: arguments);
+        if (isCExtern && returnType == "half" && callReturnType == "i16")
+        {
+            string halfResult = NextTemp();
+            EmitLine(sb: sb, line: $"  {halfResult} = bitcast i16 {callResult} to half");
+            return halfResult;
+        }
+
+        return callResult;
+    }
+
+    // ── Helper extracted from ResolveMemberCallSymbol to keep cognitive complexity ≤ 15 ──────────
+
+    /// <summary>
+    /// When explicit type arguments are present and the routine is still a generic definition,
+    /// resolves the type arguments and requests a concrete monomorphization from the registry.
+    /// Throws when resolution fails (i.e. the routine remains a generic definition after the attempt).
+    /// </summary>
+    private void InstantiateGenericMemberRoutineIfNeeded(List<TypeExpression> typeArguments,
+        TypeInfo receiverType, MemberExpression member, ref RoutineInfo memberRoutine)
+    {
+        if (memberRoutine is { IsGenericDefinition: true, GenericParameters: { Count: > 0 } gParams }
+            && gParams.Count == typeArguments.Count)
+        {
+            var resolvedTypeArgs = typeArguments
+                                   .Select(selector: ta => ResolveTypeExpression(typeExpr: ta))
+                                   .Where(predicate: t => t != null)
+                                   .Cast<TypeInfo>()
+                                   .ToList();
+            if (resolvedTypeArgs.Count == typeArguments.Count)
+            {
+                memberRoutine =
+                    _registry.GetOrCreateRoutineResolution(genericDef: memberRoutine,
+                        typeArguments: resolvedTypeArgs);
+            }
+        }
+
+        if (memberRoutine.IsGenericDefinition)
+        {
+            throw new InvalidOperationException(
+                message:
+                $"Explicit member routine generic call '{receiverType.FullName}.{member.MemberName}' reached LLVM codegen unresolved.");
         }
     }
 
@@ -2004,17 +2188,7 @@ public partial class LlvmCodeGenerator
         bool isCExtern = routine is { CallingConvention: "C" };
         if (isCExtern)
         {
-            for (int i = 0; i < argTypes.Count; i++)
-            {
-                if (argTypes[index: i] == "half")
-                {
-                    string bits = NextTemp();
-                    EmitLine(sb: sb,
-                        line: $"  {bits} = bitcast half {argValues[index: i]} to i16");
-                    argValues[index: i] = bits;
-                    argTypes[index: i] = "i16";
-                }
-            }
+            CoerceCExternF16Arguments(sb: sb, argValues: argValues, argTypes: argTypes);
         }
 
         string returnType = routine?.ReturnType != null
@@ -2030,68 +2204,13 @@ public partial class LlvmCodeGenerator
         // external("C") returning structs > 8 bytes (Win-x64 MSVC), or an RF routine whose return
         // is ABI-Indirect. The declaration, definition, and every return already agree (see
         // ReturnsViaSret); the call must pass the result slot as the first argument and load it back.
-        bool needsSret = routine != null && (isCExtern
-            ? NeedsCExternSret(routine: routine)
-            : ReturnsViaSret(routine: routine));
-        if (needsSret)
-        {
-            // Allocate space for the result, pass as sret pointer, call as void, then load
-            string sretPtr = NextTemp();
-            EmitEntryAlloca(llvmName: sretPtr, llvmType: returnType);
-            // Insert sret pointer as first argument
-            argTypes.Insert(index: 0, item: $"ptr sret({returnType})");
-            argValues.Insert(index: 0, item: sretPtr);
-            string args = BuildCallArgs(types: argTypes, values: argValues);
-            EmitLine(sb: sb, line: $"  call void @{mangledName}({args})");
-            ConsumeTransferredCallOwnership(arguments: arguments);
-            // Load the result from the sret allocation
-            string result = NextTemp();
-            EmitLine(sb: sb, line: $"  {result} = load {returnType}, ptr {sretPtr}");
-            return result;
-        }
-
         // Coerced (Phase 2) struct return: the callee returns the ABI integer form; call it as that,
         // then reinterpret the result back into the struct value.
-        string? calleeCoerce = routine != null && !isCExtern
-            ? ReturnCoerceType(routine: routine)
-            : null;
-        if (calleeCoerce != null)
-        {
-            string result = NextTemp();
-            string args = BuildCallArgs(types: argTypes, values: argValues);
-            EmitLine(sb: sb, line: $"  {result} = call {calleeCoerce} @{mangledName}({args})");
-            ConsumeTransferredCallOwnership(arguments: arguments);
-            return CoerceAbiToStruct(sb: sb,
-                abiValue: result,
-                abiType: calleeCoerce,
-                structLlvm: returnType);
-        }
-
-        if (callReturnType == "void")
-        {
-            // Void return - no result
-            string args = BuildCallArgs(types: argTypes, values: argValues);
-            EmitLine(sb: sb, line: $"  call void @{mangledName}({args})");
-            ConsumeTransferredCallOwnership(arguments: arguments);
-            return "undef";
-        }
-        else
-        {
-            // Has return value
-            string result = NextTemp();
-            string args = BuildCallArgs(types: argTypes, values: argValues);
-            EmitLine(sb: sb, line: $"  {result} = call {callReturnType} @{mangledName}({args})");
-            ConsumeTransferredCallOwnership(arguments: arguments);
-            // For external("C") F16 return, bitcast i16 back to half
-            if (isCExtern && returnType == "half" && callReturnType == "i16")
-            {
-                string halfResult = NextTemp();
-                EmitLine(sb: sb, line: $"  {halfResult} = bitcast i16 {result} to half");
-                return halfResult;
-            }
-
-            return result;
-        }
+        return EmitFreeCallAndGetResult(sb: sb, arguments: arguments,
+            routine: routine,
+            spec: new FreeCallSpec(MangledName: mangledName, ReturnType: returnType,
+                CallReturnType: callReturnType, IsCExtern: isCExtern),
+            argTypes: argTypes, argValues: argValues);
     }
 
     private void CoerceMemberCallArguments(StringBuilder sb, RoutineInfo? memberRoutine,
@@ -2157,30 +2276,8 @@ public partial class LlvmCodeGenerator
     {
         if (typeArguments is { Count: > 0 } && memberRoutine != null)
         {
-            if (memberRoutine is
-                    { IsGenericDefinition: true, GenericParameters: { Count: > 0 } gParams } &&
-                gParams.Count == typeArguments.Count)
-            {
-                var resolvedTypeArgs = typeArguments
-                                      .Select(selector: ta => ResolveTypeExpression(typeExpr: ta))
-                                      .Where(predicate: t => t != null)
-                                      .Cast<TypeInfo>()
-                                      .ToList();
-                if (resolvedTypeArgs.Count == typeArguments.Count)
-                {
-                    memberRoutine =
-                        _registry.GetOrCreateRoutineResolution(genericDef: memberRoutine,
-                            typeArguments: resolvedTypeArgs);
-                }
-            }
-
-            if (memberRoutine.IsGenericDefinition)
-            {
-                throw new InvalidOperationException(
-                    message:
-                    $"Explicit member routine generic call '{receiverType.FullName}.{member.MemberName}' reached LLVM codegen unresolved.");
-            }
-
+            InstantiateGenericMemberRoutineIfNeeded(typeArguments: typeArguments,
+                receiverType: receiverType, member: member, memberRoutine: ref memberRoutine);
             mangledName = MangleRoutineName(routine: memberRoutine);
         }
         else if (memberRoutine != null)

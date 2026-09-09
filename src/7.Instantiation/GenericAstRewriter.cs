@@ -1562,6 +1562,18 @@ internal static class GenericAstRewriter
             resolvedType = concreteLocal;
         }
 
+        return RefineSoAAndTypewiseType(resolvedType: resolvedType, result: result, expr: expr,
+            ctx: ctx);
+    }
+
+    /// <summary>
+    /// Applies the final two override layers: SoA splice column type preservation and typewise fold
+    /// concrete-type preservation. Both share the same shape (keep <c>result.ResolvedType</c> when
+    /// the computed <paramref name="resolvedType"/> would otherwise be null or an error sentinel).
+    /// </summary>
+    private static TypeInfo? RefineSoAAndTypewiseType(TypeInfo? resolvedType, Expression result,
+        Expression expr, RewriteContext ctx)
+    {
         // A `${m.name}` splice on a SoA container resolves to the COLUMN type, not the source member
         // type. Preserve the splice-computed type when the object is an SoA container.
         if (expr is SpliceMemberExpression && result is MemberExpression spliceMember &&

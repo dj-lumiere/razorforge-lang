@@ -24,6 +24,7 @@ namespace Builder;
 /// one export from our explicitly-loaded module handle; everything else lines up across the C-API surface.
 /// (Proven end-to-end first by tests/Perf/OrcJitSpike.cs, incl. rf_* runtime-symbol resolution.)
 /// </summary>
+#pragma warning disable S6640 // unsafe is required for LLVM ORC function-pointer interop (delegate* unmanaged[Cdecl])
 internal static unsafe class OrcJitExecutor
 {
     private static readonly object InitLock = new();
