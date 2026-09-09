@@ -463,11 +463,7 @@ public sealed partial class SemanticVerifier
         }
 
         {
-            RoutineInfo? creator = _registry.LookupMemberRoutineOverload(type: resolvedType,
-                memberRoutineName: "create",
-                argTypes: argTypes);
-            creator ??= _registry.LookupRoutineOverload(
-                baseName: $"{resolvedType.Name}.create",
+            RoutineInfo? creator = _registry.LookupCreatorOverload(type: resolvedType,
                 argTypes: argTypes);
 
             if (creator != null && creator.Parameters.Count == argTypes.Count &&

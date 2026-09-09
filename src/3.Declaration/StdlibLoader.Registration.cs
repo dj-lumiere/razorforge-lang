@@ -679,7 +679,8 @@ public sealed partial class StdlibLoader
                               registry.LookupType(name: bareName);
         if (ctorOwner != null)
         {
-            memberRoutineName = "create";
+            // A constructor carries NO member name — identity is RoutineKind.Creator, assigned below.
+            memberRoutineName = RoutineInfo.CreatorName;
             return ctorOwner;
         }
 
@@ -744,7 +745,7 @@ public sealed partial class StdlibLoader
             // (so call-site lookup on List[Agent[S64]] finds it), and remember the receiver
             // text so `me` is typed as the specialized receiver (MeType) below — making
             // member access like `me[i]` yield Agent[V] instead of List's raw element.
-            meTypeName = memberRoutineName is "create" ? null : typeName;
+            meTypeName = memberRoutineName == RoutineInfo.CreatorName ? null : typeName;
             return baseDef;
         }
 
@@ -908,8 +909,15 @@ public sealed partial class StdlibLoader
         // bug: this path left Kind at the default FreeRoutine, so a constructor's DEFINE wrongly gained an
         // implicit `me` param the static construction call omits → arg shift → NULL-write AV). The former
         // orthogonal `StorageClass.Common` axis is folded in as RoutineKind.CommonRoutine.
+        // A constructor is spelled either as the bare `routine T(...)` (ResolveRoutineOwner cleared the
+        // member name to RoutineInfo.CreatorName) OR the member form `routine T.create(...)` (surface
+        // member name "create"). Both are the reserved Creator kind with NO internal name — normalize the
+        // surface "create" token away here so nothing downstream keys off it.
+        if (ownerType != null && memberRoutineName == "create")
+            memberRoutineName = RoutineInfo.CreatorName;
+
         RoutineKind routineKind =
-            memberRoutineName == "create" ? RoutineKind.Creator
+            memberRoutineName == RoutineInfo.CreatorName && ownerType != null ? RoutineKind.Creator
             : routine.IsCommon ? RoutineKind.CommonRoutine
             : ownerType != null ? RoutineKind.MemberRoutine
             : RoutineKind.FreeRoutine;
@@ -957,7 +965,7 @@ public sealed partial class StdlibLoader
         // Constructor divergent-duplicate guard: hash the body so RegisterRoutine can distinguish a
         // benign identical cross-file duplicate creator from a divergent one (see
         // TypeRegistry.DivergentDuplicateCreators).
-        if (memberRoutineName == "create")
+        if (routineInfo.IsCreator)
             routineInfo.BodyHash = TypeRegistry.ComputeCreatorBodyHash(body: routine.Body);
 
         try

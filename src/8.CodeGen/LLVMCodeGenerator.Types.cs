@@ -700,13 +700,9 @@ public partial class LlvmCodeGenerator
             }
         }
 
-        if (returnType != null && routine.Name == "create")
+        if (returnType != null && routine.IsCreator)
         {
-            RoutineInfo? reboundCreator = _registry.LookupMemberRoutineOverload(type: returnType,
-                memberRoutineName: "create",
-                argTypes: argTypes);
-            reboundCreator ??= _registry.LookupRoutineOverload(
-                baseName: $"{returnType.Name}.create",
+            RoutineInfo? reboundCreator = _registry.LookupCreatorOverload(type: returnType,
                 argTypes: argTypes);
             // Only accept the rebound when its arity matches the call. The fallback path inside
             // LookupRoutineOverload returns the first-registered overload (often the zero-arg

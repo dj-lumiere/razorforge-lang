@@ -16,6 +16,10 @@ public sealed partial class SemanticVerifier
     /// <c>.S64!()</c> → <c>S64.create!(from:)</c> conversion). See the conversion-variant resolution in
     /// <c>AnalyzeCallExpression</c>.
     /// </summary>
+    // A conversion call `.try_TYPE()` resolves to TYPE's failable-creator recovery variant, named with the
+    // reserved "create" token (see ErrorHandlingGenerator.GenerateVariantName): `.try_S32()` → `S32`'s
+    // `try_create`. (The `try_K` surface heuristic — strip prefix, test remainder as a type — is a pending
+    // design decision vs an explicit `K.try_create`; this table is the current spelling.)
     private static readonly (string prefix, string cname)[] ConversionVariantCreators =
     [
         ("try_", "try_create"),
@@ -170,10 +174,9 @@ public sealed partial class SemanticVerifier
     private RoutineInfo? FindVariadicCreate(TypeSymbol type)
     {
         var candidates = new List<RoutineInfo>();
-        _registry.CollectMemberRoutineCandidates(type: type, memberRoutineName: "create",
-            candidates: candidates);
+        _registry.CollectCreatorCandidates(type: type, candidates: candidates);
         candidates.AddRange(collection: _registry.GetMemberRoutinesForType(type: type)
-            .Where(predicate: m => m.Name == "create"));
+            .Where(predicate: m => m.IsCreator));
         return candidates.FirstOrDefault(
             predicate: m => m.Parameters.Any(predicate: p => p.IsVariadicParam));
     }
@@ -277,10 +280,8 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private TypeSymbol AnalyzeZeroArgConstruction(CallExpression call, TypeSymbol zeroArgType)
     {
-        RoutineInfo? zeroCreate = _registry.LookupMemberRoutineOverload(type: zeroArgType,
-            memberRoutineName: "create", argTypes: new List<TypeSymbol>())
-            ?? _registry.LookupRoutineOverload(baseName: $"{zeroArgType.FullName}.create",
-                argTypes: new List<TypeInfo>());
+        RoutineInfo? zeroCreate = _registry.LookupCreatorOverload(type: zeroArgType,
+            argTypes: new List<TypeInfo>());
         call.ConstructedType = zeroArgType;
         call.LoweringKind = ClassifyConstruction(type: zeroArgType,
             isCollectionLiteral: call.IsCollectionLiteral);
@@ -771,7 +772,7 @@ public sealed partial class SemanticVerifier
                                 && callableType is TypeInfo ctorOwner)
                             {
                                 argExpected = _registry.GetMemberRoutinesForType(type: ctorOwner)
-                                    .Where(predicate: m => m.Name == "create")
+                                    .Where(predicate: m => m.IsCreator)
                                     .SelectMany(selector: m => m.Parameters)
                                     .FirstOrDefault(predicate: p => p.Name == ctorArg.Name)?.Type;
                             }
@@ -826,12 +827,20 @@ public sealed partial class SemanticVerifier
                         }
                     }
 
-                    RoutineInfo? creator = _registry.LookupMemberRoutineOverload(type: callableType,
-                        memberRoutineName: "create",
+                    RoutineInfo? creator = _registry.LookupCreatorOverload(type: callableType,
                         argTypes: creatorArgTypes);
-                    creator ??= _registry.LookupRoutineOverload(
-                        baseName: $"{callableType.FullName}.create",
-                        argTypes: creatorArgTypes);
+
+                    // A creator on a generic DEFINITION (e.g. `Retained[T].create(from: T)`) cannot be
+                    // arg-matched: a concrete arg (`Node`) never "matches" the unbound param `T`, so the
+                    // overload matcher returns null. Fall back to the def's creator selected by arity — the
+                    // type args are inferred from it right below (callableType → the concrete instance).
+                    if (creator == null && callableType.IsGenericDefinition)
+                    {
+                        List<RoutineInfo> defCreators = _registry.GetMemberRoutinesForType(type: callableType)
+                            .Where(predicate: m => m.IsCreator && m.Parameters.Count == creatorArgTypes.Count)
+                            .ToList();
+                        if (defCreators.Count == 1) creator = defCreators[index: 0];
+                    }
 
                     // Generic-def constructor routed through a user `create`: infer the wrapper's type args
                     // from the creator's params so callableType becomes the CONCRETE instance and the creator
@@ -858,8 +867,8 @@ public sealed partial class SemanticVerifier
                                 is { } ctorConcrete)
                         {
                             callableType = ctorConcrete;
-                            creator = _registry.LookupMemberRoutineOverload(type: callableType,
-                                memberRoutineName: "create", argTypes: creatorArgTypes) ?? creator;
+                            creator = _registry.LookupCreatorOverload(type: callableType,
+                                argTypes: creatorArgTypes) ?? creator;
                         }
                     }
 
@@ -903,7 +912,7 @@ public sealed partial class SemanticVerifier
                         // making codegen bit-reinterpret the variant. Treat it as a normal memberRoutine call and
                         // route it through ResolvedRoutine below.
                         bool isVariantArmExtractor = creator is
-                            { Name: "create", IsFailable: true, Parameters: [{ Type: VariantTypeInfo }] };
+                            { IsCreator: true, IsFailable: true, Parameters: [{ Type: VariantTypeInfo }] };
 
                         call.ConstructedType = callableType;
                         call.LoweringKind = isVariantArmExtractor
@@ -920,7 +929,7 @@ public sealed partial class SemanticVerifier
                         // to guess and, for bit-carrier types like F128, mis-lowers it to a raw
                         // `sext`/reinterpret of the integer into the i128 IEEE carrier.
                         bool insideOwnCreate =
-                            _currentRoutine is { Name: "create" } currentCreate
+                            _currentRoutine is { IsCreator: true } currentCreate
                             && currentCreate.OwnerType != null
                             && (currentCreate.OwnerType.FullName == callableType.FullName
                                 || currentCreate.OwnerType.Name == callableType.Name)
@@ -1122,11 +1131,7 @@ public sealed partial class SemanticVerifier
                     // e.g., BitList(32u64) -> BitList.create(capacity: U64) instead of collection literal
                     if (call.Arguments.Count > 0)
                     {
-                        RoutineInfo? creator = _registry.LookupMemberRoutineOverload(type: type,
-                            memberRoutineName: "create",
-                            argTypes: argTypes);
-                        creator ??= _registry.LookupRoutineOverload(
-                            baseName: $"{type.FullName}.create",
+                        RoutineInfo? creator = _registry.LookupCreatorOverload(type: type,
                             argTypes: argTypes);
 
                         if (creator != null && creator.Parameters.Count == argTypes.Count &&
@@ -2135,7 +2140,7 @@ public sealed partial class SemanticVerifier
                 // bare "try_create" member name re-resolves against the RECEIVER type (e.g. F64.try_create)
                 // instead of the conversion TARGET (S64.try_create). Strip the prefix ONLY when the remainder
                 // is an actual type name, so a real `try_foo` member routine is untouched.
-                string creatorName = "create";
+                string creatorName = RoutineInfo.CreatorName;
                 foreach ((string prefix, string cname) in ConversionVariantCreators)
                 {
                     if (potentialTypeName.StartsWith(value: prefix, comparisonType: StringComparison.Ordinal)
@@ -2260,7 +2265,7 @@ public sealed partial class SemanticVerifier
                         // (Maybe/Result/Lookup[targetType]), not the bare target type. `create` returns the
                         // target type as before. `call.ConstructedType` stays the target so codegen's
                         // TypeConstructor path passes the receiver as the `from:` arg either way.
-                        return creatorName == "create"
+                        return creatorName == RoutineInfo.CreatorName
                             ? targetType
                             : creator.ReturnType as TypeInfo ?? targetType;
                     }

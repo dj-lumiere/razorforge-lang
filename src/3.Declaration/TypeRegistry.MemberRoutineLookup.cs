@@ -11,6 +11,22 @@ public sealed partial class TypeRegistry
 {
     #region Routine Registration and Lookup
 
+    /// <summary>Kind-named creator lookup — resolves the constructor of <paramref name="type"/> without any
+    /// call site spelling a name. Creators carry <see cref="RoutineInfo.CreatorName"/> (empty), so this
+    /// wraps <see cref="LookupMemberRoutine"/> with that key.</summary>
+    public RoutineInfo? LookupCreator(TypeInfo type, bool? isFailable = null, TypeInfo? forImplementer = null) =>
+        LookupMemberRoutine(type: type, memberRoutineName: RoutineInfo.CreatorName, isFailable: isFailable,
+            forImplementer: forImplementer);
+
+    /// <summary>Overload-resolving creator lookup. Wraps <see cref="LookupMemberRoutineOverload"/>.</summary>
+    public RoutineInfo? LookupCreatorOverload(TypeInfo type, List<TypeInfo> argTypes) =>
+        LookupMemberRoutineOverload(type: type, memberRoutineName: RoutineInfo.CreatorName, argTypes: argTypes);
+
+    /// <summary>Collects every creator candidate of <paramref name="type"/> into <paramref name="candidates"/>.
+    /// Wraps <see cref="CollectMemberRoutineCandidates"/>.</summary>
+    public void CollectCreatorCandidates(TypeInfo type, List<RoutineInfo> candidates) =>
+        CollectMemberRoutineCandidates(type: type, memberRoutineName: RoutineInfo.CreatorName, candidates: candidates);
+
     /// <summary>
     /// Divergent cross-file duplicate constructors found during registration: two creators sharing a
     /// signature but with DIFFERENT bodies, defined in DIFFERENT files. Registration is last-wins, so

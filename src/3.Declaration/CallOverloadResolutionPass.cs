@@ -578,7 +578,7 @@ internal sealed class CallOverloadResolutionPass
                 call.ConstructedType = ctorType;
                 call.ResolvedType ??= ctorType;
                 call.LoweringKind = CallLoweringKind.TypeConstructor;
-                if (_registry.LookupMemberRoutine(type: ctorType, memberRoutineName: "create") is { } ctorCreate)
+                if (_registry.LookupCreator(type: ctorType) is { } ctorCreate)
                     call.ResolvedRoutine = ctorCreate;
             }
             return;

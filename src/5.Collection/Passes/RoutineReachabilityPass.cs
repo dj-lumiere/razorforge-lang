@@ -19,7 +19,6 @@ namespace Compiler.Collection.Passes;
 /// </summary>
 internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
 {
-    private const string CreateMemberRoutineName = "create";
     private const string RepresentMemberRoutineName = RuntimeContract.Display.Represent;
     private const string DiagnoseMemberRoutineName = RuntimeContract.Display.Diagnose;
     private const string DestroyMemberRoutineName = "destroy";
@@ -143,7 +142,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     private static void IndexCreatorDecl(Dictionary<string, List<RoutineDeclaration>> map,
         RoutineDeclaration decl)
     {
-        if (decl.ResolvedInfo is not { Name: "create", OwnerType: { } owner }) return;
+        if (decl.ResolvedInfo is not { IsCreator: true, OwnerType: { } owner }) return;
         AddDecl(map: map, name: $"{owner.Name}.create", decl: decl);
         if (owner.GenericParameters is { Count: > 0 } gps)
         {
@@ -667,7 +666,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     {
         // Prefer LookupMemberRoutine's substituted routine for generic owners. Only accept it when
         // its arity matches (LookupMemberRoutine is first-match and may return create(capacity)).
-        RoutineInfo? routine = ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: CreateMemberRoutineName);
+        RoutineInfo? routine = ctx.Registry.LookupCreator(type: owner);
         if (routine is { Parameters.Count: 0 })
         {
             EnqueueCallee(callee: routine);
@@ -687,7 +686,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         {
             foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: genDef))
             {
-                if (m is { Name: CreateMemberRoutineName, Parameters.Count: 0 })
+                if (m is { IsCreator: true, Parameters.Count: 0 })
                 {
                     RoutineInfo substituted = ctx.Registry.SubstituteMemberRoutineForOwner(
                         memberRoutine: m, resolvedOwner: owner)!;
@@ -1376,7 +1375,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         RoutineInfo? matched = null;
         foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: ct))
         {
-            if (m.Name == CreateMemberRoutineName && MatchesLabels(m))
+            if (m.IsCreator && MatchesLabels(m))
             {
                 EnqueueCallee(callee: m);
                 if (matched == null) matched = m;
@@ -1393,7 +1392,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         {
             foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: genDef))
             {
-                if (m.Name == CreateMemberRoutineName && MatchesLabels(m))
+                if (m.IsCreator && MatchesLabels(m))
                 {
                     // Substitute generic params onto the concrete owner so GMP can monomorphize.
                     // Without this, EnqueueCallee gets a routine with OwnerType = generic-def and
@@ -1472,7 +1471,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     {
         foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: ct))
         {
-            if (m is { Name: CreateMemberRoutineName, Parameters.Count: 0 }) return m;
+            if (m is { IsCreator: true, Parameters.Count: 0 }) return m;
         }
         return null;
     }
@@ -1491,7 +1490,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         if (receiverType == null) return null;
         foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: ct))
         {
-            if (m.Name != CreateMemberRoutineName || m.Parameters.Count != 1) continue;
+            if (!m.IsCreator || m.Parameters.Count != 1) continue;
             if (m.Parameters[index: 0].Type?.Name == receiverType.Name) return m;
         }
         return null;
@@ -1647,7 +1646,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
             RoutineInfo? countOnly = null;
             foreach (RoutineInfo m in memberRoutines)
             {
-                if (m.Name != CreateMemberRoutineName || m.Parameters.Count != argCount) continue;
+                if (!m.IsCreator || m.Parameters.Count != argCount) continue;
                 countOnly ??= m;
                 bool typesMatch = true;
                 for (int i = 0; i < argCount; i++)

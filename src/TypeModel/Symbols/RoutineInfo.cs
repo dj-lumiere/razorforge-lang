@@ -87,7 +87,11 @@ public sealed class RoutineInfo
         get
         {
             string baseName = OwnerType != null
-                ? $"{GetTypeIdentity(type: OwnerType)}.{Name}"
+                ? IsCreator
+                    // A creator carries NO member name (identity is Kind==Creator). Its key is the owner
+                    // type identity + params — never `Owner.create`.
+                    ? GetTypeIdentity(type: OwnerType)
+                    : $"{GetTypeIdentity(type: OwnerType)}.{Name}"
                 : string.IsNullOrEmpty(value: Module)
                     ? Name
                     : $"{Module}.{Name}";
@@ -420,6 +424,17 @@ public sealed class RoutineInfo
 
     /// <summary>Whether this routine is a lambda / closure expression.</summary>
     public bool IsLambda => Kind == RoutineKind.Lambda;
+
+    /// <summary>Whether this routine is a constructor. Structured identity — a constructor is identified
+    /// ONLY by its <see cref="RoutineKind.Creator"/> kind, NEVER by a name string. Creators carry no
+    /// member name (see <see cref="CreatorName"/>).</summary>
+    public bool IsCreator => Kind == RoutineKind.Creator;
+
+    /// <summary>The (empty) name every creator carries: a constructor has NO member name — its identity is
+    /// its <see cref="RoutineKind.Creator"/> kind. Registration assigns this; lookup/mangling special-case
+    /// creators by <see cref="IsCreator"/>. Kept as a named constant so the intent is explicit and the old
+    /// reserved <c>"create"</c> literal appears nowhere.</summary>
+    public const string CreatorName = "";
 
     /// <summary>Whether this routine was auto-generated (e.g., derived comparison operators).</summary>
     public bool IsSynthesized { get; init; }

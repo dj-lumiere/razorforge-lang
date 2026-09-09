@@ -18,7 +18,6 @@ namespace Compiler.Instantiation;
 internal sealed class AutoWiredRegistrationPass
 {
     private const string EquatableProtocolName = "Equatable";
-    private const string CreateMemberRoutineName = "create";
 
     private readonly TypeRegistry _registry;
 
@@ -212,7 +211,7 @@ internal sealed class AutoWiredRegistrationPass
         if (textType != null)
         {
             var textCreateMemberRoutines = _registry.GetMemberRoutinesForType(type: textType)
-                                             .Where(predicate: m => m.Name == CreateMemberRoutineName)
+                                             .Where(predicate: m => m.IsCreator)
                                              .ToList();
 
             foreach (TypeSymbol type in _registry.GetAllTypes())
@@ -240,7 +239,7 @@ internal sealed class AutoWiredRegistrationPass
                     continue;
                 }
 
-                _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+                _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
                 {
                     Kind = RoutineKind.Creator,
                     OwnerType = textType,
@@ -357,12 +356,18 @@ internal sealed class AutoWiredRegistrationPass
         if (type is EntityTypeInfo entityForCreate &&
             !type.IsGenericDefinition &&
             !existingMemberRoutines.Any(predicate: m =>
-                m.Name == CreateMemberRoutineName &&
+                m.IsCreator &&
                 m.Parameters.Count == entityForCreate.MemberVariables.Count &&
                 entityForCreate.MemberVariables.Select(selector: mv => mv.Name)
-                               .SequenceEqual(second: m.Parameters.Select(selector: p => p.Name))))
+                               .SequenceEqual(second: m.Parameters.Select(selector: p => p.Name)) &&
+                // An overload's identity is its PARAMETER TYPES, not just names — a user
+                // `create(tag: S32)` must NOT suppress the all-fields memberwise `create(tag: S64)`
+                // when the field type differs, else field construction inside that user create
+                // (`Tracer(tag: S64(...))`) finds no matching creator.
+                entityForCreate.MemberVariables.Select(selector: mv => mv.Type.FullName)
+                               .SequenceEqual(second: m.Parameters.Select(selector: p => p.Type.FullName))))
         {
-            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
                 Kind = RoutineKind.Creator,
                 OwnerType = type,
@@ -424,10 +429,10 @@ internal sealed class AutoWiredRegistrationPass
 
         // S64.create(from: ChoiceType) — choice_val.S64() desugars to S64.create(from: choice_val)
         if (s64Type != null && !type.IsGenericDefinition &&
-            _registry.LookupRoutineOverload(baseName: "S64.create",
+            _registry.LookupCreatorOverload(type: s64Type,
                 argTypes: [type]) == null)
         {
-            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
                 Kind = RoutineKind.Creator,
                 OwnerType = s64Type,
@@ -446,10 +451,10 @@ internal sealed class AutoWiredRegistrationPass
         // discriminants via S32.eq (icmp eq i32), so the `is` operator never reaches codegen.
         TypeSymbol? s32ChoiceType = _registry.LookupType(name: "S32");
         if (s32ChoiceType != null && !type.IsGenericDefinition &&
-            _registry.LookupRoutineOverload(baseName: "S32.create",
+            _registry.LookupCreatorOverload(type: s32ChoiceType,
                 argTypes: [type]) == null)
         {
-            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
                 Kind = RoutineKind.Creator,
                 OwnerType = s32ChoiceType,
@@ -469,7 +474,7 @@ internal sealed class AutoWiredRegistrationPass
             // STRUCTURED flag, never baked into the Name. A `.create!(…)` call resolves
             // against "create" and the `from: Text` param disambiguates.
             MaybeRegisterWiredFailable(owner: type,
-                name: CreateMemberRoutineName,
+                name: RoutineInfo.CreatorName,
                 returnType: type,
                 existingMemberRoutines: existingMemberRoutines,
                 param: ("from", textType),
@@ -498,10 +503,10 @@ internal sealed class AutoWiredRegistrationPass
         // derive to reconstruct each case from `$valueof(c)`). Mirrors the forward `S64.create(from: choice)`.
         TypeSymbol? s32Type = _registry.LookupType(name: "S32");
         if (s32Type != null && !type.IsGenericDefinition &&
-            _registry.LookupRoutineOverload(baseName: $"{type.FullName}.create",
+            _registry.LookupCreatorOverload(type: type,
                 argTypes: [s32Type]) == null)
         {
-            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
                 Kind = RoutineKind.Creator,
                 OwnerType = type,
@@ -542,9 +547,9 @@ internal sealed class AutoWiredRegistrationPass
 
         // Synthesize create(field1: T1, ...) -> CrashableType for construction via throw
         if (type is CrashableTypeInfo crashableForCreate &&
-            !existingMemberRoutines.Any(predicate: m => m.Name == CreateMemberRoutineName))
+            !existingMemberRoutines.Any(predicate: m => m.IsCreator))
         {
-            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
                 Kind = RoutineKind.Creator,
                 OwnerType = type,
@@ -628,10 +633,10 @@ internal sealed class AutoWiredRegistrationPass
 
         // U64.create(from: FlagsType) — flags_val.U64() desugars to U64.create(from: flags_val)
         if (u64Type != null && !type.IsGenericDefinition &&
-            _registry.LookupRoutineOverload(baseName: "U64.create",
+            _registry.LookupCreatorOverload(type: u64Type,
                 argTypes: [type]) == null)
         {
-            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
             {
                 Kind = RoutineKind.Creator,
                 OwnerType = u64Type,
@@ -673,10 +678,10 @@ internal sealed class AutoWiredRegistrationPass
                 returnType: u64Type,
                 existingMemberRoutines: existingMemberRoutines);
             if (!type.IsGenericDefinition &&
-                _registry.LookupRoutineOverload(baseName: $"{type.FullName}.create",
+                _registry.LookupCreatorOverload(type: type,
                     argTypes: [u64Type]) == null)
             {
-                _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+                _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
                 {
                     Kind = RoutineKind.Creator,
                     OwnerType = type,
@@ -1123,11 +1128,11 @@ internal sealed class AutoWiredRegistrationPass
 
             // V.create(from: Arm) -> V
             bool ctorExists = _registry.GetMemberRoutinesForType(type: variant).Any(predicate: m =>
-                m is { Name: CreateMemberRoutineName, Parameters.Count: 1 } &&
+                m is { IsCreator: true, Parameters.Count: 1 } &&
                 m.Parameters[index: 0].Type?.FullName == armType.FullName);
             if (!ctorExists)
             {
-                _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+                _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
                 {
                     Kind = RoutineKind.Creator,
                     OwnerType = variant,
@@ -1144,11 +1149,11 @@ internal sealed class AutoWiredRegistrationPass
             // Arm.create!(from: V) -> Arm  (name "create" + IsFailable; a `.create!(…)` call resolves
             // against "create" and the `from: V` param type disambiguates from numeric conversions).
             bool extractExists = _registry.GetMemberRoutinesForType(type: armType).Any(predicate: m =>
-                m is { Name: CreateMemberRoutineName, Parameters.Count: 1, IsFailable: true } &&
+                m is { IsCreator: true, Parameters.Count: 1, IsFailable: true } &&
                 m.Parameters[index: 0].Type?.FullName == variant.FullName);
             if (!extractExists)
             {
-                _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+                _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
                 {
                     Kind = RoutineKind.Creator,
                     OwnerType = armType,

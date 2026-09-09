@@ -41,7 +41,6 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private const string DiagnoseMemberRoutineName = Compiler.Declaration.RuntimeContract.Display.Diagnose;
     private const string SerializeMemberRoutineName = Compiler.Declaration.RuntimeContract.Serialize;
     private const string HashMemberRoutineName = "hash";
-    private const string CreateMemberRoutineName = "create";
     private const string BitXorMemberRoutineName = "bitxor";
     private const string ResultVarName = "result";
     private const string FirstVarName = "first";
@@ -560,7 +559,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// </summary>
     private bool TryHandleNumericCreate(RoutineInfo routine, RecordTypeInfo record)
     {
-        if (routine is { Name: "create", Parameters.Count: 1 })
+        if (routine is { IsCreator: true, Parameters.Count: 1 })
         {
             TypeInfo paramType = routine.Parameters[index: 0].Type;
             string paramName = routine.Parameters[index: 0].Name;
@@ -837,8 +836,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 break;
             }
 
-            // Text.create(from: T) -> return from.represent()
-            case "create" when entity.Name == "Text" && routine.Parameters.Count == 1:
+            // Text constructor from T -> return from.represent()
+            case RoutineInfo.CreatorName when entity.Name == "Text" && routine.Parameters.Count == 1:
             {
                 TypeInfo paramType = routine.Parameters[index: 0].Type;
                 string paramName = routine.Parameters[index: 0].Name;
@@ -954,9 +953,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     BuildCountBody(count: choice.Cases.Count, u64Type: u64Type);
                 break;
 
-            case CreateMemberRoutineName
+            case RoutineInfo.CreatorName
                 when !routine.IsFailable && routine.Parameters is [{ Name: "from" }]:
-                // Reverse constructor `Choice.create(from: S32)` — reinterpret the discriminant bits.
+                // Reverse constructor `Choice(from: S32)` — reinterpret the discriminant bits.
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmIntrinsicCallBody(
                     intrinsicName: "reinterpret_bits",
                     fromType: routine.Parameters[0].Type!,
@@ -990,8 +989,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     BuildSerializeBody(owner: choice, fields: [], textType: textType);
                 break;
 
-            case CreateMemberRoutineName when routine.IsFailable:
-                // The failable Text -> ChoiceType conversion (bare name `create` + IsFailable).
+            case RoutineInfo.CreatorName when routine.IsFailable:
+                // The failable Text -> ChoiceType conversion (creator + IsFailable).
                 // Text -> ChoiceType conversion is not implementable at the RF level;
                 // this always crashes. The body is unreachable in well-typed programs.
                 ctx.VariantBodies[key: routine.RegistryKey] =
@@ -1780,7 +1779,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     TypeInfo? ct = g.ConstructedType ?? ResolveConstructedTypeFor(
                         typeName: g.MemberRoutineName, typeArgs: g.TypeArguments);
                     if (ct is { IsGenericDefinition: false }
-                        && ctx.Registry.LookupMemberRoutine(type: ct, memberRoutineName: "create") is { } cr)
+                        && ctx.Registry.LookupCreator(type: ct) is { } cr)
                     {
                         g.ResolvedRoutine = cr;
                         g.ConstructedType = ct;
@@ -1800,7 +1799,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     c.ConstructedType = ct2;
                     c.ResolvedType ??= ct2;
                     c.LoweringKind = CallLoweringKind.TypeConstructor;
-                    if (ctx.Registry.LookupMemberRoutine(type: ct2, memberRoutineName: "create") is { } cr2)
+                    if (ctx.Registry.LookupCreator(type: ct2) is { } cr2)
                         c.ResolvedRoutine = cr2;
                     break;
                 }
@@ -2230,9 +2229,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     BuildCountBody(count: flags.Members.Count, u64Type: u64Type);
                 break;
 
-            case CreateMemberRoutineName
+            case RoutineInfo.CreatorName
                 when !routine.IsFailable && routine.Parameters is [{ Name: "from" }]:
-                // Reverse constructor `Flags.create(from: U64)` — reinterpret the bitmask bits.
+                // Reverse constructor `Flags(from: U64)` — reinterpret the bitmask bits.
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmIntrinsicCallBody(
                     intrinsicName: "reinterpret_bits",
                     fromType: routine.Parameters[0].Type!,
@@ -3887,8 +3886,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             return false;
         }
 
-        // Box: owner is the variant, `from` is one of its arms.
-        if (routine.Name == "create" && routine.OwnerType is VariantTypeInfo boxVariant &&
+        // Box: owner is the variant, `from` is one of its arms. (Creator kind already confirmed above.)
+        if (routine.OwnerType is VariantTypeInfo boxVariant &&
             FindArmByType(variant: boxVariant, armType: fromParam.Type) is
                 { Type: { } boxArmType })
         {
@@ -3908,8 +3907,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             return true;
         }
 
-        // Failable extract: `from` is a variant, owner is one of its arms.
-        if (routine.Name == "create" && routine.IsFailable &&
+        // Failable extract: `from` is a variant, owner is one of its arms. (Creator kind confirmed above.)
+        if (routine.IsFailable &&
             fromParam.Type is VariantTypeInfo fromVariant && routine.OwnerType is { } armOwner &&
             FindArmByType(variant: fromVariant, armType: armOwner) is { Type: { } })
         {
@@ -3976,7 +3975,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             RoutineInfo? extractor = ctx.Registry
                                         .GetMemberRoutinesForType(type: arm.Type)
                                         .FirstOrDefault(predicate: m =>
-                                             m is { Name: "create", IsFailable: true } &&
+                                             m is { IsCreator: true, IsFailable: true } &&
                                              m.Parameters is [{ Type: { } paramType }] &&
                                              paramType.FullName == variant.FullName);
             if (extractor is null || ctx.VariantBodies.ContainsKey(key: extractor.RegistryKey))

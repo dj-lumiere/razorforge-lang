@@ -338,7 +338,7 @@ public partial class LlvmCodeGenerator
 
         ResolvedMemberRoutine? resolved = resolvedType.IsGenericResolution
             ? null
-            : ResolveMemberRoutine(receiverType: resolvedType, memberRoutineName: "create");
+            : ResolveMemberRoutine(receiverType: resolvedType, memberRoutineName: RoutineInfo.CreatorName);
 
         if (resolved is { Routine.Parameters.Count: > 0 })
             resolved = null;

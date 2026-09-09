@@ -777,13 +777,13 @@ public sealed partial class SemanticVerifier
 
         if (_currentType != null)
         {
-            // Inside a type body
-            // TODO: create routine name is dead.
-            RoutineKind innerKind = routine.Name == "create"
-                ? RoutineKind.Creator
-                : isCommon ? RoutineKind.CommonRoutine
-                : RoutineKind.MemberRoutine;
-            return (innerKind, ownerType, routineName);
+            // Inside a type body. A legacy in-body `routine create(...)` is a constructor — detected from
+            // the SURFACE decl name, then given the reserved creator identity: RoutineKind.Creator + NO
+            // member name (RoutineInfo.CreatorName). The internal "create" name is gone; only the surface
+            // token is read here.
+            if (routine.Name == "create")
+                return (RoutineKind.Creator, ownerType, RoutineInfo.CreatorName);
+            return (isCommon ? RoutineKind.CommonRoutine : RoutineKind.MemberRoutine, ownerType, routineName);
         }
 
         if (routine.MemberRoutineName is { } declaredMember)
@@ -796,16 +796,21 @@ public sealed partial class SemanticVerifier
             // OwnerName is the bare owner base (e.g. "Stack" for "Stack[T].push") — already the
             // generic-definition key, so no generic-param strip needed here.
             ownerType = LookupTypeWithImports(name: routine.OwnerName!);
+
+            // The `routine Type.create(...)` member spelling is a CONSTRUCTOR too — same identity as the
+            // `routine Type(...)` sugar: Creator kind, NO member name (RoutineInfo.CreatorName). The
+            // surface "create" token is read only here; nothing downstream keys off the name.
+            if (declaredMember == "create")
+                return (RoutineKind.Creator, ownerType, RoutineInfo.CreatorName);
+
             return (isCommon ? RoutineKind.CommonRoutine : RoutineKind.MemberRoutine, ownerType, routineName);
         }
 
         // Top-level routine. A routine whose bare name matches a known type is a
-        // CONSTRUCTOR — the surface syntax `routine T(...)` / `routine T[params](...)`
-        // (renamed from the old `routine T.create(...)`). Route it to the reserved
-        // creator kind with the type as owner and the canonical internal name "create",
-        // so registration/monomorphization/reachability/codegen treat it exactly as the
-        // old `T.create` spelling did. The trailing `!` (failable) is carried structurally
-        // on routine.IsFailable, not in the name.
+        // CONSTRUCTOR — the surface syntax `routine T(...)` / `routine T[params](...)`.
+        // Route it to the reserved creator kind with the type as owner and NO member name
+        // (RoutineInfo.CreatorName) — identity is RoutineKind.Creator, never a name string.
+        // The trailing `!` (failable) is carried structurally on routine.IsFailable, not in the name.
         // TODO: Why is this handled here? Constructor-sugar detection should have been parser's role.
         // A free routine's Name is the canonical bare identifier (the parser folds `[params]` into the
         // structured GenericParameters, never into Name for a non-member routine), so it is looked up
@@ -814,7 +819,7 @@ public sealed partial class SemanticVerifier
         if (ctorOwner is EntityTypeInfo or RecordTypeInfo or ChoiceTypeInfo
             or FlagsTypeInfo or VariantTypeInfo or CrashableTypeInfo)
         {
-            return (RoutineKind.Creator, ctorOwner, "create");
+            return (RoutineKind.Creator, ctorOwner, RoutineInfo.CreatorName);
         }
 
         return (RoutineKind.FreeRoutine, ownerType, routineName);

@@ -134,7 +134,7 @@ public sealed partial class SemanticVerifier
         // (dotted members, protocol extensions like `MutableIndexable[T].pick`) keeps the existing
         // path, whose `me`-typing special-casing must not be bypassed.
         bool isConstructorDecl = routine.MemberRoutineName is null
-            && routine.ResolvedInfo is { Name: "create", OwnerType: not null };
+            && routine.ResolvedInfo is { IsCreator: true, OwnerType: not null };
         if (isConstructorDecl && routine.ResolvedInfo!.OwnerType is { } resolvedInfoOwner)
         {
             routineOwnerType = resolvedInfoOwner;

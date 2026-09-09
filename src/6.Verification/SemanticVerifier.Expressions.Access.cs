@@ -1308,14 +1308,13 @@ public sealed partial class SemanticVerifier
         var providedNameSet = new HashSet<string>(collection: providedNames);
         var nameMatches = new List<RoutineInfo>();
         var candidates = new List<RoutineInfo>();
-        _registry.CollectMemberRoutineCandidates(type: type, memberRoutineName: "create",
-            candidates: candidates);
-        // Also pull the concrete type's own routines directly — CollectMemberRoutineCandidates
-        // can miss a user-declared `create` on an entity, while GetMemberRoutinesForType returns it
+        _registry.CollectCreatorCandidates(type: type, candidates: candidates);
+        // Also pull the concrete type's own routines directly — CollectCreatorCandidates
+        // can miss a user-declared constructor on an entity, while GetMemberRoutinesForType returns it
         // (this is how the entity `destroy` resolves correctly elsewhere). Failable creators keep the
-        // bare `create` Name (IsFailable is a structured flag), so one name matches both.
+        // same Creator kind (IsFailable is a structured flag), so IsCreator matches both.
         candidates.AddRange(collection: _registry.GetMemberRoutinesForType(type: type)
-            .Where(predicate: m => m.Name is "create"));
+            .Where(predicate: m => m.IsCreator));
         foreach (RoutineInfo m in candidates)
         {
             if (m.Parameters.Count != creator.MemberVariables.Count) continue;
@@ -1348,7 +1347,7 @@ public sealed partial class SemanticVerifier
         // `create(from: U128)`) is an ordinary conversion and must route to that overload;
         // otherwise codegen falls back to inline field-init and mis-lowers bit-carrier types like
         // F128 to a raw integer reinterpret of the IEEE storage.
-        bool insideOwnCreate = _currentRoutine is { Name: "create" } currentCreate
+        bool insideOwnCreate = _currentRoutine is { IsCreator: true } currentCreate
             && currentCreate.OwnerType != null
             && (currentCreate.OwnerType.FullName == type.FullName
                 || currentCreate.OwnerType.Name == type.Name)

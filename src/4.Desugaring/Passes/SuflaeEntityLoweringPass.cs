@@ -102,7 +102,7 @@ internal sealed class SuflaeEntityLoweringPass
                     + $"'{r.Name}' ({file}:{r.Location.Line}) resolved to a BARE entity '{bareParam.Name}' "
                     + "instead of Roamed[E]. An entity slot slipped TypeResolver.RoamSuflaeEntitySlot.");
 
-        if (r.Name is not "create"
+        if (r.ResolvedInfo is not { IsCreator: true }
             && r.ReturnType?.ResolvedType is EntityTypeInfo bareReturn)
             throw new InvalidOperationException(
                 $"SF representation-unification invariant violated: return type of routine '{r.Name}' "
@@ -570,7 +570,7 @@ internal sealed class SuflaeEntityLoweringPass
         // `Box()` is typed bare (handled above); this catches the arg-carrying form. Gated on
         // `create` (returns bare) so an ordinary routine returning a `Roamed[E]` value is NOT
         // re-wrapped, and on the SF realm (an RF entity stays bare).
-        if (lowered.ResolvedRoutine is { Name: "create" }
+        if (lowered.ResolvedRoutine is { IsCreator: true }
             && RoamedInnerEntity(call.ResolvedType) is { } createEntity
             && !IsRfRealmRef(call.Callee))
         {
@@ -763,8 +763,7 @@ internal sealed class SuflaeEntityLoweringPass
         // bare `Roamed(from: n)` (Calls.cs). `inner` is a FRESH entity rvalue (creator/literal/call), so it
         // moves into the handle with no `steal`. Callee is the type-name identifier; codegen constructs via
         // ConstructedType + ResolvedRoutine (see GenericCallLoweringPass wrapper-construction lowering).
-        RoutineInfo? create = _registry.LookupMemberRoutineOverload(type: roamed, memberRoutineName: "create",
-            argTypes: [entity]);
+        RoutineInfo? create = _registry.LookupCreatorOverload(type: roamed, argTypes: [entity]);
         return new CallExpression(
             Callee: new IdentifierExpression(Name: RuntimeContract.Roamed, Location: inner.Location)
                 { ResolvedType = roamed },

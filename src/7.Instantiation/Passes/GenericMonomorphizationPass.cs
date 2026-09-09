@@ -60,15 +60,15 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             {
                 AddDeclToIndex(key: decl.QualifiedName, decl: decl);
 
-                // A constructor `routine T(...)` / `routine T[params](...)` is registered with the
-                // canonical creator name "create" on its owner type (ResolvedInfo), but its AST
-                // decl.Name is just the bare base type ("List", generics live in GenericParameters).
-                // Monomorphization looks a creator up via BuildAstName(owner, "create") →
-                // "List[T].create", so index it under that key too — otherwise generic constructor
-                // bodies (List[Byte].create) never get monomorphized and codegen over-prunes them.
-                if (decl.ResolvedInfo is { Name: "create", OwnerType: { } ctorOwner })
+                // A constructor `routine T(...)` / `routine T[params](...)` is registered as a creator
+                // (RoutineKind.Creator) on its owner type with NO member name, but its AST decl.Name is
+                // just the bare base type ("List", generics live in GenericParameters). Monomorphization
+                // looks a creator up via BuildAstName(owner, CreatorName), so index it under that same key
+                // too — otherwise generic constructor bodies never get monomorphized and codegen
+                // over-prunes them. (Both sides use the empty creator name, so the keys agree.)
+                if (decl.ResolvedInfo is { IsCreator: true, OwnerType: { } ctorOwner })
                 {
-                    AddDeclToIndex(key: BuildAstName(genDef: ctorOwner, routineName: "create"),
+                    AddDeclToIndex(key: BuildAstName(genDef: ctorOwner, routineName: RoutineInfo.CreatorName),
                         decl: decl);
                 }
             }
@@ -791,7 +791,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             // is null on the `P()` node). Seed P.create on each reached lock policy so codegen's lock-field init
             // links. Demand-scoped to a reached policy type — bounded (three policies).
             if (ctx.Registry.DoesTypeObeyProtocol(type: type, protocolName: "LockPolicy"))
-                Discover(r: ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: "create"));
+                Discover(r: ctx.Registry.LookupCreator(type: type));
             // (3) Entity self-free tail (hijack / Hijacked[E].invalidate — zero-arg universal, no AST call).
             // Skip a type that still carries a generic parameter (IsGenericDefinition can be false for a
             // partially-substituted resolution like `RangeEmittable[RangeEmittable[T]]`): GetOrCreateWrapperType

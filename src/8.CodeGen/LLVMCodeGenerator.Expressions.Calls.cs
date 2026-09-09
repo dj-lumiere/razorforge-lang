@@ -11,7 +11,6 @@ namespace Compiler.CodeGen;
 /// </summary>
 public partial class LlvmCodeGenerator
 {
-    private const string CreateMemberRoutineName = "create";
 
     /// <summary>
     /// Emit routine call as part of this compiler phase.
@@ -59,7 +58,7 @@ public partial class LlvmCodeGenerator
         // base-case construction inside `create` carry a null/synth resolvedRoutine and still inline.
         bool routesToUserCreate = resolvedRoutine is
         {
-            IsSynthesized: false, Name: "create"
+            IsSynthesized: false, IsCreator: true
         } && constructedType is EntityTypeInfo;
 
         switch (loweringKind)
@@ -217,13 +216,9 @@ public partial class LlvmCodeGenerator
                     }
                 }
 
-                routine = _registry.LookupMemberRoutineOverload(type: creatorOwnerType,
-                              memberRoutineName: CreateMemberRoutineName,
+                routine = _registry.LookupCreatorOverload(type: creatorOwnerType,
                               argTypes: semanticArgTypes) ??
-                    _registry.LookupRoutineOverload(
-                        baseName: $"{creatorOwnerType.FullName}.{CreateMemberRoutineName}",
-                        argTypes: semanticArgTypes) ??
-                    _registry.LookupRoutineOverload(baseName: $"{calledType.Name}.{CreateMemberRoutineName}",
+                    _registry.LookupCreatorOverload(type: calledType,
                         argTypes: semanticArgTypes);
                 if (routine == null &&
                     calledType is RecordTypeInfo { MemberVariables.Count: 1 } singleRecord && arguments is [NamedArgumentExpression])
@@ -594,7 +589,7 @@ public partial class LlvmCodeGenerator
         // for CStr(Accessing[Text]), and so on. Honor it; never inline a scalar cast, which would
         // bypass the encoding and corrupt carriers (e.g. `D128(42)` as a raw i128 decodes to
         // 4.2E-6175). The backend must not re-decide a conversion the resolver already settled.
-        if (resolvedRoutine is { IsSynthesized: false, Name: "create", Parameters.Count: 1 })
+        if (resolvedRoutine is { IsSynthesized: false, IsCreator: true, Parameters.Count: 1 })
         {
             TypeInfo? paramType = resolvedRoutine.Parameters[index: 0].Type;
             if (paramType != null &&
@@ -804,7 +799,7 @@ public partial class LlvmCodeGenerator
         // slot in the LLVM call, corrupting all reads (e.g. Moment.create(year:2026,...)
         // saw year=zeroinitializer-cast and emitted timestamps in the wrong century).
         bool memberRoutineTakesReceiver =
-            !(memberRoutine?.IsCommon == true || memberRoutine?.Name == CreateMemberRoutineName);
+            !(memberRoutine?.IsCommon == true || memberRoutine?.IsCreator == true);
         var argValues = memberRoutineTakesReceiver
             ? new List<string> { receiver }
             : new List<string>();
@@ -1685,7 +1680,7 @@ public partial class LlvmCodeGenerator
     private RoutineInfo RebindGenericOwnerCreator(RoutineInfo routine,
         List<TypeExpression> typeArguments, List<Expression> arguments)
     {
-        if (routine is not { Name: CreateMemberRoutineName, OwnerType: { IsGenericDefinition: true } genOwner })
+        if (routine is not { IsCreator: true, OwnerType: { IsGenericDefinition: true } genOwner })
         {
             return routine;
         }
@@ -1709,8 +1704,8 @@ public partial class LlvmCodeGenerator
         }
 
         // Signature-only: resolve the concrete-owner creator by (name, ctorArgTypes); no name-only fallback.
-        RoutineInfo? rebound = _registry.LookupMemberRoutineOverload(type: concreteOwner,
-            memberRoutineName: CreateMemberRoutineName, argTypes: ctorArgTypes);
+        RoutineInfo? rebound = _registry.LookupCreatorOverload(type: concreteOwner,
+            argTypes: ctorArgTypes);
         return rebound ?? routine;
     }
 

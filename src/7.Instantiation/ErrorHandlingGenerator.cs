@@ -43,7 +43,12 @@ public sealed class ErrorHandlingGenerator
     /// <returns>The variant name.</returns>
     private static string GenerateVariantName(string prefix, RoutineInfo original)
     {
-        string baseName = original.Name;
+        // A creator carries no name (RoutineInfo.CreatorName). Its failable recovery variant is a DISTINCT,
+        // explicitly-called routine (`K.try_create`), so it uses the reserved "create" token as its base —
+        // the constructor stays anonymous at the call site (`K(x)`); this token exists only in the recovery
+        // spelling. (Surface `try_K` vs `K.try_create` is a pending design decision; this is the internal
+        // variant name either resolves to.)
+        string baseName = original.IsCreator ? "create" : original.Name;
         return $"{prefix}_{baseName}";
     }
 

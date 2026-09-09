@@ -236,12 +236,12 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
                 : System.Array.Empty<string>();
         string annotations = string.Concat(anns.Select(a => $"@{a}\n"));
         // Constructor: `routine Type(...)`, not `routine Type.create(...)`.
-        string name = bareName == "create" && ri.OwnerType is { } ctorOwner
+        string name = ri.IsCreator && ri.OwnerType is { } ctorOwner
             ? ctorOwner.FullName
             : $"{ownerPrefix}{bareName}";
         // Spell out the routine's own resolved generic args (e.g. a monomorphized `hijacked_none[U128]`)
         // so instantiations aren't collapsed to the same bare name. (Owner generics are in ownerPrefix.)
-        string typeArgs = bareName != "create" && ri.TypeArguments is { Count: > 0 } ta
+        string typeArgs = !ri.IsCreator && ri.TypeArguments is { Count: > 0 } ta
             ? $"[{string.Join(", ", ta.Select(RoutineInfo.GetTypeIdentity))}]"
             : "";
         return $"{annotations}routine {name}{typeArgs}{failable}({paramStr}){retStr}";
@@ -509,7 +509,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
                 : "";
             // A constructor call renders as the type-constructor sugar `Type(...)`, not `Type.create(...)`
             // — `create` is the internal routine name (the owner's generic args are already in FullName).
-            if (ri.Name == "create" && ri.OwnerType is { } ctorOwner)
+            if (ri.IsCreator && ri.OwnerType is { } ctorOwner)
                 return $"{ctorOwner.FullName}({argList})";
             // Member routines stay in receiver form (`obj.MemberRoutine(...)`) — the owner is implicit in the
             // receiver, so there is no need to spell the qualified free-function form. Free routines get
@@ -744,7 +744,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         if (node.ResolvedRoutine is { } ri)
         {
             // Constructor → type-constructor sugar `Type(...)` (owner FullName carries the generic args).
-            if (ri.Name == "create" && ri.OwnerType is { } ctorOwner)
+            if (ri.IsCreator && ri.OwnerType is { } ctorOwner)
                 return $"{ctorOwner.FullName}({args})";
             // Type constructor / free routine: Object and memberRoutineName are the same identifier.
             if (node.Object is IdentifierExpression ctorId && ctorId.Name == node.MemberRoutineName)
@@ -1117,7 +1117,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
                 p.Type != null ? $"{p.Name}: {p.Type.Accept(this)}" : p.Name));
         }
         // Spell out the routine's own resolved generic args so monomorphized instantiations are distinct.
-        string typeArgs = node.ResolvedInfo is { Name: not "create", TypeArguments: { Count: > 0 } ta }
+        string typeArgs = node.ResolvedInfo is { IsCreator: false, TypeArguments: { Count: > 0 } ta }
             ? $"[{string.Join(", ", ta.Select(RoutineInfo.GetTypeIdentity))}]"
             : "";
         sb.Append(AnnotationLines(node.Annotations));
@@ -1137,7 +1137,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
             if (ri.OwnerType != null)
             {
                 // Constructor: `routine Type(...)`, not `routine Type.create(...)`.
-                if (bareName == "create")
+                if (ri.IsCreator)
                     return ri.OwnerType.FullName;
                 string mod = string.IsNullOrEmpty(ri.OwnerType.Module) ? _currentModule : ri.OwnerType.Module;
                 string owner = ri.OwnerType.Name;

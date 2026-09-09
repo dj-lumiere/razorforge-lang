@@ -191,8 +191,8 @@ internal sealed class SignatureResolver
                 implicitGenericCounter: ref implicitGenericCounter);
         }
 
-        // S511: a user `create` may not occupy the all-fields memberwise signature.
-        if (pending.RoutineName is "create")
+        // S511: a user constructor may not occupy the all-fields memberwise signature.
+        if (pending.Kind == RoutineKind.Creator)
         {
             CheckMemberwiseCreatorReserved(refreshedOwnerType: refreshedOwnerType,
                 parameters: parameters, routine: routine);
@@ -325,7 +325,7 @@ internal sealed class SignatureResolver
         // Constructor divergent-duplicate guard (mainly for the stdlib path; user cross-file dups are
         // already RF-S406 above): hash the body so RegisterRoutine distinguishes identical from
         // divergent same-signature creators.
-        if (pending.RoutineName == "create")
+        if (finalRoutine.IsCreator)
             finalRoutine.BodyHash = TypeRegistry.ComputeCreatorBodyHash(body: routine.Body);
         _sa._registry.RegisterRoutine(routine: finalRoutine);
 
@@ -494,7 +494,7 @@ internal sealed class SignatureResolver
     {
         if (pending.Kind == RoutineKind.MemberRoutine
             && refreshedOwnerType is EntityTypeInfo or RecordTypeInfo
-            && pending.RoutineName is not "create"
+            && pending.Kind is not RoutineKind.Creator
             && routine.RenderedReceiver is { } recvText
             && recvText.Contains(value: '['))
         {
@@ -526,7 +526,7 @@ internal sealed class SignatureResolver
     {
         if (sfUserEntity
             && pending.Kind == RoutineKind.MemberRoutine
-            && pending.RoutineName is not "create"
+            && pending.Kind is not RoutineKind.Creator
             && refreshedOwnerType is EntityTypeInfo ownerEntity
             && _sa._registry.LookupType(name: RuntimeContract.Roamed) is { } roamedOwnerDef)
         {

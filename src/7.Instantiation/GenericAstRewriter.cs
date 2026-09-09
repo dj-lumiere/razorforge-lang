@@ -14,7 +14,6 @@ namespace Compiler.Instantiation;
 /// </summary>
 internal static class GenericAstRewriter
 {
-    private const string CreateMemberRoutineName = "create";
     /// <summary>
     /// Rewrites a generic routine declaration by substituting all type parameter references
     /// with concrete type names. Returns a deep clone -> the original is not modified.
@@ -386,7 +385,7 @@ internal static class GenericAstRewriter
                 }
             }
 
-            if (original.Name == CreateMemberRoutineName)
+            if (original.IsCreator)
             {
                 RoutineInfo? creator = ResolveCreateTarget(original: original,
                     expressionType: expressionType,
@@ -471,11 +470,11 @@ internal static class GenericAstRewriter
             }
 
             RoutineInfo? resolvedCreator = ResolveMemberRoutineOnConcreteOwner(ownerType: resolvedTarget,
-                memberRoutineName: CreateMemberRoutineName,
+                memberRoutineName: RoutineInfo.CreatorName,
                 argTypes: resolvedParamTypes,
                 isFailable: original.IsFailable);
-            resolvedCreator ??= Registry!.LookupRoutineOverload(
-                baseName: $"{resolvedTarget.Name}.create",
+            resolvedCreator ??= Registry!.LookupCreatorOverload(
+                type: resolvedTarget,
                 argTypes: resolvedParamTypes);
             if (resolvedCreator?.OwnerType is { IsGenericDefinition: true })
             {
@@ -717,17 +716,9 @@ internal static class GenericAstRewriter
                 return InstantiateFreeRoutine(candidate: routine);
             }
 
-            if (callName == CreateMemberRoutineName && expressionType != null)
-            {
-                TypeInfo? resolvedTarget = ResolveTypeForLookup(expressionType);
-                if (resolvedTarget != null)
-                {
-                    return ResolveMemberRoutineOnConcreteOwner(ownerType: resolvedTarget,
-                        memberRoutineName: CreateMemberRoutineName,
-                        argTypes: callArgTypes,
-                        isFailable: isFailable);
-                }
-            }
+            // (A construction call carries the TYPE name as its callee identifier, resolved on the owner
+            // above via expressionType; no bare "create"-named identifier is ever produced, so there is
+            // no name-based creator fallback here.)
 
             return null;
         }

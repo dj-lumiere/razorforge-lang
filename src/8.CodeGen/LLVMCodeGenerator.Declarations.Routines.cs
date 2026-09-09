@@ -833,6 +833,9 @@ public partial class LlvmCodeGenerator
         static string AttrPrefix(RoutineInfo r)
         {
             var attrs = new List<string> { r.OwnerType != null ? "member" : "independent" };
+            // A creator carries no name — its constructor identity rides here as an attribute, so the
+            // symbol reads `[member, creator] Owner(params)` with no `.create` segment.
+            if (r.IsCreator) attrs.Add(item: "creator");
             if (r.IsCommon) attrs.Add(item: "common");
             // Wired-ness is a routine PROPERTY (IsWiredMemberRoutine), never part of the symbol name —
             // it is not an overload/disambiguation axis, so two routines never differ only by it. Keeping
@@ -916,7 +919,10 @@ public partial class LlvmCodeGenerator
         // (OwnerType.FullName includes module). The `$`/`!` are gone from the name — they are in the
         // attribute prefix.
         string ownerTypeName = RealmMangleBase(t: routine.OwnerType);
-        string baseName = AttrPrefix(r: routine) + $"{ownerTypeName}.{name}";
+        // A creator has no member name — the symbol is `[member, creator] Owner(params)`, never
+        // `Owner.create`. Non-creators append `.name`.
+        string baseName = AttrPrefix(r: routine) +
+            (routine.IsCreator ? ownerTypeName : $"{ownerTypeName}.{name}");
 
         // memberRoutine-level type arguments (e.g., Hijacked[U64].recast_as[BTreeListNode[S64]]).
         // Distinct from owner type args already in OwnerType.FullName.
