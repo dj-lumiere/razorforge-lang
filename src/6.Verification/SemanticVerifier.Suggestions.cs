@@ -75,56 +75,57 @@ public sealed partial class SemanticVerifier
     /// Adjacent transpositions cost 1, so the most common typo class ("Tetx" → "Text",
     /// "add_lats" → "add_last") stays within the tight short-name threshold.
     /// </summary>
+    /// <summary>Holds the three rolling DP row arrays (previous-previous, previous, current) used by
+    /// the bounded Damerau edit-distance algorithm so they can be passed as a single parameter.</summary>
+    private record struct EditDpRows(int[] PrevPrev, int[] Prev, int[] Curr);
+
     private static int BoundedEditDistance(string a, string b, int cap)
     {
         int n = a.Length;
         int m = b.Length;
-        var prevPrev = new int[m + 1];
-        var prev = new int[m + 1];
-        var curr = new int[m + 1];
+        var rows = new EditDpRows(PrevPrev: new int[m + 1], Prev: new int[m + 1], Curr: new int[m + 1]);
         for (int j = 0; j <= m; j++)
         {
-            prev[j] = j;
+            rows.Prev[j] = j;
         }
 
         for (int i = 1; i <= n; i++)
         {
-            curr[0] = i;
+            rows.Curr[0] = i;
             char ca = char.ToLowerInvariant(c: a[i - 1]);
-            int rowMin = FillEditRow(a: a, b: b, i: i, ca: ca, m: m, prevPrev: prevPrev, prev: prev, curr: curr);
+            int rowMin = FillEditRow(a: a, b: b, i: i, ca: ca, m: m, rows: rows);
 
             if (rowMin > cap)
             {
                 return cap + 1;
             }
 
-            (prevPrev, prev, curr) = (prev, curr, prevPrev);
+            (rows.PrevPrev, rows.Prev, rows.Curr) = (rows.Prev, rows.Curr, rows.PrevPrev);
         }
 
-        return prev[m];
+        return rows.Prev[m];
     }
 
     /// <summary>Fills one row of the edit-distance DP table and returns the row minimum.</summary>
-    private static int FillEditRow(string a, string b, int i, char ca, int m,
-        int[] prevPrev, int[] prev, int[] curr)
+    private static int FillEditRow(string a, string b, int i, char ca, int m, EditDpRows rows)
     {
-        int rowMin = curr[0];
+        int rowMin = rows.Curr[0];
         for (int j = 1; j <= m; j++)
         {
             char cb = char.ToLowerInvariant(c: b[j - 1]);
             int cost = ca == cb ? 0 : 1;
-            curr[j] = Math.Min(val1: Math.Min(val1: curr[j - 1] + 1, val2: prev[j] + 1),
-                val2: prev[j - 1] + cost);
+            rows.Curr[j] = Math.Min(val1: Math.Min(val1: rows.Curr[j - 1] + 1, val2: rows.Prev[j] + 1),
+                val2: rows.Prev[j - 1] + cost);
             if (i > 1 && j > 1 &&
                 ca == char.ToLowerInvariant(c: b[j - 2]) &&
                 char.ToLowerInvariant(c: a[i - 2]) == cb)
             {
-                curr[j] = Math.Min(val1: curr[j], val2: prevPrev[j - 2] + 1);
+                rows.Curr[j] = Math.Min(val1: rows.Curr[j], val2: rows.PrevPrev[j - 2] + 1);
             }
 
-            if (curr[j] < rowMin)
+            if (rows.Curr[j] < rowMin)
             {
-                rowMin = curr[j];
+                rowMin = rows.Curr[j];
             }
         }
         return rowMin;

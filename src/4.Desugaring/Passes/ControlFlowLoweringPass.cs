@@ -140,7 +140,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         }
     }
 
-    private Statement LowerBlock(BlockStatement b)
+    private BlockStatement LowerBlock(BlockStatement b)
     {
         bool changed = false;
         var stmts = new List<Statement>(capacity: b.Statements.Count);
@@ -158,7 +158,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         return changed ? b with { Statements = stmts } : b;
     }
 
-    private Statement LowerLoop(LoopStatement loop)
+    private LoopStatement LowerLoop(LoopStatement loop)
     {
         Statement body = LowerStatement(stmt: loop.Body);
         if (ReferenceEquals(body, loop.Body)) return loop;
@@ -183,7 +183,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         return tc || ec ? ifs with { ThenStatement = then, ElseStatement = elseS } : ifs;
     }
 
-    private Statement LowerWhen(WhenStatement w)
+    private WhenStatement LowerWhen(WhenStatement w)
     {
         bool changed = false;
         var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
@@ -203,7 +203,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
         return changed ? w with { Clauses = clauses } : w;
     }
 
-    private Statement LowerUsing(UsingStatement u)
+    private UsingStatement LowerUsing(UsingStatement u)
     {
         Statement body = LowerStatement(stmt: u.Body);
         Statement? fb = u.FallbackBody != null ? LowerStatement(stmt: u.FallbackBody) : null;
@@ -212,7 +212,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
             : u;
     }
 
-    private Statement LowerDanger(DangerStatement d)
+    private DangerStatement LowerDanger(DangerStatement d)
     {
         // DangerStatement.Body is BlockStatement; LowerStatement on BlockStatement
         // always returns a BlockStatement so the cast is safe.

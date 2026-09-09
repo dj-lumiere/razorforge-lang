@@ -2607,12 +2607,10 @@ public static class LspServer
             int colon = line.IndexOf(value: ':');
             if (colon > 0 &&
                 line[..colon].Trim().Equals(value: "Content-Length",
-                    comparisonType: StringComparison.OrdinalIgnoreCase))
+                    comparisonType: StringComparison.OrdinalIgnoreCase)
+                && !int.TryParse(s: line[(colon + 1)..].Trim(), result: out contentLength))
             {
-                if (!int.TryParse(s: line[(colon + 1)..].Trim(), result: out contentLength))
-                {
-                    contentLength = -1; // malformed Content-Length header — treat as absent
-                }
+                contentLength = -1; // malformed Content-Length header — treat as absent
             }
         }
 

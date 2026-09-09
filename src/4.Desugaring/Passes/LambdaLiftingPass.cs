@@ -1216,13 +1216,19 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 yield return g.Object;
                 break;
             case InsertedTextExpression ins:
-                foreach (InsertedTextPart part in ins.Parts)
-                    if (part is ExpressionPart ep) yield return ep.Expression;
+                foreach (Expression e in GetInsertedTextExpressions(parts: ins.Parts)) yield return e;
                 break;
             case WhenExpression we:
                 if (we.Expression != null) yield return we.Expression;
                 break;
         }
+    }
+
+    /// <summary>Yields the sub-expressions embedded inside an inserted-text part list.</summary>
+    private static IEnumerable<Expression> GetInsertedTextExpressions(IEnumerable<InsertedTextPart> parts)
+    {
+        foreach (InsertedTextPart part in parts)
+            if (part is ExpressionPart ep) yield return ep.Expression;
     }
 
     private Pattern RewritePatternExpressions(Pattern pattern,
@@ -1580,9 +1586,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 break;
 
             case InsertedTextExpression inserted:
-                foreach (InsertedTextPart part in inserted.Parts)
-                    if (part is ExpressionPart expressionPart)
-                        CollectLocalCapturesRecursive(expressionPart.Expression, outerScope, parameterNames, captures);
+                CollectLocalCapturesInInsertedText(inserted.Parts, outerScope, parameterNames, captures);
                 break;
 
             case StealExpression steal:
@@ -1611,6 +1615,21 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 CollectCapturesInWhenExpression(whenExpr, outerScope, parameterNames, captures);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Collects local captures from expression parts inside an inserted-text expression, visiting
+    /// only the sub-expressions embedded in interpolation holes (not plain text parts).
+    /// </summary>
+    private static void CollectLocalCapturesInInsertedText(
+        IEnumerable<InsertedTextPart> parts,
+        HashSet<string> outerScope,
+        HashSet<string> parameterNames,
+        HashSet<string> captures)
+    {
+        foreach (InsertedTextPart part in parts)
+            if (part is ExpressionPart expressionPart)
+                CollectLocalCapturesRecursive(expressionPart.Expression, outerScope, parameterNames, captures);
     }
 
     private static void CollectCapturesInWith(WithExpression withExpr,

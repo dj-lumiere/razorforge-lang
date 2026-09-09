@@ -621,7 +621,7 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     }
 
     /// <summary>Substitutes generic parameters within a <see cref="RoutineTypeInfo"/>'s parameter and return types.</summary>
-    private TypeInfo SubstituteRoutineType(RoutineTypeInfo rt, Dictionary<string, TypeInfo> subs)
+    private RoutineTypeInfo SubstituteRoutineType(RoutineTypeInfo rt, Dictionary<string, TypeInfo> subs)
     {
         var newParamTypes = rt.ParameterTypes
             .Select(selector: p => SubstituteMe(t: p, subs: subs))

@@ -432,7 +432,7 @@ public partial class Parser
         // Skip them to prevent "Unexpected token" errors.
         while (Match(type: TokenType.DocComment))
         {
-            while (Match(type: TokenType.Newline)) { }
+            while (Match(type: TokenType.Newline)) { /* consume trailing newlines after doc comment */ }
         }
 
         // The @target(...) annotation is read pre-parse by the build's file gate; discard it here.
@@ -441,7 +441,7 @@ public partial class Parser
             && PeekToken(offset: 1).Text == "target")
         {
             ParseAnnotations();
-            while (Match(type: TokenType.Newline)) { }
+            while (Match(type: TokenType.Newline)) { /* consume trailing newlines after @target */ }
         }
     }
 

@@ -763,12 +763,9 @@ internal static class NativeToolchain
         }
 
         HashSet<string> staticNames = CollectStaticLibraryNames(libraryConfigs: libraryConfigs);
-        foreach (string lib in cLibraries)
+        foreach (string lib in cLibraries.Where(lib => !staticNames.Contains(lib)))
         {
-            if (!staticNames.Contains(item: lib))
-            {
-                StageDynamicLibrary(lib: lib, libraryPaths: libraryPaths, outputDir: outputDir);
-            }
+            StageDynamicLibrary(lib: lib, libraryPaths: libraryPaths, outputDir: outputDir);
         }
     }
 

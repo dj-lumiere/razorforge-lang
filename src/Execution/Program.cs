@@ -87,13 +87,10 @@ internal partial class Program
         bool isCommand = command is "parse" or "tokenize" or "codegen" or BuildCommand
             or "buildandrun" or "check" or "validate-stdlib" or "emit-pbrf" or "help";
 
-        if (!isCommand)
+        if (!isCommand && !TryRewriteBareSuflaeArgs(ref args, ref command))
         {
-            if (!TryRewriteBareSuflaeArgs(ref args, ref command))
-            {
-                // Default behavior for a bare .rf file: parse and show AST summary
-                return ParseFile(sourceFile: args[0]);
-            }
+            // Default behavior for a bare .rf file: parse and show AST summary
+            return ParseFile(sourceFile: args[0]);
         }
 
         return DispatchCommand(command: command, args: args);
@@ -366,6 +363,18 @@ internal partial class Program
         Func<Language, SemanticVerifier.CompiledStdlibState?>? WarmProvider,
         Action<string>? IrCallback,
         Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>? StdlibIndexProvider);
+
+    /// <summary>
+    /// Bundles the inputs that drive Phase 2 (semantic analysis) of the multi-file pipeline,
+    /// reducing the parameter count of <see cref="RunPhase2SemanticAnalysis"/>.
+    /// </summary>
+    private sealed record Phase2Context(
+        Language Language,
+        RfBuildMode BuildMode,
+        bool SaTiming,
+        bool ShowBuildStages,
+        bool RequireStartRoutine,
+        Func<Language, SemanticVerifier.CompiledStdlibState?>? WarmProvider);
 
     /// <summary>
     /// The fully-resolved build configuration for a <c>build</c>/<c>buildandrun</c>/<c>check</c> invocation:
@@ -1248,75 +1257,21 @@ internal partial class Program
                 return 1;
             }
 
-            // Phase 2: Semantic analysis (multi-file)
-            if (showBuildStages)
-            {
-                Console.WriteLine();
-                Console.WriteLine(value: "=== SEMANTIC ANALYSIS ===");
-            }
-
-            var target = TargetConfig.ForCurrentHost();
-            // Warm path: a daemon supplies a fully-processed stdlib snapshot for this language, so the
-            // restore ctor skips the ~5 s of stdlib desugaring/verification/monomorphization and only the
-            // user program is analyzed. Cold path (warm == null) constructs a fresh verifier as before.
-            SemanticVerifier.CompiledStdlibState? warmState = warmProvider?.Invoke(language);
-            // NOTE: a cold-path fallback to StdlibSnapshotCache.LoadOrCapture (route cold builds through the
-            // .pbrf snapshot) is DEFERRED — it exposed a pre-existing warm-restore OVER-PRUNE on complex
-            // programs (the full-stdlib StdlibApiTests harness: "declared and called but never defined").
-            // The .pbrf round-trip itself is faithful (proven: deleting the .pbrf and using an in-memory
-            // warm capture over-prunes identically). Fix the warm-restore liveness gap first, then re-enable.
-            // `timing` ([debug]) drives both the granular [SA] sub-phase lines (analyzer.SaTiming) and the
-            // coarse [phase] lines below — via the single DiagnosticFlags.PhaseTiming source.
-            var analyzer = warmState != null
-                ? new SemanticVerifier(language: language, warm: warmState,
-                    target: target, buildMode: buildMode) { SaTiming = saTiming || DiagnosticFlags.PhaseTiming }
-                : new SemanticVerifier(language: language,
-                    target: target, buildMode: buildMode) { SaTiming = saTiming || DiagnosticFlags.PhaseTiming };
-            if (_swBuild != null)
-            {
-                Console.Error.WriteLine(value: $"[timing] warm-restore ctor (rebuild verifier from snapshot): {_swBuild.ElapsedMilliseconds} ms");
-                _swBuild.Restart();
-            }
-            analyzer.Registry.UseModuleResolver(resolver: driver.Resolver);
-            var _swPhase = DiagnosticFlags.PhaseTiming ? System.Diagnostics.Stopwatch.StartNew() : null;
-            AnalysisResult result = analyzer.AnalyzeMultiple(files: orderedFiles);
-            if (_swPhase != null)
-            {
-                Console.Error.WriteLine(value: $"[phase] AnalyzeMultiple (SA+instantiation+postproc): {_swPhase.ElapsedMilliseconds} ms");
-                _swPhase.Restart();
-            }
-
-            if (showBuildStages)
-                Console.WriteLine(value: $"Routines registered: {result.Registry.GetAllRoutines().Count()}");
-
-            if (result.Errors.Count > 0)
-            {
-                Console.WriteLine();
-                Console.Error.WriteLine(value: $"=== ERRORS ({result.Errors.Count}) ===");
-                DiagnosticRenderer.PrintAll(errors: result.Errors);
-                Console.WriteLine();
-                Console.Error.WriteLine(value: "Code generation aborted due to errors.");
-                return 1;
-            }
-
-            if (result.Warnings.Count > 0)
-            {
-                Console.WriteLine();
-                Console.Error.WriteLine(value: $"=== WARNINGS ({result.Warnings.Count}) ===");
-                DiagnosticRenderer.PrintAll(warnings: result.Warnings);
-            }
-
-            if (requireStartRoutine)
-            {
-                int startCheck = CheckStartRoutinePresent(orderedFiles: orderedFiles, result: result);
-                if (startCheck != 0) return startCheck;
-            }
+            // Phase 2: Semantic analysis (multi-file) — extracted to keep this method's complexity ≤15.
+            var phase2Ctx = new Phase2Context(Language: language, BuildMode: buildMode,
+                SaTiming: saTiming, ShowBuildStages: showBuildStages,
+                RequireStartRoutine: requireStartRoutine, WarmProvider: warmProvider);
+            int phase2Result = RunPhase2SemanticAnalysis(ctx: phase2Ctx, driver: driver,
+                orderedFiles: orderedFiles, swBuild: _swBuild,
+                result: out AnalysisResult result, swPhase: out var _swPhase);
+            if (phase2Result != 0) return phase2Result;
 
             // Phase 3: Code generation (multi-program)
             return RunPhase3Codegen(entryFile: entryFile, outputFile: outputFile,
                 orderedFiles: orderedFiles, unitsByFile: unitsByFile, result: result,
-                target: target, buildMode: buildMode, saTiming: saTiming, dumpAst: dumpAst,
-                showBuildStages: showBuildStages, irCallback: irCallback, swPhase: _swPhase);
+                target: TargetConfig.ForCurrentHost(), buildMode: buildMode, saTiming: saTiming,
+                dumpAst: dumpAst, showBuildStages: showBuildStages, irCallback: irCallback,
+                swPhase: _swPhase);
         }
         catch (GrammarException ex)
         {
@@ -1329,6 +1284,83 @@ internal partial class Program
             Console.WriteLine(value: ex.StackTrace);
             return 1;
         }
+    }
+
+    /// <summary>
+    /// Phase 2 of the multi-file build: constructs the semantic verifier (warm or cold path),
+    /// runs <see cref="SemanticVerifier.AnalyzeMultiple"/>, reports errors and warnings, and
+    /// checks that a <c>routine start()</c> is present when required. Returns 0 on success.
+    /// </summary>
+    private static int RunPhase2SemanticAnalysis(
+        Phase2Context ctx, BuildDriver driver,
+        List<(SyntaxTree.Program Program, string FilePath)> orderedFiles,
+        System.Diagnostics.Stopwatch? swBuild,
+        out AnalysisResult result,
+        out System.Diagnostics.Stopwatch? swPhase)
+    {
+        if (ctx.ShowBuildStages)
+        {
+            Console.WriteLine();
+            Console.WriteLine(value: "=== SEMANTIC ANALYSIS ===");
+        }
+
+        var target = TargetConfig.ForCurrentHost();
+        // Warm path: a daemon supplies a fully-processed stdlib snapshot for this language, so the
+        // restore ctor skips the stdlib desugaring/verification/monomorphization and only the user
+        // program is analyzed. Cold path (WarmProvider == null) constructs a fresh verifier.
+        // A cold-path fallback through the snapshot cache is deferred — it exposed a warm-restore
+        // over-prune on complex programs. Fix that liveness gap first, then re-enable.
+        SemanticVerifier.CompiledStdlibState? warmState = ctx.WarmProvider?.Invoke(ctx.Language);
+        // The timing flag drives both granular SA sub-phase lines and the coarse phase lines below,
+        // via the single DiagnosticFlags.PhaseTiming source.
+        var analyzer = warmState != null
+            ? new SemanticVerifier(language: ctx.Language, warm: warmState,
+                target: target, buildMode: ctx.BuildMode)
+              { SaTiming = ctx.SaTiming || DiagnosticFlags.PhaseTiming }
+            : new SemanticVerifier(language: ctx.Language,
+                target: target, buildMode: ctx.BuildMode)
+              { SaTiming = ctx.SaTiming || DiagnosticFlags.PhaseTiming };
+        if (swBuild != null)
+        {
+            Console.Error.WriteLine(value: $"[timing] warm-restore ctor (rebuild verifier from snapshot): {swBuild.ElapsedMilliseconds} ms");
+            swBuild.Restart();
+        }
+        analyzer.Registry.UseModuleResolver(resolver: driver.Resolver);
+        swPhase = DiagnosticFlags.PhaseTiming ? System.Diagnostics.Stopwatch.StartNew() : null;
+        result = analyzer.AnalyzeMultiple(files: orderedFiles);
+        if (swPhase != null)
+        {
+            Console.Error.WriteLine(value: $"[phase] AnalyzeMultiple (SA+instantiation+postproc): {swPhase.ElapsedMilliseconds} ms");
+            swPhase.Restart();
+        }
+
+        if (ctx.ShowBuildStages)
+            Console.WriteLine(value: $"Routines registered: {result.Registry.GetAllRoutines().Count()}");
+
+        if (result.Errors.Count > 0)
+        {
+            Console.WriteLine();
+            Console.Error.WriteLine(value: $"=== ERRORS ({result.Errors.Count}) ===");
+            DiagnosticRenderer.PrintAll(errors: result.Errors);
+            Console.WriteLine();
+            Console.Error.WriteLine(value: "Code generation aborted due to errors.");
+            return 1;
+        }
+
+        if (result.Warnings.Count > 0)
+        {
+            Console.WriteLine();
+            Console.Error.WriteLine(value: $"=== WARNINGS ({result.Warnings.Count}) ===");
+            DiagnosticRenderer.PrintAll(warnings: result.Warnings);
+        }
+
+        if (ctx.RequireStartRoutine)
+        {
+            int startCheck = CheckStartRoutinePresent(orderedFiles: orderedFiles, result: result);
+            if (startCheck != 0) return startCheck;
+        }
+
+        return 0;
     }
 
     /// <summary>

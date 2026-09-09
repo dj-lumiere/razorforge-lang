@@ -95,18 +95,31 @@ public sealed partial class SemanticVerifier
         foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: gp.Name))
         {
             if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null }) continue;
-            foreach (TypeExpression protoExpr in c.ConstraintTypes)
+            if (TryMatchMarkerBound(constraintTypes: c.ConstraintTypes, innerType: out innerType))
+                return true;
+        }
+        innerType = ErrorTypeInfo.Instance;
+        return false;
+    }
+
+    /// <summary>
+    /// Searches a list of protocol-type expressions for an <c>Accessing[X]</c> or
+    /// <c>Controlling[X]</c> bound with exactly one resolvable type argument, and returns
+    /// that resolved inner type. Returns false when no such bound is present.
+    /// </summary>
+    private bool TryMatchMarkerBound(List<TypeExpression> constraintTypes, out TypeSymbol innerType)
+    {
+        foreach (TypeExpression protoExpr in constraintTypes)
+        {
+            if (protoExpr.Name is not (Compiler.Declaration.RuntimeContract.Accessing
+                    or Compiler.Declaration.RuntimeContract.Controlling))
+                continue;
+            if (protoExpr.GenericArguments is not { Count: 1 }) continue;
+            TypeSymbol resolved = _typeResolver.ResolveType(typeExpr: protoExpr.GenericArguments[index: 0]);
+            if (resolved is not (null or ErrorTypeInfo))
             {
-                if (protoExpr.Name is not (Compiler.Declaration.RuntimeContract.Accessing
-                        or Compiler.Declaration.RuntimeContract.Controlling))
-                    continue;
-                if (protoExpr.GenericArguments is not { Count: 1 }) continue;
-                TypeSymbol resolved = _typeResolver.ResolveType(typeExpr: protoExpr.GenericArguments[index: 0]);
-                if (resolved is not (null or ErrorTypeInfo))
-                {
-                    innerType = resolved;
-                    return true;
-                }
+                innerType = resolved;
+                return true;
             }
         }
         innerType = ErrorTypeInfo.Instance;
@@ -1372,12 +1385,11 @@ public sealed partial class SemanticVerifier
             .Select(selector: g => g.First())
             .ToList();
 
-        // `T(...)` written *inside* T's own `create` is the field-init base case ONLY when it
-        // resolves back to the SAME `create` we are compiling (genuine self-recursion). A call to
-        // a *different* `create` overload (e.g. `F128(from: hi)` -> `create(from: U64)` inside
-        // `create(from: U128)`) is an ordinary conversion and must route to that overload;
-        // otherwise codegen falls back to inline field-init and mis-lowers bit-carrier types like
-        // F128 to a raw integer reinterpret of the IEEE storage.
+        // A type constructor written inside the type's own creator is the field-init base case ONLY
+        // when it resolves back to the same creator being compiled (genuine self-recursion). A call to
+        // a different create overload (for example a conversion from a narrower integer type) is an
+        // ordinary conversion and must route to that overload — otherwise codegen falls back to inline
+        // field-init and mis-lowers bit-carrier types to a raw integer reinterpret of the IEEE storage.
         bool insideOwnCreate = _currentRoutine is { IsCreator: true } currentCreate
             && currentCreate.OwnerType != null
             && (currentCreate.OwnerType.FullName == type.FullName

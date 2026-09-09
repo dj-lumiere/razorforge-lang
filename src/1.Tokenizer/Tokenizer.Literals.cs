@@ -381,6 +381,15 @@ public partial class Tokenizer
     }
 
     /// <summary>
+    /// Decrements the bracket nesting depth when currently inside at least one open bracket,
+    /// preventing underflow below zero for unmatched closing brackets.
+    /// </summary>
+    private void DecrementBracketDepth()
+    {
+        if (_bracketDepth > 0) _bracketDepth--;
+    }
+
+    /// <summary>
     /// Scans a single token inside an insertion expression given its already-consumed first
     /// character, dispatching to the shared operator/literal scanners.
     /// </summary>
@@ -394,7 +403,7 @@ public partial class Tokenizer
                 break;
             case ')':
                 AddToken(type: TokenType.RightParen);
-                if (_bracketDepth > 0) _bracketDepth--;
+                DecrementBracketDepth();
                 break;
             case '[':
                 AddToken(type: TokenType.LeftBracket);
@@ -402,7 +411,7 @@ public partial class Tokenizer
                 break;
             case ']':
                 AddToken(type: TokenType.RightBracket);
-                if (_bracketDepth > 0) _bracketDepth--;
+                DecrementBracketDepth();
                 break;
             case '{':
                 AddToken(type: TokenType.LeftBrace);
@@ -410,7 +419,7 @@ public partial class Tokenizer
                 break;
             case '}':
                 AddToken(type: TokenType.RightBrace);
-                if (_bracketDepth > 0) _bracketDepth--;
+                DecrementBracketDepth();
                 break;
             case ',':
                 AddToken(type: TokenType.Comma);
@@ -434,11 +443,11 @@ public partial class Tokenizer
                 ScanPercentOperator();
                 break;
             case ':':
-                // A double colon is a realm qualifier (e.g. LLVM::int_eq) — emit DoubleColon so
-                // realm-qualified calls parse inside f-string interpolation. A lone colon at
-                // entry depth is already handled as a format-spec start before we get here;
-                // reaching this case with a lone colon means we are inside nested parens or
-                // brackets, so emit a plain Colon to support named arguments like "value: 42".
+                // A double colon is a realm qualifier (used in realm-qualified calls inside
+                // f-string interpolation holes). A lone colon at entry depth is already handled
+                // as a format-spec start before we get here. Reaching this case with a lone
+                // colon means we are inside nested parens or brackets, so emit a plain Colon
+                // to support named arguments.
                 AddToken(type: Match(expected: ':')
                     ? TokenType.DoubleColon
                     : TokenType.Colon);
@@ -672,14 +681,16 @@ public partial class Tokenizer
     /// </summary>
     private void FlushTextSegment(StringBuilder textBuffer)
     {
-        if (textBuffer.Length > 0)
+        if (textBuffer.Length <= 0)
         {
-            _tokenStart = _position;
-            _tokenStartColumn = _column;
-            _tokenStartLine = _line;
-            AddToken(type: TokenType.TextSegment, text: textBuffer.ToString());
-            textBuffer.Clear();
+            return;
         }
+
+        _tokenStart = _position;
+        _tokenStartColumn = _column;
+        _tokenStartLine = _line;
+        AddToken(type: TokenType.TextSegment, text: textBuffer.ToString());
+        textBuffer.Clear();
     }
 
     #endregion

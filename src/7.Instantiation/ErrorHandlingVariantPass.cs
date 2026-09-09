@@ -93,8 +93,8 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
 
     /// <summary>
     /// Phase B: fixpoint propagation through FailableCallees. A routine whose failability
-    /// is purely propagated (e.g. `routine S64_from_text!(t: Text) -> S64
-    /// return S64!(from_text: t)`) has HasThrow=HasAbsent=false but FailableCallees={S64.create!}.
+    /// is purely propagated (e.g. routine S64_from_text! returning S64.create!(from_text: t))
+    /// has HasThrow=HasAbsent=false but FailableCallees containing S64.create!.
     /// We OR the callees' state into the caller until no further change.
     /// </summary>
     private static void PropagateFailabilityFixpoint(List<RoutineInfo> routines)
@@ -106,28 +106,39 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
             foreach (RoutineInfo routine in routines.Where(r => r.IsFailable))
             {
                 foreach (RoutineInfo callee in routine.FailableCallees)
-                {
-                    if (callee.HasThrow && !routine.HasThrow)
-                    {
-                        routine.HasThrow = true;
-                        changed = true;
-                    }
-                    if (callee.HasAbsent && !routine.HasAbsent)
-                    {
-                        routine.HasAbsent = true;
-                        changed = true;
-                    }
-                    foreach (TypeInfo t in callee.ThrowableTypes)
-                    {
-                        if (!routine.ThrowableTypes.Contains(t))
-                        {
-                            routine.ThrowableTypes.Add(t);
-                            changed = true;
-                        }
-                    }
-                }
+                    changed |= PropagateCalleeFailability(routine: routine, callee: callee);
             }
         }
+    }
+
+    /// <summary>
+    /// Merges one callee's HasThrow, HasAbsent, and ThrowableTypes flags into the caller routine.
+    /// Returns true when any flag was newly set (signals that the fixpoint should continue).
+    /// </summary>
+    private static bool PropagateCalleeFailability(RoutineInfo routine, RoutineInfo callee)
+    {
+        bool changed = false;
+
+        if (callee.HasThrow && !routine.HasThrow)
+        {
+            routine.HasThrow = true;
+            changed = true;
+        }
+
+        if (callee.HasAbsent && !routine.HasAbsent)
+        {
+            routine.HasAbsent = true;
+            changed = true;
+        }
+
+        var newTypes = callee.ThrowableTypes.Where(t => !routine.ThrowableTypes.Contains(t)).ToList();
+        if (newTypes.Count > 0)
+        {
+            routine.ThrowableTypes.AddRange(newTypes);
+            changed = true;
+        }
+
+        return changed;
     }
 
     /// <summary>
@@ -261,10 +272,10 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     public static VariantCallRewriter MakeOnDemandVariantRewriter(TypeRegistry registry)
     {
         // Find-or-SYNTHESIZE the matching variant of the SPECIFIC failable base overload via the verifier's
-        // per-overload hook (matches by parameter types, so an overloaded base like `S64.create(from_text:)`
+        // per-overload hook (matches by parameter types, so an overloaded base like S64.create(from_text:)
         // yields the right variant). Falls back to a plain name lookup when the hook isn't installed.
         // Demand-owned variants: synthesize the EXACT overload's variant via the per-overload hook.
-        // Eager-owned (`emit`) or wired variants: the hook returns null → fall back to FindVariant, an
+        // Eager-owned (emit) or wired variants: the hook returns null, falling back to FindVariant — an
         // EXACT scan-match (name + OriginalName + owner + param types), never a lossy by-name lookup.
         RoutineInfo? FindOrSynth(RoutineInfo original, string prefix)
             => registry.OnDemandVariantForBase?.Invoke(arg1: original, arg2: prefix)
@@ -282,53 +293,80 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
             };
             if (prefix == null) return false;
 
-            // A tail call to a failable routine → its variant.
-            if (value is CallExpression { ResolvedRoutine: { IsFailable: true } callee } call)
-            {
-                RoutineInfo? variant = FindOrSynth(callee, prefix);
-                if (variant == null) return false;
-                CallExpression newCall = call with { ResolvedRoutine = variant, ResolvedType = variant.ReturnType };
-                newCall = newCall.Callee switch
-                {
-                    MemberExpression m => newCall with
-                    {
-                        Callee = m with
-                        {
-                            MemberName = VariantSurfaceMember(surfaceMember: m.MemberName, original: callee,
-                                variant: variant),
-                            IsFailable = false
-                        }
-                    },
-                    IdentifierExpression idc => newCall with { Callee = idc with { Name = variant.Name } },
-                    _ => newCall
-                };
-                rewritten = newCall;
+            if (TryRewriteCallToVariant(value: value, prefix: prefix,
+                    findOrSynth: FindOrSynth, rewritten: out rewritten))
                 return true;
-            }
 
-            // A tail failable CONSTRUCTOR call (`S64(from_text: t)`) → its variant creator. Without this the
-            // constructor's inner throw/absent escapes uncaught (the try_S64_from_text-parses-"abc" case).
-            if (value is CreatorExpression { ResolvedCreatorRoutine: { IsFailable: true } cCallee } creator)
-            {
-                RoutineInfo? variant = FindOrSynth(cCallee, prefix);
-                if (variant == null) return false;
-                var typeId = new IdentifierExpression(Name: creator.TypeName, Location: creator.Location);
-                var member = new MemberExpression(Object: typeId, MemberName: variant.Name,
-                    Location: creator.Location);
-                var args = creator.MemberVariables
-                    .Select(selector: mv => (Expression)new NamedArgumentExpression(
-                        Name: mv.Name, Value: mv.Value, Location: creator.Location))
-                    .ToList();
-                rewritten = new CallExpression(Callee: member, Arguments: args, Location: creator.Location)
-                {
-                    ResolvedRoutine = variant,
-                    ResolvedType = variant.ReturnType
-                };
+            if (TryRewriteCreatorToVariant(value: value, prefix: prefix,
+                    findOrSynth: FindOrSynth, rewritten: out rewritten))
                 return true;
-            }
 
             return false;
         };
+    }
+
+    /// <summary>
+    /// Rewrites a tail <see cref="CallExpression"/> whose resolved routine is failable into an
+    /// equivalent call targeting the try_/check_/lookup_ variant. Returns false when the expression
+    /// is not a failable call or the variant cannot be found.
+    /// </summary>
+    private static bool TryRewriteCallToVariant(Expression? value, string prefix,
+        Func<RoutineInfo, string, RoutineInfo?> findOrSynth, out Expression? rewritten)
+    {
+        rewritten = null;
+        if (value is not CallExpression { ResolvedRoutine: { IsFailable: true } callee } call)
+            return false;
+
+        RoutineInfo? variant = findOrSynth(callee, prefix);
+        if (variant == null) return false;
+
+        CallExpression newCall = call with { ResolvedRoutine = variant, ResolvedType = variant.ReturnType };
+        newCall = newCall.Callee switch
+        {
+            MemberExpression m => newCall with
+            {
+                Callee = m with
+                {
+                    MemberName = VariantSurfaceMember(surfaceMember: m.MemberName, original: callee,
+                        variant: variant),
+                    IsFailable = false
+                }
+            },
+            IdentifierExpression idc => newCall with { Callee = idc with { Name = variant.Name } },
+            _ => newCall
+        };
+        rewritten = newCall;
+        return true;
+    }
+
+    /// <summary>
+    /// Rewrites a tail failable constructor expression (e.g. T(from_text: t)) into a call to the
+    /// corresponding try_/check_/lookup_ creator variant. Returns false when the expression is not a
+    /// failable creator or the variant cannot be found.
+    /// </summary>
+    private static bool TryRewriteCreatorToVariant(Expression? value, string prefix,
+        Func<RoutineInfo, string, RoutineInfo?> findOrSynth, out Expression? rewritten)
+    {
+        rewritten = null;
+        if (value is not CreatorExpression { ResolvedCreatorRoutine: { IsFailable: true } cCallee } creator)
+            return false;
+
+        RoutineInfo? variant = findOrSynth(cCallee, prefix);
+        if (variant == null) return false;
+
+        var typeId = new IdentifierExpression(Name: creator.TypeName, Location: creator.Location);
+        var member = new MemberExpression(Object: typeId, MemberName: variant.Name,
+            Location: creator.Location);
+        var args = creator.MemberVariables
+            .Select(selector: mv => (Expression)new NamedArgumentExpression(
+                Name: mv.Name, Value: mv.Value, Location: creator.Location))
+            .ToList();
+        rewritten = new CallExpression(Callee: member, Arguments: args, Location: creator.Location)
+        {
+            ResolvedRoutine = variant,
+            ResolvedType = variant.ReturnType
+        };
+        return true;
     }
 
     /// <summary>

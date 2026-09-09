@@ -259,31 +259,50 @@ public sealed partial class SemanticVerifier
 
         if (returnType is { IsGenericResolution: true, TypeArguments: not null })
         {
-            var substitutedArgs = new List<TypeInfo>();
-            bool anySubstituted = false;
-            foreach (TypeInfo typeArg in returnType.TypeArguments)
-            {
-                int idx = memberRoutine.GenericParameters.ToList().IndexOf(item: typeArg.Name);
-                if (idx >= 0 && idx < typeArgs.Count && typeArgs[index: idx] is TypeInfo sub)
-                {
-                    substitutedArgs.Add(item: sub);
-                    anySubstituted = true;
-                }
-                else
-                {
-                    substitutedArgs.Add(item: typeArg);
-                }
-            }
-
-            if (anySubstituted)
-            {
-                TypeInfo? genericDef = GetGenericDefinition(resolution: returnType);
-                if (genericDef != null)
-                    return _registry.GetOrCreateResolution(genericDef: genericDef, typeArguments: substitutedArgs);
-            }
+            TypeSymbol? substituted = SubstituteGenericResolutionArgs(
+                returnType: returnType,
+                genericParams: memberRoutine.GenericParameters,
+                typeArgs: typeArgs);
+            if (substituted != null) return substituted;
         }
 
         return returnType;
+    }
+
+    /// <summary>
+    /// Substitutes the type arguments of a generic resolution type (e.g. <c>Hijacked[U]</c>) using
+    /// the member-routine generic parameter map, and returns a new resolution when any argument
+    /// changed. Returns null when no substitution occurred.
+    /// </summary>
+    private TypeSymbol? SubstituteGenericResolutionArgs(
+        TypeSymbol returnType,
+        List<string> genericParams,
+        List<TypeSymbol> typeArgs)
+    {
+        var substitutedArgs = new List<TypeInfo>();
+        bool anySubstituted = false;
+        foreach (TypeInfo typeArg in returnType.TypeArguments!)
+        {
+            int idx = genericParams.ToList().IndexOf(item: typeArg.Name);
+            if (idx >= 0 && idx < typeArgs.Count && typeArgs[index: idx] is TypeInfo sub)
+            {
+                substitutedArgs.Add(item: sub);
+                anySubstituted = true;
+            }
+            else
+            {
+                substitutedArgs.Add(item: typeArg);
+            }
+        }
+
+        if (anySubstituted)
+        {
+            TypeInfo? genericDef = GetGenericDefinition(resolution: returnType);
+            if (genericDef != null)
+                return _registry.GetOrCreateResolution(genericDef: genericDef, typeArguments: substitutedArgs);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -329,21 +348,10 @@ public sealed partial class SemanticVerifier
         generic.LoweringKind = ClassifyStandaloneRoutineCall(routine: routine);
         generic.IsInFlight = routine.IsInFlightReturn;
 
-        for (int argIdx = 0; argIdx < generic.Arguments.Count; argIdx++)
-        {
-            Expression arg = generic.Arguments[index: argIdx];
-            ParameterInfo? param;
-            if (arg is NamedArgumentExpression namedArg)
-                param = declParams.FirstOrDefault(predicate: p => p.Name == namedArg.Name);
-            else
-                param = argIdx < declParams.Count ? declParams[index: argIdx] : null;
-            TypeSymbol? expected = null;
-            if (param?.Type is { } paramType)
-                expected = typeSubs != null
-                    ? SubstituteTypeParams(type: paramType, substitution: typeSubs)
-                    : paramType;
-            AnalyzeExpression(expression: arg, expectedType: expected);
-        }
+        AnalyzeGenericCallArguments(
+            arguments: generic.Arguments,
+            declParams: declParams,
+            typeSubs: typeSubs);
 
         if (routine.ReturnType == null)
         {
@@ -369,6 +377,25 @@ public sealed partial class SemanticVerifier
         // parameters through the return type using the same helper as the member-routine path.
         return SubstituteGenericParamsInReturnType(returnType: returnType,
             memberRoutine: routine, typeArgs: typeArgs);
+    }
+
+    private void AnalyzeGenericCallArguments(List<Expression> arguments, List<ParameterInfo> declParams, Dictionary<string,TypeInfo>? typeSubs)
+    {
+        for (int argIdx = 0; argIdx < arguments.Count; argIdx++)
+        {
+            Expression arg = arguments[index: argIdx];
+            ParameterInfo? param;
+            if (arg is NamedArgumentExpression namedArg)
+                param = declParams.FirstOrDefault(predicate: p => p.Name == namedArg.Name);
+            else
+                param = argIdx < declParams.Count ? declParams[index: argIdx] : null;
+            TypeSymbol? expected = null;
+            if (param?.Type is { } paramType)
+                expected = typeSubs != null
+                    ? SubstituteTypeParams(type: paramType, substitution: typeSubs)
+                    : paramType;
+            AnalyzeExpression(expression: arg, expectedType: expected);
+        }
     }
 
     /// <summary>

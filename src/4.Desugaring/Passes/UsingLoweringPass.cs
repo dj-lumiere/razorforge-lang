@@ -279,7 +279,7 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
         }
     }
 
-    private static Statement InjectIntoBlock(BlockStatement b, ExpressionStatement exitStmt, int loopDepth)
+    private static BlockStatement InjectIntoBlock(BlockStatement b, ExpressionStatement exitStmt, int loopDepth)
     {
         bool changed = false;
         var stmts = new List<Statement>(capacity: b.Statements.Count);
@@ -292,7 +292,7 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
         return changed ? b with { Statements = stmts } : b;
     }
 
-    private static Statement InjectIntoIf(IfStatement ifs, ExpressionStatement exitStmt, int loopDepth)
+    private static IfStatement InjectIntoIf(IfStatement ifs, ExpressionStatement exitStmt, int loopDepth)
     {
         Statement then = InjectExitBeforeEscapes(ifs.ThenStatement, exitStmt, loopDepth);
         Statement? elseS = ifs.ElseStatement != null
@@ -303,7 +303,7 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
         return changed ? ifs with { ThenStatement = then, ElseStatement = elseS } : ifs;
     }
 
-    private static Statement InjectIntoWhen(WhenStatement w, ExpressionStatement exitStmt, int loopDepth)
+    private static WhenStatement InjectIntoWhen(WhenStatement w, ExpressionStatement exitStmt, int loopDepth)
     {
         bool changed = false;
         var clauses = new List<WhenClause>(capacity: w.Clauses.Count);

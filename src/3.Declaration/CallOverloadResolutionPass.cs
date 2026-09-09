@@ -301,9 +301,7 @@ internal sealed class CallOverloadResolutionPass
                 break;
 
             case RangeExpression range:
-                WalkExpression(range.Start);
-                WalkExpression(range.End);
-                if (range.Step != null) WalkExpression(range.Step);
+                WalkRangeExpression(range: range);
                 break;
 
             case ConditionalExpression cond:
@@ -325,11 +323,7 @@ internal sealed class CallOverloadResolutionPass
                 break;
 
             case DictLiteralExpression dict:
-                foreach ((Expression k, Expression v) in dict.Pairs)
-                {
-                    WalkExpression(k);
-                    WalkExpression(v);
-                }
+                WalkDictExpression(dict: dict);
                 break;
 
             case CreatorExpression creator:
@@ -337,9 +331,32 @@ internal sealed class CallOverloadResolutionPass
                 break;
 
             case InsertedTextExpression fstr:
-                foreach (InsertedTextPart part in fstr.Parts)
-                    if (part is ExpressionPart ep) WalkExpression(ep.Expression);
+                WalkInsertedTextExpression(fstr: fstr);
                 break;
+        }
+    }
+
+    private void WalkRangeExpression(RangeExpression range)
+    {
+        WalkExpression(range.Start);
+        WalkExpression(range.End);
+        if (range.Step != null) WalkExpression(range.Step);
+    }
+
+    private void WalkDictExpression(DictLiteralExpression dict)
+    {
+        foreach ((Expression k, Expression v) in dict.Pairs)
+        {
+            WalkExpression(k);
+            WalkExpression(v);
+        }
+    }
+
+    private void WalkInsertedTextExpression(InsertedTextExpression fstr)
+    {
+        foreach (InsertedTextPart part in fstr.Parts)
+        {
+            if (part is ExpressionPart ep) WalkExpression(ep.Expression);
         }
     }
 

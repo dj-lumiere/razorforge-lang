@@ -219,7 +219,7 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
     /// Rewrites a stamped <see cref="IdentifierExpression.IsModuleGlobal"/> reference into a
     /// <c>__globals__.&lt;name&gt;</c> member access on the promoted singleton.
     /// </summary>
-    private Expression RewriteGlobalIdentifier(IdentifierExpression id)
+    private MemberExpression RewriteGlobalIdentifier(IdentifierExpression id)
     {
         var receiver = new IdentifierExpression(
             Name: Builder.Program.ModuleGlobalsSingletonName, Location: id.Location)

@@ -415,34 +415,8 @@ public partial class Parser
 
             while (!Check(type: TokenType.Dedent) && !IsAtEnd)
             {
-                if (Match(TokenType.Newline, TokenType.DocComment))
-                {
-                    continue;
-                }
-
-                if (Match(type: TokenType.Pass))
-                {
-                    hasPass = true;
-                    Match(type: TokenType.Newline);
-                    continue;
-                }
-
-                ISyntaxTreeNode node = ParseDeclaration();
-                if (node is RoutineDeclaration)
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                        message: $"Routines cannot be declared inside {typeName} bodies. Use 'routine {pascal}Name.MemberRoutine()' syntax instead.");
-                }
-
-                if (node is SyntaxTree.Declaration member)
-                {
-                    members.Add(item: member);
-                }
-                else
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                        message: $"Expected declaration inside {typeName} body, got {node.GetType().Name}");
-                }
+                hasPass = ParseTypeMemberLoopIteration(members: members,
+                    typeName: typeName, pascal: pascal, hasPass: hasPass);
             }
 
             if (Check(type: TokenType.Dedent))
@@ -458,6 +432,48 @@ public partial class Parser
 
         _parsingTypeBody = wasParsingTypeBody;
         _parsingStrictRecordBody = wasParsingStrictRecordBody;
+        return hasPass;
+    }
+
+    /// <summary>
+    /// Processes one iteration of the type-member parsing loop: skips blank lines and doc comments,
+    /// handles the <c>pass</c> keyword, and parses a single member declaration. Returns the updated
+    /// <paramref name="hasPass"/> flag.
+    /// </summary>
+    private bool ParseTypeMemberLoopIteration(
+        List<SyntaxTree.Declaration> members,
+        string typeName,
+        string pascal,
+        bool hasPass)
+    {
+        if (Match(TokenType.Newline, TokenType.DocComment))
+        {
+            return hasPass;
+        }
+
+        if (Match(type: TokenType.Pass))
+        {
+            Match(type: TokenType.Newline);
+            return true;
+        }
+
+        ISyntaxTreeNode node = ParseDeclaration();
+        if (node is RoutineDeclaration)
+        {
+            throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                message: $"Routines cannot be declared inside {typeName} bodies. Use 'routine {pascal}Name.MemberRoutine()' syntax instead.");
+        }
+
+        if (node is SyntaxTree.Declaration member)
+        {
+            members.Add(item: member);
+        }
+        else
+        {
+            throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                message: $"Expected declaration inside {typeName} body, got {node.GetType().Name}");
+        }
+
         return hasPass;
     }
 

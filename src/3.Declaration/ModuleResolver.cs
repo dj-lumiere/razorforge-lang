@@ -85,7 +85,8 @@ public sealed class ModuleResolver
                         VariantDeclaration v => v.Name,
                         CrashableDeclaration cr => cr.Name,
                         ProtocolDeclaration p => p.Name,
-                        _ => ((PresetDeclaration)node).Name
+                        PresetDeclaration pd => pd.Name,
+                        _ => string.Empty
                     };
                     _index.TryAdd(key: $"{moduleName}.{typeName}", value: filePath);
                     break;

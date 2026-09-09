@@ -203,11 +203,8 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
     private void MaterializeReachedStdlibBodies(Dictionary<string, Statement> programBodies)
     {
         HashSet<string> userKeys = CollectUserRoutineKeys();
-        foreach (string liveKey in ctx.LiveRoutineKeys.ToList())
-        {
-            if (!userKeys.Contains(item: liveKey))
-                TryMaterializeStdlibBody(liveKey: liveKey, programBodies: programBodies);
-        }
+        foreach (string liveKey in ctx.LiveRoutineKeys.ToList().Where(k => !userKeys.Contains(k)))
+            TryMaterializeStdlibBody(liveKey: liveKey, programBodies: programBodies);
     }
 
     /// <summary>
@@ -314,48 +311,59 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
     /// concrete owner instantiation, substituting generic parameters with concrete type arguments.
     /// </summary>
     private void MaterializeGenericOwnerSynthBodies(RoutineInfo synthInfo, Statement synthBody,
-        TypeInfo genericOwner, IReadOnlyList<string> gParams, List<TypeInfo> concreteInstances)
+        TypeInfo genericOwner, List<string> gParams, List<TypeInfo> concreteInstances)
     {
         foreach (TypeInfo candidateOwner in concreteInstances)
-        {
-            if (candidateOwner.IsGenericDefinition) continue;
-            if (candidateOwner.TypeArguments is not { Count: > 0 } tArgs) continue;
-            if (tArgs.Count != gParams.Count) continue;
-            TypeInfo? candidateGenDef = candidateOwner switch
-            {
-                RecordTypeInfo r => r.GenericDefinition,
-                EntityTypeInfo e => e.GenericDefinition,
-                WrapperTypeInfo w => ctx.Registry.LookupType(name: w.Name),
-                _ => null
-            };
-            if (candidateGenDef == null || !ReferenceEquals(objA: candidateGenDef, objB: genericOwner))
-                continue;
-            // Reached owners only — the collector marks these as it walks (demand-scoped).
-            if (!ctx.LiveOwnerTypeNames.Contains(item: candidateOwner.FullName)) continue;
-            RoutineInfo? concreteMemberRoutine = ctx.Registry.LookupMemberRoutine(
-                type: candidateOwner, memberRoutineName: synthInfo.Name);
-            if (concreteMemberRoutine == null) continue;
-            // Only the REFERENCED members (force-seeded represent/diagnose, or a genuinely-called derive) —
-            // not every synth member of a reached owner, or a dead one drags in unresolved callees.
-            if (!ctx.LiveRoutineKeys.Contains(item: concreteMemberRoutine.RegistryKey)) continue;
-            if (ctx.InstantiatedGenericBodies.ContainsKey(key: concreteMemberRoutine.RegistryKey)) continue;
+            TryMaterializeForCandidate(synthInfo: synthInfo, synthBody: synthBody,
+                genericOwner: genericOwner, gParams: gParams, candidateOwner: candidateOwner);
+    }
 
-            var subs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
-            for (int gi = 0; gi < gParams.Count; gi++) subs[key: gParams[index: gi]] = tArgs[index: gi];
-            Statement rewritten = GenericAstRewriter.RewriteStatement(
-                stmt: synthBody,
-                subs: subs.ToDictionary(keySelector: kv => kv.Key, elementSelector: kv => kv.Value.FullName),
-                typeSubs: subs,
-                registry: ctx.Registry,
-                enclosingRoutine: concreteMemberRoutine);
-            ctx.InstantiatedGenericBodies[key: concreteMemberRoutine.RegistryKey] = new MonomorphizedBody(
-                Ast: WrapInSynthShellDecl(name: concreteMemberRoutine.Name, body: rewritten,
-                    info: concreteMemberRoutine),
-                Info: concreteMemberRoutine,
-                TypeSubs: subs,
-                VariantStatus: null, VariantInnerType: null, IsSynthesized: true);
-            ctx.LiveRoutineKeys.Add(item: concreteMemberRoutine.RegistryKey);
-        }
+    /// <summary>
+    /// Attempts to materialize one concrete-owner specialization of a generic synthesized body
+    /// (e.g. <c>List[S32].represent</c>). Skips the candidate if it is generic, has no matching
+    /// type arguments, belongs to a different generic definition, has not been reached by the
+    /// demand walk, or already has a body in <c>InstantiatedGenericBodies</c>.
+    /// </summary>
+    private void TryMaterializeForCandidate(RoutineInfo synthInfo, Statement synthBody,
+        TypeInfo genericOwner, List<string> gParams, TypeInfo candidateOwner)
+    {
+        if (candidateOwner.IsGenericDefinition) return;
+        if (candidateOwner.TypeArguments is not { Count: > 0 } tArgs) return;
+        if (tArgs.Count != gParams.Count) return;
+        TypeInfo? candidateGenDef = candidateOwner switch
+        {
+            RecordTypeInfo r => r.GenericDefinition,
+            EntityTypeInfo e => e.GenericDefinition,
+            WrapperTypeInfo w => ctx.Registry.LookupType(name: w.Name),
+            _ => null
+        };
+        if (candidateGenDef == null || !ReferenceEquals(objA: candidateGenDef, objB: genericOwner))
+            return;
+        // Reached owners only — the collector marks these as it walks (demand-scoped).
+        if (!ctx.LiveOwnerTypeNames.Contains(item: candidateOwner.FullName)) return;
+        RoutineInfo? concreteMemberRoutine = ctx.Registry.LookupMemberRoutine(
+            type: candidateOwner, memberRoutineName: synthInfo.Name);
+        if (concreteMemberRoutine == null) return;
+        // Only the REFERENCED members (force-seeded represent/diagnose, or a genuinely-called derive) —
+        // not every synth member of a reached owner, or a dead one drags in unresolved callees.
+        if (!ctx.LiveRoutineKeys.Contains(item: concreteMemberRoutine.RegistryKey)) return;
+        if (ctx.InstantiatedGenericBodies.ContainsKey(key: concreteMemberRoutine.RegistryKey)) return;
+
+        var subs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
+        for (int gi = 0; gi < gParams.Count; gi++) subs[key: gParams[index: gi]] = tArgs[index: gi];
+        Statement rewritten = GenericAstRewriter.RewriteStatement(
+            stmt: synthBody,
+            subs: subs.ToDictionary(keySelector: kv => kv.Key, elementSelector: kv => kv.Value.FullName),
+            typeSubs: subs,
+            registry: ctx.Registry,
+            enclosingRoutine: concreteMemberRoutine);
+        ctx.InstantiatedGenericBodies[key: concreteMemberRoutine.RegistryKey] = new MonomorphizedBody(
+            Ast: WrapInSynthShellDecl(name: concreteMemberRoutine.Name, body: rewritten,
+                info: concreteMemberRoutine),
+            Info: concreteMemberRoutine,
+            TypeSubs: subs,
+            VariantStatus: null, VariantInnerType: null, IsSynthesized: true);
+        ctx.LiveRoutineKeys.Add(item: concreteMemberRoutine.RegistryKey);
     }
 
     /// <summary>

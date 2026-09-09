@@ -66,7 +66,7 @@ public partial class Parser
         }
 
         // Comptime splice selectors: obj.${expr} or obj.$primary
-        if (TryParseSpliceMember(expr: expr, result: out Expression? spliceMember))
+        if (TryParseSpliceMember(expr: expr, result: out Expression? spliceMember) && spliceMember != null)
         {
             expr = spliceMember;
             return true;

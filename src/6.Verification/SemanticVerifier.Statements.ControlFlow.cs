@@ -472,7 +472,7 @@ public sealed partial class SemanticVerifier
     /// Updates the <c>handledNone</c>, <c>handledNoneValue</c>, and <c>handledCrashable</c> flags
     /// based on the current clause's pattern and the carrier base name of the matched type.
     /// </summary>
-    private void UpdateCarrierHandledFlags(WhenClause clause, TypeSymbol matchedType,
+    private static void UpdateCarrierHandledFlags(WhenClause clause, TypeSymbol matchedType,
         ref bool handledNone, ref bool handledNoneValue, ref bool handledCrashable)
     {
         string? carrierBase = GetCarrierBaseName(type: matchedType);

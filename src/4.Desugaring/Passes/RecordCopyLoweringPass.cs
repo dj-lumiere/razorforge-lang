@@ -374,7 +374,8 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
         // reference (correct for record/value/managed payloads).
         if (IsCarrierPayloadExtraction(vd.Initializer))
             return stmt;
-        Expression lowered = LowerOwnership(expr: vd.Initializer, isReturn: false);
+        // vd.Initializer is non-null: the caller pattern-matches `{ Initializer: not null }`.
+        Expression lowered = LowerOwnership(expr: vd.Initializer!, isReturn: false);
         if (ReferenceEquals(lowered, vd.Initializer)) return stmt;
         var newVd = vd with { Initializer = lowered };
         return ds with { Declaration = newVd };

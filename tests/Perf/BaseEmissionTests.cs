@@ -7,6 +7,7 @@ using Compiler.Verification.Results;
 using System.Text.RegularExpressions;
 using Xunit.Abstractions;
 
+#pragma warning disable xUnit1004
 namespace RazorForge.Tests.Perf;
 
 /// <summary>

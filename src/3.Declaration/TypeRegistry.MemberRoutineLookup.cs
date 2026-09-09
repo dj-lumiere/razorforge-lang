@@ -267,14 +267,11 @@ public sealed partial class TypeRegistry
     /// correct for a lone overload.</summary>
     private bool HasMultipleRegisteredOverloads(string baseName)
     {
-        int n = 0;
         string prefix = baseName + "#";
-        foreach (string k in _routines.Keys.Where(k =>
-                     k == baseName || k.StartsWith(value: prefix, comparisonType: StringComparison.Ordinal)))
-        {
-            if (++n > 1) return true;
-        }
-        return false;
+        return _routines.Keys
+            .Where(k => k == baseName || k.StartsWith(value: prefix, comparisonType: StringComparison.Ordinal))
+            .Skip(count: 1)
+            .Any();
     }
 
     /// <summary>
@@ -328,30 +325,33 @@ public sealed partial class TypeRegistry
     {
         List<RoutineInfo>? overloadCandidates = FreeOverloads(baseName: baseName);
         if (overloadCandidates == null && !baseName.Contains(value: '.'))
-        {
             overloadCandidates = FreeOverloads(baseName: $"Core.{baseName}");
-        }
-        if (overloadCandidates is { Count: > 1 })
-        {
-            foreach (RoutineInfo candidate in overloadCandidates)
-            {
-                if (candidate.Parameters.Count != argTypes.Count) continue;
-                bool match = true;
-                for (int i = 0; i < argTypes.Count; i++)
-                {
-                    if (RoutineInfo.GetTypeIdentity(type: candidate.Parameters[index: i].Type) !=
-                        RoutineInfo.GetTypeIdentity(type: argTypes[index: i]))
-                    {
-                        match = false;
-                        break;
-                    }
-                }
 
-                if (match) return candidate;
-            }
+        if (overloadCandidates is not { Count: > 1 }) return null;
+
+        foreach (RoutineInfo candidate in overloadCandidates)
+        {
+            if (StructuralFreeOverloadMatches(candidate: candidate, argTypes: argTypes))
+                return candidate;
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="candidate"/>'s parameters match <paramref name="argTypes"/>
+    /// by count and full type identity (module-qualified, includes generic args).
+    /// </summary>
+    private static bool StructuralFreeOverloadMatches(RoutineInfo candidate, List<TypeInfo> argTypes)
+    {
+        if (candidate.Parameters.Count != argTypes.Count) return false;
+        for (int i = 0; i < argTypes.Count; i++)
+        {
+            if (RoutineInfo.GetTypeIdentity(type: candidate.Parameters[index: i].Type) !=
+                RoutineInfo.GetTypeIdentity(type: argTypes[index: i]))
+                return false;
+        }
+        return true;
     }
 
     /// <summary>
@@ -860,28 +860,16 @@ public sealed partial class TypeRegistry
     public RoutineInfo? LookupMemberRoutine(TypeInfo type, string memberRoutineName, bool? isFailable = null,
         TypeInfo? forImplementer = null)
     {
-        // Transparent-protocol unwrap: Accessing[X] / Controlling[X] are markers that
-        // dispatch every memberRoutine to X. If the receiver is one of these wrappers with a
-        // single type argument, recurse on the inner type. Without this, for-loops over
-        // `Accessing[Iterable[T]]` parameters can't resolve iter at SA time, leading
-        // to "no resolved member routine" warnings during generic monomorphization.
-        if (type is ProtocolTypeInfo { TypeArguments: { Count: 1 } markerArgs } markerProto)
-        {
-            string markerBase = (markerProto.GenericDefinition ?? markerProto).BareName;
-            if (RuntimeContract.IsMarkerProtocol(baseName: markerBase))
-            {
-                RoutineInfo? viaInner = LookupMemberRoutine(type: markerArgs[index: 0],
-                    memberRoutineName: memberRoutineName, isFailable: isFailable);
-                if (viaInner != null) return viaInner;
-            }
-        }
+        // Transparent-protocol unwrap: Accessing[X] / Controlling[X] are markers that dispatch every
+        // memberRoutine to X — recurse on the inner type if matched.
+        RoutineInfo? viaMarker = TryLookupViaMarkerProtocol(type: type,
+            memberRoutineName: memberRoutineName, isFailable: isFailable);
+        if (viaMarker != null) return viaMarker;
 
         // First check the type's own memberRoutines (O(1) by name via the nested store)
         if (LookupOwnMemberRoutine(type: type, memberRoutineName: memberRoutineName,
                 isFailable: isFailable, forImplementer: forImplementer) is { } ownMatch)
-        {
             return ownMatch;
-        }
 
         // On-demand failable-variant synthesis: placed RIGHT AFTER the own-routine miss and BEFORE the
         // protocol / generic-resolution / wrapper fallbacks below — several of those `return` a (possibly
@@ -906,14 +894,10 @@ public sealed partial class TypeRegistry
             if (genericResult != null) return genericResult;
         }
 
-        // Fallback: a default-impl member routine on a bare generic-param owner (`routine T.m()`), found by
-        // name under the canonical GenericOwnerKey in the same _routinesByOwner store and substituted onto the
-        // concrete receiver (derive template / access coercion / hijack / `@innate` fold-intrinsic — the
-        // AST/synthesis + fold layers decide what happens next). No separate "universal member routines" index.
+        // Fallback: a default-impl member routine on a bare generic-param owner (routine T.m()),
+        // found under the canonical GenericOwnerKey and substituted onto the concrete receiver.
         if (DefaultMemberRoutine(memberRoutineName: memberRoutineName) is { } defaultMember)
-        {
             return SubstituteMemberRoutineForOwner(memberRoutine: defaultMember, resolvedOwner: type);
-        }
 
         // Generic parameter receivers route through caller-supplied constraints — see
         // LookupMemberRoutineViaConstraints below. The plain LookupMemberRoutine path has no routine
@@ -934,18 +918,17 @@ public sealed partial class TypeRegistry
 
         // WrapperTypeInfo (Viewing/Modifying/Consulting/Amending/Guarded/Witnessed)
         // is the parallel representation to the substituted RecordTypeInfo of the same wrapper.
-        // The RecordTypeInfo path finds memberRoutines via its substituted `Controlling[InnerT]` /
-        // `Accessing[InnerT]` protocol entry. WrapperTypeInfo carries no ImplementedProtocols,
+        // The RecordTypeInfo path finds memberRoutines via its substituted Controlling[InnerT] /
+        // Accessing[InnerT] protocol entry. WrapperTypeInfo carries no ImplementedProtocols,
         // so the protocols loop above is skipped — without this fallback, the call dispatcher
-        // would then synthesize a forwarder whose body is never emitted (LINKERR). Resolve
+        // would then synthesize a forwarder whose body is never emitted (link error). Resolves
         // directly to InnerType as a last resort. Hijacked is intentionally excluded — its
         // members must be reached via explicit extract()/as_entity().
         //
-        // Retained/Tracked are also excluded: they are `@llvm("ptr")` to a `RetainController[T]`,
-        // NOT to T directly. Falling through here would dispatch an inner-T memberRoutine with `me` =
-        // controller pointer, reading controller's strong+weak counts as if they were T's first
-        // fields. The forwarder-synthesis path emits the correct double-indirection body
-        // (Hijacked[RetainController[T]](me).as_entity().raw_data().as_entity().MemberRoutine(...)).
+        // Retained/Tracked are also excluded: they are an opaque pointer to a RetainController,
+        // not to T directly. Falling through here would dispatch an inner-T memberRoutine with
+        // the controller pointer as receiver, corrupting the strong/weak count fields.
+        // The forwarder-synthesis path emits the correct double-indirection body instead.
         if (type is WrapperTypeInfo { Name: RuntimeContract.Viewing
                 or RuntimeContract.Modifying or RuntimeContract.Consulting or RuntimeContract.Amending or RuntimeContract.Guarded or RuntimeContract.Witnessed
             } forwardingWrapper)
@@ -955,6 +938,25 @@ public sealed partial class TypeRegistry
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Transparent-protocol unwrap for <see cref="LookupMemberRoutine"/>: Accessing[X] /
+    /// Controlling[X] are markers that dispatch every memberRoutine to X. If
+    /// <paramref name="type"/> is one of these single-argument protocol wrappers, recurses on
+    /// the inner type and returns the result; otherwise returns null.
+    /// Without this, for-loops over Accessing[Iterable[T]] parameters cannot resolve their
+    /// iterator at SA time, producing spurious "no resolved member routine" warnings during
+    /// generic monomorphization.
+    /// </summary>
+    private RoutineInfo? TryLookupViaMarkerProtocol(TypeInfo type, string memberRoutineName, bool? isFailable)
+    {
+        if (type is not ProtocolTypeInfo { TypeArguments: { Count: 1 } markerArgs } markerProto)
+            return null;
+        string markerBase = (markerProto.GenericDefinition ?? markerProto).BareName;
+        if (!RuntimeContract.IsMarkerProtocol(baseName: markerBase)) return null;
+        return LookupMemberRoutine(type: markerArgs[index: 0],
+            memberRoutineName: memberRoutineName, isFailable: isFailable);
     }
 
     /// <summary>
@@ -1304,12 +1306,11 @@ public sealed partial class TypeRegistry
         TypeInfo receiverType, List<TypeInfo> argTypes)
     {
         // Tier 1 — exact type-name match (unique by declaration).
-        foreach (RoutineInfo candidate in candidates)
-        {
-            if (OverloadParamsMatch(candidate: candidate, receiverType: receiverType, argTypes: argTypes,
-                    match: (arg, param) => param.Name == arg.Name))
-                return HomeCandidate(winner: candidate, receiverType: receiverType);
-        }
+        RoutineInfo? exactMatch = candidates.FirstOrDefault(
+            candidate => OverloadParamsMatch(candidate: candidate, receiverType: receiverType,
+                argTypes: argTypes, match: (arg, param) => param.Name == arg.Name));
+        if (exactMatch != null)
+            return HomeCandidate(winner: exactMatch, receiverType: receiverType);
 
         // Tier 2 — assignable match; UNIQUE or null (no first-wins on ambiguity).
         RoutineInfo? assignable = null;
@@ -1903,16 +1904,16 @@ public sealed partial class TypeRegistry
         IEnumerable<RoutineInfo> all = _prunedGenericBases.Count == 0
             ? _routines.Values.Distinct()
             : _routines.Values.Distinct().Where(r => !_prunedGenericBases.Contains(r.BaseName));
-        // Exclude:
-        // - @innate routines: compile-time-only stubs (type_name, module_name, etc.) that
+        // Exclude four categories of routines from codegen output:
+        // - Innate routines: buildtime-only stubs (type_name, module_name, etc.) that
         //   BuilderQueryInliningPass folds to literals; they have no body and must never reach codegen.
         // - Routines on generic-definition owner types: bodies are synthesised per concrete instance;
-        //   emitting them for the definition produces [T]/[K,V] placeholders in LLVM.
-        // - Routines on None owners: None -> LLVM void, illegal as a parameter type.
+        //   emitting them for the definition produces unfilled generic placeholders in LLVM IR.
+        // - Routines on None owners: None lowers to LLVM void, which is illegal as a parameter type.
         // - Routines on non-live concrete generic owner types: phantom instantiations.
-        // requireLive=false (base build): keep every concrete non-generic-def routine regardless of liveness,
-        // so the resident base materializes the FULL stdlib generic closure ahead of time (not just what an
-        // entry program reaches). Normal builds pass requireLive=true → byte-identical.
+        // When requireLive is false (base build): keep every concrete non-generic-def routine regardless
+        // of liveness, so the resident base materializes the full stdlib generic closure ahead of time.
+        // Normal builds pass requireLive=true for byte-identical output.
         return all.Where(r =>
                       !r.Annotations.Contains(value: "innate") &&
                       (r.OwnerType == null ||
@@ -2393,13 +2394,10 @@ public sealed partial class TypeRegistry
     public IEnumerable<RoutineInfo> EnumerateMemberRoutines()
     {
         var seen = new HashSet<RoutineInfo>(comparer: ReferenceEqualityComparer.Instance);
-        foreach ((string ownerKey, Dictionary<string, List<RoutineInfo>> byName) in _routinesByOwner
-            .Where(kvp => kvp.Key != FreeOwnerKey)) // free functions are not member routines
-        {
-            foreach (RoutineInfo r in OwnerMemberRoutines(byName: byName))
-                if (seen.Add(item: r))
-                    yield return r;
-        }
+        return _routinesByOwner
+            .Where(kvp => kvp.Key != FreeOwnerKey) // free functions are not member routines
+            .SelectMany(kvp => OwnerMemberRoutines(byName: kvp.Value))
+            .Where(r => seen.Add(item: r));
     }
 
     #endregion

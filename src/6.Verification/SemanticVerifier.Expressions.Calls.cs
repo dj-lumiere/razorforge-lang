@@ -1644,11 +1644,11 @@ public sealed partial class SemanticVerifier
                 }
 
                 // Named-argument overload disambiguation. LookupMemberRoutine returns one overload by name;
-                // when the call supplies a named argument that overload lacks — e.g.
-                // `get_count(predicate: …)` resolving to the zero-arg `get_count()` — prefer the
-                // overload whose parameters cover every named argument. This MUST run before the
+                // when the call supplies a named argument that the initial overload lacks — e.g.
+                // get_count with a predicate argument resolving first to the zero-arg get_count — prefer
+                // the overload whose parameters cover every named argument. This MUST run before the
                 // arguments are analyzed below: otherwise a callback argument is analyzed against a
-                // missing/wrong parameter type, collapses to <error>, and the later type-based
+                // missing/wrong parameter type, collapses to an error type, and the later type-based
                 // overload retry can no longer recover the right memberRoutine.
                 if (memberRoutine != null && dispatchType != null && call.Arguments.Count > 0
                     && call.Arguments.Any(predicate: a => a is NamedArgumentExpression))
@@ -2059,13 +2059,13 @@ public sealed partial class SemanticVerifier
                             }
                         }
 
-                        // `Me` (ProtocolSelf, Name "Me") in a return type always denotes the
-                        // receiver — e.g. `Iterable[T].enumerate() -> ?EnumerateIterator[T, Me]`.
-                        // Bind it to the concrete receiver so the call's return type is the concrete
-                        // adapter (`EnumerateIterator[Text, List[Text]]`). Unconditional: the
-                        // protocol-extension memberRoutine is re-homed onto the implementer (owner =
-                        // List[Text], not the protocol), so an owner-is-protocol gate would miss it;
-                        // for non-protocol memberRoutines no return type contains `Me`, so this is a no-op.
+                        // The ProtocolSelf placeholder "Me" in a return type always denotes the receiver.
+                        // For example, Iterable[T].enumerate returns an EnumerateIterator parameterized
+                        // by Me. Bind Me to the concrete receiver so the call's return type is the
+                        // concrete adapter type. This is unconditional: the protocol-extension routine
+                        // is re-homed onto the implementer (owner is the concrete type, not the protocol),
+                        // so an owner-is-protocol gate would miss it; for non-protocol routines no return
+                        // type contains Me, so this substitution is a no-op.
                         substitutions[key: "Me"] = dispatchType!;
 
                         // Protocol memberRoutine resolved through a generic param's `obeys` constraint

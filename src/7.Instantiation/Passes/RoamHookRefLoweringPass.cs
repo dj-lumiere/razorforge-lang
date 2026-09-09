@@ -90,43 +90,43 @@ internal sealed class RoamHookRefLoweringPass
         }
     }
 
-    private Statement RewriteDeclStmt(DeclarationStatement ds, VariableDeclaration vd, Expression init)
+    private DeclarationStatement RewriteDeclStmt(DeclarationStatement ds, VariableDeclaration vd, Expression init)
     {
         Expression n = RewriteExpr(expr: init);
         return ReferenceEquals(n, init) ? ds : ds with { Declaration = vd with { Initializer = n } };
     }
 
-    private Statement RewriteExprStmt(ExpressionStatement es)
+    private ExpressionStatement RewriteExprStmt(ExpressionStatement es)
     {
         Expression n = RewriteExpr(expr: es.Expression);
         return ReferenceEquals(n, es.Expression) ? es : es with { Expression = n };
     }
 
-    private Statement RewriteReturnStmt(ReturnStatement ret, Expression rv)
+    private ReturnStatement RewriteReturnStmt(ReturnStatement ret, Expression rv)
     {
         Expression n = RewriteExpr(expr: rv);
         return ReferenceEquals(n, rv) ? ret : ret with { Value = n };
     }
 
-    private Statement RewriteAssignStmt(AssignmentStatement asg)
+    private AssignmentStatement RewriteAssignStmt(AssignmentStatement asg)
     {
         Expression nv = RewriteExpr(expr: asg.Value);
         return ReferenceEquals(nv, asg.Value) ? asg : asg with { Value = nv };
     }
 
-    private Statement RewriteLoopStmt(LoopStatement loop)
+    private LoopStatement RewriteLoopStmt(LoopStatement loop)
     {
         Statement b = RewriteStmt(stmt: loop.Body);
         return ReferenceEquals(b, loop.Body) ? loop : loop with { Body = b };
     }
 
-    private Statement RewriteWhileStmt(WhileStatement w)
+    private WhileStatement RewriteWhileStmt(WhileStatement w)
     {
         Statement b = RewriteStmt(stmt: w.Body);
         return ReferenceEquals(b, w.Body) ? w : w with { Body = b };
     }
 
-    private Statement RewriteDangerStmt(DangerStatement d)
+    private DangerStatement RewriteDangerStmt(DangerStatement d)
     {
         Statement b = RewriteStmt(stmt: d.Body);
         return ReferenceEquals(b, d.Body) ? d : d with { Body = (BlockStatement)b };
@@ -167,10 +167,10 @@ internal sealed class RoamHookRefLoweringPass
         return changed ? when with { Clauses = clauses } : when;
     }
 
-    // Expression rewrite: replace a matching hook CallExpression with a routine-value reference;
-    // otherwise recurse into the sub-expressions that can hold a nested hook call (creator member
-    // values are the real site — `trace_hook: data.as_entity().roam_trace_ref()`).
-
+    // Expression rewrite: replaces a matching hook call with a routine-value reference when it
+    // resolves to one of the two trace/free hook member names on a concrete entity receiver.
+    // Otherwise recurses into sub-expressions; creator member values are the most common site
+    // because the hook is typically passed as the trace_hook initializer field.
     private Expression RewriteExpr(Expression expr)
     {
         Expression? lowered = TryLowerHookCall(expr: expr);

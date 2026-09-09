@@ -42,7 +42,11 @@ public static partial class NumericLiteralParser
     /// </summary>
     /// <param name="str">The string representation of the number.</param>
     /// <returns>The parsed f128 value.</returns>
-    public static F128 ParseF128(string str) => ParseF128Native(str);
+    public static F128 ParseF128(string str)
+    {
+        ArgumentNullException.ThrowIfNull(argument: str);
+        return ParseF128Native(str);
+    }
 
     [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_f128_from_string", StringMarshalling = StringMarshalling.Utf8)]
     private static partial F128 ParseF128Native(string str);
@@ -563,7 +567,7 @@ public static partial class NumericLiteralParser
     private static partial nuint GetIntegerByteSize(nint handle);
 
     [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_to_bytes")]
-    private static partial nuint IntegerToBytes(nint handle, byte[] buffer, nuint bufferSize);
+    private static partial nuint IntegerToBytes(nint handle, [In, Out] byte[] buffer, nuint bufferSize);
 
     [LibraryImport(libraryName: RuntimeLib, EntryPoint = "rf_cs_integer_sign")]
     private static partial int GetIntegerSign(nint handle);

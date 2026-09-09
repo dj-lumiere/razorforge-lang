@@ -35,6 +35,9 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// <summary>The bare name of the element-access member routine (no failable suffix).</summary>
     private const string GetItemMemberRoutine = "getitem";
 
+    /// <summary>Ordered set of signed integer widths used for upcasting arithmetic results.</summary>
+    private static readonly int[] SignedWidths = [8, 16, 32, 64, 128];
+
     public void Run(Program program)
         => BodyDispatch.RunOnProgram(program, lower: r => VisitStatement(r.Body));
 
@@ -579,7 +582,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// element type owns its data (Text, Integer, variant wrappers). A trivially-copyable or
     /// entity element passes through unwrapped. Extracted from <see cref="LowerIndexExpression"/>.
     /// </summary>
-    private Expression WrapGetItemWithStore(CallExpression getitemCall, IndexExpression idx)
+    private CallExpression WrapGetItemWithStore(CallExpression getitemCall, IndexExpression idx)
     {
         // `a[i]` reads an element the container still owns. Apply the element type's store
         // (a retaining copy for Text/Integer/variant) so the read no longer aliases the
@@ -1060,9 +1063,9 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
             ctx.Registry.LookupRoutine(fullName: $"Core.{Declaration.RuntimeContract.BackResolve}")
             ?? ctx.Registry.LookupRoutine(fullName: Declaration.RuntimeContract.BackResolve);
 
-        // The offset must be a scalar U64. An untyped/signed integer-literal operand (`^1`) is retagged
-        // U64Literal here so codegen never treats it as an arbitrary-precision Integer (Text-backed);
-        // any other operand (a U64 variable, an expression) already carries its type and passes through.
+        // The offset must be a scalar U64. An untyped/signed integer-literal operand (e.g. ^1) is retagged
+        // to U64Literal so codegen never treats it as an arbitrary-precision Integer (the Text-backed big-int type).
+        // Any other operand (a U64 variable or arbitrary expression) already carries its type and passes through.
         Expression offset = backIndex.Operand is LiteralExpression
             {
                 LiteralType: TokenType.UndecidedInteger or TokenType.IntegerLiteral
@@ -1149,5 +1152,5 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     }
 
     private static int NextSignedWidth(int minExclusive)
-        => new[] { 8, 16, 32, 64, 128 }.FirstOrDefault(c => c > minExclusive);
+        => SignedWidths.FirstOrDefault(c => c > minExclusive);
 }

@@ -64,11 +64,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
         TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
         TypeInfo? s32Type = ctx.Registry.LookupType(name: "S32");
-        TypeInfo? s64Type = ctx.Registry.LookupType(name: "S64");
-        TypeInfo? byteSizeType = ctx.Registry.LookupType(name: "ByteSize");
         TypeInfo? logicBreachedErrorType = ctx.Registry.LookupType(name: "LogicBreachedError");
-        // TypeKind lives in `module BuilderQuery` — qualify (a bare lookup depended on the short-name scan).
-        TypeInfo? typeKindType = ctx.Registry.LookupType(name: "BuilderQuery.TypeKind");
         TypeInfo? listTypeDef = ctx.Registry.LookupType(name: "List");
         TypeInfo? listTextType = listTypeDef != null && textType != null
             ? ctx.Registry.GetOrCreateResolution(genericDef: listTypeDef,
@@ -90,11 +86,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // so that wrapper forwarders for Hijacked[BTreeDictNode] have a valid callee.
         RunForGenericDefBuilderQueryRoutines(textType: textType,
             u64Type: u64Type,
-            s64Type: s64Type,
             boolType: boolType,
-            typeKindType: typeKindType,
-            listTextType: listTextType,
-            byteSizeType: byteSizeType);
+            listTextType: listTextType);
 
         // Synthesize wired routines (eq, hash, represent, diagnose) for
         // generic def entity/record types that have no source-defined implementation.
@@ -116,53 +109,70 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         foreach (RoutineInfo routine in ctx.Registry.GetAllRoutines(requireLive: !ctx.SynthesizeAllDerives))
         {
             if (!routine.IsSynthesized) continue;
-            if (ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey)) continue;
-            if (ctx.VariantBodies.ContainsKey(key: routine.RegistryKey)) continue;
-
-            // Auto-generated variant arm constructors (handled before the by-NAME explicit-impl skip
-            // below): an extractor `Arm.create(from: V)` shares the name `create` with the arm type's
-            // other constructors, so a name-only skip would wrongly drop it. This hook is overload-precise
-            // (owner/param must be in an arm relationship), so it is safe to run first.
-            if (TryBuildVariantArmConstructorBody(routine: routine,
-                    body: out Statement? armCtorBody))
-            {
-                ctx.VariantBodies[key: routine.RegistryKey] = armCtorBody!;
-                continue;
-            }
-
-            // Skip if an explicit (non-synthesized) implementation already exists in the registry.
-            // This prevents synthesized bodies from overriding custom stdlib implementations
-            // such as Witnessed[T,P].represent / diagnose defined in Witnessed.rf.
-            if (routine.OwnerType != null && ctx.Registry
-                                                .GetMemberRoutinesForType(type: routine.OwnerType)
-                                                .Any(r => r.Name == routine.Name &&
-                                                          !r.IsSynthesized))
-                continue;
-
-            // BuilderQuery constant routines apply to all owner types -> check by name first.
-            if (routine.OwnerType != null && TryHandleBuilderQueryConstant(routine: routine,
-                    textType: textType,
-                    u64Type: u64Type,
-                    boolType: boolType,
-                    listTextType: listTextType))
-                continue;
-
-            // Standalone BuilderQuery constants (no owner type): page_size, target_os, etc.
-            if (routine.OwnerType == null && TryHandleStandaloneBuilderQueryConstant(
-                    routine: routine,
-                    textType: textType,
-                    u64Type: u64Type))
-                continue;
-
-            // Cycle-collector per-type hooks + unified destructor + owner-type dispatch.
-            TrySynthesizeHookOrDispatch(routine: routine,
-                textType: textType,
-                boolType: boolType,
-                u64Type: u64Type,
-                s32Type: s32Type,
-                logicBreachedErrorType: logicBreachedErrorType,
-                listTypeDef: listTypeDef);
+            if (SynthesizedBodyAlreadyPresent(routine: routine)) continue;
+            if (TryHandleConcreteRoutine(routine: routine, textType: textType, boolType: boolType,
+                    u64Type: u64Type, s32Type: s32Type,
+                    logicBreachedErrorType: logicBreachedErrorType,
+                    listTypeDef: listTypeDef, listTextType: listTextType)) continue;
         }
+    }
+
+    /// <summary>
+    /// Returns true when a body for <paramref name="routine"/> is already registered in either
+    /// <c>RoutineBodies</c> or <c>VariantBodies</c> — no further synthesis is needed.
+    /// </summary>
+    private bool SynthesizedBodyAlreadyPresent(RoutineInfo routine) =>
+        ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey)
+        || ctx.VariantBodies.ContainsKey(key: routine.RegistryKey);
+
+    /// <summary>
+    /// Returns true when the owner type already declares an explicit (non-synthesized) routine with
+    /// the same name, preventing a synthesized body from overriding it (e.g. Witnessed[T,P].represent).
+    /// </summary>
+    private bool HasExplicitOverride(RoutineInfo routine) =>
+        routine.OwnerType != null
+        && ctx.Registry.GetMemberRoutinesForType(type: routine.OwnerType)
+                       .Any(r => r.Name == routine.Name && !r.IsSynthesized);
+
+    /// <summary>
+    /// Applies the concrete-routine synthesis pipeline to a single synthesized routine and returns
+    /// true when any handler consumed it (variant arm ctor, explicit override skip, BuilderQuery,
+    /// or hook/dispatch). A return of false means no synthesis applied — not an error.
+    /// </summary>
+    private bool TryHandleConcreteRoutine(RoutineInfo routine, TypeInfo textType, TypeInfo boolType,
+        TypeInfo? u64Type, TypeInfo? s32Type, TypeInfo? logicBreachedErrorType,
+        TypeInfo? listTypeDef, TypeInfo? listTextType)
+    {
+        // Auto-generated variant arm constructors (handled before the by-NAME explicit-impl skip
+        // below): an extractor Arm.create(from: V) shares the name "create" with the arm type's
+        // other constructors, so a name-only skip would wrongly drop it. This hook is overload-precise
+        // (owner/param must be in an arm relationship), so it is safe to run first.
+        if (TryBuildVariantArmConstructorBody(routine: routine, body: out Statement? armCtorBody))
+        {
+            ctx.VariantBodies[key: routine.RegistryKey] = armCtorBody!;
+            return true;
+        }
+
+        // Skip if an explicit (non-synthesized) implementation already exists in the registry.
+        // This prevents synthesized bodies from overriding custom stdlib implementations
+        // such as Witnessed[T,P].represent / diagnose defined in Witnessed.rf.
+        if (HasExplicitOverride(routine: routine)) return true;
+
+        // BuilderQuery constant routines apply to all owner types; check by name first.
+        if (routine.OwnerType != null && TryHandleBuilderQueryConstant(routine: routine,
+                textType: textType, u64Type: u64Type, boolType: boolType, listTextType: listTextType))
+            return true;
+
+        // Standalone BuilderQuery constants (no owner type): page_size, target_os, etc.
+        if (routine.OwnerType == null && TryHandleStandaloneBuilderQueryConstant(
+                routine: routine, textType: textType, u64Type: u64Type))
+            return true;
+
+        // Cycle-collector per-type hooks + unified destructor + owner-type dispatch.
+        TrySynthesizeHookOrDispatch(routine: routine, textType: textType, boolType: boolType,
+            u64Type: u64Type, s32Type: s32Type,
+            logicBreachedErrorType: logicBreachedErrorType, listTypeDef: listTypeDef);
+        return false;
     }
 
     /// <summary>
@@ -346,8 +356,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     }
 
     private void RunForGenericDefBuilderQueryRoutines(TypeInfo textType, TypeInfo? u64Type,
-        TypeInfo? s64Type, TypeInfo? boolType, TypeInfo? typeKindType,
-        TypeInfo? listTextType, TypeInfo? byteSizeType)
+        TypeInfo? boolType, TypeInfo? listTextType)
     {
         foreach (TypeInfo type in ctx.Registry.GetTypesWithMemberRoutines())
         {
@@ -1028,9 +1037,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             }
 
             case RoutineInfo.CreatorName when routine.IsFailable:
-                // The failable Text -> ChoiceType conversion (creator + IsFailable).
-                // Text -> ChoiceType conversion is not implementable at the RF level;
-                // this always crashes. The body is unreachable in well-typed programs.
+                // The failable Text-to-ChoiceType conversion (creator with IsFailable).
+                // This conversion is not implementable at the RF level and always crashes.
+                // The body is unreachable in well-typed programs.
                 ctx.VariantBodies[key: routine.RegistryKey] =
                     BuildBreachStatement(logicBreachedErrorType: logicBreachedErrorType);
                 break;
@@ -3363,7 +3372,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// Both non-null and optional entity fields are bare <c>Roamed[E]</c> in Suflae; the collector
     /// traces through a null (none) handle harmlessly.
     /// </summary>
-    private void EmitRoamTraceDirectFields(TypeInfo? owner, List<MemberVariableInfo> fields,
+    private static void EmitRoamTraceDirectFields(TypeInfo? owner, List<MemberVariableInfo> fields,
         TypeInfo? noneType, List<Statement> statements)
     {
         foreach (MemberVariableInfo field in fields)
@@ -3396,7 +3405,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// container overlay's <c>inner: RF::Core.List[T]</c>). Bare entity fields form acyclic
     /// single-owner containment — infinite recursion is impossible here.
     /// </summary>
-    private void EmitRoamTraceNestedEntityFields(TypeInfo? owner, List<MemberVariableInfo> fields,
+    private static void EmitRoamTraceNestedEntityFields(TypeInfo? owner, List<MemberVariableInfo> fields,
         TypeInfo? noneType, List<Statement> statements)
     {
         foreach (MemberVariableInfo field in fields)
@@ -3421,7 +3430,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// <c>Hijacked[T]</c> field paired with a <c>count</c> field (dense List layout).
     /// Multi-buffer or sparse containers are handled separately and do not trigger this path.
     /// </summary>
-    private void EmitRoamTraceDenseBuffer(TypeInfo? owner, List<MemberVariableInfo> fields,
+    private static void EmitRoamTraceDenseBuffer(TypeInfo? owner, List<MemberVariableInfo> fields,
         TypeInfo? noneType, List<Statement> statements)
     {
         List<MemberVariableInfo> buffers =
@@ -3450,7 +3459,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// Fires only when both <c>entry_live</c> and <c>entries_used</c> sentinel fields are present;
     /// scalar metadata buffers (<c>Hijacked[U8]</c>, <c>Hijacked[U64]</c>) are skipped.
     /// </summary>
-    private void EmitRoamTraceSparseBuffer(TypeInfo? owner, List<MemberVariableInfo> fields,
+    private static void EmitRoamTraceSparseBuffer(TypeInfo? owner, List<MemberVariableInfo> fields,
         TypeInfo? noneType, List<Statement> statements)
     {
         MemberVariableInfo? entryLiveField =

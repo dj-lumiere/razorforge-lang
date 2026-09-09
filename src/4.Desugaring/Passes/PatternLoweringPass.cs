@@ -965,17 +965,6 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     }
 
     /// <summary>
-    /// Returns the <c>Hijacked[T]</c> field type from a <c>Maybe[T entity]</c> record's <c>value</c> field.
-    /// Returns null if the type is not a recognized entity Maybe.
-    /// </summary>
-    private static TypeInfo? GetEntityMaybeHijackedType(TypeInfo subjectType)
-    {
-        if (subjectType is not RecordTypeInfo rec) return null;
-        MemberVariableInfo? valueField = rec.LookupMemberVariable(memberVariableName: ValueFieldName);
-        return valueField?.Type;
-    }
-
-    /// <summary>
     /// Lowers a named destructuring pattern applied to a record/entity subject to a (condition, binding)
     /// pair. A SIMPLE binding (<c>y: name</c>) always matches and binds <c>var name = subject.field</c>.
     /// A NESTED binding (<c>y: SubPattern</c>) recurses: the field access becomes the sub-pattern's

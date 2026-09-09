@@ -15,10 +15,28 @@ namespace Compiler.Instantiation;
 /// represent and diagnose are auto-registered (overridable).
 /// Only registers if the user hasn't already defined the routine.
 /// </summary>
+/// <summary>
+/// Bundles the resolved carrier types forwarded to per-type registration helpers
+/// (<see cref="AutoWiredRegistrationPass.RegisterForType"/>,
+/// <see cref="AutoWiredRegistrationPass.RegisterUniversalTypeParamRoutines"/>).
+/// All members are nullable; a missing type suppresses the corresponding routine group.
+/// </summary>
+internal readonly record struct AutoWiredTypeBundle(
+    TypeInfo? TextType,
+    TypeInfo? BoolType,
+    TypeInfo? U64Type,
+    TypeInfo? S64Type,
+    TypeInfo? NoneType,
+    TypeInfo? SerialValueType,
+    TypeInfo? ListDef,
+    TypeInfo? ListTextType,
+    TypeInfo? ListFieldInfoType,
+    TypeInfo? ListProtocolInfoType,
+    TypeInfo? ListRoutineInfoType,
+    TypeInfo? ByteSizeType);
+
 internal sealed class AutoWiredRegistrationPass
 {
-    private const string EquatableProtocolName = "Equatable";
-
     private readonly TypeRegistry _registry;
 
     public AutoWiredRegistrationPass(TypeRegistry registry,
@@ -57,14 +75,16 @@ internal sealed class AutoWiredRegistrationPass
         (TypeSymbol? listFieldInfoType, TypeSymbol? listProtocolInfoType, TypeSymbol? listRoutineInfoType) =
             ResolveBuilderInfoTypes(builderServiceImported: builderServiceImported, listDef: listDef);
 
+        var bundle = new AutoWiredTypeBundle(
+            TextType: textType, BoolType: boolType, U64Type: u64Type, S64Type: s64Type,
+            NoneType: noneType, SerialValueType: serialValueType, ListDef: listDef,
+            ListTextType: listTextType, ListFieldInfoType: listFieldInfoType,
+            ListProtocolInfoType: listProtocolInfoType, ListRoutineInfoType: listRoutineInfoType,
+            ByteSizeType: byteSizeType);
+
         foreach (TypeSymbol type in _registry.GetTypesWithMemberRoutines())
         {
-            RegisterForType(type: type,
-                textType: textType, boolType: boolType, u64Type: u64Type, s64Type: s64Type,
-                noneType: noneType, serialValueType: serialValueType, listDef: listDef,
-                listTextType: listTextType, listFieldInfoType: listFieldInfoType,
-                listProtocolInfoType: listProtocolInfoType, listRoutineInfoType: listRoutineInfoType,
-                byteSizeType: byteSizeType);
+            RegisterForType(type: type, bundle: bundle);
         }
 
         // Source location and caller standalone routines (injected at call site by codegen)
@@ -87,11 +107,7 @@ internal sealed class AutoWiredRegistrationPass
 
         // Register builder-service routines + represent/diagnose as universal member routines so
         // T.data_size(), K.type_id(), T.represent(), etc. resolve in generic function bodies.
-        RegisterUniversalTypeParamRoutines(
-            textType: textType, boolType: boolType, u64Type: u64Type, s64Type: s64Type,
-            noneType: noneType, listTextType: listTextType, listFieldInfoType: listFieldInfoType,
-            listProtocolInfoType: listProtocolInfoType, listRoutineInfoType: listRoutineInfoType,
-            byteSizeType: byteSizeType);
+        RegisterUniversalTypeParamRoutines(bundle: bundle);
     }
 
     /// <summary>
@@ -129,53 +145,48 @@ internal sealed class AutoWiredRegistrationPass
     /// Registers all auto-derived member routines for a single type. Contains the body of the
     /// main <see cref="Run"/> foreach loop, extracted to reduce cognitive complexity.
     /// </summary>
-    private void RegisterForType(TypeSymbol type,
-        TypeSymbol? textType, TypeSymbol? boolType, TypeSymbol? u64Type, TypeSymbol? s64Type,
-        TypeSymbol? noneType, TypeSymbol? serialValueType, TypeSymbol? listDef,
-        TypeSymbol? listTextType, TypeSymbol? listFieldInfoType,
-        TypeSymbol? listProtocolInfoType, TypeSymbol? listRoutineInfoType,
-        TypeSymbol? byteSizeType)
+    private void RegisterForType(TypeSymbol type, AutoWiredTypeBundle bundle)
     {
         var existingMemberRoutines = _registry.GetMemberRoutinesForType(type: type).ToList();
 
         // All types: represent(), diagnose() — auto-generated, overridable
-        if (textType != null)
+        if (bundle.TextType != null)
         {
             MaybeRegisterWired(owner: type,
                 name: RuntimeContract.Display.Represent,
-                returnType: textType,
+                returnType: bundle.TextType,
                 existingMemberRoutines: existingMemberRoutines);
             MaybeRegisterWired(owner: type,
                 name: RuntimeContract.Display.Diagnose,
-                returnType: textType,
+                returnType: bundle.TextType,
                 existingMemberRoutines: existingMemberRoutines);
         }
 
         // Serializable: serialize() -> SerialValue is UNIVERSAL — every value has one so the derived
         // composite walk can call field.serialize() unconditionally (no obeying gate).
-        if (serialValueType != null &&
+        if (bundle.SerialValueType != null &&
             type.Category is TypeCategory.Record or TypeCategory.Entity or TypeCategory.Variant
                 or TypeCategory.Choice or TypeCategory.Flags)
         {
             MaybeRegisterWired(owner: type,
                 name: RuntimeContract.Serialize,
-                returnType: serialValueType,
+                returnType: bundle.SerialValueType,
                 existingMemberRoutines: existingMemberRoutines);
         }
 
         // Unified destructor: every non-wrapper type gets a dangerous destroy().
-        if (noneType != null && !IsWrapperType(type: type))
+        if (bundle.NoneType != null && !IsWrapperType(type: type))
         {
-            MaybeRegisterDestroy(owner: type, noneType: noneType,
+            MaybeRegisterDestroy(owner: type, noneType: bundle.NoneType,
                 existingMemberRoutines: existingMemberRoutines);
         }
 
         // Cycle-collector per-type hooks for non-wrapper entities.
-        if (noneType != null && type.Category == TypeCategory.Entity && !IsWrapperType(type: type))
+        if (bundle.NoneType != null && type.Category == TypeCategory.Entity && !IsWrapperType(type: type))
         {
-            MaybeRegisterRoamHook(owner: type, name: "roam_trace_impl", noneType: noneType,
+            MaybeRegisterRoamHook(owner: type, name: "roam_trace_impl", noneType: bundle.NoneType,
                 existingMemberRoutines: existingMemberRoutines);
-            MaybeRegisterRoamHook(owner: type, name: "roam_free_impl", noneType: noneType,
+            MaybeRegisterRoamHook(owner: type, name: "roam_free_impl", noneType: bundle.NoneType,
                 existingMemberRoutines: existingMemberRoutines);
         }
 
@@ -183,15 +194,15 @@ internal sealed class AutoWiredRegistrationPass
         BuilderInfoProvider.RegisterRoutinesOnType(type: type,
             existingMemberRoutines: existingMemberRoutines,
             registry: _registry,
-            types: new BuilderQueryTypeSet(TextType: textType, BoolType: boolType,
-                U64Type: u64Type, S64Type: s64Type, ListTextType: listTextType,
-                ListFieldInfoType: listFieldInfoType, ListProtocolInfoType: listProtocolInfoType,
-                ListRoutineInfoType: listRoutineInfoType, ByteSizeType: byteSizeType));
+            types: new BuilderQueryTypeSet(TextType: bundle.TextType, BoolType: bundle.BoolType,
+                U64Type: bundle.U64Type, S64Type: bundle.S64Type, ListTextType: bundle.ListTextType,
+                ListFieldInfoType: bundle.ListFieldInfoType, ListProtocolInfoType: bundle.ListProtocolInfoType,
+                ListRoutineInfoType: bundle.ListRoutineInfoType, ByteSizeType: bundle.ByteSizeType));
 
         switch (type.Category)
         {
             case TypeCategory.Record:
-                HandleRecordCategory(type: type, u64Type: u64Type,
+                HandleRecordCategory(type: type, u64Type: bundle.U64Type,
                     existingMemberRoutines: existingMemberRoutines);
                 break;
 
@@ -201,23 +212,23 @@ internal sealed class AutoWiredRegistrationPass
                 break;
 
             case TypeCategory.Choice:
-                HandleChoiceCategory(type: type, u64Type: u64Type, boolType: boolType,
-                    s64Type: s64Type, textType: textType, listDef: listDef,
+                HandleChoiceCategory(type: type, u64Type: bundle.U64Type, boolType: bundle.BoolType,
+                    s64Type: bundle.S64Type, textType: bundle.TextType, listDef: bundle.ListDef,
                     existingMemberRoutines: existingMemberRoutines);
                 break;
 
             case TypeCategory.Crashable:
-                HandleCrashableCategory(type: type, textType: textType,
+                HandleCrashableCategory(type: type, textType: bundle.TextType,
                     existingMemberRoutines: existingMemberRoutines);
                 break;
 
             case TypeCategory.Flags:
-                HandleFlagsCategory(type: type, u64Type: u64Type, boolType: boolType,
-                    listDef: listDef, existingMemberRoutines: existingMemberRoutines);
+                HandleFlagsCategory(type: type, u64Type: bundle.U64Type, boolType: bundle.BoolType,
+                    listDef: bundle.ListDef, existingMemberRoutines: existingMemberRoutines);
                 break;
 
             case TypeCategory.Variant:
-                HandleVariantCategory(type: type, textType: textType,
+                HandleVariantCategory(type: type, textType: bundle.TextType,
                     existingMemberRoutines: existingMemberRoutines);
                 break;
         }
@@ -281,36 +292,33 @@ internal sealed class AutoWiredRegistrationPass
     /// generic-parameter type <c>T</c>, so these resolve in any generic function body.
     /// Extracted from <see cref="Run"/> to reduce its cognitive complexity.
     /// </summary>
-    private void RegisterUniversalTypeParamRoutines(
-        TypeSymbol? textType, TypeSymbol? boolType, TypeSymbol? u64Type, TypeSymbol? s64Type,
-        TypeSymbol? noneType, TypeSymbol? listTextType, TypeSymbol? listFieldInfoType,
-        TypeSymbol? listProtocolInfoType, TypeSymbol? listRoutineInfoType, TypeSymbol? byteSizeType)
+    private void RegisterUniversalTypeParamRoutines(AutoWiredTypeBundle bundle)
     {
         var tParam = new GenericParameterTypeInfo(name: "T");
         var universalExisting = new List<RoutineInfo>();
         BuilderInfoProvider.RegisterRoutinesOnType(type: tParam,
             existingMemberRoutines: universalExisting,
             registry: _registry,
-            types: new BuilderQueryTypeSet(TextType: textType, BoolType: boolType,
-                U64Type: u64Type, S64Type: s64Type, ListTextType: listTextType,
-                ListFieldInfoType: listFieldInfoType, ListProtocolInfoType: listProtocolInfoType,
-                ListRoutineInfoType: listRoutineInfoType, ByteSizeType: byteSizeType));
-        if (textType != null)
+            types: new BuilderQueryTypeSet(TextType: bundle.TextType, BoolType: bundle.BoolType,
+                U64Type: bundle.U64Type, S64Type: bundle.S64Type, ListTextType: bundle.ListTextType,
+                ListFieldInfoType: bundle.ListFieldInfoType, ListProtocolInfoType: bundle.ListProtocolInfoType,
+                ListRoutineInfoType: bundle.ListRoutineInfoType, ByteSizeType: bundle.ByteSizeType));
+        if (bundle.TextType != null)
         {
             MaybeRegisterWired(owner: tParam,
                 name: RuntimeContract.Display.Represent,
-                returnType: textType,
+                returnType: bundle.TextType,
                 existingMemberRoutines: universalExisting);
             MaybeRegisterWired(owner: tParam,
                 name: RuntimeContract.Display.Diagnose,
-                returnType: textType,
+                returnType: bundle.TextType,
                 existingMemberRoutines: universalExisting);
         }
 
         // destroy as a universal member routine so v.destroy() resolves on a generic T.
-        if (noneType != null)
+        if (bundle.NoneType != null)
         {
-            MaybeRegisterDestroy(owner: tParam, noneType: noneType,
+            MaybeRegisterDestroy(owner: tParam, noneType: bundle.NoneType,
                 existingMemberRoutines: universalExisting);
         }
     }
@@ -728,7 +736,7 @@ internal sealed class AutoWiredRegistrationPass
     {
         // Variants get auto-synthesized represent/diagnose so user-defined
         // tagged unions render in f-strings and show() without manual impls.
-        // WiredRoutinePass.HandleVariant builds the bodies from the member list;
+        // The wired-routine synthesis pass builds the bodies from the variant member list;
         // registration here makes the stubs visible to overload resolution and the
         // reachability sweep so the symbols actually get emitted by codegen.
         if (textType != null && !type.IsGenericDefinition)
@@ -954,8 +962,8 @@ internal sealed class AutoWiredRegistrationPass
             _ => 0
         };
 
-        // Record/Choice/Flags/Crashable all carry ImplementedProtocols on RecordTypeInfo (their base);
-        // entities on EntityTypeInfo. Mirrors ProtocolConformanceAnalyzer.GetImplementedProtocols.
+        // Record/Choice/Flags/Crashable all carry their implemented-protocol list on the record base;
+        // entities carry it on the entity type. Mirrors the protocol conformance analyzer's logic.
         List<TypeSymbol> obeyed = type switch
         {
             RecordTypeInfo r => r.ImplementedProtocols,

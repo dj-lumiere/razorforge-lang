@@ -70,119 +70,119 @@ public static class ModularStdlibCache
     /// root; symbol values become externs, body values stay local. Reassembly is a plain union across all
     /// modules' slices, so any per-entry partition reproduces the exact original state.
     ///
-    /// <para>Fields are intentionally public (not properties) because <see cref="PbrfSerializer"/> serializes
-    /// via field reflection; converting to auto-properties would change the wire-format field names.</para></summary>
+    /// <para><see cref="PbrfSerializer"/> serializes these members via reflection in a deterministic sorted
+    /// order (values only, not names); the cache is keyed by assembly hash, so any shape change regenerates
+    /// it — auto-properties round-trip identically.</para></summary>
     public sealed class ModuleSlice
     {
         /// <summary>All types owned by this module, keyed by their full name.</summary>
-        public Dictionary<string, TypeInfo> Types = new();
+        public Dictionary<string, TypeInfo> Types { get; set; } = new();
 
         /// <summary>Type resolution table (alias/short-name → canonical TypeInfo) for this module's types.</summary>
-        public Dictionary<string, TypeInfo> Resolutions = new();
+        public Dictionary<string, TypeInfo> Resolutions { get; set; } = new();
 
         /// <summary>RC wrapper type resolutions (name → WrapperTypeInfo) for this module.</summary>
-        public Dictionary<string, WrapperTypeInfo> WrapperResolutions = new();
+        public Dictionary<string, WrapperTypeInfo> WrapperResolutions { get; set; } = new();
 
         /// <summary>Entity specialization overrides (key → TypeInfo) belonging to this module.</summary>
-        public Dictionary<string, TypeInfo> EntitySpecializations = new();
+        public Dictionary<string, TypeInfo> EntitySpecializations { get; set; } = new();
 
         /// <summary>Short-name → TypeInfo lookup table for this module's types.</summary>
-        public Dictionary<string, TypeInfo> TypesByShortName = new();
+        public Dictionary<string, TypeInfo> TypesByShortName { get; set; } = new();
 
         /// <summary>All routines owned by this module, keyed by their full qualified name.</summary>
-        public Dictionary<string, RoutineInfo> Routines = new();
+        public Dictionary<string, RoutineInfo> Routines { get; set; } = new();
 
         /// <summary>Routines indexed by their fully-qualified name (used for fast exact-name lookup).</summary>
-        public Dictionary<string, RoutineInfo> RoutinesByQualifiedName = new();
+        public Dictionary<string, RoutineInfo> RoutinesByQualifiedName { get; set; } = new();
 
         /// <summary>Routines grouped by owner type name, then by routine name, as a list of overloads.</summary>
-        public Dictionary<string, Dictionary<string, List<RoutineInfo>>> RoutinesByOwner = new();
+        public Dictionary<string, Dictionary<string, List<RoutineInfo>>> RoutinesByOwner { get; set; } = new();
 
         /// <summary>Routine resolution table (short/alias key → RoutineInfo) for this module.</summary>
-        public Dictionary<string, RoutineInfo> RoutineResolutions = new();
+        public Dictionary<string, RoutineInfo> RoutineResolutions { get; set; } = new();
 
         /// <summary>Preset (constant/inline) variable declarations owned by this module.</summary>
-        public Dictionary<string, VariableInfo> Presets = new();
+        public Dictionary<string, VariableInfo> Presets { get; set; } = new();
 
         /// <summary>Presets indexed by their fully-qualified name.</summary>
-        public Dictionary<string, VariableInfo> PresetsByQualifiedName = new();
+        public Dictionary<string, VariableInfo> PresetsByQualifiedName { get; set; } = new();
 
         /// <summary>Stdlib program AST entries (one per source file) attributed to this module.</summary>
-        public List<ProgramEntry> StdlibPrograms = new();
+        public List<ProgramEntry> StdlibPrograms { get; set; } = new();
 
         /// <summary>Synthesized routine bodies (wired/$represent/$diagnose/derive) produced for this module's types.</summary>
-        public Dictionary<string, SynthEntry> SynthesizedBodies = new();
+        public Dictionary<string, SynthEntry> SynthesizedBodies { get; set; } = new();
 
         /// <summary>Error-variant routine bodies (try_/check_/lookup_ wrappers) attributed to this module.</summary>
-        public Dictionary<string, Statement> VariantBodies = new();
+        public Dictionary<string, Statement> VariantBodies { get; set; } = new();
 
         /// <summary>Monomorphized generic routine bodies attributed to the inst pseudo-module.</summary>
-        public Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies = new();
+        public Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies { get; set; } = new();
 
         /// <summary>Regular routine bodies attributed to this module.</summary>
-        public Dictionary<string, Statement> RoutineBodies = new();
+        public Dictionary<string, Statement> RoutineBodies { get; set; } = new();
 
         /// <summary>Deferred error-variant base bodies awaiting specialization, attributed to this module.</summary>
-        public Dictionary<string, DeferredEntry> DeferredVariantBases = new();
+        public Dictionary<string, DeferredEntry> DeferredVariantBases { get; set; } = new();
     }
 
     // ValueTuples serialize via reflection (boxed struct) which is slow + fragile for records; use plain
     // classes for the tuple-shaped entries so they go through the fast compiled-field path.
-    // Fields are intentionally public (not properties): PbrfSerializer uses field reflection for the wire format.
 
     /// <summary>Holds the parsed AST and metadata for one stdlib source file.</summary>
     public sealed class ProgramEntry
     {
         /// <summary>The parsed program AST for the stdlib source file.</summary>
-        public Program Program = null!;
+        public Program Program { get; set; } = null!;
 
         /// <summary>Absolute path of the stdlib source file on disk.</summary>
-        public string FilePath = "";
+        public string FilePath { get; set; } = "";
 
         /// <summary>Module label that owns this source file (e.g. "Core", "Collections/List").</summary>
-        public string Module = "";
+        public string Module { get; set; } = "";
     }
 
     /// <summary>Holds a synthesized routine body together with its owning routine descriptor.</summary>
     public sealed class SynthEntry
     {
         /// <summary>The routine descriptor that owns this synthesized body.</summary>
-        public RoutineInfo Routine = null!;
+        public RoutineInfo Routine { get; set; } = null!;
 
         /// <summary>The synthesized body statement (a block or lowered form).</summary>
-        public Statement Body = null!;
+        public Statement Body { get; set; } = null!;
     }
 
     /// <summary>Holds a deferred error-variant base body awaiting per-concrete-type specialization.</summary>
     public sealed class DeferredEntry
     {
         /// <summary>The base routine descriptor from which the variant is specialized.</summary>
-        public RoutineInfo BaseRoutine = null!;
+        public RoutineInfo BaseRoutine { get; set; } = null!;
 
         /// <summary>The unspecialized body statement carried until specialization time.</summary>
-        public Statement Body = null!;
+        public Statement Body { get; set; } = null!;
 
         /// <summary>True if this deferred body was produced under pessimistic (check_) semantics.</summary>
-        public bool Pessimistic;
+        public bool Pessimistic { get; set; }
     }
 
     /// <summary>Top-level index: global (non-sliced) metadata + the module label list.</summary>
     public sealed class Index
     {
         /// <summary>The realm/language (RazorForge or Suflae) that these stdlib artifacts were compiled for.</summary>
-        public Language Language;
+        public Language Language { get; set; }
 
         /// <summary>Set of module labels that were loaded during the compilation that produced these artifacts.</summary>
-        public HashSet<string> LoadedModules = new();
+        public HashSet<string> LoadedModules { get; set; } = new();
 
         /// <summary>Mapping from module path to canonical module name, as recorded at analysis time.</summary>
-        public Dictionary<string, string> ModuleNames = new();
+        public Dictionary<string, string> ModuleNames { get; set; } = new();
 
         /// <summary>Absolute path to the stdlib root directory used when these artifacts were produced.</summary>
-        public string? StdlibRootPath;
+        public string? StdlibRootPath { get; set; }
 
         /// <summary>Artifact labels present in this cache directory (each maps to a &lt;label&gt;.pbrf file).</summary>
-        public List<string> Modules = new(); // artifact labels (each → <label>.pbrf)
+        public List<string> Modules { get; set; } = new(); // artifact labels (each → <label>.pbrf)
     }
 
     private static string ArtifactFileName(string moduleLabel)

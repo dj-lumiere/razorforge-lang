@@ -146,7 +146,7 @@ internal sealed class IteratorInlineLoweringPass
         return ReferenceEquals(fb, loop.Body) ? loop : loop with { Body = fb };
     }
 
-    private Statement RewriteBlock(BlockStatement block)
+    private BlockStatement RewriteBlock(BlockStatement block)
     {
         bool changed = false;
         var stmts = new List<Statement>(capacity: block.Statements.Count);
@@ -159,7 +159,7 @@ internal sealed class IteratorInlineLoweringPass
         return changed ? block with { Statements = stmts } : block;
     }
 
-    private Statement RewriteIf(IfStatement ifs)
+    private IfStatement RewriteIf(IfStatement ifs)
     {
         Statement then = Rewrite(stmt: ifs.ThenStatement);
         Statement? elseS = ifs.ElseStatement != null ? Rewrite(stmt: ifs.ElseStatement) : null;
@@ -168,7 +168,7 @@ internal sealed class IteratorInlineLoweringPass
             : ifs;
     }
 
-    private Statement RewriteWhile(WhileStatement w)
+    private WhileStatement RewriteWhile(WhileStatement w)
     {
         Statement b = Rewrite(stmt: w.Body);
         Statement? el = w.ElseBranch != null ? Rewrite(stmt: w.ElseBranch) : null;
@@ -177,7 +177,7 @@ internal sealed class IteratorInlineLoweringPass
             : w;
     }
 
-    private Statement RewriteWhen(WhenStatement w)
+    private WhenStatement RewriteWhen(WhenStatement w)
     {
         bool changed = false;
         var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
@@ -190,7 +190,7 @@ internal sealed class IteratorInlineLoweringPass
         return changed ? w with { Clauses = clauses } : w;
     }
 
-    private Statement RewriteUsing(UsingStatement u)
+    private UsingStatement RewriteUsing(UsingStatement u)
     {
         Statement b = Rewrite(stmt: u.Body);
         Statement? fb = u.FallbackBody != null ? Rewrite(stmt: u.FallbackBody) : null;
@@ -321,11 +321,8 @@ internal sealed class IteratorInlineLoweringPass
     {
         if (type == null) return false;
         if (type is GenericParameterTypeInfo or ConstGenericValueTypeInfo) return true;
-        if (type.TypeArguments is { Count: > 0 } args)
-        {
-            if (args.Any(a => TypeIsUnresolvedGeneric(type: a))) return true;
-        }
-        return false;
+        return type.TypeArguments is { Count: > 0 } args
+            && args.Any(a => TypeIsUnresolvedGeneric(type: a));
     }
 
     private static bool ContainsLoop(Statement stmt)
@@ -461,7 +458,7 @@ internal sealed class IteratorInlineLoweringPass
     /// Replaces a <c>return v</c> in the emit! body with the loop-variable bindings CFLP builds for
     /// the <c>else v:</c> clause, followed by the (already-lowered) user body.
     /// </summary>
-    private BlockStatement BuildReturnReplacement(Expression? retValue, NextBodyRewriteContext ctx,
+    private static BlockStatement BuildReturnReplacement(Expression? retValue, NextBodyRewriteContext ctx,
         SourceLocation loc)
     {
         Expression value = retValue != null ? CloneExpression(expr: retValue, ctx: ctx)
@@ -711,7 +708,7 @@ internal sealed class IteratorInlineLoweringPass
         }
     }
 
-    private Pattern ClonePattern(Pattern pattern, NextBodyRewriteContext ctx)
+    private static Pattern ClonePattern(Pattern pattern, NextBodyRewriteContext ctx)
     {
         return pattern switch
         {

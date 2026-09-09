@@ -314,7 +314,7 @@ public partial class LlvmCodeGenerator
         private readonly Dictionary<(int, int, int), int> _locIds = new();
         private readonly Dictionary<string, DebugSubprogram> _subprograms;
         private readonly int _subroutineTypeId;
-        private int _cuId;
+        private readonly int _cuId;
 
         internal StringBuilder Meta { get; } = new();
         internal int CuId => _cuId;

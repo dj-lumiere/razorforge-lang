@@ -3,6 +3,7 @@ using System.Text;
 using LLVMSharp.Interop;
 using Xunit.Abstractions;
 
+#pragma warning disable xUnit1004
 namespace RazorForge.Tests.Perf;
 
 /// <summary>

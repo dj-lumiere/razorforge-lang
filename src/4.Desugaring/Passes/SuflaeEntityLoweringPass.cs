@@ -419,19 +419,19 @@ internal sealed class SuflaeEntityLoweringPass
         }
     }
 
-    private static Expression RetypeIdentifier(IdentifierExpression id, WrapperTypeInfo w)
+    private static IdentifierExpression RetypeIdentifier(IdentifierExpression id, WrapperTypeInfo w)
     {
         id.ResolvedType = w;
         return id;
     }
 
-    private Expression LowerMemberExpression(MemberExpression m)
+    private MemberExpression LowerMemberExpression(MemberExpression m)
     {
         Expression obj = LowerExpression(m.Object);
         return ReferenceEquals(obj, m.Object) ? m : m with { Object = obj };
     }
 
-    private Expression LowerIndexExpression(IndexExpression ix)
+    private IndexExpression LowerIndexExpression(IndexExpression ix)
     {
         Expression o = LowerExpression(ix.Object);
         Expression ii = LowerExpression(ix.Index);
@@ -440,7 +440,7 @@ internal sealed class SuflaeEntityLoweringPass
             : ix;
     }
 
-    private Expression LowerBinaryExpression(BinaryExpression bin)
+    private BinaryExpression LowerBinaryExpression(BinaryExpression bin)
     {
         Expression l = LowerExpression(bin.Left);
         Expression r = LowerExpression(bin.Right);
@@ -449,13 +449,13 @@ internal sealed class SuflaeEntityLoweringPass
             : bin;
     }
 
-    private Expression LowerUnaryExpression(UnaryExpression un)
+    private UnaryExpression LowerUnaryExpression(UnaryExpression un)
     {
         Expression o = LowerExpression(un.Operand);
         return ReferenceEquals(o, un.Operand) ? un : un with { Operand = o };
     }
 
-    private Expression LowerNamedArgumentExpression(NamedArgumentExpression namedArg)
+    private NamedArgumentExpression LowerNamedArgumentExpression(NamedArgumentExpression namedArg)
     {
         Expression v = LowerExpression(namedArg.Value);
         return ReferenceEquals(v, namedArg.Value) ? namedArg : namedArg with { Value = v };
@@ -561,7 +561,7 @@ internal sealed class SuflaeEntityLoweringPass
     // correctly take the handle; memberRoutines declared on Roamed/RoamController itself
     // (roam/raw_inner/is_none) own the handle too. Gate on the resolved routine owning a
     // bare entity with a non-Roamed MeType. Mirrors the argument projection.
-    private Expression ProjectRoamedReceiverIntoBareMe(CallExpression call, Expression callee,
+    private static Expression ProjectRoamedReceiverIntoBareMe(CallExpression call, Expression callee,
         ref bool changed)
     {
         if (callee is MemberExpression { Object: { } recv } calleeMember
@@ -581,7 +581,7 @@ internal sealed class SuflaeEntityLoweringPass
 
     // Wrap the lowered call's result in `.roam()` where the call produces a bare SF entity or a
     // parameterized SF constructor whose `create` body returns the bare entity.
-    private Expression WrapCallResultInRoam(CallExpression call, CallExpression lowered)
+    private CallExpression WrapCallResultInRoam(CallExpression call, CallExpression lowered)
     {
         if (call.ResolvedType is EntityTypeInfo callEntity && !IsRfRealmRef(call.Callee))
             return WrapInRoam(inner: lowered, entity: callEntity);
@@ -637,7 +637,7 @@ internal sealed class SuflaeEntityLoweringPass
     // Rewrite each argument that lands in a BARE-entity parameter of `routine` from a Roamed handle to
     // `arg.raw_inner()` (the real entity pointer). Named args match by parameter name; positional args
     // map by order over the non-`me` parameters. Non-Roamed args and non-entity params are untouched.
-    private CallExpression ProjectRoamedArgsIntoBareParams(CallExpression call, RoutineInfo routine)
+    private static CallExpression ProjectRoamedArgsIntoBareParams(CallExpression call, RoutineInfo routine)
     {
         List<ParameterInfo> nonMe = BuildNonMeParams(routine);
 
@@ -729,7 +729,7 @@ internal sealed class SuflaeEntityLoweringPass
 
     // A construction arg (a `NamedArgumentExpression` or bare value) whose value is a borrowed Roamed
     // reference must retain — it is stored into a Roamed field which the constructed entity now co-owns.
-    private Expression RetainConstructionArg(Expression arg)
+    private static Expression RetainConstructionArg(Expression arg)
     {
         if (arg is NamedArgumentExpression na)
         {

@@ -452,9 +452,9 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 
             // Lambda bodies are lifted to top-level routines by LambdaLiftingPass, which runs
             // AFTER this pass — so the lifted body is never lowered again. Descend into the body
-            // here so its UndecidedInteger/UndecidedDecimal literals get a concrete LiteralType;
-            // otherwise codegen receives UndecidedInteger and (per IsIntegerLiteralType) emits it
-            // as a Text string constant, producing an IR type mismatch in arithmetic operations.
+            // here so its undecided-integer and undecided-decimal literals get a concrete token type;
+            // otherwise codegen treats them as text string constants, producing an IR type mismatch
+            // in arithmetic operations.
             // Lambda bodies are expression-position and cannot carry hoisted statements, so only
             // rewrite when lowering produced none; complex bodies with coalesce or optional-member
             // access fall through unchanged.
@@ -470,7 +470,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     // Step 0: rewrites a flow-narrowed identifier to a carrier/variant payload extraction.
-    private (List<Statement> Hoisted, Expression Expr) LowerNarrowedIdentifier(
+    private static (List<Statement> Hoisted, Expression Expr) LowerNarrowedIdentifier(
         IdentifierExpression narrowedId)
     {
         TypeInfo declared = narrowedId.NarrowedFrom!;
@@ -755,7 +755,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     // Lowers a single named argument, wrapping the value for variant arm parameters if needed.
-    private Expression LowerNamedCallArg(NamedArgumentExpression namedArg,
+    private NamedArgumentExpression LowerNamedCallArg(NamedArgumentExpression namedArg,
         RoutineInfo? callRoutine, List<Statement> hoisted)
     {
         var (h, loweredValue) = LowerExpr(namedArg.Value);
@@ -993,7 +993,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         }
 
         // Subjectless (condition-based) when-expressions have no subject to lower;
-        // mirror ParseWhenStatement and synthesize a Bool `true` subject — EmitWhen
+        // synthesize a Bool literal true as the subject — the when emitter
         // unconditionally emits the subject expression.
         Expression whenSubject = loweredSubject ?? new LiteralExpression(
             Value: true,
@@ -1512,7 +1512,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// annotation is absent, or carrier isn't Maybe). Mirrors the SA assignability
     /// rule that permits <c>T -&gt; Maybe[T]</c> in initializers.
     /// </summary>
-    private Expression? TryWrapCarrier(TypeExpression? varType, Expression init)
+    private static CreatorExpression? TryWrapCarrier(TypeExpression? varType, Expression init)
     {
         if (varType is null) return null;
         TypeInfo? targetType = varType.ResolvedType;
@@ -2198,20 +2198,26 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // so codegen never sees an entity type-test (the old "optimistic match" hack disappears). A
         // protocol/Unknown operand carries a runtime type_id and is handled by its own path, not here.
         if (operandType is EntityTypeInfo)
-        {
-            TypeInfo? target = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
-            if (target is EntityTypeInfo)
-            {
-                bool same = operandType.FullName == target.FullName;
-                bool value = ipe.IsNegated ? !same : same;
-                return (hoisted, new LiteralExpression(
-                    Value: value,
-                    LiteralType: value ? TokenType.True : TokenType.False,
-                    Location: ipe.Location) { ResolvedType = boolType });
-            }
-        }
+            return TryLowerEntityIsPattern(ipe: ipe, tp: tp, operandType: operandType,
+                hoisted: hoisted, boolType: boolType);
 
         return null;
+    }
+
+    // Entity `x is T`: fold to a Bool literal since RF entities have no subtyping.
+    // Returns null when the target is not a concrete entity (falls through to pass-through path).
+    private (List<Statement> Hoisted, Expression Expr)? TryLowerEntityIsPattern(
+        IsPatternExpression ipe, TypePattern tp, TypeInfo operandType,
+        List<Statement> hoisted, TypeInfo? boolType)
+    {
+        TypeInfo? target = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
+        if (target is not EntityTypeInfo) return null;
+        bool same = operandType.FullName == target.FullName;
+        bool value = ipe.IsNegated ? !same : same;
+        return (hoisted, new LiteralExpression(
+            Value: value,
+            LiteralType: value ? TokenType.True : TokenType.False,
+            Location: ipe.Location) { ResolvedType = boolType });
     }
 
     // Maybe[T record]: x is None -> not x.present; x isnot None -> x.present

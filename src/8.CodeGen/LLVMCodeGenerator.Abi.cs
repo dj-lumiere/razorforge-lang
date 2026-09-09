@@ -205,12 +205,12 @@ public partial class LlvmCodeGenerator
         if (IsByValueStructRecord(type: type) && type is RecordTypeInfo { MemberVariables: { } members })
         {
             int size = 0;
-            foreach (MemberVariableInfo mv in members)
+            foreach (TypeInfo mvType in members.Select(mv => mv.Type))
             {
-                int memberSize = GetTypeSize(type: mv.Type);
-                int alignment = mv.Type.Alignment(pointerSize: _pointerSizeBytes);
+                int memberSize = GetTypeSize(type: mvType);
+                int alignment = mvType.Alignment(pointerSize: _pointerSizeBytes);
                 size = AlignTo(size: size, alignment: alignment);
-                CollectLeafMemberVariables(type: mv.Type, baseOffset: baseOffset + size, leaves: leaves);
+                CollectLeafMemberVariables(type: mvType, baseOffset: baseOffset + size, leaves: leaves);
                 size += memberSize;
             }
 

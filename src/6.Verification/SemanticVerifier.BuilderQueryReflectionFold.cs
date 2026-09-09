@@ -230,12 +230,11 @@ public partial class SemanticVerifier
         }
 
         Expression result = FoldReflectionExprStructural(expr: expr);
-        // `record with { … }` copies only PRIMARY-CTOR properties, not the mutable {get;set;}
-        // Expression.ResolvedType that SA annotated. A structural rebuild (a folded BuilderQuery call inside
-        // this node's subtree) therefore drops ResolvedType, and Phase-9 ExpressionLoweringPass then throws
-        // "reached without a resolved type" (seen on a D128.rf ConditionalExpression). The rebuilt node is the
-        // SAME logical expression with the SAME type, so restore it — cases that already set a specific type
-        // (Call/Index) leave result.ResolvedType non-null and are untouched.
+        // Record with-expressions copy only primary-constructor properties, not the mutable ResolvedType
+        // that semantic analysis annotated. A structural rebuild therefore drops ResolvedType, and the
+        // expression-lowering pass later throws "reached without a resolved type". The rebuilt node
+        // carries the same logical expression and type, so restore it here. Cases that already set a
+        // specific type (folded call or index nodes) leave ResolvedType non-null and are untouched.
         if (!ReferenceEquals(objA: result, objB: expr) && result.ResolvedType is null)
             result.ResolvedType = expr.ResolvedType;
         return result;

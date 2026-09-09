@@ -1001,7 +1001,7 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>Emits a float-to-integer cast (fptoui or fptosi) based on target signedness.</summary>
-    private void EmitFloatToIntCast(StringBuilder sb, string result, string value,
+    private static void EmitFloatToIntCast(StringBuilder sb, string result, string value,
         string sourceLlvm, string targetLlvm, bool targetUnsigned)
     {
         string op = targetUnsigned ? "fptoui" : "fptosi";
@@ -1009,7 +1009,7 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>Emits an integer-to-float cast (uitofp or sitofp) based on source signedness.</summary>
-    private void EmitIntToFloatCast(StringBuilder sb, string result, string value,
+    private static void EmitIntToFloatCast(StringBuilder sb, string result, string value,
         string sourceLlvm, string targetLlvm, TypeInfo? sourceType)
     {
         bool sourceUnsigned = IsUnsignedIntegerType(type: sourceType);

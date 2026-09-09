@@ -333,23 +333,20 @@ public partial class Parser
         // identifier (`name`) and each memberRoutine segment as SEPARATE tokens; record them so consumers
         // never re-split the concatenated `Name` string. `name` still holds the bare owner base here
         // (it isn't reassigned to nameSb.ToString() until after this loop).
-        string? memberOwnerName = null;
-        string? memberMemberRoutineName = null;
-        bool memberHasReceiverTypeArgs = false;
-        // The receiver AS WRITTEN incl type-args ("List[T]", "Iterable[Text]"), assembled HERE from the
+        // Structural owner/memberRoutine capture (name-canonicalization): the parser knows the owner base
+        // identifier and each memberRoutine segment as SEPARATE tokens; record them so consumers
+        // never re-split the concatenated Name string.
+        // The receiver AS WRITTEN incl type-args (e.g. "List[T]", "Iterable[Text]"), assembled HERE from the
         // separate owner/bracket/arg tokens — so consumers read it structurally instead of slicing it back
-        // out of the concatenated `Name`.
-        string? memberRenderedReceiver = null;
+        // out of the concatenated Name.
+        var memberInfo = new RoutineMemberSegmentInfo();
 
         while (Match(type: TokenType.Dot))
         {
             AppendRoutineMemberSegment(
                 baseName: name,
                 nameSb: nameSb,
-                memberOwnerName: ref memberOwnerName,
-                memberMemberRoutineName: ref memberMemberRoutineName,
-                memberHasReceiverTypeArgs: ref memberHasReceiverTypeArgs,
-                memberRenderedReceiver: ref memberRenderedReceiver,
+                memberInfo: memberInfo,
                 hasGenericParams: ref hasGenericParams,
                 receiverTypeArgStrings: receiverTypeArgStrings,
                 genericParams: ref genericParams,
@@ -416,12 +413,12 @@ public partial class Parser
         // @innate routines are compiler-intrinsic: the body is supplied by the compiler,
         // not the source. Allow them to have no written body at all.
 
-        Statement body = ParseRoutineBody(annotations: annotations, location: location);
+        BlockStatement body = ParseRoutineBody(annotations: annotations, location: location);
 
         // Name is the BARE member for an extension-syntax member routine (owner lives in the structured
         // OwnerName/RenderedReceiver/ReceiverType fields); free routines and type-body members keep their
         // already-bare name. The owner-qualified composite is rebuilt on demand via QualifiedName.
-        return new RoutineDeclaration(Name: memberMemberRoutineName ?? name,
+        return new RoutineDeclaration(Name: memberInfo.MemberRoutineName ?? name,
             Parameters: parameters,
             ReturnType: returnType,
             Body: body,
@@ -436,12 +433,12 @@ public partial class Parser
             IsDangerous: isDangerous,
             IsWiredMemberRoutine: _routineNameWired)
         {
-            OwnerName = memberOwnerName,
-            MemberRoutineName = memberMemberRoutineName,
-            HasReceiverTypeArgs = memberHasReceiverTypeArgs,
-            RenderedReceiver = memberRenderedReceiver,
-            ReceiverType = memberOwnerName != null
-                ? new TypeExpression(Name: memberOwnerName, GenericArguments: receiverArgExprs,
+            OwnerName = memberInfo.OwnerName,
+            MemberRoutineName = memberInfo.MemberRoutineName,
+            HasReceiverTypeArgs = memberInfo.HasReceiverTypeArgs,
+            RenderedReceiver = memberInfo.RenderedReceiver,
+            ReceiverType = memberInfo.OwnerName != null
+                ? new TypeExpression(Name: memberInfo.OwnerName, GenericArguments: receiverArgExprs,
                     Location: location)
                 : null
         };
@@ -523,7 +520,7 @@ public partial class Parser
     /// <see cref="BlockStatement"/> is returned; otherwise the next indented block is parsed. Correctly
     /// guards <see cref="_inRoutineBody"/> in a try/finally so nested-routine detection stays accurate.
     /// </summary>
-    private Statement ParseRoutineBody(List<string>? annotations, SourceLocation location)
+    private BlockStatement ParseRoutineBody(List<string>? annotations, SourceLocation location)
     {
         bool isInnate = annotations != null && annotations.Contains(item: "innate");
         // A body exists when the next tokens are Newline+Indent or just Indent.
@@ -666,6 +663,23 @@ public partial class Parser
     }
 
     /// <summary>
+    /// Mutable state bundle capturing the structural owner/member breakdown of a qualified routine
+    /// name as the dot-segments are parsed. Passed by reference into
+    /// <see cref="AppendRoutineMemberSegment"/> to avoid exceeding the parameter count limit.
+    /// </summary>
+    private sealed class RoutineMemberSegmentInfo
+    {
+        /// <summary>The bare owner name (e.g. "List", "S32") captured on the first dot-segment.</summary>
+        public string? OwnerName;
+        /// <summary>The bare member name (e.g. "append", "get") from the most recent dot-segment.</summary>
+        public string? MemberRoutineName;
+        /// <summary>True when the owner carried explicit type-args (e.g. "List[T]").</summary>
+        public bool HasReceiverTypeArgs;
+        /// <summary>The owner as written with type-args when present (e.g. "List[T]", "Iterable[Text]").</summary>
+        public string? RenderedReceiver;
+    }
+
+    /// <summary>
     /// Processes one dot-segment of a qualified routine name (the leading <c>.</c> was already consumed).
     /// Embeds previously parsed type-args into the name builder on the first segment, appends the member
     /// name on subsequent segments, and parses any member-routine-level generics that follow.
@@ -673,21 +687,18 @@ public partial class Parser
     private void AppendRoutineMemberSegment(
         string baseName,
         System.Text.StringBuilder nameSb,
-        ref string? memberOwnerName,
-        ref string? memberMemberRoutineName,
-        ref bool memberHasReceiverTypeArgs,
-        ref string? memberRenderedReceiver,
+        RoutineMemberSegmentInfo memberInfo,
         ref bool hasGenericParams,
         List<string>? receiverTypeArgStrings,
         ref List<string>? genericParams,
         ref List<GenericConstraintDeclaration>? inlineConstraints)
     {
         string part = ConsumeMemberRoutineName(errorMessage: "Expected member routine name after '.'");
-        memberOwnerName ??= baseName;
-        memberMemberRoutineName = part;
+        memberInfo.OwnerName ??= baseName;
+        memberInfo.MemberRoutineName = part;
 
         // If we parsed generic params before the dot, embed them in the name.
-        // This transforms: name="List", generics=["T"], part="append"  →  "List[T].append".
+        // This transforms: name="List", generics=["T"], part="append"  ->  "List[T].append".
         // For nested receivers (e.g. List[DictEntry[K, V]]), use the serialized type-arg
         // strings rather than the bound leaf identifiers so the name preserves structure.
         if (hasGenericParams && !nameSb.ToString().Contains(value: '.') &&
@@ -695,19 +706,19 @@ public partial class Parser
         {
             List<string> nameArgs = receiverTypeArgStrings ?? genericParams!;
             string renderedArgs = string.Join(separator: ", ", values: nameArgs);
-            memberRenderedReceiver = $"{baseName}[{renderedArgs}]"; // e.g. "List[T]", "List[DictEntry[K, V]]"
+            memberInfo.RenderedReceiver = $"{baseName}[{renderedArgs}]";
             nameSb.Append('[');
             nameSb.Append(renderedArgs);
             nameSb.Append("].");
             nameSb.Append(part);
-            memberHasReceiverTypeArgs = true; // owner carried type-args (List[T].append)
+            memberInfo.HasReceiverTypeArgs = true; // owner carried type-args (List[T].append)
             hasGenericParams = false; // Only embed once
         }
         else
         {
             // Owner rendered so far (the bare owner, e.g. "S32", "Iterable") — captured BEFORE the
             // member segment is appended.
-            memberRenderedReceiver = nameSb.ToString();
+            memberInfo.RenderedReceiver = nameSb.ToString();
             nameSb.Append('.');
             nameSb.Append(part);
         }

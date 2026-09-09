@@ -445,10 +445,8 @@ public partial class Parser
     /// </summary>
     private Pattern ParseWhenStatementPattern(bool isConditionBased, SourceLocation clauseLocation)
     {
-        // ─────────────────────────────────────────────────────────────────────
-        // Pattern dispatch: determine which pattern type we're parsing
-        // Order matters - check specific patterns before general ones
-        // ─────────────────────────────────────────────────────────────────────
+        // Pattern dispatch: determine which pattern type we're parsing.
+        // Order matters — check specific patterns before general ones.
 
         // Case 1: 'else' keyword - default/fallback case
         if (Match(type: TokenType.Else))
@@ -462,62 +460,26 @@ public partial class Parser
             return ParseConditionBasedPattern(clauseLocation: clauseLocation);
         }
 
-        // Case 3: 'is' keyword - type pattern
+        // Cases 3+4: 'is' / 'isnot' keyword — type or flags pattern
         if (Match(type: TokenType.Is))
         {
-            _inWhenPatternContext = true;
-            Pattern pattern;
-            // Check if this is a flags pattern: identifier followed by and/or/but
-            if (Check(type: TokenType.Identifier) && PeekToken(offset: 1)
-                   .Type is TokenType.And or TokenType.Or or TokenType.But)
-            {
-                pattern = ParseFlagsIsWhenPattern();
-            }
-            // 'is' must be followed by a type/variant name
-            else if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
-            {
-                pattern = ParseTypePattern();
-            }
-            else
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                    message:
-                    $"'is' must be followed by a type name. For value comparisons, use '== {CurrentToken.Text}' instead of 'is {CurrentToken.Text}'.");
-            }
-
-            _inWhenPatternContext = false;
-            return pattern;
+            return ParseIsWhenPattern();
         }
 
-        // Case 4: 'isnot' keyword - negated type pattern (no variable binding)
         if (Match(type: TokenType.IsNot))
         {
-            _inWhenPatternContext = true;
-            Pattern pattern;
-            if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
-            {
-                TypeExpression type = ParseType();
-                pattern = new NegatedTypePattern(Type: type, Location: clauseLocation);
-            }
-            else
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                    message: "'isnot' must be followed by a type name.");
-            }
-
-            _inWhenPatternContext = false;
-            return pattern;
+            return ParseIsNotWhenPattern(clauseLocation: clauseLocation);
         }
 
-        // Case 6: Comparison patterns (==, !=, <, >, <=, >=)
+        // Case 5: Comparison patterns (==, !=, <, >, <=, >=)
         if (IsComparisonOperator(tokenType: CurrentToken.Type))
         {
             return ParseComparisonPattern();
         }
 
-        // Case 7: Other patterns (wildcards, literals, identifiers)
+        // Case 6: Other patterns (wildcards, literals, identifiers).
         // Set context flag to prevent single-param lambdas from being parsed
-        // inside when patterns (e.g., a < b => action should not treat b => action as lambda)
+        // inside when patterns (e.g., "a < b => action" should not treat "b => action" as a lambda).
         _inWhenPatternContext = true;
         Pattern generalPattern = ParsePattern();
         _inWhenPatternContext = false;
@@ -1218,7 +1180,7 @@ public partial class Parser
         // (it's a common variable name — e.g. `unwrap_or(fallback:)`). It is only the block
         // keyword here, recognised as an identifier `fallback` immediately followed by an
         // indented block right after a `using` body.
-        Statement? fallbackBody = ParseOptionalUsingFallbackBlock(resourceCount: resources.Count);
+        BlockStatement? fallbackBody = ParseOptionalUsingFallbackBlock(resourceCount: resources.Count);
 
         // Build nested UsingStatements from inside out (last resource is innermost).
         // `fallback` (single-resource only) attaches to the sole using.
@@ -1240,7 +1202,7 @@ public partial class Parser
     /// it on a multi-resource <c>using</c> (fallible acquisition binds exactly one resource). Returns the
     /// fallback body, or null when no fallback block is present.
     /// </summary>
-    private Statement? ParseOptionalUsingFallbackBlock(int resourceCount)
+    private BlockStatement? ParseOptionalUsingFallbackBlock(int resourceCount)
     {
         if (!IsContextualFallbackBlock())
         {

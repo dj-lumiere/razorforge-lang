@@ -454,6 +454,10 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void BindVariantPayload(VariantPattern pattern, TypeSymbol payloadType)
     {
+        // Caller guarantees Bindings is non-empty (checked before calling), but the field is
+        // nullable — guard here so subsequent indexing is clean.
+        if (pattern.Bindings == null) return;
+
         // For a single binding without member variable name, bind directly to the payload
         if (pattern.Bindings.Count == 1 && pattern.Bindings[index: 0].MemberVariableName == null)
         {
@@ -798,18 +802,18 @@ public sealed partial class SemanticVerifier
         bool hasCrashableCatchAll = false;
         bool hasValue = false;
 
-        foreach (WhenClause clause in clauses)
+        foreach (Pattern pattern in clauses.Select(clause => clause.Pattern))
         {
-            if (IsAbsentPattern(pattern: clause.Pattern, carrierType: carrierType))
+            if (IsAbsentPattern(pattern: pattern, carrierType: carrierType))
             {
                 hasAbsent = true;
             }
-            else if (IsCrashableCatchAll(pattern: clause.Pattern))
+            else if (IsCrashableCatchAll(pattern: pattern))
             {
                 // Only generic 'is Crashable e' counts as catch-all, not specific error types (#89)
                 hasCrashableCatchAll = true;
             }
-            else if (!IsNonePattern(pattern: clause.Pattern) && clause.Pattern is not CrashablePattern)
+            else if (!IsNonePattern(pattern: pattern) && pattern is not CrashablePattern)
             {
                 // Any other pattern (type check, literal, etc.) counts as value arm
                 hasValue = true;
@@ -890,13 +894,13 @@ public sealed partial class SemanticVerifier
         bool hasTrue = false;
         bool hasFalse = false;
 
-        foreach (WhenClause clause in clauses)
+        foreach (Pattern pattern in clauses.Select(clause => clause.Pattern))
         {
-            if (clause.Pattern is LiteralPattern { LiteralType: TokenType.True })
+            if (pattern is LiteralPattern { LiteralType: TokenType.True })
             {
                 hasTrue = true;
             }
-            else if (clause.Pattern is LiteralPattern { LiteralType: TokenType.False })
+            else if (pattern is LiteralPattern { LiteralType: TokenType.False })
             {
                 hasFalse = true;
             }

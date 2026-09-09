@@ -999,7 +999,7 @@ public sealed partial class SemanticVerifier
         }
 
         // All type args must be inferred.
-        return typeArgs.Any(t => t == null) ? null : typeArgs.ToList()!;
+        return typeArgs.Any(t => t == null) ? null : typeArgs.Select(t => t!).ToList();
     }
 
     /// <summary>
@@ -1011,6 +1011,10 @@ public sealed partial class SemanticVerifier
     private void InferTypeArgsFromArguments(RoutineInfo genericRoutine, List<Expression> arguments,
         TypeSymbol?[] typeArgs)
     {
+        // GenericParameters is guaranteed non-null when the caller checks IsGenericDefinition,
+        // but the field itself is nullable — guard here so the pass-down is clean.
+        if (genericRoutine.GenericParameters is not { } genericParameters) return;
+
         int argCount = Math.Min(val1: genericRoutine.Parameters.Count, val2: arguments.Count);
         for (int i = 0; i < argCount; i++)
         {
@@ -1026,10 +1030,10 @@ public sealed partial class SemanticVerifier
             if (argType == ErrorTypeInfo.Instance) continue;
 
             // Recurse into TypeArguments so const- and type-generics inside a parameterized
-            // pattern (e.g. `array: Array[Byte, N]`) bind from the matching position in argType.
+            // pattern (e.g. array: Array[Byte, N]) bind from the matching position in argType.
             InferMemberRoutineTypeArgumentsFromTypes(paramType: paramType,
                 argType: argType,
-                genericParameters: genericRoutine.GenericParameters,
+                genericParameters: genericParameters,
                 inferred: typeArgs);
         }
     }
@@ -1075,24 +1079,45 @@ public sealed partial class SemanticVerifier
             if (boundIdx < 0 || inferred[boundIdx] is not { } boundType) continue;
 
             List<TypeSymbol> conformances = ImplementedProtocolsOf(type: boundType);
+            InferFromConstraintProtocols(gp: gp, inferred: inferred,
+                constraintTypes: constraintTypes, conformances: conformances);
+        }
+    }
 
-            foreach (TypeExpression ct in constraintTypes)
+    /// <summary>
+    /// For each protocol type expression in a constraint's type list, locates the bound type's
+    /// conformance to that protocol and unifies the protocol's type-argument positions against the
+    /// constraint's type-argument positions to bind still-unresolved generic slots.
+    /// </summary>
+    private static void InferFromConstraintProtocols(List<string> gp, TypeSymbol?[] inferred,
+        List<TypeExpression> constraintTypes, List<TypeSymbol> conformances)
+    {
+        foreach (TypeExpression ct in constraintTypes)
+        {
+            if (ct.GenericArguments is not { Count: > 0 } ctArgs) continue;
+
+            TypeSymbol? conformance = conformances
+                .FirstOrDefault(predicate: p => ProtocolBaseName(type: p) == ct.Name);
+            if (conformance?.TypeArguments is not { Count: > 0 } confArgs) continue;
+
+            BindConstraintTypeArgs(gp: gp, inferred: inferred, ctArgs: ctArgs, confArgs: confArgs);
+        }
+    }
+
+    /// <summary>
+    /// Positionally unifies a constraint's type-argument names against a concrete conformance's type
+    /// arguments, binding any unresolved generic slot whose name appears in the constraint list.
+    /// </summary>
+    private static void BindConstraintTypeArgs(List<string> gp, TypeSymbol?[] inferred,
+        List<TypeExpression> ctArgs, List<TypeSymbol> confArgs)
+    {
+        int n = Math.Min(val1: ctArgs.Count, val2: confArgs.Count);
+        for (int k = 0; k < n; k++)
+        {
+            int uIdx = gp.IndexOf(item: ctArgs[index: k].Name);
+            if (uIdx >= 0 && inferred[uIdx] == null)
             {
-                if (ct.GenericArguments is not { Count: > 0 } ctArgs) continue;
-
-                TypeSymbol? conformance = conformances
-                    .FirstOrDefault(predicate: p => ProtocolBaseName(type: p) == ct.Name);
-                if (conformance?.TypeArguments is not { Count: > 0 } confArgs) continue;
-
-                int n = Math.Min(val1: ctArgs.Count, val2: confArgs.Count);
-                for (int k = 0; k < n; k++)
-                {
-                    int uIdx = gp.IndexOf(item: ctArgs[index: k].Name);
-                    if (uIdx >= 0 && inferred[uIdx] == null)
-                    {
-                        inferred[uIdx] = confArgs[index: k];
-                    }
-                }
+                inferred[uIdx] = confArgs[index: k];
             }
         }
     }

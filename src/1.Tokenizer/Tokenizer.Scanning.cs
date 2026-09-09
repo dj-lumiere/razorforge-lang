@@ -15,13 +15,9 @@ public partial class Tokenizer
     private void ScanToken()
     {
         // Handle indentation at start of line
-        if (_column == 1)
+        if (_column == 1 && ScanIndentationAndCheckEnd())
         {
-            HandleIndentation();
-            if (IsAtEnd())
-            {
-                return;
-            }
+            return;
         }
 
         // Skip non-newline whitespace and update token start
@@ -65,7 +61,7 @@ public partial class Tokenizer
                 break;
             case 'b':
                 // Could be bytes prefix (b"..."), byte character (b'x'), or identifier
-                if (!TryParseTextPrefix() && !TryParseByteLiteralPrefix()) ScanIdentifier();
+                ScanBPrefixOrIdentifier();
                 break;
 
             // Opening bracket delimiters — increment depth
@@ -160,6 +156,28 @@ public partial class Tokenizer
             default:
                 ScanDefaultCharacter(c: c);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Handles line-start indentation and returns <c>true</c> when the end of input is reached
+    /// after processing, signalling that <see cref="ScanToken"/> should return immediately.
+    /// </summary>
+    private bool ScanIndentationAndCheckEnd()
+    {
+        HandleIndentation();
+        return IsAtEnd();
+    }
+
+    /// <summary>
+    /// Scans a <c>b</c> character that may begin a bytes-string literal (<c>b"…"</c>), a
+    /// byte-character literal (<c>b'x'</c>), or a plain identifier.
+    /// </summary>
+    private void ScanBPrefixOrIdentifier()
+    {
+        if (!TryParseTextPrefix() && !TryParseByteLiteralPrefix())
+        {
+            ScanIdentifier();
         }
     }
 

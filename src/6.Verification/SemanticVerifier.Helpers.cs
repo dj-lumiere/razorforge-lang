@@ -421,17 +421,15 @@ public sealed partial class SemanticVerifier
             if (argType.Category == TypeCategory.Error || paramType.Category == TypeCategory.Error)
                 continue;
 
-            if (!IsAssignableTo(source: argType, target: paramType))
+            if (!IsAssignableTo(source: argType, target: paramType)
+                && !IsBareRoutineRefToCPtr(argExpr: argExpr, argType: argType, paramType: paramType)
+                && !ContainsUnresolvedMemberRoutineGeneric(type: paramType,
+                    genericParameters: routine.GenericParameters))
             {
-                if (!IsBareRoutineRefToCPtr(argExpr: argExpr, argType: argType, paramType: paramType)
-                    && !ContainsUnresolvedMemberRoutineGeneric(type: paramType,
-                        genericParameters: routine.GenericParameters))
-                {
-                    ReportError(code: SemanticDiagnosticCode.ArgumentTypeMismatch,
-                        message:
-                        $"Argument '{param.Name}' of '{routine.Name}': cannot convert '{argType.Name}' to '{paramType.Name}'.",
-                        location: argExpr.Location);
-                }
+                ReportError(code: SemanticDiagnosticCode.ArgumentTypeMismatch,
+                    message:
+                    $"Argument '{param.Name}' of '{routine.Name}': cannot convert '{argType.Name}' to '{paramType.Name}'.",
+                    location: argExpr.Location);
             }
 
             bool isCapturingLambdaLiteral = argExpr is LambdaExpression { Captures.Count: > 0 };

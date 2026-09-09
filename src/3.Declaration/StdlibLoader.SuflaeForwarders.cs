@@ -168,7 +168,7 @@ public sealed partial class StdlibLoader
         List<(Program Program, string FilePath, string Module)> allProgs)
     {
         var sfWrapperNames = new HashSet<string>(comparer: StringComparer.Ordinal);
-        foreach ((Program prog, string filePath, string _) in allProgs.Where(p => RealmOf(filePath: p.FilePath) == "SF"))
+        foreach ((Program prog, _, _) in allProgs.Where(p => RealmOf(filePath: p.FilePath) == "SF"))
         {
             foreach (EntityDeclaration e in prog.Declarations.OfType<EntityDeclaration>()
                 .Where(e => e.Members.OfType<VariableDeclaration>()

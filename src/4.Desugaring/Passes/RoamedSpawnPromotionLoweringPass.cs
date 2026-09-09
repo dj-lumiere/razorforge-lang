@@ -128,8 +128,11 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
     {
         switch (stmt)
         {
-            case ExpressionStatement or DiscardStatement:
-                yield return stmt is ExpressionStatement es ? es.Expression : ((DiscardStatement)stmt).Expression;
+            case ExpressionStatement es:
+                yield return es.Expression;
+                break;
+            case DiscardStatement ds:
+                yield return ds.Expression;
                 break;
             case ReturnStatement { Value: not null } s: yield return s.Value; break;
             case VariantReturnStatement { Value: not null } s: yield return s.Value; break;

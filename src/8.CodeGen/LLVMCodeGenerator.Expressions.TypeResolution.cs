@@ -860,7 +860,7 @@ public partial class LlvmCodeGenerator
     /// use as a LLVM return type (i.e., not a generic parameter, not an error, not a generic definition,
     /// and contains no unresolved generic parameters).
     /// </summary>
-    private bool IsConcreteReturnType(TypeInfo type) =>
+    private static bool IsConcreteReturnType(TypeInfo type) =>
         type is not GenericParameterTypeInfo and not ErrorTypeInfo
         && !type.IsGenericDefinition
         && !ContainsGenericParameter(type: type);

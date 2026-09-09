@@ -711,13 +711,13 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         };
         if (genDef != null && !ReferenceEquals(objA: genDef, objB: owner))
         {
-            foreach (RoutineInfo m in ctx.Registry.GetMemberRoutinesForType(type: genDef)
-                         .Where(m => m is { IsCreator: true, Parameters.Count: 0 }))
+            RoutineInfo? noArgCreate = ctx.Registry.GetMemberRoutinesForType(type: genDef)
+                .FirstOrDefault(m => m is { IsCreator: true, Parameters.Count: 0 });
+            if (noArgCreate != null)
             {
                 RoutineInfo substituted = ctx.Registry.SubstituteMemberRoutineForOwner(
-                    memberRoutine: m, resolvedOwner: owner)!;
+                    memberRoutine: noArgCreate, resolvedOwner: owner)!;
                 EnqueueCallee(callee: substituted);
-                return;
             }
         }
     }
@@ -2165,12 +2165,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
 
         // If owner is itself a generic param T and frame has T -> ConcreteType, substitute.
         if (owner is GenericParameterTypeInfo gp && typeSubs.TryGetValue(key: gp.Name, value: out TypeInfo? concrete))
-        {
-            RoutineInfo? resolved = ctx.Registry.LookupMemberRoutine(type: concrete, memberRoutineName: routine.Name);
-            return resolved != null
-                ? TransferSubstitutedTypeArguments(input: routine, resolved: resolved, typeSubs: typeSubs)
-                : routine;
-        }
+            return SubstituteBareOwnerParam(routine: routine, concrete: concrete, typeSubs: typeSubs);
 
         // If owner is a generic def (e.g. List[T]) referencing T from the frame, build the
         // concrete instantiation List[ConcreteT] and look up the memberRoutine on it.
@@ -2185,6 +2180,20 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     }
 
     /// <summary>
+    /// Looks up the concrete member routine on <paramref name="concrete"/> that matches
+    /// <paramref name="routine"/>'s name, transfers any substituted type arguments, and returns
+    /// the result (or the original routine when no concrete member is found).
+    /// </summary>
+    private RoutineInfo SubstituteBareOwnerParam(RoutineInfo routine, TypeInfo concrete,
+        Dictionary<string, TypeInfo> typeSubs)
+    {
+        RoutineInfo? resolved = ctx.Registry.LookupMemberRoutine(type: concrete, memberRoutineName: routine.Name);
+        if (resolved != null)
+            return TransferSubstitutedTypeArguments(input: routine, resolved: resolved, typeSubs: typeSubs);
+        return routine;
+    }
+
+    /// <summary>
     /// Substitutes a standalone (owner-less) generic routine through <paramref name="typeSubs"/>.
     /// Case A: pure generic def — substitute by GenericParameters.
     /// Case B: SA-resolved instance with unresolved TypeArguments — substitute recursively.
@@ -2194,46 +2203,67 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // Case A: pure generic def — substitute by GenericParameters.
         if (routine.IsGenericDefinition && routine.GenericParameters is { } rgParams)
         {
-            var concreteTypeArgs = new List<TypeInfo>(capacity: rgParams.Count);
-            bool allOk = true;
-            foreach (string p in rgParams)
-            {
-                if (typeSubs.TryGetValue(key: p, value: out TypeInfo? sub)) concreteTypeArgs.Add(item: sub);
-                else { allOk = false; break; }
-            }
-            if (allOk)
-            {
-                RoutineInfo resolved = ctx.Registry.GetOrCreateRoutineResolution(
-                    genericDef: routine, typeArguments: concreteTypeArgs);
-                _live.Add(item: resolved.RegistryKey);
-                return resolved;
-            }
+            RoutineInfo? resolved = TrySubstituteByGenericParameters(
+                routine: routine, rgParams: rgParams, typeSubs: typeSubs);
+            if (resolved != null) return resolved;
         }
+
         // Case B: SA produced a "resolved" instance whose TypeArguments contain unresolved
-        // generic parameters — either bare (e.g. `hijacked_from[T]` where T comes from the
-        // enclosing `List[T]`) OR nested inside another generic type (e.g.
-        // `hijacked_from[RetainController[T]]` inside `Tracked[T].release`). Substitute
+        // generic parameters — either bare (e.g. hijacked_from[T] where T comes from the
+        // enclosing List[T]) OR nested inside another generic type (e.g.
+        // hijacked_from[RetainController[T]] inside Tracked[T].release). Substitute
         // recursively via SubstituteIncludingGenericDef so both shapes work.
         if (routine.TypeArguments is { Count: > 0 } tArgs && tArgs.Any(predicate: ContainsAnyGenericParameter))
         {
-            var substArgs = new List<TypeInfo>(capacity: tArgs.Count);
-            bool allOk = true;
-            foreach (TypeInfo a in tArgs)
-            {
-                TypeInfo subbed = SubstituteIncludingGenericDef(type: a, typeSubs: typeSubs);
-                if (ContainsAnyGenericParameter(type: subbed)) { allOk = false; break; }
-                substArgs.Add(item: subbed);
-            }
-            if (allOk)
-            {
-                RoutineInfo genDef = routine.GenericDefinition ?? routine;
-                RoutineInfo resolved = ctx.Registry.GetOrCreateRoutineResolution(
-                    genericDef: genDef, typeArguments: substArgs);
-                _live.Add(item: resolved.RegistryKey);
-                return resolved;
-            }
+            RoutineInfo? resolved = TrySubstituteByTypeArguments(
+                routine: routine, tArgs: tArgs, typeSubs: typeSubs);
+            if (resolved != null) return resolved;
         }
+
         return routine;
+    }
+
+    /// <summary>
+    /// Case A helper: builds concrete type args by looking up each generic parameter name in
+    /// <paramref name="typeSubs"/>. Returns the resolved routine (and marks it live) when all
+    /// parameters are found; returns null when any parameter is absent.
+    /// </summary>
+    private RoutineInfo? TrySubstituteByGenericParameters(RoutineInfo routine, List<string> rgParams,
+        Dictionary<string, TypeInfo> typeSubs)
+    {
+        var concreteTypeArgs = new List<TypeInfo>(capacity: rgParams.Count);
+        foreach (string p in rgParams)
+        {
+            if (typeSubs.TryGetValue(key: p, value: out TypeInfo? sub)) concreteTypeArgs.Add(item: sub);
+            else return null;
+        }
+        RoutineInfo resolved = ctx.Registry.GetOrCreateRoutineResolution(
+            genericDef: routine, typeArguments: concreteTypeArgs);
+        _live.Add(item: resolved.RegistryKey);
+        return resolved;
+    }
+
+    /// <summary>
+    /// Case B helper: substitutes each type argument recursively via
+    /// <see cref="SubstituteIncludingGenericDef"/> to handle nested generic types. Returns the
+    /// resolved routine (and marks it live) when all arguments become fully concrete; returns null
+    /// when any argument still contains a generic parameter after substitution.
+    /// </summary>
+    private RoutineInfo? TrySubstituteByTypeArguments(RoutineInfo routine, List<TypeInfo> tArgs,
+        Dictionary<string, TypeInfo> typeSubs)
+    {
+        var substArgs = new List<TypeInfo>(capacity: tArgs.Count);
+        foreach (TypeInfo a in tArgs)
+        {
+            TypeInfo subbed = SubstituteIncludingGenericDef(type: a, typeSubs: typeSubs);
+            if (ContainsAnyGenericParameter(type: subbed)) return null;
+            substArgs.Add(item: subbed);
+        }
+        RoutineInfo genDef = routine.GenericDefinition ?? routine;
+        RoutineInfo resolved = ctx.Registry.GetOrCreateRoutineResolution(
+            genericDef: genDef, typeArguments: substArgs);
+        _live.Add(item: resolved.RegistryKey);
+        return resolved;
     }
 
     /// <summary>
@@ -2261,7 +2291,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     /// or the routine is synthesized (marked live by key only).
     /// </summary>
     private RoutineInfo? SubstituteOwnerWithGenericArgs(RoutineInfo routine, TypeInfo owner,
-        IReadOnlyList<TypeInfo> ownerTArgs, Dictionary<string, TypeInfo> typeSubs)
+        List<TypeInfo> ownerTArgs, Dictionary<string, TypeInfo> typeSubs)
     {
         TypeInfo? ownerGenDef = owner switch
         {

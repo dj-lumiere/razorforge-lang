@@ -6,6 +6,7 @@ using TypeInfo = TypeModel.Types.TypeInfo;
 using Compiler.Verification;
 using Xunit.Abstractions;
 
+#pragma warning disable xUnit1004
 namespace RazorForge.Tests.Perf;
 
 /// <summary>

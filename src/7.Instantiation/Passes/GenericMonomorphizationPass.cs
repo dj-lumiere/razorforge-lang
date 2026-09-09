@@ -42,12 +42,6 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     // avoids re-allocating the literal on each call and keeps the name in sync with RuntimeContract.
     private const string RepresentMemberRoutineName = RuntimeContract.Display.Represent;
 
-    /// <summary>True when <paramref name="t"/> still carries a generic parameter (directly or nested in a type
-    /// argument) — i.e. not yet a fully-concrete monomorphized type.</summary>
-    private static bool ContainsGenericParam(TypeInfo t) =>
-        t is GenericParameterTypeInfo or ProtocolSelfTypeInfo or ComptimeConstGenericTypeInfo
-        || (t.TypeArguments?.Any(predicate: ContainsGenericParam) ?? false);
-
     // Routine-declaration index
 
     // Key: routine name (e.g. "List[T].getitem") -> list of matching declarations.
@@ -768,7 +762,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             {
                 while (_worklist.Count > 0 && guard++ < 5_000_000)
                     WalkBody(dispatchMembers: dispatchMembers);
-                foreach (TypeInfo owner in _reachedOwners.ToArray().Where(o => seededOwners.Add(item: o)))
+                foreach (TypeInfo owner in _reachedOwners.Where(o => seededOwners.Add(item: o)).ToArray())
                     ForceSeedOwner(type: owner);
                 // Seed each dispatched Crashable member on every REACHED crashable owner. A crashable is reached
                 // only by being thrown, and only a thrown crashable can be in the carrier the dispatch reads — so
@@ -1057,6 +1051,12 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                              && r.Name is "to_width" or "low_mask" or "from_words"))
                 Discover(r: commonR);
         }
+
+        /// <summary>True when <paramref name="t"/> still carries a generic parameter (directly or
+        /// nested in a type argument) — i.e. not yet a fully-concrete monomorphized type.</summary>
+        private static bool ContainsGenericParam(TypeInfo t) =>
+            t is GenericParameterTypeInfo or ProtocolSelfTypeInfo or ComptimeConstGenericTypeInfo
+            || (t.TypeArguments?.Any(predicate: ContainsGenericParam) ?? false);
     }
 
     /// <summary>
@@ -1081,21 +1081,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         switch (routine.Name)
         {
             case "lt" or "le" or "gt" or "ge" or "cmp":
-                // Derived comparisons (and composite cmp) reduce to a cmp whose ComparisonSign
-                // result is tested with ComparisonSign.eq/ne.
-                if (routine.Name != "cmp"
-                    && ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: "cmp") is { } cmp)
-                    yield return cmp;
-                if (ctx.Registry.LookupType(name: "ComparisonSign") is { } cs)
-                {
-                    if (ctx.Registry.LookupMemberRoutine(type: cs, memberRoutineName: "eq") is { } cseq)
-                        yield return cseq;
-                    if (ctx.Registry.LookupMemberRoutine(type: cs, memberRoutineName: "ne") is { } csne)
-                        yield return csne;
-                }
-                if (routine.Name == "cmp")
-                    foreach (RoutineInfo fc in MemberVariableWiredCallees(owner: owner, verb: "cmp"))
-                        yield return fc;
+                foreach (RoutineInfo r in YieldComparisonWiredCallees(owner: owner, routineName: routine.Name))
+                    yield return r;
                 break;
             case "ne":
                 if (ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: "eq") is { } eq)
@@ -1110,6 +1097,27 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                     yield return fc;
                 break;
         }
+    }
+
+    /// <summary>
+    /// Yields the wired callees for comparison routines (lt, le, gt, ge, cmp): the owner's cmp,
+    /// the ComparisonSign eq/ne testers, and for composite cmp the field-wise cmp callees.
+    /// </summary>
+    private IEnumerable<RoutineInfo> YieldComparisonWiredCallees(TypeInfo owner, string routineName)
+    {
+        if (routineName != "cmp"
+            && ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: "cmp") is { } cmp)
+            yield return cmp;
+        if (ctx.Registry.LookupType(name: "ComparisonSign") is { } cs)
+        {
+            if (ctx.Registry.LookupMemberRoutine(type: cs, memberRoutineName: "eq") is { } cseq)
+                yield return cseq;
+            if (ctx.Registry.LookupMemberRoutine(type: cs, memberRoutineName: "ne") is { } csne)
+                yield return csne;
+        }
+        if (routineName == "cmp")
+            foreach (RoutineInfo fc in MemberVariableWiredCallees(owner: owner, verb: "cmp"))
+                yield return fc;
     }
 
     /// <summary>
@@ -1435,7 +1443,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// </summary>
     private bool TryBuildAndStoreVariantBody(RoutineInfo resolvedRoutine, Dictionary<string, TypeInfo> typeSubs)
     {
-        if (resolvedRoutine.GenericDefinition.OriginalName == null
+        if (resolvedRoutine.GenericDefinition?.OriginalName == null
             || resolvedRoutine.GenericDefinition.OwnerType is not { } variantGenDefOwner)
             return false;
 
@@ -2081,20 +2089,26 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
 
         if (type is { IsGenericDefinition: true, GenericParameters: not null, TypeArguments: null })
-        {
-            var typeArgs = type.GenericParameters
-                .Select(gp => subs.TryGetValue(key: gp, value: out TypeInfo? s)
-                    ? s
-                    : ctx.Registry.LookupType(name: gp))
-                .Where(t => t != null)
-                .ToList();
-            if (typeArgs.Count == type.GenericParameters.Count)
-                return ctx.Registry.TryGetResolution(
-                    genericDef: type,
-                    typeArguments: typeArgs!) ?? type;
-        }
+            return TryResolveByGenericDefinition(type: type, subs: subs) ?? type;
 
         return type;
+    }
+
+    /// <summary>
+    /// Instantiates a generic definition by substituting each of its generic parameters from
+    /// <paramref name="subs"/> or the registry, then looking up or creating the concrete instance.
+    /// Returns null when not all parameters could be resolved.
+    /// </summary>
+    private TypeInfo? TryResolveByGenericDefinition(TypeInfo type, Dictionary<string, TypeInfo> subs)
+    {
+        var typeArgs = type.GenericParameters!
+            .Select(gp => subs.TryGetValue(key: gp, value: out TypeInfo? s)
+                ? s
+                : ctx.Registry.LookupType(name: gp))
+            .Where(t => t != null)
+            .ToList();
+        if (typeArgs.Count != type.GenericParameters.Count) return null;
+        return ctx.Registry.TryGetResolution(genericDef: type, typeArguments: typeArgs!);
     }
 
     /// <summary>Resolves a wrapper type by substituting its inner type arguments and looking up the concrete instance.</summary>
@@ -2113,7 +2127,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     /// <summary>Resolves a tuple type by substituting each element type.</summary>
-    private TypeInfo ResolveTupleType(TupleTypeInfo tuple, Dictionary<string, TypeInfo> subs)
+    private TupleTypeInfo ResolveTupleType(TupleTypeInfo tuple, Dictionary<string, TypeInfo> subs)
     {
         var subbedElems = tuple.ElementTypes
             .Select(selector: e => ResolveSubstitutedType(e, subs))
