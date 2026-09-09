@@ -177,6 +177,126 @@ public sealed partial class StdlibApiTests
         string libraryRel)
     {
         // 1) Generate the harness program + manifest from the fixtures.
+        (string harnessSrc, List<(string Stem, string Module, string Leaf)> entries) =
+            GenerateFixtureBundle(fixturesDir: fixturesDir,
+                glob: glob,
+                harnessDir: harnessDir,
+                harnessModule: harnessModule,
+                bundleFileName: bundleFileName,
+                packageName: packageName,
+                libraryRel: libraryRel);
+
+        // 2) Compile + run the ONE program (cwd = repo root so relative resource paths resolve).
+        FixtureRun run = RunHarness(harnessRf: harnessSrc);
+        Assert.True(condition: run is { ExitCode: 0, TimedOut: false },
+            userMessage:
+            $"Harness buildandrun failed (exit={run.ExitCode}, timedOut={run.TimedOut}).\n" +
+            $"--- stdout ---\n{run.Stdout}\n--- stderr ---\n{run.Stderr}");
+
+        // 2b) stderr must be CLEAN. The build's own progress banners go to stdout; anything on stderr is
+        // a diagnostic — a compiler warning/error or a runtime fault. These are silently swallowed if we
+        // only check stdout+exit (that is exactly how a flood of "Synthesized body codegen failed" /
+        // "Unresolved generic memberRoutine 'Core.Dict.create'" warnings hid for so long). Fail on any of them.
+        string[] offending = run.Stderr
+                                .Split(separator: '\n')
+                                .Select(selector: l => l.TrimEnd(trimChar: '\r'))
+                                .Where(predicate: l => StderrDiagnosticRe()
+                                    .IsMatch(input: l))
+                                .ToArray();
+        Assert.True(condition: offending.Length == 0,
+            userMessage:
+            $"Harness stderr was not clean — {offending.Length} diagnostic line(s):\n" +
+            string.Join(separator: "\n", values: offending.Take(count: 40)));
+
+        // 3) Split combined output on the delimiter lines.
+        Dictionary<string, string> sections = SplitHarnessOutput(stdout: run.Stdout);
+
+        // 4) Compare each fixture's section to its snapshot.
+        var mismatches = new List<string>();
+        foreach ((string stem, _, _) in entries)
+        {
+            string expectedPath = Path.Combine(path1: fixturesDir, path2: $"{stem}.expected.txt");
+            if (!File.Exists(path: expectedPath))
+            {
+                continue;
+            }
+
+            string expected = NormalizeForCompare(s: File.ReadAllText(path: expectedPath));
+            string actual = NormalizeForCompare(s: sections.GetValueOrDefault(key: stem,
+                defaultValue: "<no output section emitted>"));
+            if (expected != actual)
+            {
+                mismatches.Add(item: stem);
+            }
+        }
+
+        if (mismatches.Count > 0)
+        {
+            // Surface the first mismatch in full for a quick read.
+            string first = mismatches[index: 0];
+            AssertOutputEqual(fixtureName: first,
+                expected: NormalizeForCompare(s: File.ReadAllText(
+                    path: Path.Combine(path1: fixturesDir, path2: $"{first}.expected.txt"))),
+                actual: NormalizeForCompare(s: sections.GetValueOrDefault(key: first,
+                    defaultValue: "<no output section emitted>")));
+            throw new Xunit.Sdk.XunitException(
+                userMessage:
+                $"{mismatches.Count} harness fixture(s) mismatched: {string.Join(separator: ", ", values: mismatches)}");
+        }
+
+        return entries.Count;
+    }
+
+    /// <summary>
+    /// In-process coverage twin of <see cref="StdlibHarness_AllFixturesOutputMatchExpected"/>. Builds
+    /// the same all-fixtures bundle but drives the compile pipeline IN-PROCESS (tokenize → parse →
+    /// declaration → desugaring → collection → verification → instantiation → codegen; no opt/clang/
+    /// link, and the produced program is NOT executed). The subprocess harness above runs that stack
+    /// in a child process that coverage instrumentation cannot see; this variant runs it inside the
+    /// test process so codegen/desugaring/collection/instantiation are actually measured. Compile-only,
+    /// so it does not diff program output — the subprocess harness owns behavior + stderr-clean checks.
+    /// </summary>
+    [Fact]
+    public void StdlibHarness_InProcessCompileSucceeds()
+    {
+        AssertBundleCompilesInProcess(fixturesDir: FixturesDir,
+            glob: "*.rf",
+            harnessDir: Path.Combine(path1: RepoRoot,
+                path2: "tests",
+                path3: "Fixtures",
+                path4: "StdlibHarnessInProc"),
+            harnessModule: "StdlibHarnessInProc",
+            bundleFileName: "all_stdlib_inproc.rf",
+            packageName: "stdlib-harness-inproc",
+            libraryRel: "../Stdlib");
+    }
+
+    /// <summary>Suflae in-process compile twin — see <see cref="StdlibHarness_InProcessCompileSucceeds"/>.</summary>
+    [Fact]
+    public void SuflaeHarness_InProcessCompileSucceeds()
+    {
+        AssertBundleCompilesInProcess(fixturesDir: SuflaeFixturesDir,
+            glob: "*.sf",
+            harnessDir: Path.Combine(path1: RepoRoot,
+                path2: "tests",
+                path3: "Fixtures",
+                path4: "SuflaeHarnessInProc"),
+            harnessModule: "SuflaeHarnessInProc",
+            bundleFileName: "all_suflae_inproc.sf",
+            packageName: "suflae-harness-inproc",
+            libraryRel: "../StdlibSf");
+    }
+
+    /// <summary>
+    /// Generates the all-fixtures bundle program (<c>module</c> + prefix/per-module imports + a
+    /// <c>start()</c> that calls each fixture's <c>start()</c>) and its sibling <c>config.toml</c>,
+    /// returning the bundle path and the discovered fixture entries. Shared by the subprocess and
+    /// in-process harnesses so both compile byte-identical bundles.
+    /// </summary>
+    private static (string HarnessSrc, List<(string Stem, string Module, string Leaf)> Entries)
+        GenerateFixtureBundle(string fixturesDir, string glob, string harnessDir,
+            string harnessModule, string bundleFileName, string packageName, string libraryRel)
+    {
         var entries = new List<(string Stem, string Module, string Leaf)>();
         var leaves = new Dictionary<string, string>(comparer: StringComparer.Ordinal);
         foreach (string src in Directory.EnumerateFiles(path: fixturesDir, searchPattern: glob)
@@ -247,65 +367,38 @@ public sealed partial class StdlibApiTests
         File.WriteAllText(path: Path.Combine(path1: harnessDir, path2: "config.toml"),
             contents: manifest);
 
-        // 2) Compile + run the ONE program (cwd = repo root so relative resource paths resolve).
-        FixtureRun run = RunHarness(harnessRf: harnessSrc);
-        Assert.True(condition: run is { ExitCode: 0, TimedOut: false },
+        return (harnessSrc, entries);
+    }
+
+    /// <summary>
+    /// Generates the fixture bundle and compiles it IN-PROCESS to LLVM IR (no execution), asserting a
+    /// clean compile (exit 0) that produced IR. Return-value based — no console capture — so it is
+    /// immune to test-parallelism; behavior/stderr checks stay with the subprocess harness.
+    /// </summary>
+    private static void AssertBundleCompilesInProcess(string fixturesDir, string glob,
+        string harnessDir, string harnessModule, string bundleFileName, string packageName,
+        string libraryRel)
+    {
+        (string harnessSrc, List<(string Stem, string Module, string Leaf)> entries) =
+            GenerateFixtureBundle(fixturesDir: fixturesDir,
+                glob: glob,
+                harnessDir: harnessDir,
+                harnessModule: harnessModule,
+                bundleFileName: bundleFileName,
+                packageName: packageName,
+                libraryRel: libraryRel);
+
+        Assert.True(condition: entries.Count > 0,
+            userMessage: "No fixtures were discovered — the in-process harness compiled nothing.");
+
+        int rc = Builder.Program.CompileEntryToIrForTests(entryFile: harnessSrc, ir: out string ir);
+
+        Assert.True(condition: rc == 0,
             userMessage:
-            $"Harness buildandrun failed (exit={run.ExitCode}, timedOut={run.TimedOut}).\n" +
-            $"--- stdout ---\n{run.Stdout}\n--- stderr ---\n{run.Stderr}");
-
-        // 2b) stderr must be CLEAN. The build's own progress banners go to stdout; anything on stderr is
-        // a diagnostic — a compiler warning/error or a runtime fault. These are silently swallowed if we
-        // only check stdout+exit (that is exactly how a flood of "Synthesized body codegen failed" /
-        // "Unresolved generic memberRoutine 'Core.Dict.create'" warnings hid for so long). Fail on any of them.
-        string[] offending = run.Stderr
-                                .Split(separator: '\n')
-                                .Select(selector: l => l.TrimEnd(trimChar: '\r'))
-                                .Where(predicate: l => StderrDiagnosticRe()
-                                    .IsMatch(input: l))
-                                .ToArray();
-        Assert.True(condition: offending.Length == 0,
-            userMessage:
-            $"Harness stderr was not clean — {offending.Length} diagnostic line(s):\n" +
-            string.Join(separator: "\n", values: offending.Take(count: 40)));
-
-        // 3) Split combined output on the delimiter lines.
-        Dictionary<string, string> sections = SplitHarnessOutput(stdout: run.Stdout);
-
-        // 4) Compare each fixture's section to its snapshot.
-        var mismatches = new List<string>();
-        foreach ((string stem, _, _) in entries)
-        {
-            string expectedPath = Path.Combine(path1: fixturesDir, path2: $"{stem}.expected.txt");
-            if (!File.Exists(path: expectedPath))
-            {
-                continue;
-            }
-
-            string expected = NormalizeForCompare(s: File.ReadAllText(path: expectedPath));
-            string actual = NormalizeForCompare(s: sections.GetValueOrDefault(key: stem,
-                defaultValue: "<no output section emitted>"));
-            if (expected != actual)
-            {
-                mismatches.Add(item: stem);
-            }
-        }
-
-        if (mismatches.Count > 0)
-        {
-            // Surface the first mismatch in full for a quick read.
-            string first = mismatches[index: 0];
-            AssertOutputEqual(fixtureName: first,
-                expected: NormalizeForCompare(s: File.ReadAllText(
-                    path: Path.Combine(path1: fixturesDir, path2: $"{first}.expected.txt"))),
-                actual: NormalizeForCompare(s: sections.GetValueOrDefault(key: first,
-                    defaultValue: "<no output section emitted>")));
-            throw new Xunit.Sdk.XunitException(
-                userMessage:
-                $"{mismatches.Count} harness fixture(s) mismatched: {string.Join(separator: ", ", values: mismatches)}");
-        }
-
-        return entries.Count;
+            $"In-process compile of {bundleFileName} failed (exit={rc}). " +
+            "See the compiler diagnostics printed above.");
+        Assert.False(condition: string.IsNullOrWhiteSpace(value: ir),
+            userMessage: $"In-process compile of {bundleFileName} produced no IR.");
     }
 
     /// <summary>Reads the declared <c>module</c> path of a fixture (utf-8-sig for BOM), or null.</summary>

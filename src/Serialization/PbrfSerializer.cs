@@ -189,6 +189,10 @@ public static class PbrfSerializer
 
     /// <summary>Instance fields of <paramref name="type"/> (all levels, public+nonpublic), deterministically
     /// ordered. Static fields are excluded — so the entity <c>[ThreadStatic]</c> maps never serialize.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(category: "csharpsquid", checkId: "S3011",
+        Justification =
+            "The serializer intentionally reflects over its own private instance fields to persist " +
+            "internal compiler types; the reflected types are internal and never attacker-supplied.")]
     internal static FieldInfo[] FieldsOf(Type type)
     {
         if (_fieldCache.TryGetValue(key: type, value: out FieldInfo[]? cached))

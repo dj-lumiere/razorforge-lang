@@ -16,6 +16,7 @@ internal static class NativeToolchain
     // sentinel meaning "tool was not found in a bundled/explicit LLVM_HOME location".
     private const string ClangToolName = "clang";
     private const string OptToolName = "opt";
+    private const string CMakeToolName = "cmake";
 
     /// <summary>
     /// Native DLLs a compiled program needs next to its .exe on Windows: the runtime
@@ -128,17 +129,20 @@ internal static class NativeToolchain
     {
         string buildArgs = $"--build \"{nativeBuildDir}\"";
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = "cmake",
-            Arguments = buildArgs,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
         try
         {
+            // Resolve cmake to an absolute path (rather than letting Process.Start search PATH at
+            // launch) so the tool directory is fixed and a cmake planted earlier on PATH can't be
+            // picked up. A missing tool throws and is reported by the catch below.
+            var psi = new ProcessStartInfo
+            {
+                FileName = CMakeTool.Value,
+                Arguments = buildArgs,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
             using var process = Process.Start(startInfo: psi);
             if (process == null)
             {
@@ -310,6 +314,46 @@ internal static class NativeToolchain
 
     private static readonly Lazy<string> OptTool =
         new(valueFactory: () => ResolveToolchainTool(name: OptToolName));
+
+    /// <summary>
+    /// Resolves a bare executable name to an absolute path by scanning the directories listed in
+    /// the PATH environment variable (appending the executable extension on Windows) and returning
+    /// the first existing match. Launching by the resolved absolute path — rather than handing a
+    /// bare name to <see cref="Process.Start(ProcessStartInfo)"/> and letting the OS search PATH —
+    /// fixes the tool directory so an executable planted earlier on PATH cannot be run instead.
+    /// Throws when the tool is not found on PATH.
+    /// </summary>
+    private static string ResolveOnPath(string name)
+    {
+        string exeName = OperatingSystem.IsWindows()
+            ? name + ".exe"
+            : name;
+
+        string? pathVar = Environment.GetEnvironmentVariable(variable: "PATH");
+        if (!string.IsNullOrEmpty(value: pathVar))
+        {
+            foreach (string dir in pathVar.Split(separator: Path.PathSeparator))
+            {
+                if (string.IsNullOrWhiteSpace(value: dir))
+                {
+                    continue;
+                }
+
+                string candidate = Path.Combine(path1: dir.Trim(), path2: exeName);
+                if (File.Exists(path: candidate))
+                {
+                    return Path.GetFullPath(path: candidate);
+                }
+            }
+        }
+
+        throw new InvalidOperationException(
+            message:
+            $"Required build tool '{name}' was not found in any PATH directory.");
+    }
+
+    private static readonly Lazy<string> CMakeTool =
+        new(valueFactory: () => ResolveOnPath(name: CMakeToolName));
 
     private static void ConfigureToolchainEnvironment(ProcessStartInfo psi, string toolPath)
     {

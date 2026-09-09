@@ -2364,6 +2364,29 @@ internal partial class Program
         return rc;
     }
 
+    /// <summary>
+    /// Test-only in-process compile-to-IR entry. Resolves <paramref name="entryFile"/>'s manifest
+    /// exactly as the <c>codegen</c> verb does, then runs the FULL front pipeline (tokenize → parse →
+    /// declaration → desugaring → collection → verification → instantiation → codegen) WITHOUT
+    /// opt/clang/link and WITHOUT executing the produced program, returning the build exit code
+    /// (0 = success) and the emitted IR. This lets the test suite exercise the codegen/desugaring/
+    /// collection/instantiation stack IN-PROCESS — a subprocess <c>buildandrun</c> runs that stack in
+    /// a child process, invisible to coverage instrumentation. Diagnostics are printed to the console
+    /// by <see cref="BuildMultiFile"/> as usual; the caller may redirect the console to capture them.
+    /// </summary>
+    internal static int CompileEntryToIrForTests(string entryFile, out string ir)
+    {
+        ResolvedEntry resolved =
+            ResolveEntryFile(args: ["codegen", entryFile], needsOutputArg: false);
+        if (resolved.EntryFile == null)
+        {
+            ir = "";
+            return 1;
+        }
+
+        return BuildToIr(entryFile: resolved.EntryFile, ir: out ir, config: resolved);
+    }
+
     private static int BuildExecutable(string entryFile, out string exeFile, ResolvedEntry config,
         Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null)
     {

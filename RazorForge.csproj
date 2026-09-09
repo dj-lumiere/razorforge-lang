@@ -27,6 +27,12 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!-- Expose internal entry points (e.g. Program.CompileEntryToIrForTests) to the test project so
+       the coverage harness can drive the compile pipeline IN-PROCESS rather than via a subprocess. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="RazorForge.Tests" />
+  </ItemGroup>
+
   <!-- Build native libraries before main build -->
   <Target Name="BuildNativeLibraries" BeforeTargets="BeforeBuild" Condition="'$(SkipNative)' != 'true'">
     <Exec Command="$(MSBuildProjectDirectory)\native\build.bat" WorkingDirectory="$(MSBuildProjectDirectory)\native" Condition="'$(OS)' == 'Windows_NT'"/>
