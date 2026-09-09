@@ -137,13 +137,28 @@ routine Roamed[T].watch() -> Watching[T]
     return Watching[T](ctrl: me.controller_address())
 
 ### Reports this handle's controller to the collector as a traced child. The compiler-synthesized
-### `roam_trace_impl` calls this for each `Roamed` field of an entity, so the collector sees the
+### `roam_trace` calls this for each `Roamed` field of an entity, so the collector sees the
 ### object graph's strong edges. A none handle owns no edge and is skipped. Runs inside the (dangerous)
 ### synthesized trace, so no `danger` here.
 @override
 dangerous routine Roamed[T].cyclic_visit()
   if me.controller_address() != 0_addr
     C::rf_cyclic_visit_child(child_ctrl: me.controller_address())
+  return
+
+### Cycle-collector TRACE hook: a `Roamed` handle IS a strong edge, so report its controller to the
+### collector rather than walking it as a struct. Overrides the universal member-walk default
+### (`T.roam_trace` in DeriveText.rf) — a bare walk over a handle's internal pointer would be wrong.
+@override
+dangerous routine Roamed[T].roam_trace()
+  me.cyclic_visit()
+  return
+
+### Cycle-collector FREE hook: a NO-OP. The collector frees the whole white cycle directly, so a handle
+### must NOT tear down its pointee here — doing so would double-free a sibling reaped in the same batch.
+### Overrides the universal `T.roam_free` default (which forwards to `destroy`).
+@override
+dangerous routine Roamed[T].roam_free()
   return
 
 ### The address of the underlying {RoamController[T]} — the collector's currency and a Stage-1 test

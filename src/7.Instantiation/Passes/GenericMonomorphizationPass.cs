@@ -706,8 +706,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         SeedEntitySelfFreeTail(worklist: worklist, totalBuilt: ref totalBuilt);
 
         // SEED the per-type LIFECYCLE HOOKS on EVERY REGISTERED instance. Codegen synthesizes a body per
-        // type for each of these hooks — the teardown `destroy`/`roam_free_impl` (field-walk `me.f.destroy()`
-        // + entity self-free) and the cycle-tracer `roam_trace_impl` (field-walk `me.f.cyclic_visit()` /
+        // type for each of these hooks — the teardown `destroy`/`roam_free` (field-walk `me.f.destroy()`
+        // + entity self-free) and the cycle-tracer `roam_trace` (field-walk `me.f.cyclic_visit()` /
         // `Hijacked[f].cyclic_trace_buffer()`). Their calls are codegen-injected, so the call-driven walk
         // can't discover them; but the HOOKS themselves are registered per-type routines. Build the hooks on
         // every registered concrete + wrapper instance — bounded by the finite registry (NO
@@ -764,12 +764,12 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     /// <summary>
-    /// Seeds the isolation worklist with lifecycle hooks (destroy/roam_free_impl/roam_trace_impl) on
+    /// Seeds the isolation worklist with lifecycle hooks (destroy/roam_free/roam_trace) on
     /// every registered concrete and wrapper instance that has no unfolded comptime type argument.
     /// </summary>
     private void SeedLifecycleHooks(Queue<MonomorphizedBody> worklist, ref int totalBuilt)
     {
-        string[] lifecycleHooks = ["destroy", "roam_free_impl", "roam_trace_impl"];
+        string[] lifecycleHooks = ["destroy", "roam_free", "roam_trace"];
         foreach (TypeInfo t in ctx.Registry
                                   .AllConcreteGenericInstancesUnfiltered
                                   .Concat(second: ctx.Registry
@@ -1328,7 +1328,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 memberRoutineName: RuntimeContract.RawPointer.Invalidate));
         }
 
-        // (3b) Per-type LIFECYCLE HOOKS (destroy / roam_free_impl / roam_trace_impl). Codegen synthesizes
+        // (3b) Per-type LIFECYCLE HOOKS (destroy / roam_free / roam_trace). Codegen synthesizes
         // teardown + cycle-trace calls per reached type with NO source AST call (scope-exit destroy of a
         // temporary, a wrapper/routine-value's destroy). Base mode seeds these over ALL registered instances
         // (MaterializeEntitySelfFreeInIsolation); mirror that DEMAND-scoped on each reached concrete owner.
@@ -1344,8 +1344,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             foreach (string hook in new[]
                      {
                          "destroy",
-                         "roam_free_impl",
-                         "roam_trace_impl"
+                         "roam_free",
+                         "roam_trace"
                      })
             {
                 if (_ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: hook) is

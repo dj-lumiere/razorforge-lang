@@ -14,7 +14,7 @@ namespace Compiler.Instantiation.Passes;
 ///
 /// <para>The call <c>data.as_entity().roam_trace_ref()</c> is replaced by an
 /// <see cref="IdentifierExpression"/> whose <see cref="IdentifierExpression.ResolvedRoutine"/> is the
-/// concrete <c>roam_trace_impl</c> / <c>roam_free_impl</c> on the concrete entity. Codegen then takes
+/// concrete <c>roam_trace</c> / <c>roam_free</c> on the concrete entity. Codegen then takes
 /// the routine as a value through its existing pre-resolved-routine path
 /// (<c>EmitRoutineValueClosure</c>) with NO <c>LookupMemberRoutine</c> of its own — the pass, not codegen,
 /// picks the routine.</para>
@@ -27,8 +27,8 @@ internal sealed class RoamHookRefLoweringPass
 {
     private const string TraceRef = "roam_trace_ref";
     private const string FreeRef = "roam_free_ref";
-    private const string TraceImpl = "roam_trace_impl";
-    private const string FreeImpl = "roam_free_impl";
+    private const string TraceImpl = "roam_trace";
+    private const string FreeImpl = "roam_free";
 
     private readonly TypeRegistry _registry;
 

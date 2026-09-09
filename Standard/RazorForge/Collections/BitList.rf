@@ -655,3 +655,13 @@ dangerous routine BitList.destroy()
   me.data.invalidate()
   me.hijack().invalidate()
   return
+
+### Cycle-collector FREE: free the packed word buffer and this list's own box. The elements are bits, so
+### there is nothing the collector needs to reap — the override exists only to free the heap buffer (the
+### universal member-walk would leave it, as a raw `Hijacked` frees nothing). No `roam_trace` override is
+### needed: bits can never be `Roamed`, so the universal no-op trace is already correct.
+@override
+dangerous routine BitList.roam_free()
+  me.data.invalidate()
+  me.hijack().invalidate()
+  return

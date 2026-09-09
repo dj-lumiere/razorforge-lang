@@ -148,6 +148,28 @@ dangerous routine Dict[K, V].destroy()
   me.hijack().invalidate()
   return
 
+### Cycle-collector TRACE: report every live key and value to the collector. The entries buffers are
+### SPARSE (open-addressing with tombstones), so `cyclic_trace_sparse_buffer` scans slots `0..used`,
+### skipping dead entries via the `entry_live` bitmap. A `Roamed` key/value reports its controller; a
+### value key/value is a no-op. Overrides the universal member-walk (raw buffers cannot self-trace).
+@override
+dangerous routine Dict[K, V].roam_trace()
+  me.keys.cyclic_trace_sparse_buffer(live: me.entry_live, used: me.entries_used)
+  me.vals.cyclic_trace_sparse_buffer(live: me.entry_live, used: me.entries_used)
+  return
+
+### Cycle-collector FREE: free every owned buffer and this dict's own box, but NOT the keys/values (the
+### collector frees the whole white cycle directly).
+@override
+dangerous routine Dict[K, V].roam_free()
+  me.ctrl.invalidate()
+  me.indices.invalidate()
+  me.keys.invalidate()
+  me.vals.invalidate()
+  me.entry_live.invalidate()
+  me.hijack().invalidate()
+  return
+
 # ============================================================================
 # Internal Helpers
 # ============================================================================

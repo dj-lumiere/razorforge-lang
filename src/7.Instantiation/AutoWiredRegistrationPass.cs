@@ -193,16 +193,19 @@ internal sealed class AutoWiredRegistrationPass
                 existingMemberRoutines: existingMemberRoutines);
         }
 
-        // Cycle-collector per-type hooks for non-wrapper entities.
-        if (bundle.NoneType != null && type.Category == TypeCategory.Entity &&
-            !IsWrapperType(type: type))
+        // Cycle-collector per-type hooks on EVERY non-wrapper type (like destroy). The universal
+        // `roam_trace`/`roam_free` derives (DeriveText.rf) walk each member, so a member of ANY kind —
+        // scalar, record, entity, variant — must carry the hook for the walk to resolve. A wrapper
+        // (Roamed/Hijacked) hand-writes its own override in its .rf file. A container with a raw
+        // `Hijacked` element buffer hand-writes `roam_trace`/`roam_free` (skipped here — already present).
+        if (bundle.NoneType != null && !IsWrapperType(type: type))
         {
             MaybeRegisterRoamHook(owner: type,
-                name: "roam_trace_impl",
+                name: "roam_trace",
                 noneType: bundle.NoneType,
                 existingMemberRoutines: existingMemberRoutines);
             MaybeRegisterRoamHook(owner: type,
-                name: "roam_free_impl",
+                name: "roam_free",
                 noneType: bundle.NoneType,
                 existingMemberRoutines: existingMemberRoutines);
         }
@@ -887,7 +890,7 @@ internal sealed class AutoWiredRegistrationPass
     }
 
     /// <summary>
-    /// Registers a cycle-collector hook memberRoutine (<c>roam_trace_impl</c> / <c>roam_free_impl</c>) if
+    /// Registers a cycle-collector hook memberRoutine (<c>roam_trace</c> / <c>roam_free</c>) if
     /// not already user-defined. Marked <c>dangerous</c> (raw controller/pointer work). No params,
     /// void return; the body is synthesized by <see cref="WiredRoutinePass"/>.
     /// </summary>

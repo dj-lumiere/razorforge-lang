@@ -99,6 +99,24 @@ dangerous routine Array[T, N].destroy()
     i = i + 1u64
   return
 
+### Cycle-collector TRACE: report every inline slot to the collector (a `Roamed` element reports its
+### controller; a value element is a no-op). Overrides the universal member-walk — `Array` is `@llvm`
+### storage with no named members, so the generic walk sees nothing.
+@override
+dangerous routine Array[T, N].roam_trace()
+  var i = 0u64
+  while i < N
+    LLVM::load_element_ref[Array[T, N], T](me.hijack(), i).cyclic_visit()
+    i = i + 1u64
+  return
+
+### Cycle-collector FREE: a NO-OP. `Array` is a value record with no allocation of its own, and its
+### elements are freed by the collector as part of the white cycle — the default `roam_free` forwards to
+### `destroy`, which WOULD tear down every element (a double-free here), so it must be overridden.
+@override
+dangerous routine Array[T, N].roam_free()
+  return
+
 ### Returns a copy with each element STORED (refcount-bumped for managed element types like `Text`; a
 ### plain bitwise duplicate for trivially-copyable elements). Element-wise so the per-element `destroy`
 ### at scope teardown stays balanced — a whole-array bitwise copy would alias element handles at

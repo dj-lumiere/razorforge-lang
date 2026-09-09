@@ -145,6 +145,27 @@ dangerous routine SplitList[T].destroy()
   me.hijack().invalidate()
   return
 
+### Cycle-collector TRACE: report every live field value to the collector, one column at a time. A
+### column whose field type is `Roamed` reports each handle; a value column is a no-op. Overrides the
+### universal member-walk (raw column buffers cannot self-trace — the list supplies the `count`).
+@override
+dangerous routine SplitList[T].roam_trace()
+  expand m in allmemvarof(T)
+    if not me.$nameof(m).is_none()
+      me.$nameof(m).cyclic_trace_buffer(count: me.count)
+  return
+
+### Cycle-collector FREE: free every column buffer and this list's own box, but NOT the stored field
+### values (the collector frees the whole white cycle directly). Same shape as `destroy`, which already
+### frees only the columns.
+@override
+dangerous routine SplitList[T].roam_free()
+  expand m in allmemvarof(T)
+    if not me.$nameof(m).is_none()
+      me.$nameof(m).invalidate()
+  me.hijack().invalidate()
+  return
+
 # Iteration
 
 ### Returns a forward iterator over the elements, reconstructing each `T` from the columns in order.

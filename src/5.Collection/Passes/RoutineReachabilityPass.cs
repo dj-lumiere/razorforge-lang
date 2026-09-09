@@ -2146,7 +2146,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     /// <summary>
     /// A call to the cycle-collector hook intrinsic <c>&lt;entity&gt;.roam_trace_ref()</c> /
     /// <c>.roam_free_ref()</c> is lowered at codegen to a closure over the receiver entity's
-    /// synthesized <c>roam_trace_impl</c> / <c>roam_free_impl</c> (see the intercept in
+    /// synthesized <c>roam_trace</c> / <c>roam_free</c> (see the intercept in
     /// <c>EmitMemberRoutineCall</c>). That reference is invisible to normal reachability walking, so
     /// mark the target impl live here, or its body is never emitted and the thunk links against an
     /// undefined symbol.
@@ -2177,12 +2177,12 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         }
 
         string implName = callee.Name == "roam_trace_ref"
-            ? "roam_trace_impl"
-            : "roam_free_impl";
+            ? "roam_trace"
+            : "roam_free";
         // Resolve through LookupMemberRoutine (not GetOwnMemberRoutinesResolved): for a generic entity resolution
         // like List[Roamed[Node]] the resolution's own table holds only already-reachable memberRoutines, so
         // GetOwnMemberRoutinesResolved short-circuits on it and never surfaces the generic-def-registered
-        // roam_trace_impl — the impl would never be enqueued, leaving the container's trace_hook wired
+        // roam_trace — the impl would never be enqueued, leaving the container's trace_hook wired
         // to cptr_none() and its held cycle uncollectable. LookupMemberRoutine substitutes from the generic
         // def; EnqueueCallee then monomorphizes the body into the resolution's table.
         RoutineInfo? impl =

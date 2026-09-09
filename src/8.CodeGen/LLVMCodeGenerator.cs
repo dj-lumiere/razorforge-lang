@@ -902,6 +902,19 @@ public partial class LlvmCodeGenerator
                 continue;
             }
 
+            // A pseudo-instance whose const-generic arg is a still-symbolic comptime splice
+            // (`Array[U8, ${comptime}]` — an SoA/emittable column carrying the owner's own `N`): its `N`
+            // never folds, so emitting the SYNTHESIZED body (which bypasses ShouldSkipRoutineDefinition)
+            // errors "Unknown identifier N". `IsGenericDefinition` misses it (it has concrete-looking type
+            // args), so also skip an owner carrying an unfolded comptime type arg. The real FOLDED instance
+            // (`Array[U8, 63]`) still emits under its own key. Mirrors the seed guard in
+            // GenericMonomorphizationPass.SeedLifecycleHooks.
+            if (body.Info.OwnerType?.TypeArguments?.Any(
+                    predicate: a => a is ComptimeConstGenericTypeInfo) == true)
+            {
+                continue;
+            }
+
             if (body.IsSynthesized)
             {
                 if (body.Ast.Body is BlockStatement { Statements.Count: 0 })

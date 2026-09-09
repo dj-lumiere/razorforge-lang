@@ -777,13 +777,13 @@ public partial class LlvmCodeGenerator
 
     /// <summary>
     /// Materializes a value for an identifier whose routine was pre-resolved by a lowering pass.
-    /// Cycle-collector roam hooks (`roam_trace_impl` / `roam_free_impl`) emit a bare captureless
+    /// Cycle-collector roam hooks (`roam_trace` / `roam_free`) emit a bare captureless
     /// `@sym` (they are invoked natively through a CPtr slot, not as a fat Routine value); every
     /// other routine value flows through the closure-materialization path (lambda vs plain routine).
     /// </summary>
     private string EmitPreResolvedRoutineValue(StringBuilder sb, RoutineInfo preResolved)
     {
-        if (preResolved.Name is "roam_trace_impl" or "roam_free_impl")
+        if (preResolved.Name is "roam_trace" or "roam_free")
         {
             return $"@{MangleRoutineName(routine: preResolved)}";
         }

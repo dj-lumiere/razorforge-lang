@@ -353,6 +353,67 @@ needs T is VariantType
         return
     else => return
 
+### The auto-derived cycle-collector TRACE hook `roam_trace()`: reports this value's strong
+### (`Roamed`) edges to the collector. The universal default walks every member, delegating to each
+### member's own `roam_trace` — a `Roamed` field reports its controller (override in Roamed.rf),
+### a plain value member is a no-op (empty walk / no edge), a bare owned sub-entity recurses so nested
+### aggregates (e.g. an SF container overlay's `inner: List[T]`) are descended. Container entities with
+### raw `Hijacked` element buffers OVERRIDE this to call `cyclic_trace_buffer` — a raw pointer cannot
+### self-describe its length, so the container (which knows its `count`) supplies it.
+@overridable
+dangerous routine T.roam_trace()
+needs AnyType T
+  expand m in allmemvarof(T)
+    me.$nameof(m).roam_trace()
+  return
+
+### Variant `roam_trace()`: descend ONLY into the live arm's payload (a variant is a union). The
+### `None` / void arms own no edge.
+@override
+dangerous routine T.roam_trace()
+needs VariantType T
+  when me
+    is None => return
+    expand m in branchof(T)
+      is $typeof(m) v =>
+        v.roam_trace()
+        return
+    else => return
+
+### The auto-derived cycle-collector FREE hook `roam_free()`: tears down this value's OWNED
+### resources but NOT its `Roamed` edges — the collector frees the whole white cycle directly, so
+### following a `Roamed` edge here would double-free a sibling reaped in the same batch. The universal
+### default is a plain `destroy` (a value / plain record owns no `Roamed` edge, so full teardown is
+### safe); `Roamed[T]` overrides to a no-op (Roamed.rf).
+@overridable
+dangerous routine T.roam_free()
+needs AnyType T
+  me.destroy()
+  return
+
+### Entity `roam_free()`: walk each member's `roam_free` (so a `Roamed` member is SKIPPED via
+### its no-op override, while an owned member is torn down) then free this entity's own heap box.
+@override
+dangerous routine T.roam_free()
+needs EntityType T
+  expand m in allmemvarof(T)
+    me.$nameof(m).roam_free()
+  danger
+    me.hijack().invalidate()
+  return
+
+### Variant `roam_free()`: tear down ONLY the live arm's payload, skipping its `Roamed` edges.
+@override
+dangerous routine T.roam_free()
+needs VariantType T
+  when me
+    is None => return
+    expand m in branchof(T)
+      is $typeof(m) v =>
+        v.roam_free()
+        return
+    else => return
+
 ### The auto-derived `assign()` (Assignable — the shallow store / alias-safe verb): a shallow `var result
 ### = me` (the compiler does NOT re-enter `store` on this self-copy — no recursion), then re-store each
 ### member IN PLACE so a retaining field (a managed leaf like Text/Decimal, or a record owning one) gets

@@ -176,6 +176,21 @@ dangerous routine Hijacked[T].invalidate()
   C::rf_invalidate(me.address())
   return
 
+### Cycle-collector TRACE hook for a raw pointer: a NO-OP. A `Hijacked` buffer cannot self-describe its
+### length, so it cannot walk its own elements — the OWNING container overrides `roam_trace` and calls
+### `cyclic_trace_buffer(count:)` (it knows the live count). A pointer that merely ALIASES another
+### container's buffer (an `Emittable` iterator snapshot) correctly traces nothing here.
+@override
+dangerous routine Hijacked[T].roam_trace()
+  return
+
+### Cycle-collector FREE hook for a raw pointer: a NO-OP. A pointer does not know whether it OWNS its
+### target (a container's element buffer) or merely ALIASES it (an `Emittable` view), so freeing here is
+### unsafe. An owning container overrides `roam_free` and calls `invalidate()` on the buffers it owns.
+@override
+dangerous routine Hijacked[T].roam_free()
+  return
+
 ### Zeroes out the pointed-to memory without deallocating it.
 dangerous routine Hijacked[T].detonate()
   rf_set_bytes_at(dest: me.address(), value: 0_u8, size: T.data_size())

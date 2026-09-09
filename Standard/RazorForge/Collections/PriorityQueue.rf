@@ -483,3 +483,21 @@ dangerous routine PriorityQueue[TPriority, TElement].destroy()
   me.elements.invalidate()
   me.hijack().invalidate()
   return
+
+### Cycle-collector TRACE: report every live priority and element to the collector via the two dense
+### backing buffers (`0..count`). A `Roamed` priority/element reports its controller; a value one is a
+### no-op. Overrides the universal member-walk (raw buffers cannot self-trace).
+@override
+dangerous routine PriorityQueue[TPriority, TElement].roam_trace()
+  me.priorities.cyclic_trace_buffer(count: me.count)
+  me.elements.cyclic_trace_buffer(count: me.count)
+  return
+
+### Cycle-collector FREE: free both backing buffers and this queue's own box, but NOT the stored
+### priorities/elements (the collector frees the whole white cycle directly).
+@override
+dangerous routine PriorityQueue[TPriority, TElement].roam_free()
+  me.priorities.invalidate()
+  me.elements.invalidate()
+  me.hijack().invalidate()
+  return

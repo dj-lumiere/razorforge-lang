@@ -811,3 +811,21 @@ dangerous routine List[T].destroy()
   me.data.invalidate()
   me.hijack().invalidate()
   return
+
+### Cycle-collector TRACE: report every live element to the collector (a `Roamed` element reports its
+### controller, a value element is a no-op) via the backing buffer. Overrides the universal member-walk —
+### a raw `Hijacked` buffer cannot self-trace (it does not know its own length), so the list supplies it.
+@override
+dangerous routine List[T].roam_trace()
+  me.data.cyclic_trace_buffer(count: me.count)
+  return
+
+### Cycle-collector FREE: free the backing buffer and this list's own box, but do NOT tear down the
+### elements — the collector frees the whole white cycle directly, so destroying a `Roamed` element here
+### would double-free a sibling reaped in the same batch. (Contrast `destroy`, which DOES destroy each
+### element for a normal, non-cycle teardown.)
+@override
+dangerous routine List[T].roam_free()
+  me.data.invalidate()
+  me.hijack().invalidate()
+  return

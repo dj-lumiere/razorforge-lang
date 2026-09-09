@@ -170,7 +170,7 @@ routine cyclic_collect_garbage(addr: Address)
         i = i + 1_u64
   return
 
-### Reaps a controller: runs the entity-based free hook (`roam_free_impl`: tears down the entity's
+### Reaps a controller: runs the entity-based free hook (`roam_free`: tears down the entity's
 ### non-`Roamed` fields + frees its allocation) over the managed entity, then frees the controller
 ### itself (type-independent — the controller layout does not depend on `T`).
 ### :param addr: The controller address.

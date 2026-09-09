@@ -144,6 +144,34 @@ dangerous routine BTreeListNode[T].destroy()
   me.hijack().invalidate()
   return
 
+### Cycle-collector TRACE: recurse into every child node, then report each stored key to the collector
+### (a `Roamed` key reports its controller; a value key is a no-op). Overrides the universal member-walk
+### (the keys live in a fixed inline array the generic walk cannot iterate).
+@override
+dangerous routine BTreeListNode[T].roam_trace()
+  if not me.is_leaf
+    var ci = 0u64
+    while ci < me.child_count
+      me.children_get(ci).as_entity().roam_trace()
+      ci = ci + 1u64
+  var ki = 0u64
+  while ki < me.key_count
+    me.keys_get(ki).cyclic_visit()
+    ki = ki + 1u64
+  return
+
+### Cycle-collector FREE: recurse into every child node freeing the subtree, then free this node's own
+### box — but NOT the stored keys (the collector frees the whole white cycle directly).
+@override
+dangerous routine BTreeListNode[T].roam_free()
+  if not me.is_leaf
+    var ci = 0u64
+    while ci < me.child_count
+      me.children_get(ci).as_entity().roam_free()
+      ci = ci + 1u64
+  me.hijack().invalidate()
+  return
+
 ### Inserts `value` at position `i` in the keys buffer, shifting later keys right by one.
 ### :param i: Zero-based insertion index.
 ### :param value: The key to insert.
@@ -319,6 +347,25 @@ dangerous routine SortedList[T].destroy()
     me.hijack().invalidate()
     return
   me.root!!.as_entity().destroy()
+  me.hijack().invalidate()
+  return
+
+### Cycle-collector TRACE: delegate to the root node's recursive trace (reports every key in the tree).
+@override
+dangerous routine SortedList[T].roam_trace()
+  if me.root is None
+    return
+  me.root!!.as_entity().roam_trace()
+  return
+
+### Cycle-collector FREE: free the whole B-tree (every node) via the root's recursive free, then free
+### this list's own box — but NOT the stored keys (the collector frees the whole white cycle directly).
+@override
+dangerous routine SortedList[T].roam_free()
+  if me.root is None
+    me.hijack().invalidate()
+    return
+  me.root!!.as_entity().roam_free()
   me.hijack().invalidate()
   return
 

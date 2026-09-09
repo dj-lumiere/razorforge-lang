@@ -12,7 +12,7 @@ choice RoamState
   ### Buffered as a possible cycle root.
   SUSPECTED: 3
 
-### Compiler intrinsic: yields a closure over this type's synthesized `roam_trace_impl` cycle-collector
+### Compiler intrinsic: yields a closure over this type's synthesized `roam_trace` cycle-collector
 ### hook (visits the entity's `Roamed` fields). ExpressionLoweringPass rewrites every call to a
 ### routine-value reference to that hook; the `cptr_none()` body is a never-used fallback (NOT `@innate`
 ### — an unrecognized `@innate` T-method is folded to a default before the rewrite runs).
@@ -20,7 +20,7 @@ choice RoamState
 routine T.roam_trace_ref() -> CPtr
   return cptr_none()
 
-### Compiler intrinsic: yields a closure over this type's synthesized `roam_free_impl` hook (tears down
+### Compiler intrinsic: yields a closure over this type's synthesized `roam_free` hook (tears down
 ### non-`Roamed` fields + frees the entity). Rewritten by ExpressionLoweringPass; `cptr_none()` fallback.
 routine T.roam_free_ref() -> CPtr
   return cptr_none()
@@ -185,7 +185,7 @@ dangerous routine RoamController[T].mark_cycle_candidate()
 # ============================================================================
 
 ### The address of the managed entity — the collector passes this to the entity-based trace/free
-### hooks (`roam_trace_impl` / `roam_free_impl`, whose `me` is the entity). :returns: the entity address.
+### hooks (`roam_trace` / `roam_free`, whose `me` is the entity). :returns: the entity address.
 routine RoamController[T].cyclic_data_addr() -> Address
   danger
     return me.data.get_address()

@@ -549,6 +549,26 @@ dangerous routine CircularList[T].destroy()
   me.hijack().invalidate()
   return
 
+### Cycle-collector TRACE: report every live element to the collector, walking the ring in logical
+### order (elements are NOT contiguous, so `cyclic_trace_buffer` cannot be used — this mirrors the
+### physical-index walk in `destroy` but calls `cyclic_visit` instead of `destroy`).
+@override
+dangerous routine CircularList[T].roam_trace()
+  var i = 0u64
+  while i < me.count
+    var physical = (me.start +% i) & (me.capacity -% 1u64)
+    me.data.offset(T.data_size() * physical).peek().cyclic_visit()
+    i = i + 1u64
+  return
+
+### Cycle-collector FREE: free the backing buffer and this list's own box, but NOT the elements (the
+### collector frees the whole white cycle directly).
+@override
+dangerous routine CircularList[T].roam_free()
+  me.data.invalidate()
+  me.hijack().invalidate()
+  return
+
 ### Serializes this collection to a `SerialValue.List`, serializing each element.
 ### :returns: The `SerialValue.List` of each element's serialized form.
 @[readonly, override]

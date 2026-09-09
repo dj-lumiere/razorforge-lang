@@ -451,6 +451,26 @@ dangerous routine Set[T].destroy()
   me.hijack().invalidate()
   return
 
+### Cycle-collector TRACE: report every live element to the collector. The `slots` buffer is SPARSE
+### (open-addressing with tombstones), so `cyclic_trace_sparse_buffer` scans slots `0..used`, skipping
+### dead entries via the `entry_live` bitmap. Overrides the universal member-walk (raw buffers cannot
+### self-trace).
+@override
+dangerous routine Set[T].roam_trace()
+  me.slots.cyclic_trace_sparse_buffer(live: me.entry_live, used: me.entries_used)
+  return
+
+### Cycle-collector FREE: free every owned buffer and this set's own box, but NOT the elements (the
+### collector frees the whole white cycle directly).
+@override
+dangerous routine Set[T].roam_free()
+  me.ctrl.invalidate()
+  me.indices.invalidate()
+  me.slots.invalidate()
+  me.entry_live.invalidate()
+  me.hijack().invalidate()
+  return
+
 ### Serializes this collection to a `SerialValue.List`, serializing each element.
 ### :returns: The `SerialValue.List` of each element's serialized form.
 @[readonly, override]

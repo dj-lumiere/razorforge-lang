@@ -302,7 +302,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     }
 
     /// <summary>
-    /// Handles the cycle-collector per-type hooks (<c>roam_trace_impl</c>/<c>roam_free_impl</c>), the
+    /// Handles the cycle-collector per-type hooks (<c>roam_trace</c>/<c>roam_free</c>), the
     /// unified <c>destroy</c> destructor, and — for anything else — the owner-type dispatch to the
     /// per-kind <c>HandleX</c> synthesizers.
     /// </summary>
@@ -312,14 +312,19 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     {
         switch (routine)
         {
-            // Cycle-collector per-type hooks (see AutoWiredRegistrationPass.MaybeRegisterRoamHook).
-            case { Name: "roam_trace_impl", Parameters.Count: 0 }:
+            // Cycle-collector per-type hooks: clone the universal `T.roam_trace()` / `T.roam_free()`
+            // derives (DeriveText.rf), kind-specialized for entity/variant just like `destroy`. A
+            // container with a raw `Hijacked` element buffer hand-writes its own override (skipped by
+            // AutoWiredRegistrationPass); a wrapper (Roamed/Hijacked) likewise hand-writes its .rf.
+            case { Name: "roam_trace" or "roam_free", Parameters.Count: 0 }
+                when routine.OwnerType is { } roamOwner:
                 ctx.VariantBodies[key: routine.RegistryKey] =
-                    BuildRoamTraceBody(owner: routine.OwnerType);
-                break;
-            case { Name: "roam_free_impl", Parameters.Count: 0 }:
-                ctx.VariantBodies[key: routine.RegistryKey] =
-                    BuildRoamFreeBody(owner: routine.OwnerType);
+                    CloneUniversalDeriveBody(ownerType: roamOwner,
+                        synthesized: routine,
+                        memberRoutineName: routine.Name) ??
+                    throw new InvalidOperationException(
+                        message:
+                        $"{routine.Name} derive could not be cloned for '{roamOwner.FullName}'.");
                 break;
             // Unified destructor: clone the `@overridable T.destroy()` derive (the `expand allmemvarof`
             // field-walk from DeriveText, kind-specialized for entity/variant). Applies to every concrete
@@ -553,17 +558,15 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             return;
         }
 
-        if (routine is { Name: "roam_trace_impl", Parameters.Count: 0 })
+        if (routine is { Name: "roam_trace" or "roam_free", Parameters.Count: 0 })
         {
             ctx.VariantBodies[key: routine.RegistryKey] =
-                BuildRoamTraceBody(owner: routine.OwnerType);
-            return;
-        }
-
-        if (routine is { Name: "roam_free_impl", Parameters.Count: 0 })
-        {
-            ctx.VariantBodies[key: routine.RegistryKey] =
-                BuildRoamFreeBody(owner: routine.OwnerType);
+                CloneUniversalDeriveBody(ownerType: routine.OwnerType!,
+                    synthesized: routine,
+                    memberRoutineName: routine.Name) ??
+                throw new InvalidOperationException(
+                    message:
+                    $"{routine.Name} derive could not be cloned for '{routine.OwnerType?.FullName}'.");
             return;
         }
 
@@ -608,7 +611,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private void HandleEntityGenericDefWired(RoutineInfo routine, EntityTypeInfo entity,
         TypeInfo textType, TypeInfo boolType, TypeInfo? u64Type)
     {
-        ctx.VariantBodies[key: routine.RegistryKey] = routine.Name switch
+        // A null result means "no-op, keep whatever body already exists" for a routine this pass does
+        // not synthesize — self-reading VariantBodies[key] for such a routine would throw on an absent key.
+        Statement? body = routine.Name switch
         {
             RepresentMemberRoutineName => CloneUniversalDeriveBody(ownerType: entity,
                 synthesized: routine,
@@ -637,15 +642,21 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 ownerType: entity,
                 fields: entity.MemberVariables,
                 u64Type: u64Type),
-            _ => ctx.VariantBodies[key: routine.RegistryKey]
+            _ => null
         };
+        if (body is not null)
+        {
+            ctx.VariantBodies[key: routine.RegistryKey] = body;
+        }
     }
 
     private void HandleRecordGenericDefWired(RoutineInfo routine, RecordTypeInfo record,
         TypeInfo textType, TypeInfo boolType, TypeInfo? s32Type,
         TypeInfo? u64Type)
     {
-        ctx.VariantBodies[key: routine.RegistryKey] = routine.Name switch
+        // A null result means "no-op, keep whatever body already exists" for a routine this pass does
+        // not synthesize — self-reading VariantBodies[key] for such a routine would throw on an absent key.
+        Statement? body = routine.Name switch
         {
             RepresentMemberRoutineName => BuildTextBody(ownerType: record,
                 fields: record.MemberVariables,
@@ -675,8 +686,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // declared+called but never defined (over-prune). Mirrors how eq/cmp/hash/represent above emit.
             AssignMemberRoutineName or DuplicateMemberRoutineName => BuildRecordCopyBody(
                 record: record),
-            _ => ctx.VariantBodies[key: routine.RegistryKey]
+            _ => null
         };
+        if (body is not null)
+        {
+            ctx.VariantBodies[key: routine.RegistryKey] = body;
+        }
     }
 
     //  Per-type handlers
@@ -1097,7 +1112,11 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private void HandleCrashable(RoutineInfo routine, CrashableTypeInfo crashable,
         TypeInfo textType)
     {
-        ctx.VariantBodies[key: routine.RegistryKey] = routine.Name switch
+        // Only the four synthesized wired routines get a body here; any other routine on a crashable
+        // (e.g. its zero-arg constructor) is left untouched — a null result means "no-op, keep whatever
+        // body already exists". Reading VariantBodies[key] for an unhandled routine would throw when the
+        // key is absent, which it is for a routine with no pre-built body.
+        Statement? body = routine.Name switch
         {
             RepresentMemberRoutineName => BuildCrashableRepresentBody(crashable: crashable),
             DiagnoseMemberRoutineName => BuildCrashableDiagnoseBody(crashable: crashable,
@@ -1112,8 +1131,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // always-synthesized title. A user-declared crash_message overrides this (the wired
                 // routine is only registered when absent — see AutoWiredRegistrationPass).
                 BuildCrashableCrashMessageBody(crashable: crashable),
-            _ => ctx.VariantBodies[key: routine.RegistryKey]
+            _ => null
         };
+        if (body is not null)
+        {
+            ctx.VariantBodies[key: routine.RegistryKey] = body;
+        }
     }
 
     private void HandleChoice(RoutineInfo routine, ChoiceTypeInfo choice, TypeInfo textType,
@@ -3723,355 +3746,6 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         return (entityType, listEntity);
     }
 
-    /// <summary>
-    /// Builds the auto-derived <c>destroy()</c> body. Composite record/entity/crashable types
-    /// recurse into their owned fields (<c>me.field.destroy()</c> for each); scalar kinds
-    /// (choices, flags, <c>@llvm</c>-backed primitives, tuples, variants) get a no-op return.
-    /// Leaf RC/ptr teardown (Hijacked, Retained/Tracked, Viewing/Modifying) lives in hand-written
-    /// wrapper destructors and is never reached here (those types keep their own <c>destroy</c>).
-    /// </summary>
-    /// <summary>True if <paramref name="t"/> is a <c>Roamed[U]</c> field type (a biased-RC handle).</summary>
-    private static bool IsRoamedField(TypeInfo? t)
-    {
-        if (t == null)
-        {
-            return false;
-        }
-
-        string baseName = t switch
-        {
-            WrapperTypeInfo w => w.Name,
-            RecordTypeInfo { GenericDefinition: { } d } => d.Name,
-            _ => t.BareName
-        };
-        return baseName == Declaration.RuntimeContract.Roamed;
-    }
-
-    /// <summary>
-    /// Builds the cycle-collector trace hook <c>roam_trace_impl()</c> for an entity: one
-    /// <c>me.&lt;field&gt;.cyclic_visit()</c> per <c>Roamed[U]</c> field (reports the field's
-    /// controller to the collector). Non-Roamed fields cannot form strong cycles and are skipped;
-    /// an entity with no Roamed fields gets an empty (return-only) body.
-    /// </summary>
-    private Statement BuildRoamTraceBody(TypeInfo? owner)
-    {
-        var noop = new ReturnStatement(Value: null, Location: _synthLoc);
-        List<MemberVariableInfo>? fields = owner is EntityTypeInfo e
-            ? e.MemberVariables
-            : null;
-        if (fields is null or { Count: 0 })
-        {
-            return noop;
-        }
-
-        TypeInfo? noneType = ctx.Registry.LookupType(name: "None");
-        var statements = new List<Statement>(capacity: fields.Count + 1);
-        EmitRoamTraceDirectFields(owner: owner,
-            fields: fields,
-            noneType: noneType,
-            statements: statements);
-        EmitRoamTraceNestedEntityFields(owner: owner,
-            fields: fields,
-            noneType: noneType,
-            statements: statements);
-        EmitRoamTraceDenseBuffer(owner: owner,
-            fields: fields,
-            noneType: noneType,
-            statements: statements);
-        EmitRoamTraceSparseBuffer(owner: owner,
-            fields: fields,
-            noneType: noneType,
-            statements: statements);
-        statements.Add(item: noop);
-        return new BlockStatement(Statements: statements, Location: _synthLoc);
-    }
-
-    /// <summary>
-    /// Emits <c>me.field.cyclic_visit()</c> for each <c>Roamed[U]</c> field on the owner entity.
-    /// Both non-null and optional entity fields are bare <c>Roamed[E]</c> in Suflae; the collector
-    /// traces through a null (none) handle harmlessly.
-    /// </summary>
-    private static void EmitRoamTraceDirectFields(TypeInfo? owner, List<MemberVariableInfo> fields,
-        TypeInfo? noneType, List<Statement> statements)
-    {
-        foreach (MemberVariableInfo field in fields)
-        {
-            if (!IsRoamedField(t: field.Type))
-            {
-                continue;
-            }
-
-            var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
-            {
-                ResolvedType = owner
-            };
-            var fieldRef =
-                new MemberExpression(Object: meRef, MemberName: field.Name, Location: _synthLoc)
-                {
-                    ResolvedType = field.Type
-                };
-            var visitCall = new CallExpression(
-                Callee: new MemberExpression(Object: fieldRef,
-                    MemberName: "cyclic_visit",
-                    Location: _synthLoc) { ResolvedType = noneType },
-                Arguments: [],
-                Location: _synthLoc) { ResolvedType = noneType };
-            statements.Add(item: new ExpressionStatement(Expression: visitCall,
-                Location: _synthLoc));
-        }
-    }
-
-    /// <summary>
-    /// Emits <c>me.field.roam_trace_impl()</c> for each bare (non-Roamed) entity field, delegating
-    /// to that field's own trace so the collector descends into nested aggregates (e.g. the SF
-    /// container overlay's <c>inner: RF::Core.List[T]</c>). Bare entity fields form acyclic
-    /// single-owner containment — infinite recursion is impossible here.
-    /// </summary>
-    private static void EmitRoamTraceNestedEntityFields(TypeInfo? owner,
-        List<MemberVariableInfo> fields, TypeInfo? noneType, List<Statement> statements)
-    {
-        foreach (MemberVariableInfo field in fields)
-        {
-            if (IsRoamedField(t: field.Type) || field.Type is not EntityTypeInfo)
-            {
-                continue;
-            }
-
-            var fieldRef = new MemberExpression(
-                Object: new IdentifierExpression(Name: "me", Location: _synthLoc)
-                {
-                    ResolvedType = owner
-                },
-                MemberName: field.Name,
-                Location: _synthLoc) { ResolvedType = field.Type };
-            var traceImplCall = new CallExpression(
-                Callee: new MemberExpression(Object: fieldRef,
-                    MemberName: "roam_trace_impl",
-                    Location: _synthLoc) { ResolvedType = noneType },
-                Arguments: [],
-                Location: _synthLoc) { ResolvedType = noneType };
-            statements.Add(item: new ExpressionStatement(Expression: traceImplCall,
-                Location: _synthLoc));
-        }
-    }
-
-    /// <summary>
-    /// Emits <c>me.buf.cyclic_trace_buffer(count: me.count)</c> when the owner has exactly one
-    /// <c>Hijacked[T]</c> field paired with a <c>count</c> field (dense List layout).
-    /// Multi-buffer or sparse containers are handled separately and do not trigger this path.
-    /// </summary>
-    private static void EmitRoamTraceDenseBuffer(TypeInfo? owner, List<MemberVariableInfo> fields,
-        TypeInfo? noneType, List<Statement> statements)
-    {
-        var buffers = fields.Where(predicate: f => IsHijackedField(t: f.Type))
-                            .ToList();
-        MemberVariableInfo? countField = fields.FirstOrDefault(predicate: f => f.Name == "count");
-        if (buffers is not [{ } buffer] || countField == null)
-        {
-            return;
-        }
-
-        var bufRef = new MemberExpression(
-            Object: new IdentifierExpression(Name: "me", Location: _synthLoc)
-            {
-                ResolvedType = owner
-            },
-            MemberName: buffer.Name,
-            Location: _synthLoc) { ResolvedType = buffer.Type };
-        var countRef = new MemberExpression(
-            Object: new IdentifierExpression(Name: "me", Location: _synthLoc)
-            {
-                ResolvedType = owner
-            },
-            MemberName: "count",
-            Location: _synthLoc) { ResolvedType = countField.Type };
-        var traceCall = new CallExpression(
-            Callee: new MemberExpression(Object: bufRef,
-                MemberName: "cyclic_trace_buffer",
-                Location: _synthLoc) { ResolvedType = noneType },
-            Arguments: [countRef],
-            Location: _synthLoc) { ResolvedType = noneType };
-        statements.Add(item: new ExpressionStatement(Expression: traceCall, Location: _synthLoc));
-    }
-
-    /// <summary>
-    /// Emits <c>me.buf.cyclic_trace_sparse_buffer(live: me.entry_live, used: me.entries_used)</c>
-    /// for each non-metadata <c>Hijacked</c> element buffer in an open-addressing Dict/Set layout.
-    /// Fires only when both <c>entry_live</c> and <c>entries_used</c> sentinel fields are present;
-    /// scalar metadata buffers (<c>Hijacked[U8]</c>, <c>Hijacked[U64]</c>) are skipped.
-    /// </summary>
-    private static void EmitRoamTraceSparseBuffer(TypeInfo? owner, List<MemberVariableInfo> fields,
-        TypeInfo? noneType, List<Statement> statements)
-    {
-        MemberVariableInfo? entryLiveField =
-            fields.FirstOrDefault(predicate: f =>
-                f.Name == "entry_live" && IsHijackedField(t: f.Type));
-        MemberVariableInfo? entriesUsedField =
-            fields.FirstOrDefault(predicate: f => f.Name == "entries_used");
-        if (entryLiveField == null || entriesUsedField == null)
-        {
-            return;
-        }
-
-        MemberExpression MeField(string name, TypeInfo? type)
-        {
-            return new MemberExpression(
-                Object: new IdentifierExpression(Name: "me", Location: _synthLoc)
-                {
-                    ResolvedType = owner
-                },
-                MemberName: name,
-                Location: _synthLoc) { ResolvedType = type };
-        }
-
-        foreach (MemberVariableInfo field in fields)
-        {
-            if (!IsHijackedField(t: field.Type) ||
-                ReferenceEquals(objA: field, objB: entryLiveField))
-            {
-                continue;
-            }
-
-            if (HijackedInnerType(t: field.Type) == null)
-            {
-                continue;
-            }
-
-            var sparseCall = new CallExpression(
-                Callee: new MemberExpression(Object: MeField(name: field.Name, type: field.Type),
-                    MemberName: "cyclic_trace_sparse_buffer",
-                    Location: _synthLoc) { ResolvedType = noneType },
-                Arguments:
-                [
-                    new NamedArgumentExpression(Name: "live",
-                        Value: MeField(name: "entry_live", type: entryLiveField.Type),
-                        Location: _synthLoc),
-                    new NamedArgumentExpression(Name: "used",
-                        Value: MeField(name: "entries_used", type: entriesUsedField.Type),
-                        Location: _synthLoc)
-                ],
-                Location: _synthLoc) { ResolvedType = noneType };
-            statements.Add(
-                item: new ExpressionStatement(Expression: sparseCall, Location: _synthLoc));
-        }
-    }
-
-    /// <summary>True if <paramref name="t"/> is a <c>Hijacked[U]</c> raw-buffer field type.</summary>
-    private static bool IsHijackedField(TypeInfo? t)
-    {
-        if (t == null)
-        {
-            return false;
-        }
-
-        string baseName = t switch
-        {
-            WrapperTypeInfo w => w.Name,
-            RecordTypeInfo { GenericDefinition: { } d } => d.Name,
-            _ => t.BareName
-        };
-        return baseName == Declaration.RuntimeContract.Hijacked;
-    }
-
-    /// <summary>The element type <c>U</c> of a <c>Hijacked[U]</c> field type, or null. Used by the
-    /// sparse-container roam-trace to tell an element buffer (generic <c>keys</c>/<c>vals</c>/<c>slots</c>)
-    /// from a scalar metadata buffer (<c>Hijacked[U8]</c>/<c>Hijacked[U64]</c> ctrl/indices/entry_live).</summary>
-    private static TypeInfo? HijackedInnerType(TypeInfo? t)
-    {
-        return t switch
-        {
-            WrapperTypeInfo w => w.InnerType,
-            _ => t?.TypeArguments is { Count: > 0 } args
-                ? args[index: 0]
-                : null
-        };
-    }
-
-    /// <summary>
-    /// Builds the cycle-collector free hook <c>roam_free_impl()</c> for an entity: tears down each
-    /// NON-Roamed field (its own resources) then frees the entity allocation. Roamed fields are
-    /// deliberately NOT torn down — the collector frees the whole white cycle directly, so recursing
-    /// through a Roamed child's <c>destroy</c> here would double-free a sibling being reaped in the
-    /// same batch (the finalizer-recursion hazard).
-    /// </summary>
-    private BlockStatement BuildRoamFreeBody(TypeInfo? owner)
-    {
-        var noop = new ReturnStatement(Value: null, Location: _synthLoc);
-        List<MemberVariableInfo>? fields = owner is EntityTypeInfo e
-            ? e.MemberVariables
-            : null;
-
-        TypeInfo? noneType = ctx.Registry.LookupType(name: "None");
-        var statements = new List<Statement>(capacity: (fields?.Count ?? 0) + 2);
-        if (fields is { Count: > 0 })
-        {
-            foreach (MemberVariableInfo field in fields)
-            {
-                if (IsRoamedField(t: field.Type))
-                {
-                    continue;
-                }
-
-                var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
-                {
-                    ResolvedType = owner
-                };
-                var fieldRef =
-                    new MemberExpression(Object: meRef,
-                        MemberName: field.Name,
-                        Location: _synthLoc) { ResolvedType = field.Type };
-                var destroyCall = new CallExpression(
-                    Callee: new MemberExpression(Object: fieldRef,
-                        MemberName: DestroyMemberRoutineName,
-                        Location: _synthLoc) { ResolvedType = noneType },
-                    Arguments: [],
-                    Location: _synthLoc) { ResolvedType = noneType };
-                statements.Add(item: new ExpressionStatement(Expression: destroyCall,
-                    Location: _synthLoc));
-            }
-        }
-
-        if (owner is EntityTypeInfo)
-        {
-            statements.Add(item: BuildEntitySelfFree(owner: owner!, noneType: noneType));
-        }
-
-        statements.Add(item: noop);
-        return new BlockStatement(Statements: statements, Location: _synthLoc);
-    }
-
-
-    /// <summary>
-    /// Builds <c>me.hijack().invalidate()</c> — frees the heap allocation backing an entity.
-    /// Mirrors the tail of hand-written entity destructors (e.g. <c>List[T].destroy</c>); the
-    /// synthesized destructor must emit it too, or every auto-derived entity leaks its struct.
-    /// </summary>
-    private ExpressionStatement BuildEntitySelfFree(TypeInfo owner, TypeInfo? noneType)
-    {
-        TypeInfo hijackedType = ctx.Registry.GetOrCreateWrapperType(
-            wrapperName: Declaration.RuntimeContract.Hijacked,
-            innerType: owner,
-            isReadOnly: false);
-
-        var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
-        {
-            ResolvedType = owner
-        };
-        var hijackCall = new CallExpression(
-            Callee: new MemberExpression(Object: meRef,
-                MemberName: Declaration.RuntimeContract.RawPointer.Hijack,
-                Location: _synthLoc) { ResolvedType = hijackedType },
-            Arguments: [],
-            Location: _synthLoc) { ResolvedType = hijackedType };
-        var invalidateCall = new CallExpression(
-            Callee: new MemberExpression(Object: hijackCall,
-                MemberName: Declaration.RuntimeContract.RawPointer.Invalidate,
-                Location: _synthLoc) { ResolvedType = noneType },
-            Arguments: [],
-            Location: _synthLoc) { ResolvedType = noneType };
-        return new ExpressionStatement(Expression: invalidateCall, Location: _synthLoc);
-    }
-
     private static ReturnStatement MakeLiteralReturn(string value, TypeInfo returnType)
     {
         return new ReturnStatement(
@@ -4308,7 +3982,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // is synthesized by the main-loop hook as usual.
         SynthesizeVariantArmExtractors(variant: variant);
 
-        ctx.VariantBodies[key: routine.RegistryKey] = routine.Name switch
+        // A null result means "no-op, keep whatever body already exists" for a routine this pass does
+        // not synthesize — self-reading VariantBodies[key] for such a routine would throw on an absent key.
+        Statement? body = routine.Name switch
         {
             RepresentMemberRoutineName =>
                 // The `@override needs T is variant` derive template (arm-dispatch via `branchof`) is
@@ -4331,8 +4007,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     synthesized: routine,
                     memberRoutineName: DuplicateMemberRoutineName) ??
                 BuildVariantCopyBody(variant: variant),
-            _ => ctx.VariantBodies[key: routine.RegistryKey]
+            _ => null
         };
+        if (body is not null)
+        {
+            ctx.VariantBodies[key: routine.RegistryKey] = body;
+        }
     }
 
     /// <summary>
