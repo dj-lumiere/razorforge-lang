@@ -169,7 +169,7 @@ public static class WiredRoutineCatalog
             // ---- Creator / context / lifecycle (declarable, not protocol-bound) ----
             // The anonymous constructor carries no name (RoutineInfo.CreatorName) — matched by the empty
             // key; its identity is the Creator kind.
-            new()
+            new WiredEntry
             {
                 Name = TypeModel.Symbols.RoutineInfo.CreatorName,
                 Kind = WiredKind.Creator,
@@ -178,14 +178,14 @@ public static class WiredRoutineCatalog
             // Infallible literal constructor synthesized by LiteralLoweringPass for `n`/`dn`
             // arbitrary-precision literals (Integer/Decimal.from_literal(text:)). Declarable in
             // stdlib (Known) and seeded live so the synthesized calls keep their link symbols (Seed).
-            new() { Name = "from_literal", Kind = WiredKind.Creator, Views = Known | Seed },
-            new() { Name = "enter", Kind = WiredKind.Context, Views = Known },
-            new() { Name = "exit", Kind = WiredKind.Context, Views = Known },
-            new()
+            new WiredEntry { Name = "from_literal", Kind = WiredKind.Creator, Views = Known | Seed },
+            new WiredEntry { Name = "enter", Kind = WiredKind.Context, Views = Known },
+            new WiredEntry { Name = "exit", Kind = WiredKind.Context, Views = Known },
+            new WiredEntry
             {
                 Name = "destroy", Kind = WiredKind.Lifecycle, Views = Known, AlwaysLive = true
             },
-            new()
+            new WiredEntry
             {
                 Name = "assign",
                 Kind = WiredKind.Copy,
@@ -199,7 +199,7 @@ public static class WiredRoutineCatalog
             // concrete owner. Cap gates it on `Copyable`: only owners whose element/arm types are copyable
             // emit a body (e.g. Dict[Text, SerialValue].copy needs SerialValue copyable), so a
             // Dict[Text, NonCopyable] correctly carries no `copy` symbol.
-            new()
+            new WiredEntry
             {
                 Name = "duplicate",
                 Kind = WiredKind.Copy,
@@ -209,14 +209,14 @@ public static class WiredRoutineCatalog
             },
 
             // ---- Display / hash ----
-            new()
+            new WiredEntry
             {
                 Name = "represent",
                 Kind = WiredKind.Display,
                 Views = Cap | Known | Seed,
                 Protocols = ["Representable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "diagnose",
                 Kind = WiredKind.Display,
@@ -226,14 +226,14 @@ public static class WiredRoutineCatalog
             // Cycle-collector visit hook: a universal `@overridable` no-op auto-conferred on EVERY type
             // (like represent/diagnose), so a generic container buffer-walk can call `element.cyclic_visit()`
             // uniformly. `Roamed[T].cyclic_visit` (hand-written) overrides it to report the controller.
-            new()
+            new WiredEntry
             {
                 Name = "cyclic_visit",
                 Kind = WiredKind.CycleTrace,
                 Views = Cap | Known | Seed,
                 Protocols = ["CycleTraceable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "hash",
                 Kind = WiredKind.Hash,
@@ -242,14 +242,14 @@ public static class WiredRoutineCatalog
             },
 
             // ---- Comparison (cmp family shares the cmp body; ne shares eq) ----
-            new()
+            new WiredEntry
             {
                 Name = "eq",
                 Kind = WiredKind.Comparison,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["Equatable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "ne",
                 Kind = WiredKind.Comparison,
@@ -257,14 +257,14 @@ public static class WiredRoutineCatalog
                 Protocols = ["Equatable"],
                 CapabilityWiredOverride = "eq"
             },
-            new()
+            new WiredEntry
             {
                 Name = "cmp",
                 Kind = WiredKind.Comparison,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = [ComparableProtocol]
             },
-            new()
+            new WiredEntry
             {
                 Name = "lt",
                 Kind = WiredKind.Comparison,
@@ -272,7 +272,7 @@ public static class WiredRoutineCatalog
                 Protocols = [ComparableProtocol],
                 CapabilityWiredOverride = "cmp"
             },
-            new()
+            new WiredEntry
             {
                 Name = "le",
                 Kind = WiredKind.Comparison,
@@ -280,7 +280,7 @@ public static class WiredRoutineCatalog
                 Protocols = [ComparableProtocol],
                 CapabilityWiredOverride = "cmp"
             },
-            new()
+            new WiredEntry
             {
                 Name = "gt",
                 Kind = WiredKind.Comparison,
@@ -288,7 +288,7 @@ public static class WiredRoutineCatalog
                 Protocols = [ComparableProtocol],
                 CapabilityWiredOverride = "cmp"
             },
-            new()
+            new WiredEntry
             {
                 Name = "ge",
                 Kind = WiredKind.Comparison,
@@ -298,7 +298,7 @@ public static class WiredRoutineCatalog
             },
 
             // ---- Container / iteration / indexing ----
-            new()
+            new WiredEntry
             {
                 Name = "contains",
                 Kind = WiredKind.Container,
@@ -306,7 +306,7 @@ public static class WiredRoutineCatalog
                 Protocols = ["Container"],
                 CapabilityWiredOverride = "contains"
             },
-            new()
+            new WiredEntry
             {
                 Name = "notcontains",
                 Kind = WiredKind.Container,
@@ -314,14 +314,14 @@ public static class WiredRoutineCatalog
                 Protocols = ["Container"],
                 CapabilityWiredOverride = "contains"
             },
-            new()
+            new WiredEntry
             {
                 Name = "iter",
                 Kind = WiredKind.Iteration,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["Iterable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "emit",
                 Kind = WiredKind.Iteration,
@@ -329,8 +329,8 @@ public static class WiredRoutineCatalog
                 Protocols = ["Emittable"],
                 Failable = true
             },
-            new() { Name = "try_emit", Kind = WiredKind.Iteration, Views = Seed },
-            new()
+            new WiredEntry { Name = "try_emit", Kind = WiredKind.Iteration, Views = Seed },
+            new WiredEntry
             {
                 Name = "getitem",
                 Kind = WiredKind.Indexing,
@@ -338,7 +338,7 @@ public static class WiredRoutineCatalog
                 Protocols = ["Indexable"],
                 Failable = true
             },
-            new()
+            new WiredEntry
             {
                 Name = "setitem",
                 Kind = WiredKind.Indexing,
@@ -348,49 +348,49 @@ public static class WiredRoutineCatalog
             },
 
             // ---- Unwrap (Maybe / Result / Lookup) ----
-            new()
+            new WiredEntry
             {
                 Name = "unwrap", Kind = WiredKind.Unwrap, Views = Known | Seed, Failable = true
             },
-            new() { Name = "unwrap_or", Kind = WiredKind.Unwrap, Views = Known | Seed },
+            new WiredEntry { Name = "unwrap_or", Kind = WiredKind.Unwrap, Views = Known | Seed },
 
             // ---- Arithmetic (standard) ----
-            new()
+            new WiredEntry
             {
                 Name = "add",
                 Kind = WiredKind.Arithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["Addable", "DurationAddable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "sub",
                 Kind = WiredKind.Arithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["Subtractable", "DurationSubtractable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "mul",
                 Kind = WiredKind.Arithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["Multiplicable", "TextRepeatable", "Scalable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "truediv",
                 Kind = WiredKind.Arithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["Divisible", "ScalarDivisible"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "floordiv",
                 Kind = WiredKind.Arithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["FloorDivisible", "ScalarFloorDivisible"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "mod",
                 Kind = WiredKind.Arithmetic,
@@ -398,14 +398,14 @@ public static class WiredRoutineCatalog
                 Protocols = ["FloorDivisible"],
                 CapabilityWiredOverride = "floordiv"
             },
-            new()
+            new WiredEntry
             {
                 Name = "pow",
                 Kind = WiredKind.Arithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["Exponentiable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "neg",
                 Kind = WiredKind.Unary,
@@ -414,28 +414,28 @@ public static class WiredRoutineCatalog
             },
 
             // ---- Arithmetic (wrapping) ----
-            new()
+            new WiredEntry
             {
                 Name = "add_wrap",
                 Kind = WiredKind.ArithmeticWrap,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["WrappingAddable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "sub_wrap",
                 Kind = WiredKind.ArithmeticWrap,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["WrappingSubtractable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "mul_wrap",
                 Kind = WiredKind.ArithmeticWrap,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["WrappingMultiplicable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "pow_wrap",
                 Kind = WiredKind.ArithmeticWrap,
@@ -444,35 +444,35 @@ public static class WiredRoutineCatalog
             },
 
             // ---- Arithmetic (clamping) ----
-            new()
+            new WiredEntry
             {
                 Name = "add_clamp",
                 Kind = WiredKind.ArithmeticClamp,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["ClampingAddable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "sub_clamp",
                 Kind = WiredKind.ArithmeticClamp,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["ClampingSubtractable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "mul_clamp",
                 Kind = WiredKind.ArithmeticClamp,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["ClampingMultiplicable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "truediv_clamp",
                 Kind = WiredKind.ArithmeticClamp,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["ClampingDivisible"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "pow_clamp",
                 Kind = WiredKind.ArithmeticClamp,
@@ -481,42 +481,42 @@ public static class WiredRoutineCatalog
             },
 
             // ---- Arithmetic (unchecked) ----
-            new()
+            new WiredEntry
             {
                 Name = "add_unchecked",
                 Kind = WiredKind.ArithmeticUnchecked,
                 Views = Cap | Seed,
                 Protocols = ["UncheckedAddable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "sub_unchecked",
                 Kind = WiredKind.ArithmeticUnchecked,
                 Views = Cap | Seed,
                 Protocols = ["UncheckedSubtractable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "mul_unchecked",
                 Kind = WiredKind.ArithmeticUnchecked,
                 Views = Cap | Seed,
                 Protocols = ["UncheckedMultiplicable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "truediv_unchecked",
                 Kind = WiredKind.ArithmeticUnchecked,
                 Views = Cap | Seed,
                 Protocols = ["UncheckedTrueDivisible"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "floordiv_unchecked",
                 Kind = WiredKind.ArithmeticUnchecked,
                 Views = Cap | Seed,
                 Protocols = ["UncheckedFloorDivisible"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "mod_unchecked",
                 Kind = WiredKind.ArithmeticUnchecked,
@@ -524,7 +524,7 @@ public static class WiredRoutineCatalog
                 Protocols = ["UncheckedFloorDivisible"],
                 CapabilityWiredOverride = "floordiv_unchecked"
             },
-            new()
+            new WiredEntry
             {
                 Name = "pow_unchecked",
                 Kind = WiredKind.ArithmeticUnchecked,
@@ -533,7 +533,7 @@ public static class WiredRoutineCatalog
             },
 
             // ---- Bitwise (the bitand body covers and/or/xor) ----
-            new()
+            new WiredEntry
             {
                 Name = BitandCapability,
                 Kind = WiredKind.Bitwise,
@@ -541,7 +541,7 @@ public static class WiredRoutineCatalog
                 Protocols = [BitwiseableProtocol],
                 CapabilityWiredOverride = BitandCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "bitor",
                 Kind = WiredKind.Bitwise,
@@ -549,7 +549,7 @@ public static class WiredRoutineCatalog
                 Protocols = [BitwiseableProtocol],
                 CapabilityWiredOverride = BitandCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "bitxor",
                 Kind = WiredKind.Bitwise,
@@ -557,7 +557,7 @@ public static class WiredRoutineCatalog
                 Protocols = [BitwiseableProtocol],
                 CapabilityWiredOverride = BitandCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "bitnot",
                 Kind = WiredKind.Unary,
@@ -566,7 +566,7 @@ public static class WiredRoutineCatalog
             },
 
             // ---- Shift (the ashl body covers all four) ----
-            new()
+            new WiredEntry
             {
                 Name = AshlCapability,
                 Kind = WiredKind.Shift,
@@ -574,7 +574,7 @@ public static class WiredRoutineCatalog
                 Protocols = [ShiftableProtocol],
                 CapabilityWiredOverride = AshlCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "ashr",
                 Kind = WiredKind.Shift,
@@ -582,7 +582,7 @@ public static class WiredRoutineCatalog
                 Protocols = [ShiftableProtocol],
                 CapabilityWiredOverride = AshlCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "lshl",
                 Kind = WiredKind.Shift,
@@ -590,7 +590,7 @@ public static class WiredRoutineCatalog
                 Protocols = [ShiftableProtocol],
                 CapabilityWiredOverride = AshlCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "lshr",
                 Kind = WiredKind.Shift,
@@ -600,42 +600,42 @@ public static class WiredRoutineCatalog
             },
 
             // ---- In-place arithmetic (imod shares ifloordiv) ----
-            new()
+            new WiredEntry
             {
                 Name = "iadd",
                 Kind = WiredKind.InPlaceArithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["InPlaceAddable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "isub",
                 Kind = WiredKind.InPlaceArithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["InPlaceSubtractable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "imul",
                 Kind = WiredKind.InPlaceArithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["InPlaceMultiplicable"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "itruediv",
                 Kind = WiredKind.InPlaceArithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["InPlaceDivisible"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "ifloordiv",
                 Kind = WiredKind.InPlaceArithmetic,
                 Views = Cap | Known | Proto | Seed,
                 Protocols = ["InPlaceFloorDivisible"]
             },
-            new()
+            new WiredEntry
             {
                 Name = "imod",
                 Kind = WiredKind.InPlaceArithmetic,
@@ -643,7 +643,7 @@ public static class WiredRoutineCatalog
                 Protocols = ["InPlaceFloorDivisible"],
                 CapabilityWiredOverride = "ifloordiv"
             },
-            new()
+            new WiredEntry
             {
                 Name = "ipow",
                 Kind = WiredKind.InPlaceArithmetic,
@@ -652,7 +652,7 @@ public static class WiredRoutineCatalog
             },
 
             // ---- In-place bitwise (ibitor/ibitxor share ibitand) ----
-            new()
+            new WiredEntry
             {
                 Name = IbitandCapability,
                 Kind = WiredKind.InPlaceBitwise,
@@ -660,7 +660,7 @@ public static class WiredRoutineCatalog
                 Protocols = [InPlaceBitandeableProtocol],
                 CapabilityWiredOverride = IbitandCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "ibitor",
                 Kind = WiredKind.InPlaceBitwise,
@@ -668,7 +668,7 @@ public static class WiredRoutineCatalog
                 Protocols = [InPlaceBitandeableProtocol],
                 CapabilityWiredOverride = IbitandCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "ibitxor",
                 Kind = WiredKind.InPlaceBitwise,
@@ -678,7 +678,7 @@ public static class WiredRoutineCatalog
             },
 
             // ---- In-place shift (iashr/ilshl/ilshr share iashl) ----
-            new()
+            new WiredEntry
             {
                 Name = IashlCapability,
                 Kind = WiredKind.InPlaceShift,
@@ -686,7 +686,7 @@ public static class WiredRoutineCatalog
                 Protocols = [InPlaceShiftableProtocol],
                 CapabilityWiredOverride = IashlCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "iashr",
                 Kind = WiredKind.InPlaceShift,
@@ -694,7 +694,7 @@ public static class WiredRoutineCatalog
                 Protocols = [InPlaceShiftableProtocol],
                 CapabilityWiredOverride = IashlCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "ilshl",
                 Kind = WiredKind.InPlaceShift,
@@ -702,7 +702,7 @@ public static class WiredRoutineCatalog
                 Protocols = [InPlaceShiftableProtocol],
                 CapabilityWiredOverride = IashlCapability
             },
-            new()
+            new WiredEntry
             {
                 Name = "ilshr",
                 Kind = WiredKind.InPlaceShift,
@@ -774,13 +774,6 @@ public static class WiredRoutineCatalog
     public static bool TryGet(string name, out WiredEntry entry)
     {
         return _byName.TryGetValue(key: name, value: out entry!);
-    }
-
-    /// <summary>Returns true when <paramref name="name"/> is a lifecycle-category wired routine (<c>destroy</c> or <c>store</c>).</summary>
-    public static bool IsLifecycle(string name)
-    {
-        return _byName.TryGetValue(key: name, value: out WiredEntry? e) &&
-               e.Kind is WiredKind.Lifecycle or WiredKind.Copy;
     }
 
     /// <summary>Protocols whose derived capability is conferred on EVERY type: <c>Representable</c>
