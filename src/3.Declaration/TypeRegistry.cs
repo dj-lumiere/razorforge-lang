@@ -1456,14 +1456,21 @@ public sealed partial class TypeRegistry
             return existing;
         string shortKey =
             $"{genericDef.Name}[{string.Join(separator: ", ", values: typeArguments.Select(selector: GetShortName))}]";
+        // The shortKey is a bare-type-arg alias and COLLIDES when two modules declare a same-named type
+        // (Hijacked[A/Point] vs Hijacked[B/Point]): a first-wins short alias would return the wrong module's
+        // instance, mis-dispatching member routines (a value-record `peek` resolving to an entity `peek`).
+        // Accept a short-alias hit ONLY when its type arguments AND generic definition match — mirroring
+        // TryGetCachedResolution (this lookup-only twin was missing the args check).
         if (fullKey != shortKey && _resolutions.TryGetValue(key: shortKey, value: out existing)
+            && ResolutionTypeArgsMatch(resolved: existing, typeArguments: typeArguments)
             && ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
             return existing;
         // Wrapper types (Hijacked, Retained, etc.) are stored in _wrapperResolutions, not _resolutions.
         if (_wrapperResolutions.TryGetValue(key: fullKey, value: out WrapperTypeInfo? wrapper))
             return wrapper;
         if (fullKey != shortKey &&
-            _wrapperResolutions.TryGetValue(key: shortKey, value: out wrapper))
+            _wrapperResolutions.TryGetValue(key: shortKey, value: out wrapper)
+            && ResolutionTypeArgsMatch(resolved: wrapper, typeArguments: typeArguments))
             return wrapper;
         return null;
     }

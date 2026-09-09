@@ -11,6 +11,27 @@ namespace Compiler.CodeGen;
 /// </summary>
 public partial class LlvmCodeGenerator
 {
+    /// <summary>
+    /// True when <paramref name="creator"/> is the auto-synthesized ALL-FIELDS memberwise constructor of
+    /// <paramref name="owner"/> — its parameters are exactly the owner's member variables (by name). Such a
+    /// creator has NO emitted body (construction is inlined), so codegen must never emit a call to it.
+    /// Body-bearing synthesized creators (numeric conversions, variant arm extractors) take non-field
+    /// parameters (<c>from:</c> a foreign type) and fail this test, so they still route to a real call.
+    /// </summary>
+    private static bool MemberwiseCreatorMatchesFields(RoutineInfo creator, TypeInfo owner)
+    {
+        System.Collections.Generic.List<MemberVariableInfo>? fields = owner switch
+        {
+            CrashableTypeInfo c => c.MemberVariables,
+            EntityTypeInfo e => e.MemberVariables,
+            RecordTypeInfo r => r.MemberVariables,
+            _ => null
+        };
+        if (fields == null || creator.Parameters.Count != fields.Count) return false;
+        var fieldNames = new System.Collections.Generic.HashSet<string>(
+            collection: fields.Select(selector: f => f.Name));
+        return creator.Parameters.All(predicate: p => fieldNames.Contains(item: p.Name));
+    }
 
     /// <summary>
     /// Emit routine call as part of this compiler phase.
@@ -60,6 +81,25 @@ public partial class LlvmCodeGenerator
         {
             IsSynthesized: false, IsCreator: true
         } && constructedType is EntityTypeInfo;
+
+        // A synthesized ALL-FIELDS memberwise creator has NO body — it exists only so SA can resolve
+        // `Type(...)` construction (e.g. `throw VerificationFailedError()`, classified as a DirectRoutine
+        // call with a null ConstructedType). Codegen MUST inline the field-init; emitting a call would
+        // reference an undefined symbol. Body-bearing synthesized creators (numeric conversions, variant
+        // extractors) take NON-field params, so the params-match-fields test below excludes them.
+        if (resolvedRoutine is { IsSynthesized: true, IsCreator: true, OwnerType: { } mwOwner }
+            && MemberwiseCreatorMatchesFields(creator: resolvedRoutine, owner: mwOwner))
+        {
+            switch (mwOwner)
+            {
+                case CrashableTypeInfo mwCrashable:
+                    return EmitCrashableConstruction(sb: sb, crashable: mwCrashable, arguments: arguments);
+                case EntityTypeInfo mwEntity:
+                    return EmitEntityConstruction(sb: sb, entity: mwEntity, arguments: arguments);
+                case RecordTypeInfo mwRecord:
+                    return EmitRecordConstruction(sb: sb, record: mwRecord, arguments: arguments);
+            }
+        }
 
         switch (loweringKind)
         {
@@ -174,14 +214,13 @@ public partial class LlvmCodeGenerator
                 // Zero-arg entity construction -> try create() first, then null
                 if (calledType is EntityTypeInfo && arguments.Count == 0)
                 {
-                    string createName = $"{calledType.Name}.create";
-                    RoutineInfo? creator = _registry.LookupRoutineOverload(baseName: createName,
+                    RoutineInfo? creator = _registry.LookupCreatorOverload(type: calledType,
                         argTypes: new List<TypeInfo>());
                     if (!(creator is { Parameters.Count: 0 }))
                     {
                         throw new InvalidOperationException(
-                            $"No zero-arg 'create' found for entity type '{calledType.Name}'. " +
-                            "Entity types require a 'create' routine for zero-argument construction.");
+                            $"No zero-arg constructor found for entity type '{calledType.Name}'. " +
+                            "Entity types require a constructor for zero-argument construction.");
                     }
                 }
 
