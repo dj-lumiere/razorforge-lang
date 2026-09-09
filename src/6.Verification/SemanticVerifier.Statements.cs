@@ -315,7 +315,7 @@ public sealed partial class SemanticVerifier
             // The auto-conferred display derives (represent/diagnose) ARE registered universals →
             // `T` is bound → they stay analyzed. Protocol-grounded via the wired catalog, not a
             // per-memberRoutine name list.
-            return !Compiler.Declaration.WiredRoutineCatalog.IsAutoConferredDerive(
+            return !Declaration.WiredRoutineCatalog.IsAutoConferredDerive(
                 memberRoutine: memberRoutine);
         }
 
@@ -756,7 +756,7 @@ public sealed partial class SemanticVerifier
         // readers-XOR-writer check keys on the shared DATA, not the variable name — a clone
         // (`var s2 = s.share()`) inherits `s`'s identity and so conflicts with it.
         if (_registry.Language == Language.RazorForge &&
-            varType.BareName is Compiler.Declaration.RuntimeContract.Guarded or Compiler.Declaration.RuntimeContract.Witnessed)
+            varType.BareName is Declaration.RuntimeContract.Guarded or Declaration.RuntimeContract.Witnessed)
         {
             RecordSharedHandleIdentity(name: varDecl.Name, initializer: varDecl.Initializer);
         }

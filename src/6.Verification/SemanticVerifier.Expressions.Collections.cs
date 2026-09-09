@@ -34,7 +34,7 @@ public sealed partial class SemanticVerifier
             // `Roamed[List[S64]]` slot (RF-S201). Inferring the element type through the wrapper is
             // exactly the compiler's job.
             if (current is RecordTypeInfo { TypeArguments: { Count: 1 } recArgs } recRT
-                && GetTypeBaseName(recRT) is Compiler.Declaration.RuntimeContract.Owned or Compiler.Declaration.RuntimeContract.Retained or Compiler.Declaration.RuntimeContract.Tracked or Compiler.Declaration.RuntimeContract.Roamed)
+                && GetTypeBaseName(recRT) is Declaration.RuntimeContract.Owned or Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Tracked or Declaration.RuntimeContract.Roamed)
             {
                 current = recArgs[0];
                 continue;
@@ -72,7 +72,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static TypeSymbol LiteralTypeFromExpected(TypeSymbol expectedType,
         TypeSymbol? collectionExpectedType) =>
-        GetTypeBaseName(type: expectedType) == Compiler.Declaration.RuntimeContract.Roamed
+        GetTypeBaseName(type: expectedType) == Declaration.RuntimeContract.Roamed
             ? collectionExpectedType!
             : expectedType;
 
@@ -81,7 +81,7 @@ public sealed partial class SemanticVerifier
     {
         if (!wrapForBinding) return type;
         return type is EntityTypeInfo
-            ? _registry.GetOrCreateWrapperType(wrapperName: Compiler.Declaration.RuntimeContract.Owned,
+            ? _registry.GetOrCreateWrapperType(wrapperName: Declaration.RuntimeContract.Owned,
                 innerType: type,
                 isReadOnly: false)
             : type;
@@ -1258,9 +1258,9 @@ public sealed partial class SemanticVerifier
         List<string> genericParameters, TypeSymbol?[] inferred)
     {
         if (paramType is not { TypeArguments: [GenericParameterTypeInfo markerParam] }) return false;
-        if (!Compiler.Declaration.RuntimeContract.IsMarkerProtocol(baseName: ProtocolBaseName(type: paramType))) return false;
-        if (ProtocolBaseName(type: argType) is Compiler.Declaration.RuntimeContract.Accessing
-                                            or Compiler.Declaration.RuntimeContract.Controlling) return false;
+        if (!Declaration.RuntimeContract.IsMarkerProtocol(baseName: ProtocolBaseName(type: paramType))) return false;
+        if (ProtocolBaseName(type: argType) is Declaration.RuntimeContract.Accessing
+                                            or Declaration.RuntimeContract.Controlling) return false;
 
         BindInferredSlot(name: markerParam.Name, argType: argType,
             genericParameters: genericParameters, inferred: inferred);

@@ -25,7 +25,7 @@ internal partial class Program
 
     /// <summary>Suflae's own version line — the <c>&lt;SuflaeVersion&gt;</c> PropertyGroup entry (via
     /// <see cref="Compiler.Declaration.BuildInfo"/>). Bump it in the csproj, NOT here.</summary>
-    private static string SuflaeVersion => Compiler.Declaration.BuildInfo.SuflaeVersion;
+    private static string SuflaeVersion => BuildInfo.SuflaeVersion;
 
     /// <summary>True when the binary was invoked under a Suflae alias (<c>suflae</c>/<c>sf</c>)
     /// rather than <c>razorforge</c>/<c>rf</c>. Selects Suflae branding (version/usage) and makes
@@ -282,7 +282,7 @@ internal partial class Program
         // `[debug] dump-ir`: the ORC-JIT and warm-daemon paths keep the IR in-memory / in the daemon and
         // never write a `<entry>.ll`, so skip BOTH and take the local AOT build+run, which emits (and keeps)
         // `<entry>.ll` + `.opt.ll` beside the source for inspection.
-        bool dumpIr = Compiler.Diagnostics.DiagnosticFlags.DumpIr;
+        bool dumpIr = DiagnosticFlags.DumpIr;
 
         // ORC-JIT dev-loop path (RAZORFORGE_JIT=1): JIT the module in-process — no opt/clang/link,
         // no exe, no spawn. IR comes warm from the daemon when it's up, else a local cold compile.
@@ -314,7 +314,7 @@ internal partial class Program
     {
         string? outDir = args.Length > 1 && !args[1].StartsWith(value: "--")
             ? args[1]
-            : Path.Combine(path1: Compiler.Declaration.StdlibLoader.GetDefaultStdlibPath(), path2: ".pbrf");
+            : Path.Combine(path1: StdlibLoader.GetDefaultStdlibPath(), path2: ".pbrf");
 
         var langs = new List<Language> { Language.RazorForge };
         if (args.Contains(value: "--all") || args.Contains(value: "--sf"))
@@ -336,7 +336,7 @@ internal partial class Program
                     continue;
                 }
 
-                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var sw = Stopwatch.StartNew();
                 SemanticVerifier.CompiledStdlibState state =
                     SemanticVerifier.CaptureCompiledStdlib(language: lang);
                 if (Directory.Exists(path: langDir)) Directory.Delete(path: langDir, recursive: true);
@@ -375,6 +375,19 @@ internal partial class Program
         bool ShowBuildStages,
         bool RequireStartRoutine,
         Func<Language, SemanticVerifier.CompiledStdlibState?>? WarmProvider);
+
+    /// <summary>Groups the parameters for <see cref="RunPhase1BuildDriver"/>.</summary>
+    private sealed record Phase1Context(
+        string EntryFile, string ProjectRoot, string StdlibRoot, Language Language,
+        IReadOnlyList<string>? LibraryRoots,
+        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>? StdlibIndexProvider,
+        bool ShowBuildStages, Stopwatch? SwBuild);
+
+    /// <summary>Groups the parameters for <see cref="RunPhase3Codegen"/>.</summary>
+    private sealed record Phase3Context(
+        string EntryFile, string? OutputFile, TargetConfig Target, RfBuildMode BuildMode,
+        bool SaTiming, bool DumpAst, bool ShowBuildStages,
+        Action<string>? IrCallback, Stopwatch? SwPhase);
 
     /// <summary>
     /// The fully-resolved build configuration for a <c>build</c>/<c>buildandrun</c>/<c>check</c> invocation:
@@ -748,7 +761,7 @@ internal partial class Program
     private static string GetVersionString()
     {
         var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-        string version = Compiler.Declaration.BuildInfo.AssemblyMetadata(key: "RazorForgeVersion")
+        string version = BuildInfo.AssemblyMetadata(key: "RazorForgeVersion")
                      ?? assembly
                         .GetCustomAttributes(
                              attributeType: typeof(System.Reflection.AssemblyInformationalVersionAttribute),
@@ -1236,16 +1249,14 @@ internal partial class Program
 
         try
         {
-            var _swBuild = DiagnosticFlags.PhaseTiming ? System.Diagnostics.Stopwatch.StartNew() : null;
+            var _swBuild = DiagnosticFlags.PhaseTiming ? Stopwatch.StartNew() : null;
             projectRoot ??= Path.GetDirectoryName(path: Path.GetFullPath(path: entryFile)) ?? ".";
             string stdlibRoot = StdlibLoader.GetDefaultStdlibPath();
 
             // Phase 1: Parse all files and resolve dependencies
             int phase1Result = RunPhase1BuildDriver(
-                entryFile: entryFile, projectRoot: projectRoot, stdlibRoot: stdlibRoot,
-                language: language, libraryRoots: libraryRoots,
-                stdlibIndexProvider: stdlibIndexProvider,
-                showBuildStages: showBuildStages, swBuild: _swBuild,
+                p1: new Phase1Context(entryFile, projectRoot, stdlibRoot, language, libraryRoots,
+                    stdlibIndexProvider, showBuildStages, _swBuild),
                 orderedFiles: out var orderedFiles, unitsByFile: out var unitsByFile,
                 driver: out var driver, discoveredLinks: out discoveredLinkLibraries);
             if (phase1Result != 0) return phase1Result;
@@ -1267,11 +1278,10 @@ internal partial class Program
             if (phase2Result != 0) return phase2Result;
 
             // Phase 3: Code generation (multi-program)
-            return RunPhase3Codegen(entryFile: entryFile, outputFile: outputFile,
-                orderedFiles: orderedFiles, unitsByFile: unitsByFile, result: result,
-                target: TargetConfig.ForCurrentHost(), buildMode: buildMode, saTiming: saTiming,
-                dumpAst: dumpAst, showBuildStages: showBuildStages, irCallback: irCallback,
-                swPhase: _swPhase);
+            return RunPhase3Codegen(
+                p3: new Phase3Context(entryFile, outputFile, TargetConfig.ForCurrentHost(), buildMode,
+                    saTiming, dumpAst, showBuildStages, irCallback, _swPhase),
+                orderedFiles: orderedFiles, unitsByFile: unitsByFile, result: result);
         }
         catch (GrammarException ex)
         {
@@ -1294,9 +1304,9 @@ internal partial class Program
     private static int RunPhase2SemanticAnalysis(
         Phase2Context ctx, BuildDriver driver,
         List<(SyntaxTree.Program Program, string FilePath)> orderedFiles,
-        System.Diagnostics.Stopwatch? swBuild,
+        Stopwatch? swBuild,
         out AnalysisResult result,
-        out System.Diagnostics.Stopwatch? swPhase)
+        out Stopwatch? swPhase)
     {
         if (ctx.ShowBuildStages)
         {
@@ -1326,7 +1336,7 @@ internal partial class Program
             swBuild.Restart();
         }
         analyzer.Registry.UseModuleResolver(resolver: driver.Resolver);
-        swPhase = DiagnosticFlags.PhaseTiming ? System.Diagnostics.Stopwatch.StartNew() : null;
+        swPhase = DiagnosticFlags.PhaseTiming ? Stopwatch.StartNew() : null;
         result = analyzer.AnalyzeMultiple(files: orderedFiles);
         if (swPhase != null)
         {
@@ -1368,15 +1378,18 @@ internal partial class Program
     /// resolve imports, and produce the topologically-ordered user file list. Returns 0 on success.
     /// </summary>
     private static int RunPhase1BuildDriver(
-        string entryFile, string projectRoot, string stdlibRoot,
-        Language language, IReadOnlyList<string>? libraryRoots,
-        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>? stdlibIndexProvider,
-        bool showBuildStages, System.Diagnostics.Stopwatch? swBuild,
+        Phase1Context p1,
         out List<(SyntaxTree.Program Program, string FilePath)> orderedFiles,
         out Dictionary<string, FileBuildUnit> unitsByFile,
         out BuildDriver driver,
         out IReadOnlyList<string> discoveredLinks)
     {
+        string entryFile = p1.EntryFile, projectRoot = p1.ProjectRoot, stdlibRoot = p1.StdlibRoot;
+        Language language = p1.Language;
+        IReadOnlyList<string>? libraryRoots = p1.LibraryRoots;
+        var stdlibIndexProvider = p1.StdlibIndexProvider;
+        bool showBuildStages = p1.ShowBuildStages;
+        Stopwatch? swBuild = p1.SwBuild;
         orderedFiles = [];
         unitsByFile = new Dictionary<string, FileBuildUnit>(comparer: StringComparer.OrdinalIgnoreCase);
         discoveredLinks = [];
@@ -1469,15 +1482,18 @@ internal partial class Program
     /// <paramref name="irCallback"/>. Returns 0 on success.
     /// </summary>
     private static int RunPhase3Codegen(
-        string entryFile, string? outputFile,
+        Phase3Context p3,
         List<(SyntaxTree.Program Program, string FilePath)> orderedFiles,
         Dictionary<string, FileBuildUnit> unitsByFile,
-        AnalysisResult result,
-        Compiler.Targeting.TargetConfig target, RfBuildMode buildMode,
-        bool saTiming, bool dumpAst, bool showBuildStages,
-        Action<string>? irCallback,
-        System.Diagnostics.Stopwatch? swPhase)
+        AnalysisResult result)
     {
+        string entryFile = p3.EntryFile;
+        string? outputFile = p3.OutputFile;
+        TargetConfig target = p3.Target;
+        RfBuildMode buildMode = p3.BuildMode;
+        bool saTiming = p3.SaTiming, dumpAst = p3.DumpAst, showBuildStages = p3.ShowBuildStages;
+        Action<string>? irCallback = p3.IrCallback;
+        Stopwatch? swPhase = p3.SwPhase;
         if (showBuildStages)
         {
             Console.WriteLine();
@@ -1972,10 +1988,7 @@ internal partial class Program
         var indegree = new int[n];
         for (int i = 0; i < n; i++)
         {
-            foreach (int j in deps[index: i])
-            {
-                if (j != i) indegree[i]++; // edge j -> i (dependency j before dependent i)
-            }
+            indegree[i] += deps[index: i].Count(j => j != i); // edge j -> i (dependency j before dependent i)
         }
 
         var order = new List<int>(capacity: n);
@@ -2016,14 +2029,14 @@ internal partial class Program
     {
         return type.Name switch
         {
-            "Text" => new LiteralExpression(Value: "", LiteralType: Compiler.Tokenizer.TokenType.TextLiteral,
+            "Text" => new LiteralExpression(Value: "", LiteralType: TokenType.TextLiteral,
                 Location: loc),
-            "Bool" => new LiteralExpression(Value: false, LiteralType: Compiler.Tokenizer.TokenType.False,
+            "Bool" => new LiteralExpression(Value: false, LiteralType: TokenType.False,
                 Location: loc),
             "S8" or "S16" or "S32" or "S64" or "S128" or "S256" or "U8" or "U16" or "U32" or "U64"
                 or "U128" or "U256" or "F16" or "F32" or "F64" or "F128" or "F256" or "Decimal"
                 or "D32" or "D64" or "D128" or "Integer" => new LiteralExpression(Value: "0",
-                    LiteralType: Compiler.Tokenizer.TokenType.UndecidedInteger, Location: loc),
+                    LiteralType: TokenType.UndecidedInteger, Location: loc),
             _ => null
         };
     }
@@ -2132,7 +2145,7 @@ internal partial class Program
         foreach (CLibrary cfg in libraryConfigs.Values) AddLib(lib: cfg.Name);
         foreach (string lib in discoveredLinks) AddLib(lib: lib);
 
-        return LinkAndStageExecutable(entryFile: entryFile, exeFile: exeFile,
+        return LinkAndStageExecutable(exeFile: exeFile,
             llFile: llFile, optFile: optFile, buildMode: config.BuildMode,
             allCLibraries: allCLibraries, libraryPaths: libraryPaths,
             libraryConfigs: libraryConfigs);
@@ -2142,7 +2155,7 @@ internal partial class Program
     /// Optimizes, links, and stages the runtime DLLs after code generation, factored out of
     /// <see cref="BuildExecutable"/> to reduce its cognitive complexity.
     /// </summary>
-    private static int LinkAndStageExecutable(string entryFile, string exeFile,
+    private static int LinkAndStageExecutable(string exeFile,
         string llFile, string optFile, RfBuildMode buildMode,
         List<string> allCLibraries, IReadOnlyList<string> libraryPaths,
         IReadOnlyDictionary<string, CLibrary> libraryConfigs)

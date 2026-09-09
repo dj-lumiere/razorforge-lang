@@ -361,7 +361,7 @@ public sealed partial class SemanticVerifier
                 string key = variant.Routine.RegistryKey;
                 if (_variantBodies.ContainsKey(key: key) || _restoredVariantKeys.Contains(item: key))
                     continue;
-                _variantBodies[key: key] = Compiler.Instantiation.ErrorHandlingVariantPass.GenerateVariantBody(
+                _variantBodies[key: key] = ErrorHandlingVariantPass.GenerateVariantBody(
                     baseBody: baseBody, variant: variant, registry: _registry);
             }
         }

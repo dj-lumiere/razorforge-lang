@@ -62,7 +62,7 @@ public sealed partial class SemanticVerifier
         return _registry.Language == Language.Suflae &&
             (type is EntityTypeInfo ||
              type is RecordTypeInfo
-                 { GenericDefinition.Name: Compiler.Declaration.RuntimeContract.Roamed });
+                 { GenericDefinition.Name: Declaration.RuntimeContract.Roamed });
     }
 
     /// <summary>
@@ -80,7 +80,7 @@ public sealed partial class SemanticVerifier
               $"Declare it optional ('{optionalHint}') to allow none."
             : $"Cannot assign a possibly-none value to non-nullable entity {target}. " +
               $"Null-check it first (e.g. 'if v isnot None') or declare it optional ('{optionalHint}').";
-        ReportError(code: Compiler.Diagnostics.SemanticDiagnosticCode.AssignmentTypeMismatch,
+        ReportError(code: Diagnostics.SemanticDiagnosticCode.AssignmentTypeMismatch,
             message: message, location: value.Location);
     }
 
@@ -108,7 +108,7 @@ public sealed partial class SemanticVerifier
         }
 
         if (_registry.Language != Language.Suflae ||
-            _registry.LookupType(name: Compiler.Declaration.RuntimeContract.Roamed) is not { } roamedDef)
+            _registry.LookupType(name: Declaration.RuntimeContract.Roamed) is not { } roamedDef)
         {
             return (annotated, false, false);
         }
@@ -126,7 +126,7 @@ public sealed partial class SemanticVerifier
                     true, true);
 
             // Already a Roamed[E] (e.g. an annotation that spelled the wrapper directly) — non-null slot.
-            case RecordTypeInfo { GenericDefinition.Name: Compiler.Declaration.RuntimeContract.Roamed }:
+            case RecordTypeInfo { GenericDefinition.Name: Declaration.RuntimeContract.Roamed }:
                 return (annotated, false, true);
 
             default:

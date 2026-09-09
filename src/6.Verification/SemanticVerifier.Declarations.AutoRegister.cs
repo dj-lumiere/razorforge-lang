@@ -46,21 +46,21 @@ public sealed partial class SemanticVerifier
     /// declares <c>import BuilderQuery</c>. The stdlib imports BuilderQuery pervasively, so a stdlib
     /// file's import must not count; only a genuine user/library file opting in does.
     /// </summary>
-    private bool DetectUserBuilderQueryImport(System.Collections.Generic.List<(Program Program, string FilePath)> files)
+    private bool DetectUserBuilderQueryImport(List<(Program Program, string FilePath)> files)
     {
         string? stdlibRoot = _registry.StdlibPath;
         string? normalizedStdlib = stdlibRoot != null
-            ? System.IO.Path.GetFullPath(path: stdlibRoot)
-                .TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar)
+            ? Path.GetFullPath(path: stdlibRoot)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             : null;
 
         foreach ((Program program, string filePath) in files)
         {
             if (normalizedStdlib != null)
             {
-                string full = System.IO.Path.GetFullPath(path: filePath);
-                if (full.StartsWith(value: normalizedStdlib + System.IO.Path.DirectorySeparatorChar,
-                        comparisonType: System.StringComparison.OrdinalIgnoreCase))
+                string full = Path.GetFullPath(path: filePath);
+                if (full.StartsWith(value: normalizedStdlib + Path.DirectorySeparatorChar,
+                        comparisonType: StringComparison.OrdinalIgnoreCase))
                 {
                     continue; // real stdlib file — its BuilderQuery import is not a user opt-in
                 }

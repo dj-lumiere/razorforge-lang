@@ -293,8 +293,8 @@ public sealed partial class TypeRegistry
     /// so several same-signature templates coexist here without any registry/call-resolution clash).
     /// </summary>
     private readonly Dictionary<string,
-        List<(string OwnerParam, int Arity, List<SyntaxTree.GenericConstraintDeclaration> Gates,
-            SyntaxTree.Statement Body)>> _deriveTemplates = new();
+        List<(string OwnerParam, int Arity, List<GenericConstraintDeclaration> Gates,
+            Statement Body)>> _deriveTemplates = new();
 
     /// <summary>Generic routine resolutions cache.</summary>
     private readonly Dictionary<string, RoutineInfo> _routineResolutions = new();

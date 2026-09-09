@@ -84,7 +84,7 @@ public sealed class BuildTarget
     /// sites. Source associates a <c>C::</c> extern with one of these via <c>@link(lib: "NAME")</c>.
     /// Coexists with <see cref="CLibraries"/> (the name-only simple form, which defaults to dynamic/C).
     /// </summary>
-    public Dictionary<string, CLibrary> LibraryConfigs { get; set; } = new(comparer: System.StringComparer.Ordinal);
+    public Dictionary<string, CLibrary> LibraryConfigs { get; set; } = new(comparer: StringComparer.Ordinal);
 
     /// <summary>
     /// Build mode for the whole build: "debug" (default), "release", "release-time",

@@ -447,9 +447,8 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
 
         return elseBranchLowered != null
             ? BuildForElse(elseBranchLowered: elseBranchLowered, tryNextCall: tryNextCall,
-                elseBody: elseBody, elseVarName: elseVarName, iterVarStmt: iterVarStmt,
-                exhaustedName: $"_lf_exhausted_{n}",
-                iterationSourceName: iterationSourceName, loc: loc)
+                elseBody: elseBody, iterVarStmt: iterVarStmt, loc: loc,
+                names: new ForElseNames(elseVarName, $"_lf_exhausted_{n}", iterationSourceName))
             : BuildPlainFor(tryNextCall: tryNextCall, elseBody: elseBody, elseVarName: elseVarName,
                 iterVarStmt: iterVarStmt, iterationSourceName: iterationSourceName, loc: loc);
     }
@@ -548,10 +547,15 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     /// Builds the for-else lowering: an exhausted flag set inside the <c>None</c> arm, and an
     /// <c>if _lf_exhausted_N { alt }</c> check after the loop.
     /// </summary>
+    private readonly record struct ForElseNames(
+        string? ElseVarName, string ExhaustedName, string? IterationSourceName);
+
     private static BlockStatement BuildForElse(Statement elseBranchLowered, Expression tryNextCall,
-        Statement elseBody, string? elseVarName, Statement iterVarStmt,
-        string exhaustedName, string? iterationSourceName, SourceLocation loc)
+        Statement elseBody, Statement iterVarStmt, ForElseNames names, SourceLocation loc)
     {
+        string? elseVarName = names.ElseVarName;
+        string exhaustedName = names.ExhaustedName;
+        string? iterationSourceName = names.IterationSourceName;
         // For-else: set exhausted flag, then break
         Statement noneBody = new BlockStatement(
             Statements:

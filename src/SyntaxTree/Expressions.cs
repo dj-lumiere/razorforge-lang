@@ -40,7 +40,7 @@ public abstract record Expression(SourceLocation Location) : SyntaxTreeNode(Loca
     /// SA resolves it; reachability seeds it; ExpressionLoweringPass emits the call. Null for the inline
     /// `Array`/`BitArray` literals (pure insertvalue) and non-literal expressions.
     /// </summary>
-    public TypeModel.Symbols.RoutineInfo? ResolvedLiteralBuilder { get; set; }
+    public RoutineInfo? ResolvedLiteralBuilder { get; set; }
 
     /// <summary>
     /// The finalized backend representation for this expression after postprocessing.

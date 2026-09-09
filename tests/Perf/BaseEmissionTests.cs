@@ -194,7 +194,7 @@ public sealed partial class BaseEmissionTests
                 InstantiatedGenericBodies = baseR.InstantiatedGenericBodies
             });
         (string baseIr, _) = baseGen.GenerateBase();
-        System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "rf_base.ll"), baseIr);
+        File.WriteAllText(Path.Combine(Path.GetTempPath(), "rf_base.ll"), baseIr);
 
         HashSet<string> defined = DefinedSymbols(ll: baseIr);
         HashSet<string> declared = DeclaredSymbols(ll: baseIr);

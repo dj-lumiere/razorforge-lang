@@ -381,7 +381,7 @@ public sealed partial class SemanticVerifier
         {
             _registry.EnterScope(kind: ScopeKind.Block, name: "when_clause");
             bool handled = AnalyzeWhenClause(clause: clause, matchedType: matchedType,
-                whenVarName: whenVarName, whenVariant: whenVariant, handledArms: handledArms,
+                ctx: new WhenClauseContext(whenVarName, whenVariant, handledArms),
                 handledNone: ref handledNone, handledNoneValue: ref handledNoneValue,
                 handledCrashable: ref handledCrashable);
             if (handled)
@@ -406,7 +406,7 @@ public sealed partial class SemanticVerifier
         {
             ReportError(code: SemanticDiagnosticCode.NullableEntityDeref,
                 message:
-                "Cannot use 'when' on an entity reference. Match its none-state with " +
+                "Cannot use 'when' on an entity reference. CheckAndAdvance its none-state with " +
                 "'if x is None' / 'if x isnot None' instead.",
                 location: whenStmt.Expression.Location);
         }
@@ -418,12 +418,14 @@ public sealed partial class SemanticVerifier
     /// body. Returns <c>true</c> when the clause already called <c>ExitScope</c> (caller must
     /// <c>continue</c>), or <c>false</c> when the caller should call <c>ExitScope</c>.
     /// </summary>
+    private readonly record struct WhenClauseContext(
+        string? WhenVarName, VariantTypeInfo? WhenVariant, List<string> HandledArms);
+
     private bool AnalyzeWhenClause(WhenClause clause, TypeSymbol matchedType,
-        string? whenVarName, VariantTypeInfo? whenVariant, List<string> handledArms,
-        ref bool handledNone, ref bool handledNoneValue, ref bool handledCrashable)
+        WhenClauseContext ctx, ref bool handledNone, ref bool handledNoneValue, ref bool handledCrashable)
     {
-        ApplyElseVariantNarrowing(clause: clause, whenVarName: whenVarName,
-            whenVariant: whenVariant, handledArms: handledArms);
+        ApplyElseVariantNarrowing(clause: clause, whenVarName: ctx.WhenVarName,
+            whenVariant: ctx.WhenVariant, handledArms: ctx.HandledArms);
         UpdateCarrierHandledFlags(clause: clause, matchedType: matchedType,
             handledNone: ref handledNone, handledNoneValue: ref handledNoneValue,
             handledCrashable: ref handledCrashable);
@@ -443,8 +445,8 @@ public sealed partial class SemanticVerifier
         }
 
         AnalyzePattern(pattern: clause.Pattern, matchedType: matchedType);
-        ApplyVariantArmNarrowing(clause: clause, whenVarName: whenVarName,
-            whenVariant: whenVariant, handledArms: handledArms);
+        ApplyVariantArmNarrowing(clause: clause, whenVarName: ctx.WhenVarName,
+            whenVariant: ctx.WhenVariant, handledArms: ctx.HandledArms);
         AnalyzeStatement(statement: clause.Body);
         return false;
     }
@@ -851,7 +853,7 @@ public sealed partial class SemanticVerifier
         // The hold is pushed for the duration of the body and popped on exit, so only OVERLAPPING
         // scopes conflict (sequential `using`s on the same handle are fine).
         string accessBase = resourceType.BareName;
-        bool opensAccessToken = accessBase is Compiler.Declaration.RuntimeContract.Consulting or Compiler.Declaration.RuntimeContract.Amending;
+        bool opensAccessToken = accessBase is Declaration.RuntimeContract.Consulting or Declaration.RuntimeContract.Amending;
         string? accessHandle = opensAccessToken
             ? ExtractAccessReceiverName(resource: usingStmt.Resource)
             : null;
@@ -912,7 +914,7 @@ public sealed partial class SemanticVerifier
     private void CheckReadersXorWriter(UsingStatement usingStmt, string accessBase,
         string accessHandle)
     {
-        bool isWriter = accessBase == Compiler.Declaration.RuntimeContract.Amending;
+        bool isWriter = accessBase == Declaration.RuntimeContract.Amending;
         int accessIdentity = GetOrAssignHandleIdentity(path: accessHandle);
         foreach ((string Handle, int Identity, bool IsWriter, SourceLocation Location) hold
                  in _activeAccessHolds)
@@ -1055,7 +1057,7 @@ public sealed partial class SemanticVerifier
                     Callee: MemberExpression
                     {
                         Object: var receiver,
-                        MemberName: Compiler.Declaration.RuntimeContract.RefCount.Share or "observe"
+                        MemberName: Declaration.RuntimeContract.RefCount.Share or "observe"
                     }
                 } when BuildAccessPath(expr: receiver) is { } recvPath =>
                 GetOrAssignHandleIdentity(path: recvPath),

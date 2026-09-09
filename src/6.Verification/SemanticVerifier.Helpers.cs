@@ -241,9 +241,9 @@ public sealed partial class SemanticVerifier
             {
                 ProcessPositionalArg(arg: arg, routine: routine, parameters: parameters,
                     totalParams: totalParams, boundParams: boundParams,
-                    requiresNamedArgs: requiresNamedArgs, recommendsNamedArgs: recommendsNamedArgs,
-                    isPositional: isPositional, isMixed: isMixed, seenNamed: seenNamed,
-                    nonMeParamCount: nonMeParamCount, positionalIndex: ref positionalIndex);
+                    ctx: new PositionalArgContext(requiresNamedArgs, recommendsNamedArgs,
+                        isPositional, isMixed, seenNamed, nonMeParamCount),
+                    positionalIndex: ref positionalIndex);
             }
         }
 
@@ -288,6 +288,10 @@ public sealed partial class SemanticVerifier
         }
     }
 
+    private readonly record struct PositionalArgContext(
+        bool RequiresNamedArgs, bool RecommendsNamedArgs, bool IsPositional,
+        bool IsMixed, bool SeenNamed, int NonMeParamCount);
+
     /// <summary>
     /// Processes a single positional argument: validates naming rules (S510/W258/S507), determines
     /// whether the argument falls in a variadic slot, records the binding, and advances the positional
@@ -295,9 +299,11 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void ProcessPositionalArg(Expression arg, RoutineInfo routine,
         List<ParameterInfo> parameters, int totalParams, Dictionary<int, Expression> boundParams,
-        bool requiresNamedArgs, bool recommendsNamedArgs, bool isPositional,
-        bool isMixed, bool seenNamed, int nonMeParamCount, ref int positionalIndex)
+        PositionalArgContext ctx, ref int positionalIndex)
     {
+        bool requiresNamedArgs = ctx.RequiresNamedArgs, recommendsNamedArgs = ctx.RecommendsNamedArgs;
+        bool isPositional = ctx.IsPositional, isMixed = ctx.IsMixed, seenNamed = ctx.SeenNamed;
+        int nonMeParamCount = ctx.NonMeParamCount;
         if (requiresNamedArgs && !isMixed)
         {
             ReportError(code: SemanticDiagnosticCode.NamedArgumentRequired,
@@ -499,7 +505,7 @@ public sealed partial class SemanticVerifier
         // post-inference `paramType` which may already be substituted to the concrete token
         // (Viewing/Modifying) and would no longer look like a generic-param bound.
         bool paramIsBorrow = (paramType.Category == TypeCategory.Protocol &&
-                             Compiler.Declaration.RuntimeContract.IsMarkerProtocol(baseName: paramBase))
+                             Declaration.RuntimeContract.IsMarkerProtocol(baseName: paramBase))
                              || IsMarkerBoundParam(paramType: param.Type, routine: routine);
         if (_registry.Language == Language.RazorForge &&
             argValue is IdentifierExpression or MemberExpression &&
@@ -551,13 +557,12 @@ public sealed partial class SemanticVerifier
     {
         // The old check false-positived because it looked at a stripped type; the reliable
         // signal is STRUCTURAL and read here at Phase 4, BEFORE MarkerProtocolDesugarPass strips
-        // borrow params to their inner `T`: a consuming param is bare `EntityTypeInfo`, while
-        // every borrow is a Protocol (`Accessing`/`Controlling`) or a Record wrapper
-        // (`Viewing`/`Modifying`/…) — never bare `EntityTypeInfo`. So gating on
-        // `paramType is EntityTypeInfo` excludes all borrow forms with no name list. Verb-wrapped
-        // arguments (steal/copy/share expressions) are Steal/Call expressions, not
-        // Identifier/Member, so they are excluded automatically. Safety comes from move tracking;
-        // this check makes the destructive transfer visible in source.
+        // borrow params to their inner type. A consuming param is a bare EntityTypeInfo, while
+        // every borrow is a Protocol (Accessing/Controlling) or a Record wrapper
+        // (Viewing/Modifying/…) — never a bare EntityTypeInfo. Gating on EntityTypeInfo directly
+        // excludes all borrow forms with no name list. Verb-wrapped arguments (steal/copy/share)
+        // are Steal/Call expressions, not Identifier/Member, so they are excluded automatically.
+        // Safety comes from move tracking; this check makes the destructive transfer visible in source.
         if (_registry.Language == Language.RazorForge
             && argValue is IdentifierExpression or MemberExpression
             && argType is EntityTypeInfo
@@ -656,8 +661,8 @@ public sealed partial class SemanticVerifier
             if (!isEntity && IsTriviallyAssignable(type: argType)) continue;
 
             string memberRoutineName = isAlert
-                ? Compiler.Declaration.RuntimeContract.Display.Diagnose
-                : Compiler.Declaration.RuntimeContract.Display.Represent;
+                ? Declaration.RuntimeContract.Display.Diagnose
+                : Declaration.RuntimeContract.Display.Represent;
             var memberAccess = new MemberExpression(
                 Object: innerExpr,
                 MemberName: memberRoutineName,
@@ -711,7 +716,7 @@ public sealed partial class SemanticVerifier
             WrapperTypeInfo w => w.Name,
             _ => string.Empty
         };
-        return baseName == Compiler.Declaration.RuntimeContract.Roamed
+        return baseName == Declaration.RuntimeContract.Roamed
             && type.TypeArguments is [{ } inner]
             && inner.FullName == entity.FullName;
     }
@@ -879,7 +884,7 @@ public sealed partial class SemanticVerifier
     private static bool IsAssignableToBorrowProtocol(TypeSymbol source, TypeSymbol target)
     {
         string targetBase = target.BareName;
-        if ((targetBase != Compiler.Declaration.RuntimeContract.Accessing && targetBase != Compiler.Declaration.RuntimeContract.Controlling) ||
+        if ((targetBase != Declaration.RuntimeContract.Accessing && targetBase != Declaration.RuntimeContract.Controlling) ||
             target.TypeArguments is not { Count: 1 } borrowArgs)
         {
             return false;
@@ -889,10 +894,10 @@ public sealed partial class SemanticVerifier
         if (TryGetOwnershipWrapperInner(type: source, wrapperBase: out string? srcWrapper,
                 inner: out TypeSymbol? srcInner))
         {
-            bool wrapperAllowed = targetBase == Compiler.Declaration.RuntimeContract.Accessing
-                ? srcWrapper is Compiler.Declaration.RuntimeContract.Retained or Compiler.Declaration.RuntimeContract.Modifying or Compiler.Declaration.RuntimeContract.Viewing
-                    or Compiler.Declaration.RuntimeContract.Controlling or Compiler.Declaration.RuntimeContract.Accessing
-                : srcWrapper is Compiler.Declaration.RuntimeContract.Retained or Compiler.Declaration.RuntimeContract.Modifying or Compiler.Declaration.RuntimeContract.Controlling;
+            bool wrapperAllowed = targetBase == Declaration.RuntimeContract.Accessing
+                ? srcWrapper is Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Modifying or Declaration.RuntimeContract.Viewing
+                    or Declaration.RuntimeContract.Controlling or Declaration.RuntimeContract.Accessing
+                : srcWrapper is Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Modifying or Declaration.RuntimeContract.Controlling;
             if (wrapperAllowed && srcInner != null &&
                 (srcInner.FullName == borrowInner.FullName ||
                  srcInner.Name == borrowInner.Name))
@@ -925,8 +930,8 @@ public sealed partial class SemanticVerifier
         out TypeSymbol? inner)
     {
         string baseName = type.BareName;
-        if (baseName is Compiler.Declaration.RuntimeContract.Retained or Compiler.Declaration.RuntimeContract.Tracked or Compiler.Declaration.RuntimeContract.Modifying or Compiler.Declaration.RuntimeContract.Viewing
-            or Compiler.Declaration.RuntimeContract.Controlling or Compiler.Declaration.RuntimeContract.Accessing or Compiler.Declaration.RuntimeContract.Hijacked)
+        if (baseName is Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Tracked or Declaration.RuntimeContract.Modifying or Declaration.RuntimeContract.Viewing
+            or Declaration.RuntimeContract.Controlling or Declaration.RuntimeContract.Accessing or Declaration.RuntimeContract.Hijacked)
         {
             if (type is WrapperTypeInfo { InnerType: not null } w)
             {
@@ -948,13 +953,13 @@ public sealed partial class SemanticVerifier
 
     private static bool IsOwnedOf(TypeSymbol type, out TypeSymbol inner)
     {
-        if (type is WrapperTypeInfo { Name: Compiler.Declaration.RuntimeContract.Owned } wrapped)
+        if (type is WrapperTypeInfo { Name: Declaration.RuntimeContract.Owned } wrapped)
         {
             inner = wrapped.InnerType;
             return true;
         }
 
-        if (type.BareName == Compiler.Declaration.RuntimeContract.Owned &&
+        if (type.BareName == Declaration.RuntimeContract.Owned &&
             type.TypeArguments is { Count: 1 } args)
         {
             inner = args[index: 0];
@@ -1082,7 +1087,7 @@ public sealed partial class SemanticVerifier
     private static TypeSymbol UnwrapBorrowProtocol(TypeSymbol type)
     {
         if (type.Category == TypeCategory.Protocol &&
-            Compiler.Declaration.RuntimeContract.IsMarkerProtocol(baseName: type.BareName) &&
+            Declaration.RuntimeContract.IsMarkerProtocol(baseName: type.BareName) &&
             type.TypeArguments is { Count: > 0 } args)
         {
             return args[index: 0];
@@ -1237,8 +1242,8 @@ public sealed partial class SemanticVerifier
             .Where(c => c.ParameterName == gp.Name && c.ConstraintType == ConstraintKind.Obeys
                         && c.ConstraintTypes != null)
             .SelectMany(c => c.ConstraintTypes!)
-            .Any(pe => pe.Name is Compiler.Declaration.RuntimeContract.Accessing
-                       or Compiler.Declaration.RuntimeContract.Controlling);
+            .Any(pe => pe.Name is Declaration.RuntimeContract.Accessing
+                       or Declaration.RuntimeContract.Controlling);
     }
 
     private IEnumerable<GenericConstraintDeclaration> ActiveConstraintsFor(string paramName)

@@ -21,7 +21,7 @@ public partial class Parser
         // Generic parameters with inline constraints
         List<string>? genericParams = null;
         List<GenericConstraintDeclaration>? inlineConstraints = null;
-        if (Match(type: TokenType.LeftBracket))
+        if (CheckAndAdvance(type: TokenType.LeftBracket))
         {
             (List<string> genericParams, List<GenericConstraintDeclaration>? inlineConstraints)
                 result = ParseGenericParametersWithConstraints();
@@ -85,14 +85,14 @@ public partial class Parser
 
         // `None` is a keyword (the void type / variant empty branch) but is a legal record name — the
         // void unit type is declared `record None`.
-        string name = Match(type: TokenType.None)
+        string name = CheckAndAdvance(type: TokenType.None)
             ? "None"
             : ConsumeIdentifier(errorMessage: "Expected record name");
 
         // Generic parameters with inline constraints
         List<string>? genericParams = null;
         List<GenericConstraintDeclaration>? inlineConstraints = null;
-        if (Match(type: TokenType.LeftBracket))
+        if (CheckAndAdvance(type: TokenType.LeftBracket))
         {
             (List<string> genericParams, List<GenericConstraintDeclaration>? inlineConstraints)
                 result = ParseGenericParametersWithConstraints();
@@ -174,7 +174,7 @@ public partial class Parser
 
         while (!Check(type: TokenType.Dedent) && !IsAtEnd)
         {
-            if (Match(TokenType.Newline, TokenType.DocComment))
+            if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
             {
                 continue;
             }
@@ -195,7 +195,7 @@ public partial class Parser
                 // CASE: value syntax for choice values (e.g., OK: 200)
                 // Store expression as-is; semantic analyzer will validate and convert
                 Expression? value = null;
-                if (Match(type: TokenType.Colon))
+                if (CheckAndAdvance(type: TokenType.Colon))
                 {
                     value = ParseExpression();
                 }
@@ -203,7 +203,7 @@ public partial class Parser
                 variants.Add(item: new ChoiceCase(Name: variantName,
                     Value: value,
                     Location: GetLocation()));
-                Match(type: TokenType.Newline);
+                CheckAndAdvance(type: TokenType.Newline);
             }
         }
 
@@ -255,14 +255,14 @@ public partial class Parser
 
         while (!Check(type: TokenType.Dedent) && !IsAtEnd)
         {
-            if (Match(type: TokenType.Newline))
+            if (CheckAndAdvance(type: TokenType.Newline))
             {
                 continue;
             }
 
             string memberName = ConsumeIdentifier(errorMessage: "Expected flags member name");
             members.Add(item: memberName);
-            Match(type: TokenType.Newline);
+            CheckAndAdvance(type: TokenType.Newline);
         }
 
         if (Check(type: TokenType.Dedent))
@@ -326,12 +326,12 @@ public partial class Parser
 
         while (!Check(type: TokenType.Dedent) && !IsAtEnd)
         {
-            if (Match(TokenType.Newline, TokenType.DocComment))
+            if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
                 continue;
 
-            if (Match(type: TokenType.Pass))
+            if (CheckAndAdvance(type: TokenType.Pass))
             {
-                Match(type: TokenType.Newline);
+                CheckAndAdvance(type: TokenType.Newline);
                 continue;
             }
 
@@ -367,7 +367,7 @@ public partial class Parser
         }
 
         var interfaces = new List<TypeExpression>();
-        if (!Match(type: TokenType.Obeys))
+        if (!CheckAndAdvance(type: TokenType.Obeys))
         {
             return interfaces;
         }
@@ -375,13 +375,13 @@ public partial class Parser
         do
         {
             // Skip intermediate newlines between comma-separated protocol names.
-            while (Match(type: TokenType.Newline))
+            while (CheckAndAdvance(type: TokenType.Newline))
             {
                 // Consume newline; continue to the next protocol name.
             }
 
             interfaces.Add(item: allowOnlyIf ? ParseObeysProtocol() : ParseType());
-        } while (Match(type: TokenType.Comma));
+        } while (CheckAndAdvance(type: TokenType.Comma));
 
         return interfaces;
     }
@@ -446,14 +446,14 @@ public partial class Parser
         string pascal,
         bool hasPass)
     {
-        if (Match(TokenType.Newline, TokenType.DocComment))
+        if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
         {
             return hasPass;
         }
 
-        if (Match(type: TokenType.Pass))
+        if (CheckAndAdvance(type: TokenType.Pass))
         {
-            Match(type: TokenType.Newline);
+            CheckAndAdvance(type: TokenType.Newline);
             return true;
         }
 
@@ -492,7 +492,7 @@ public partial class Parser
         // Generic parameters with inline constraints
         List<string>? genericParams = null;
         List<GenericConstraintDeclaration>? inlineConstraints = null;
-        if (Match(type: TokenType.LeftBracket))
+        if (CheckAndAdvance(type: TokenType.LeftBracket))
         {
             (List<string> genericParams, List<GenericConstraintDeclaration>? inlineConstraints)
                 result = ParseGenericParametersWithConstraints();
@@ -527,7 +527,7 @@ public partial class Parser
 
         while (!Check(type: TokenType.Dedent) && !IsAtEnd)
         {
-            if (Match(type: TokenType.Newline))
+            if (CheckAndAdvance(type: TokenType.Newline))
             {
                 continue;
             }
@@ -535,7 +535,7 @@ public partial class Parser
             // Each member is a type expression (or None keyword)
             SourceLocation memberLoc = GetLocation();
             TypeExpression memberType;
-            if (Match(type: TokenType.None))
+            if (CheckAndAdvance(type: TokenType.None))
             {
                 memberType = new TypeExpression(Name: "None",
                     GenericArguments: null,
@@ -547,7 +547,7 @@ public partial class Parser
             }
 
             members.Add(item: new VariantMember(Type: memberType, Location: memberLoc));
-            Match(type: TokenType.Newline);
+            CheckAndAdvance(type: TokenType.Newline);
         }
 
         if (Check(type: TokenType.Dedent))
@@ -583,7 +583,7 @@ public partial class Parser
         // Generic parameters with inline constraints
         List<string>? genericParams = null;
         List<GenericConstraintDeclaration>? inlineConstraints = null;
-        if (Match(type: TokenType.LeftBracket))
+        if (CheckAndAdvance(type: TokenType.LeftBracket))
         {
             (List<string> genericParams, List<GenericConstraintDeclaration>? inlineConstraints)
                 result = ParseGenericParametersWithConstraints();
@@ -670,15 +670,15 @@ public partial class Parser
         List<RoutineSignature> memberRoutines,
         ref List<AssociatedTypeDeclaration>? associatedTypes)
     {
-        if (Match(TokenType.Newline, TokenType.DocComment))
+        if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
         {
             return;
         }
 
         // 'pass' is valid in a protocol body that defines no memberRoutines (marker protocol)
-        if (Match(type: TokenType.Pass))
+        if (CheckAndAdvance(type: TokenType.Pass))
         {
-            Match(type: TokenType.Newline);
+            CheckAndAdvance(type: TokenType.Newline);
             return;
         }
 
@@ -686,7 +686,7 @@ public partial class Parser
         List<string> memberRoutineAnnotations = ParseAnnotations();
 
         // Skip newlines between annotations and routine keyword.
-        while (Match(type: TokenType.Newline))
+        while (CheckAndAdvance(type: TokenType.Newline))
         {
             // Consume intermediate newlines before the routine keyword.
         }
@@ -694,36 +694,36 @@ public partial class Parser
         // Optional `common` storage-class qualifier — type-level (static) protocol memberRoutine,
         // e.g. `common routine Me.identity() -> V`. The `common` flag is propagated downstream so
         // TypeBodyResolver can set IsInstanceMemberRoutine = false.
-        bool memberRoutineIsCommon = Match(type: TokenType.Common);
+        bool memberRoutineIsCommon = CheckAndAdvance(type: TokenType.Common);
 
         // Optional `dangerous` qualifier — marks the protocol memberRoutine as requiring a `danger`
         // block at the call site (mirrors the impl-side `dangerous routine` syntax).
-        bool memberRoutineIsDangerous = Match(type: TokenType.Dangerous);
+        bool memberRoutineIsDangerous = CheckAndAdvance(type: TokenType.Dangerous);
 
         // Allow either qualifier order: `dangerous common routine` is just as valid as
         // `common dangerous routine`.
-        if (!memberRoutineIsCommon && Match(type: TokenType.Common))
+        if (!memberRoutineIsCommon && CheckAndAdvance(type: TokenType.Common))
         {
             memberRoutineIsCommon = true;
         }
 
         // Associated-type slot declaration inside protocol body: `relates Key` or `relates Key obeys Hashable`
-        if (Match(type: TokenType.Relates))
+        if (CheckAndAdvance(type: TokenType.Relates))
         {
             associatedTypes ??= [];
             associatedTypes.Add(item: ParseProtocolRelatesSlot());
-            Match(type: TokenType.Newline);
+            CheckAndAdvance(type: TokenType.Newline);
             return;
         }
 
         // Parse routine signature
-        if (Match(type: TokenType.Routine))
+        if (CheckAndAdvance(type: TokenType.Routine))
         {
             memberRoutines.Add(item: ParseProtocolRoutineSignature(
                 memberRoutineAnnotations: memberRoutineAnnotations,
                 memberRoutineIsCommon: memberRoutineIsCommon,
                 memberRoutineIsDangerous: memberRoutineIsDangerous));
-            Match(type: TokenType.Newline);
+            CheckAndAdvance(type: TokenType.Newline);
         }
         else
         {
@@ -741,7 +741,7 @@ public partial class Parser
         SourceLocation relatesLocation = GetLocation();
         TypeExpression slotNameType = ParseType();
         TypeExpression? constraint = null;
-        if (Match(type: TokenType.Obeys))
+        if (CheckAndAdvance(type: TokenType.Obeys))
         {
             constraint = ParseType();
         }
@@ -763,7 +763,7 @@ public partial class Parser
         bool memberRoutineIsCommon, bool memberRoutineIsDangerous)
     {
         _routineNameWired = false;
-        if (Match(type: TokenType.Dollar))
+        if (CheckAndAdvance(type: TokenType.Dollar))
         {
             _routineNameWired = true;
         }
@@ -772,7 +772,7 @@ public partial class Parser
 
         // Handle Me.MemberRoutineName syntax for instance member routines
         // Protocol member routines can be: "routine Me.MemberRoutineName()" or "routine memberRoutineName()"
-        while (Match(type: TokenType.Dot))
+        while (CheckAndAdvance(type: TokenType.Dot))
         {
             memberRoutineNameSb.Append('.');
             memberRoutineNameSb.Append(ConsumeMemberRoutineName(errorMessage: "Expected member routine name after '.'"));
@@ -782,7 +782,7 @@ public partial class Parser
 
         // Support failable member routines: "routine!". The `!` is a STRUCTURED flag on
         // the RoutineSignature — the name stays bare.
-        bool memberRoutineIsFailable = Match(type: TokenType.Bang);
+        bool memberRoutineIsFailable = CheckAndAdvance(type: TokenType.Bang);
 
         // Parameters
         Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after member routine name");
@@ -790,7 +790,7 @@ public partial class Parser
 
         // Return type
         TypeExpression? returnType = null;
-        if (Match(type: TokenType.Arrow))
+        if (CheckAndAdvance(type: TokenType.Arrow))
         {
             returnType = ParseType();
         }
@@ -834,7 +834,7 @@ public partial class Parser
                 {
                     Token selfToken = Advance();
                     TypeExpression? selfType = null;
-                    if (Match(type: TokenType.Colon))
+                    if (CheckAndAdvance(type: TokenType.Colon))
                     {
                         selfType = ParseType();
                     }
@@ -851,10 +851,10 @@ public partial class Parser
                     // protocols). Mirrors the routine-declaration param parse.
                     string paramName =
                         ConsumeIdentifier(errorMessage: "Expected parameter name");
-                    bool isVariadic = Match(type: TokenType.DotDotDot);
+                    bool isVariadic = CheckAndAdvance(type: TokenType.DotDotDot);
 
                     TypeExpression? paramType = null;
-                    if (Match(type: TokenType.Colon))
+                    if (CheckAndAdvance(type: TokenType.Colon))
                     {
                         paramType = ParseType();
                     }
@@ -865,7 +865,7 @@ public partial class Parser
                         Location: GetLocation(),
                         IsVariadic: isVariadic));
                 }
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
         }
 
         Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after parameters");
@@ -889,7 +889,7 @@ public partial class Parser
         do
         {
             modulePathSb.Append(ConsumeIdentifier(errorMessage: "Expected module name"));
-            if (Match(type: TokenType.Slash))
+            if (CheckAndAdvance(type: TokenType.Slash))
             {
                 modulePathSb.Append('/');
             }
@@ -924,11 +924,11 @@ public partial class Parser
         do
         {
             modulePathSb.Append(ConsumeIdentifier(errorMessage: "Expected module name"));
-            if (Match(type: TokenType.Slash))
+            if (CheckAndAdvance(type: TokenType.Slash))
             {
                 modulePathSb.Append('/');
             }
-            else if (Match(type: TokenType.Dot))
+            else if (CheckAndAdvance(type: TokenType.Dot))
             {
                 ParseImportDotClause(modulePathSb: modulePathSb,
                     specificImports: ref specificImports,
@@ -944,7 +944,7 @@ public partial class Parser
         string modulePath = modulePathSb.ToString();
 
         // Optional alias
-        if (Match(type: TokenType.As))
+        if (CheckAndAdvance(type: TokenType.As))
         {
             alias = ConsumeIdentifier(errorMessage: "Expected alias name");
         }
@@ -967,7 +967,7 @@ public partial class Parser
     private void ParseImportDotClause(System.Text.StringBuilder modulePathSb,
         ref List<string>? specificImports, ref List<(string Realm, string Name)>? realmImports)
     {
-        if (Match(type: TokenType.LeftBracket))
+        if (CheckAndAdvance(type: TokenType.LeftBracket))
         {
             // Selective imports: Module.[A, B, C]
             specificImports = [];
@@ -977,7 +977,7 @@ public partial class Parser
                     ConsumeIdentifier(
                         errorMessage: "Expected type name in selective import");
                 specificImports.Add(item: name);
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
 
             Consume(type: TokenType.RightBracket,
                 errorMessage: "Expected ']' after selective imports");

@@ -735,9 +735,9 @@ internal sealed class AutoWiredRegistrationPass
         List<RoutineInfo> existingMemberRoutines)
     {
         // Variants get auto-synthesized represent/diagnose so user-defined
-        // tagged unions render in f-strings and show() without manual impls.
-        // The wired-routine synthesis pass builds the bodies from the variant member list;
-        // registration here makes the stubs visible to overload resolution and the
+        // tagged unions render in f-strings and show calls without manual impls.
+        // The wired-routine synthesis pass builds the bodies from the variant member list.
+        // Registration here makes the stubs visible to overload resolution and the
         // reachability sweep so the symbols actually get emitted by codegen.
         if (textType != null && !type.IsGenericDefinition)
         {
@@ -962,8 +962,8 @@ internal sealed class AutoWiredRegistrationPass
             _ => 0
         };
 
-        // Record/Choice/Flags/Crashable all carry their implemented-protocol list on the record base;
-        // entities carry it on the entity type. Mirrors the protocol conformance analyzer's logic.
+        // Record/Choice/Flags/Crashable all carry their implemented-protocol list on the record base.
+        // Entities carry it on the entity type. Mirrors the protocol conformance analyzer's logic.
         List<TypeSymbol> obeyed = type switch
         {
             RecordTypeInfo r => r.ImplementedProtocols,
@@ -988,7 +988,7 @@ internal sealed class AutoWiredRegistrationPass
         foreach (ProtocolTypeInfo p in explicitClosure.Values)
         {
             if (p.GenericConstraints?.Any(predicate: c =>
-                    c.ConstraintType == SyntaxTree.ConstraintKind.Everywhere) != true)
+                    c.ConstraintType == ConstraintKind.Everywhere) != true)
             {
                 continue;
             }
@@ -1023,7 +1023,7 @@ internal sealed class AutoWiredRegistrationPass
         // and whether it is a BASE derive or a DERIVED operator: a derived operator's
         // `CapabilityWired` points at its base (≠ its own name); a base derive's points at itself.
         if (member.HasDefaultImplementation || !member.IsInstanceMemberRoutine ||
-            !Compiler.Declaration.WiredRoutineCatalog.TryGet(name: member.Name, entry: out WiredEntry we))
+            !WiredRoutineCatalog.TryGet(name: member.Name, entry: out WiredEntry we))
         {
             return true;
         }

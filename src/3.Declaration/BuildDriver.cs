@@ -459,7 +459,7 @@ public sealed class BuildDriver
 
             // File-granularity conditional compilation: skip a `.rf` sibling whose leading
             // `#@target(...)` directive doesn't match the build target (RazorForge-only).
-            if (!Compiler.Targeting.TargetGate.ShouldCompile(filePath: fullCandidate))
+            if (!Targeting.TargetGate.ShouldCompile(filePath: fullCandidate))
             {
                 continue;
             }
@@ -771,7 +771,7 @@ public sealed class BuildDriver
                  .OrderBy(keySelector: p => p, comparer: StringComparer.Ordinal))
         {
             // File-granularity conditional compilation: skip files gated out for this target.
-            if (!Compiler.Targeting.TargetGate.ShouldCompile(filePath: filePath))
+            if (!Targeting.TargetGate.ShouldCompile(filePath: filePath))
             {
                 continue;
             }
@@ -839,7 +839,7 @@ public sealed class BuildDriver
     private void TryRegisterLibraryFile(string filePath)
     {
         // File-granularity conditional compilation: skip files gated out for this target.
-        if (!Compiler.Targeting.TargetGate.ShouldCompile(filePath: filePath))
+        if (!Targeting.TargetGate.ShouldCompile(filePath: filePath))
             return;
 
         Program? ast = ParseAstOnly(filePath: filePath);

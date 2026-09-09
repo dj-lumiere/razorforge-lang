@@ -119,7 +119,7 @@ internal sealed class ProtocolConformanceAnalyzer
     /// SEMANTIC everywhere-protocols (Equatable/Comparable/Hashable) are opt-in and deliberately excluded —
     /// a plain value record must not silently gain equality/ordering. Keyed by bare protocol name.</summary>
     private static readonly HashSet<string> _autoConferredEverywhereProtocols =
-        new(comparer: System.StringComparer.Ordinal) { AssignableProtocol, CopyableProtocol };
+        new(comparer: StringComparer.Ordinal) { AssignableProtocol, CopyableProtocol };
 
     /// <summary>
     /// Generic <c>needs P everywhere</c> gate (④ standard-impl eligibility): for every protocol that declares

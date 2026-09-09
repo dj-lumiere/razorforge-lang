@@ -384,7 +384,7 @@ public partial class LlvmCodeGenerator
     private static TypeInfo? MarkerProtocolInner(TypeInfo? type)
     {
         if (type is ProtocolTypeInfo { TypeArguments: [{ } inner] } proto
-            && Compiler.Declaration.RuntimeContract.IsMarkerProtocol(
+            && Declaration.RuntimeContract.IsMarkerProtocol(
                 baseName: (proto.GenericDefinition ?? proto).BareName))
             return inner;
         return null;
@@ -579,7 +579,7 @@ public partial class LlvmCodeGenerator
     /// Tries to substitute element types inside a tuple type. Returns the new tuple when any element
     /// changed; null when the type is not a tuple or no element changed.
     /// </summary>
-    private TypeInfo? TrySubstituteTuple(TypeInfo type, Dictionary<string, TypeInfo> substitutions)
+    private TupleTypeInfo? TrySubstituteTuple(TypeInfo type, Dictionary<string, TypeInfo> substitutions)
     {
         if (type is not TupleTypeInfo tuple)
             return null;

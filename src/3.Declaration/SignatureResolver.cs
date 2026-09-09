@@ -198,8 +198,8 @@ internal sealed class SignatureResolver
                 parameters: parameters, routine: routine);
         }
 
-        // Resolve return type. Top-level `T` is legal (entity rvalue, return-position only);
-        // nested `T` inside generic args is a slot position and rejected.
+        // Resolve return type. A top-level generic param is legal in entity-rvalue return position.
+        // A generic param nested inside type arguments is a slot reference and rejected.
         if (routine.ReturnType?.GenericArguments is { } retArgs)
         {
             foreach (TypeExpression arg in retArgs)
@@ -248,9 +248,8 @@ internal sealed class SignatureResolver
 
         RoutineInfo finalRoutine = BuildFinalRoutineInfo(pending: pending,
             routine: routine, refreshedOwnerType: refreshedOwnerType, meType: meType,
-            parameters: parameters, returnType: returnType, isRvalueReturn: isRvalueReturn,
-            declaredModification: declaredModification, allGenericParams: allGenericParams,
-            allConstraints: allConstraints);
+            sig: new ResolvedSignature(parameters, returnType, isRvalueReturn,
+                declaredModification, allGenericParams, allConstraints));
 
         RegisterAndValidateRoutine(pending: pending, routine: routine, finalRoutine: finalRoutine);
     }
@@ -296,15 +295,19 @@ internal sealed class SignatureResolver
         return (allGenericParams, allConstraints);
     }
 
+    private readonly record struct ResolvedSignature(
+        List<ParameterInfo> Parameters, TypeSymbol? ReturnType, bool IsRvalueReturn,
+        MutationCategory DeclaredModification, List<string> AllGenericParams,
+        List<GenericConstraintDeclaration> AllConstraints);
+
     /// <summary>
     /// Constructs the final <see cref="RoutineInfo"/> from the resolved signature components.
     /// </summary>
     private static RoutineInfo BuildFinalRoutineInfo(SemanticVerifier.PendingRoutine pending,
         RoutineDeclaration routine, TypeSymbol? refreshedOwnerType, TypeSymbol? meType,
-        List<ParameterInfo> parameters, TypeSymbol? returnType, bool isRvalueReturn,
-        MutationCategory declaredModification, List<string> allGenericParams,
-        List<GenericConstraintDeclaration> allConstraints)
+        ResolvedSignature sig)
     {
+        var (parameters, returnType, isRvalueReturn, declaredModification, allGenericParams, allConstraints) = sig;
         return new RoutineInfo(name: pending.RoutineName)
         {
             Kind = pending.Kind,

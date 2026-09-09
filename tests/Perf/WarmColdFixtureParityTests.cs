@@ -30,7 +30,7 @@ public sealed partial class WarmColdFixtureParityTests
 
     private static string LocateRepoRoot()
     {
-        string dir = System.AppContext.BaseDirectory;
+        string dir = AppContext.BaseDirectory;
         while (!string.IsNullOrEmpty(dir))
         {
             if (File.Exists(Path.Combine(dir, "RazorForge.csproj"))) return dir;
@@ -38,7 +38,7 @@ public sealed partial class WarmColdFixtureParityTests
             if (parent == null || parent == dir) break;
             dir = parent;
         }
-        throw new System.InvalidOperationException("Could not locate RazorForge.csproj.");
+        throw new InvalidOperationException("Could not locate RazorForge.csproj.");
     }
 
     // Captured ONCE (the daemon's resident stdlib) and shared across all cases in this class.
@@ -141,7 +141,7 @@ public sealed partial class WarmColdFixtureParityTests
 
     private static HashSet<string> DefineSet(string ll) =>
         ll.Split('\n')
-          .Where(l => l.StartsWith("define ", System.StringComparison.Ordinal))
+          .Where(l => l.StartsWith("define ", StringComparison.Ordinal))
           .Select(l => DbgAnnotationRegex().Replace(l.Split(" {", 2)[0], ""))
-          .ToHashSet(System.StringComparer.Ordinal);
+          .ToHashSet(StringComparer.Ordinal);
 }

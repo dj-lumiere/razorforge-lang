@@ -452,7 +452,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 
             // Lambda bodies are lifted to top-level routines by LambdaLiftingPass, which runs
             // AFTER this pass — so the lifted body is never lowered again. Descend into the body
-            // here so its undecided-integer and undecided-decimal literals get a concrete token type;
+            // here so its undecided-integer and undecided-decimal literals get a concrete token type.
             // otherwise codegen treats them as text string constants, producing an IR type mismatch
             // in arithmetic operations.
             // Lambda bodies are expression-position and cannot carry hoisted statements, so only
@@ -992,7 +992,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             clauses.Add(c with { Body = clauseBody });
         }
 
-        // Subjectless (condition-based) when-expressions have no subject to lower;
+        // Subjectless (condition-based) when-expressions have no subject to lower.
         // synthesize a Bool literal true as the subject — the when emitter
         // unconditionally emits the subject expression.
         Expression whenSubject = loweredSubject ?? new LiteralExpression(
@@ -1668,7 +1668,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         if (type is WrapperTypeInfo { Name: Declaration.RuntimeContract.Owned or Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Tracked } w)
             return w.InnerType;
         // T / Retained[T] / Tracked[T] are declared as `record T` in stdlib, so
-        // they surface as RecordTypeInfo, not WrapperTypeInfo. Match by base name + single
+        // they surface as RecordTypeInfo, not WrapperTypeInfo. CheckAndAdvance by base name + single
         // TypeArgument and return the inner collection so downstream lowering sees the actual
         // base (BitList, SortedSet, …) instead of the Owned envelope.
         if (type is RecordTypeInfo { TypeArguments: { Count: 1 } recArgs } rec
@@ -2306,7 +2306,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         Expression loweredExpr, TypeInfo? boolType, List<Statement> hoisted)
     {
         // Pattern name may be qualified (`Color.RED`) from f-string holes or bare (`RED`)
-        // from when-clause arms. Match on the trailing segment either way.
+        // from when-clause arms. CheckAndAdvance on the trailing segment either way.
         string choiceCaseName = choiceTp.Type.Name;
         int choiceDot = choiceCaseName.LastIndexOf('.');
         if (choiceDot >= 0) choiceCaseName = choiceCaseName.Substring(choiceDot + 1);

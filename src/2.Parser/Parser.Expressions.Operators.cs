@@ -14,7 +14,7 @@ public partial class Parser
         Expression expr = ParseWith();
         Expression value;
         // Check for simple assignment
-        if (Match(type: TokenType.Assign))
+        if (CheckAndAdvance(type: TokenType.Assign))
         {
             value = ParseAssignment();
             return new BinaryExpression(Left: expr,
@@ -106,7 +106,7 @@ public partial class Parser
     {
         Expression expr = ParseInlineConditional();
 
-        if (Match(type: TokenType.With))
+        if (CheckAndAdvance(type: TokenType.With))
         {
             SourceLocation withLocation = GetLocation(token: PeekToken(offset: -1));
             var updates =
@@ -118,14 +118,14 @@ public partial class Parser
                 List<string>? fieldPath = null;
                 Expression? indexExpr = null;
 
-                if (Match(type: TokenType.LeftBracket))
+                if (CheckAndAdvance(type: TokenType.LeftBracket))
                 {
                     // Index update: [expr] = value
                     indexExpr = ParseExpression();
                     Consume(type: TokenType.RightBracket,
                         errorMessage: "Expected ']' after index in with expression");
                 }
-                else if (Match(type: TokenType.Dot))
+                else if (CheckAndAdvance(type: TokenType.Dot))
                 {
                     // Member variable update: .memberVar or .memberVar.nested
                     fieldPath = [];
@@ -159,7 +159,7 @@ public partial class Parser
                     "Expected '=' after member variable or index in with expression");
                 Expression value = ParseInlineConditional();
                 updates.Add(item: (fieldPath, indexExpr, value));
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
 
             expr = new WithExpression(Base: expr, Updates: updates, Location: withLocation);
         }
@@ -178,7 +178,7 @@ public partial class Parser
     {
         // Check for inline if-then-else expression
         // Skip if already inside an inline conditional (prevents nesting for readability)
-        if (_parsingInlineConditional || !Match(type: TokenType.If))
+        if (_parsingInlineConditional || !CheckAndAdvance(type: TokenType.If))
         {
             return ParseNoneCoalesce();
         }
@@ -224,7 +224,7 @@ public partial class Parser
     {
         Expression expr = ParseLogicalOr();
 
-        while (Match(type: TokenType.NoneCoalesce))
+        while (CheckAndAdvance(type: TokenType.NoneCoalesce))
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseLogicalOr();
@@ -247,7 +247,7 @@ public partial class Parser
     {
         Expression expr = ParseRange();
 
-        while (Match(TokenType.Or, TokenType.But))
+        while (CheckAndAdvance(TokenType.Or, TokenType.But))
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseRange();
@@ -272,12 +272,12 @@ public partial class Parser
         Expression expr = ParseLogicalAnd();
 
         // Handle ascending range expressions: A to B or A to B by C
-        if (Match(type: TokenType.To))
+        if (CheckAndAdvance(type: TokenType.To))
         {
             Expression end = ParseLogicalAnd();
             Expression? step = null;
 
-            if (Match(type: TokenType.By))
+            if (CheckAndAdvance(type: TokenType.By))
             {
                 step = ParseLogicalAnd();
             }
@@ -290,12 +290,12 @@ public partial class Parser
         }
 
         // Handle exclusive range expressions: A til B or A til B by C
-        if (Match(type: TokenType.Til))
+        if (CheckAndAdvance(type: TokenType.Til))
         {
             Expression end = ParseLogicalAnd();
             Expression? step = null;
 
-            if (Match(type: TokenType.By))
+            if (CheckAndAdvance(type: TokenType.By))
             {
                 step = ParseLogicalAnd();
             }
@@ -321,7 +321,7 @@ public partial class Parser
     {
         Expression expr = ParseEquality();
 
-        while (Match(type: TokenType.And))
+        while (CheckAndAdvance(type: TokenType.And))
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseEquality();
@@ -345,7 +345,7 @@ public partial class Parser
         Expression expr = ParseComparison();
 
         // `!=` value inequality, plus the non-chainable reference-identity operators `===` / `!==`.
-        while (Match(TokenType.NotEqual, TokenType.IdentityEqual, TokenType.IdentityNotEqual))
+        while (CheckAndAdvance(TokenType.NotEqual, TokenType.IdentityEqual, TokenType.IdentityNotEqual))
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseComparison();
@@ -374,7 +374,7 @@ public partial class Parser
         var operators = new List<BinaryOperator>();
         var operands = new List<Expression> { expr };
 
-        while (Match(TokenType.Less,
+        while (CheckAndAdvance(TokenType.Less,
                    TokenType.LessEqual,
                    TokenType.Greater,
                    TokenType.GreaterEqual,
@@ -431,7 +431,7 @@ public partial class Parser
         Expression expr = ParseBitwiseOr();
 
         // Handle is/isnot/in/notin/obeys/disobeys expressions when not in when pattern/clause context
-        while (!_inWhenPatternContext && !_inWhenClauseBody && Match(TokenType.Is,
+        while (!_inWhenPatternContext && !_inWhenClauseBody && CheckAndAdvance(TokenType.Is,
                    TokenType.IsNot,
                    TokenType.In,
                    TokenType.NotIn,
@@ -503,7 +503,7 @@ public partial class Parser
     private TypeExpression ParseIsPatternType(SourceLocation location)
     {
         // Handle 'is None' or 'isnot None' as a special case - None is a keyword
-        if (Match(type: TokenType.None))
+        if (CheckAndAdvance(type: TokenType.None))
         {
             return new TypeExpression(Name: "None",
                 GenericArguments: null,
@@ -516,7 +516,7 @@ public partial class Parser
         // Mirrors ParseTypePattern's dotted-name handling so f-string holes like
         // `f"{c is Color.RED}"` parse — without this, `.RED` leaks out of the hole
         // and the f-string parser sees a stray Dot before the closing brace.
-        while (Match(type: TokenType.Dot))
+        while (CheckAndAdvance(type: TokenType.Dot))
         {
             string member = ConsumeIdentifier(
                 errorMessage: "Expected identifier after '.' in 'is' pattern");

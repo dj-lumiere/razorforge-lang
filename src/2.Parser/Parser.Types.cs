@@ -134,7 +134,7 @@ public partial class Parser
         TypeExpression baseType = ParseBaseType();
 
         // Handle nullable suffix: T? Maybe[T]
-        if (Match(type: TokenType.Question))
+        if (CheckAndAdvance(type: TokenType.Question))
         {
             return new TypeExpression(Name: "Maybe",
                 GenericArguments: [baseType],
@@ -163,7 +163,7 @@ public partial class Parser
         // ═══════════════════════════════════════════════════════════════════════════
         // CASE 1: Me - self type in protocols/member routines (like Self in Rust)
         // ═══════════════════════════════════════════════════════════════════════════
-        if (Match(type: TokenType.MyType))
+        if (CheckAndAdvance(type: TokenType.MyType))
         {
             // `Me` may be followed by an associated-type projection: `Me/Iter`, `Me/Iter/Inner`.
             // Carry it in the flattened name; the resolver walks `/` segments (Me → owner type,
@@ -171,7 +171,7 @@ public partial class Parser
             if (Check(type: TokenType.Slash))
             {
                 var meSb = new System.Text.StringBuilder("Me");
-                while (Match(type: TokenType.Slash))
+                while (CheckAndAdvance(type: TokenType.Slash))
                 {
                     meSb.Append('/');
                     meSb.Append(ConsumeIdentifier(
@@ -188,7 +188,7 @@ public partial class Parser
         // `None` is the canonical name for "nothing" — both a type (void return / field) and the
         // variant empty branch. It resolves to the zero-sized void type.
         // ═══════════════════════════════════════════════════════════════════════════
-        if (Match(type: TokenType.None))
+        if (CheckAndAdvance(type: TokenType.None))
         {
             return new TypeExpression(Name: "None", GenericArguments: null, Location: location);
         }
@@ -198,7 +198,7 @@ public partial class Parser
         // Used in decl-position expand column templates (e.g. `Array[${m.type}, N]`) and, later, in
         // type-arg / pattern positions. Resolves to the current member's static type at expansion.
         // ═══════════════════════════════════════════════════════════════════════════
-        if (Match(type: TokenType.SpliceOpen))
+        if (CheckAndAdvance(type: TokenType.SpliceOpen))
         {
             Expression spliced = ParseExpression();
             Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' to close '${...}' splice");
@@ -215,7 +215,7 @@ public partial class Parser
 
         // Brace-less comptime type splice: `$typeof(m)` (a TYPE splice of an expand handle's member type)
         // or `$sizeof(m)` etc. (a comptime VALUE splice used as a const-generic argument).
-        if (Match(type: TokenType.Dollar))
+        if (CheckAndAdvance(type: TokenType.Dollar))
         {
             Expression spliced = ParseDollarSpliceInner();
             if (spliced is CallExpression
@@ -232,7 +232,7 @@ public partial class Parser
         // ═══════════════════════════════════════════════════════════════════════════
         // CASE 2: Tuple type - (T, U) or (T,)
         // ═══════════════════════════════════════════════════════════════════════════
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             return ParseTupleOrParenthesizedType(location: location);
         }
@@ -265,7 +265,7 @@ public partial class Parser
 
         elementTypes.Add(item: ParseType());
 
-        if (!Match(type: TokenType.Comma))
+        if (!CheckAndAdvance(type: TokenType.Comma))
         {
             // Single parenthesized type without comma: just (T)
             Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after type");
@@ -285,7 +285,7 @@ public partial class Parser
         do
         {
             elementTypes.Add(item: ParseType());
-        } while (Match(type: TokenType.Comma) && !Check(type: TokenType.RightParen));
+        } while (CheckAndAdvance(type: TokenType.Comma) && !Check(type: TokenType.RightParen));
 
         Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple type");
         return new TypeExpression(Name: "Tuple",
@@ -300,7 +300,7 @@ public partial class Parser
     /// </summary>
     private TypeExpression ParseNamedType(SourceLocation location)
     {
-        if (!Match(type: TokenType.Identifier))
+        if (!CheckAndAdvance(type: TokenType.Identifier))
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedType,
                 message: $"Expected type, got {CurrentToken.Type} ('{CurrentToken.Text}')");
@@ -318,7 +318,7 @@ public partial class Parser
         // ─────────────────────────────────────────────────────────────────────
         // Simple type without generics
         // ─────────────────────────────────────────────────────────────────────
-        if (!Match(type: TokenType.LeftBracket))
+        if (!CheckAndAdvance(type: TokenType.LeftBracket))
         {
             return new TypeExpression(Name: name, GenericArguments: null, Location: location, Realm: realm);
         }
@@ -331,7 +331,7 @@ public partial class Parser
         do
         {
             typeArgs.Add(item: ParseTypeOrConstGeneric());
-        } while (Match(type: TokenType.Comma));
+        } while (CheckAndAdvance(type: TokenType.Comma));
 
         Consume(type: TokenType.RightBracket, errorMessage: "Expected ']' after type arguments");
 
@@ -350,7 +350,7 @@ public partial class Parser
         // from a Suflae file (the resolver skips the entity->Roamed lowering for it). The qualified name
         // after `::` uses `.`/`/` segment separators (e.g. `RF::Core.List`), consumed here so the general
         // `/`-path loop below is a no-op.
-        if (!Match(type: TokenType.DoubleColon))
+        if (!CheckAndAdvance(type: TokenType.DoubleColon))
         {
             return null;
         }
@@ -360,9 +360,9 @@ public partial class Parser
             ConsumeIdentifier(errorMessage: "Expected type name after realm qualifier '::'"));
         while (Check(type: TokenType.Dot) || Check(type: TokenType.Slash))
         {
-            char sep = Match(type: TokenType.Dot) ? '.' : '/';
+            char sep = CheckAndAdvance(type: TokenType.Dot) ? '.' : '/';
             if (sep == '/')
-                Match(type: TokenType.Slash);
+                CheckAndAdvance(type: TokenType.Slash);
             realmSb.Append(sep);
             realmSb.Append(ConsumeIdentifier(
                 errorMessage: "Expected name component after '.'/'/' in realm-qualified type"));
@@ -379,13 +379,13 @@ public partial class Parser
     private string ReadQualifiedTypePath(string head)
     {
         var nameSb = new System.Text.StringBuilder(head);
-        while (Match(type: TokenType.Slash))
+        while (CheckAndAdvance(type: TokenType.Slash))
         {
             nameSb.Append('/');
             nameSb.Append(ConsumeIdentifier(errorMessage: "Expected module path component after '/'"));
 
             // Dot separates the type name from the slash-based module path: razorforge/Core.Bool
-            if (Match(type: TokenType.Dot))
+            if (CheckAndAdvance(type: TokenType.Dot))
             {
                 nameSb.Append('.');
                 nameSb.Append(ConsumeIdentifier(errorMessage: "Expected type name after '.'"));
@@ -406,7 +406,7 @@ public partial class Parser
         SourceLocation location = GetLocation();
 
         // Check for boolean literal (const generic)
-        if (Match(TokenType.True, TokenType.False))
+        if (CheckAndAdvance(TokenType.True, TokenType.False))
         {
             string value = PeekToken(offset: -1)
                .Text;
@@ -415,7 +415,7 @@ public partial class Parser
 
         // Check for integer literal (const generic)
         // Support both typed literals (10u32) and untyped literals (10)
-        if (Match(TokenType.UndecidedInteger,
+        if (CheckAndAdvance(TokenType.UndecidedInteger,
                 TokenType.IntegerLiteral,
                 TokenType.S64Literal,
                 TokenType.U64Literal,
@@ -437,7 +437,7 @@ public partial class Parser
         }
 
         // Check for letter/character literal (const generic)
-        if (Match(TokenType.CharacterLiteral, TokenType.ByteLetterLiteral))
+        if (CheckAndAdvance(TokenType.CharacterLiteral, TokenType.ByteLetterLiteral))
         {
             string value = PeekToken(offset: -1)
                .Text;
@@ -478,7 +478,7 @@ public partial class Parser
 
             // Projection chain: Me/Iter, Me/Iter/Inner — modeled as a left-nested `/` chain,
             // matching the shape ordinary `S/Iter` produces from expression parsing.
-            while (Match(type: TokenType.Slash))
+            while (CheckAndAdvance(type: TokenType.Slash))
             {
                 string seg = ConsumeIdentifier(
                     errorMessage: "Expected associated-type name after '/' in projection");
@@ -560,7 +560,7 @@ public partial class Parser
             // ─────────────────────────────────────────────────────────────────────
             // Forms: T obeys Protocol
             // T obeys Protocol1, Protocol2 (multiple protocols)
-            if (Match(type: TokenType.Obeys))
+            if (CheckAndAdvance(type: TokenType.Obeys))
             {
                 inlineConstraints.Add(item: new GenericConstraintDeclaration(
                     ParameterName: paramName,
@@ -573,7 +573,7 @@ public partial class Parser
             // ─────────────────────────────────────────────────────────────────────
             // Type kinds: T is record/entity/routine/choice/variant
             // Const generic: N is S32 (N is a build-time S32 value)
-            else if (Match(type: TokenType.Is))
+            else if (CheckAndAdvance(type: TokenType.Is))
             {
                 inlineConstraints.Add(item: ParseIsConstraint(paramName: paramName, location: location));
             }
@@ -581,13 +581,13 @@ public partial class Parser
             // CONSTRAINT TYPE 3: in - type equality (must be one of listed types)
             // ─────────────────────────────────────────────────────────────────────
             // Form: T in [S32, S64, F64]
-            else if (Match(type: TokenType.In))
+            else if (CheckAndAdvance(type: TokenType.In))
             {
                 inlineConstraints.Add(item: ParseInlineInConstraint(paramName: paramName,
                     location: location));
             }
             // No constraint for this parameter, continue to next
-        } while (Match(type: TokenType.Comma));
+        } while (CheckAndAdvance(type: TokenType.Comma));
 
         return (genericParams, inlineConstraints.Count > 0
             ? inlineConstraints
@@ -608,7 +608,7 @@ public partial class Parser
             constraintTypes.Add(item: ParseType());
             // Continue if comma but next token is NOT an identifier followed by obeys/is/in or greater
             // This handles both "T obeys A, B" (multiple protocols) and "T obeys A, U obeys B" (next param)
-        } while (Match(type: TokenType.Comma) && !Check(type: TokenType.RightBracket) &&
+        } while (CheckAndAdvance(type: TokenType.Comma) && !Check(type: TokenType.RightBracket) &&
                  !(Check(type: TokenType.Identifier) && (PeekToken(offset: 1)
                     .Type == TokenType.Obeys || PeekToken(offset: 1)
                     .Type == TokenType.Is || PeekToken(offset: 1)
@@ -631,7 +631,7 @@ public partial class Parser
         do
         {
             equalityTypes.Add(item: ParseType());
-        } while (Match(type: TokenType.Comma));
+        } while (CheckAndAdvance(type: TokenType.Comma));
 
         Consume(type: TokenType.RightBracket,
             errorMessage: "Expected ']' after type list");
@@ -669,7 +669,7 @@ public partial class Parser
     private TypeExpression ParseObeysProtocol()
     {
         TypeExpression proto = ParseType();
-        if (Match(type: TokenType.OnlyIf))
+        if (CheckAndAdvance(type: TokenType.OnlyIf))
             proto.ConformanceConditions = ParseOnlyIfConditions();
         return proto;
     }
@@ -681,16 +681,16 @@ public partial class Parser
     private List<GenericConstraintDeclaration> ParseOnlyIfConditions()
     {
         var conds = new List<GenericConstraintDeclaration>();
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             do
             {
-                while (Match(type: TokenType.Newline))
+                while (CheckAndAdvance(type: TokenType.Newline))
                 {
                     // Skip newlines between comma-separated onlyif conditions.
                 }
                 conds.Add(item: ParseOneOnlyIfCondition());
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
             Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after 'onlyif' conditions");
         }
         else
@@ -749,7 +749,7 @@ public partial class Parser
         // Each parameter can have its own needs clause or they can be comma-separated
         // Skip newlines between needs clauses only when 'needs' obeys
         while (SkipNewlinesIfFollowedBy(type: TokenType.Needs) &&
-               Match(type: TokenType.Needs))
+               CheckAndAdvance(type: TokenType.Needs))
         {
             do
             {
@@ -778,7 +778,7 @@ public partial class Parser
                     location: location));
 
                 // Continue parsing if there's a comma
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
         }
 
         return constraints.Count > 0
@@ -794,7 +794,7 @@ public partial class Parser
     private GenericConstraintDeclaration ParseNeedsConstraintClause(string paramName,
         SourceLocation location)
     {
-        if (Match(type: TokenType.Obeys))
+        if (CheckAndAdvance(type: TokenType.Obeys))
         {
             // T obeys Protocol1, Protocol2
             List<TypeExpression> constraintTypes = ParseNeedsObeysProtocolList();
@@ -805,12 +805,12 @@ public partial class Parser
                 Location: location);
         }
 
-        if (Match(type: TokenType.Is))
+        if (CheckAndAdvance(type: TokenType.Is))
         {
             return ParseIsConstraint(paramName: paramName, location: location);
         }
 
-        if (Match(type: TokenType.In))
+        if (CheckAndAdvance(type: TokenType.In))
         {
             // T in [s32, s64, u32] - type equality constraint with list syntax
             Consume(type: TokenType.LeftBracket,
@@ -820,7 +820,7 @@ public partial class Parser
             do
             {
                 equalityTypes.Add(item: ParseType());
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
 
             Consume(type: TokenType.RightBracket,
                 errorMessage: "Expected ']' after type list");
@@ -832,7 +832,7 @@ public partial class Parser
                 Location: location);
         }
 
-        if (Match(type: TokenType.Everywhere))
+        if (CheckAndAdvance(type: TokenType.Everywhere))
         {
             // `needs <Protocol> everywhere` — standard-impl eligibility gate: the owner `Me`
             // obeys the protocol IFF every member (allmemvarof/branchof/caseof, per kind) obeys it.
@@ -881,8 +881,8 @@ public partial class Parser
                 break;
             }
 
-            Match(type: TokenType.Comma);
-            while (Match(type: TokenType.Newline))
+            CheckAndAdvance(type: TokenType.Comma);
+            while (CheckAndAdvance(type: TokenType.Newline))
             {
                 // Skip newlines between comma-separated constraint types.
             }
@@ -923,11 +923,11 @@ public partial class Parser
                 break;
             }
 
-            while (Match(TokenType.Newline, TokenType.DocComment))
+            while (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
             {
                 // Skip newlines and doc-comments between relates clauses.
             }
-            Match(type: TokenType.Relates);
+            CheckAndAdvance(type: TokenType.Relates);
 
             SourceLocation location = GetLocation();
 
@@ -935,7 +935,7 @@ public partial class Parser
             // identifier (the slot name); for a binding it is the concrete type.
             TypeExpression first = ParseType();
 
-            if (Match(type: TokenType.Obeys))
+            if (CheckAndAdvance(type: TokenType.Obeys))
             {
                 // Constrained slot declaration: `relates Iter obeys Iterator[T]`.
                 TypeExpression constraint = ParseType();
@@ -945,7 +945,7 @@ public partial class Parser
                     Binding: null,
                     Location: location));
             }
-            else if (Match(type: TokenType.As))
+            else if (CheckAndAdvance(type: TokenType.As))
             {
                 // Implementer binding: `relates ListEmitter[T] as Iter`.
                 string slotName = ConsumeIdentifier(

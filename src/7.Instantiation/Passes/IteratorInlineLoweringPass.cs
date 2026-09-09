@@ -204,7 +204,7 @@ internal sealed class IteratorInlineLoweringPass
     // ---------------------------------------------------------------------------------------------
     private LoopStatement? TryInline(LoopStatement loop)
     {
-        // Match the CFLP shape: loop body is a block whose single statement is a `when` over a
+        // CheckAndAdvance the CFLP shape: loop body is a block whose single statement is a `when` over a
         // try_emit() call with a NonePattern clause + an ElsePattern clause.
         if (loop.Body is not BlockStatement { Statements: [WhenStatement when] }) return null;
         if (when.Expression is not CallExpression tryNextCall) return null;
@@ -505,7 +505,7 @@ internal sealed class IteratorInlineLoweringPass
     // ---------------------------------------------------------------------------------------------
     // Statement / expression deep-clone with identifier renaming.
     // ---------------------------------------------------------------------------------------------
-    private Statement CloneStatement(Statement stmt, NextBodyRewriteContext ctx)
+    private static Statement CloneStatement(Statement stmt, NextBodyRewriteContext ctx)
     {
         switch (stmt)
         {

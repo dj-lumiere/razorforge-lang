@@ -107,12 +107,12 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
     /// public presets inline via the registry).
     /// </summary>
     public void RunOnInstantiatedGenericBodies(
-        System.Collections.Generic.Dictionary<string, Compiler.Instantiation.MonomorphizedBody> bodies)
+        Dictionary<string, Instantiation.MonomorphizedBody> bodies)
     {
         _ownPresets = new Dictionary<string, PresetDeclaration>(comparer: StringComparer.Ordinal);
         foreach (string key in bodies.Keys.ToList())
         {
-            Compiler.Instantiation.MonomorphizedBody entry = bodies[key];
+            Instantiation.MonomorphizedBody entry = bodies[key];
             if (entry.Ast.Body is not { } body) continue;
             Statement lowered = VisitStatement(body);
             if (!ReferenceEquals(lowered, body))

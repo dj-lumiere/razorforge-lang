@@ -24,10 +24,10 @@ public sealed partial class SemanticVerifier
         string baseName = type.BareName;
         return baseName switch
         {
-            Compiler.Declaration.RuntimeContract.Viewing => "read-only token (Viewing)",
-            Compiler.Declaration.RuntimeContract.Modifying => "exclusive write token (Modifying)",
-            Compiler.Declaration.RuntimeContract.Consulting => "shared read token (Consulting)",
-            Compiler.Declaration.RuntimeContract.Amending => "exclusive shared write token (Amending)",
+            Declaration.RuntimeContract.Viewing => "read-only token (Viewing)",
+            Declaration.RuntimeContract.Modifying => "exclusive write token (Modifying)",
+            Declaration.RuntimeContract.Consulting => "shared read token (Consulting)",
+            Declaration.RuntimeContract.Amending => "exclusive shared write token (Amending)",
             _ => "token"
         };
     }
@@ -186,7 +186,7 @@ public sealed partial class SemanticVerifier
         // a concurrency boundary IS the escape event, and codegen inserts `promote()` on the arg
         // before the spawn (LOCAL -> ESCAPED: atomic refcount + armed reentrant lock). So the same
         // object is thread-safe by the time the callee touches it — accepted here, no RF-S632.
-        if (type.BareName == Compiler.Declaration.RuntimeContract.Roamed)
+        if (type.BareName == Declaration.RuntimeContract.Roamed)
         {
             return;
         }

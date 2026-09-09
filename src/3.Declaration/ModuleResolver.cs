@@ -205,7 +205,7 @@ public sealed class ModuleResolver
                 searchOption: SearchOption.TopDirectoryOnly));
             // File-granularity conditional compilation: drop `.rf` files whose leading
             // `#@target(...)` directive doesn't match the build target (RazorForge-only).
-            files.RemoveAll(match: f => !Compiler.Targeting.TargetGate.ShouldCompile(filePath: f));
+            files.RemoveAll(match: f => !Targeting.TargetGate.ShouldCompile(filePath: f));
             files.Sort(comparer: StringComparer.Ordinal);
 
             if (files.Count > 0)

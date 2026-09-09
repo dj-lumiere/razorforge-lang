@@ -41,7 +41,7 @@ public sealed class PostprocessingContext
     /// Monomorphized generic routine instances (keyed by RegistryKey). Exposed so late lowering passes
     /// (e.g. VariantReturnLoweringPass) can rewrite carrier-return sites inside concrete instances too.
     /// </summary>
-    public Dictionary<string, Compiler.Instantiation.MonomorphizedBody>? MonomorphizedBodies { get; }
+    public Dictionary<string, Instantiation.MonomorphizedBody>? MonomorphizedBodies { get; }
 
     /// <summary>Base build (SeedAllStdlibRoutines): when true, the pull/(B) demand flip is bypassed so the
     /// eager stdlib sweep still runs — a precompiled base must lower the WHOLE stdlib, not a demand slice.</summary>
@@ -55,7 +55,7 @@ public sealed class PostprocessingContext
         Dictionary<string, Statement>? synthesizedBodies = null,
         TargetConfig? target = null,
         RfBuildMode buildMode = RfBuildMode.Debug,
-        Dictionary<string, Compiler.Instantiation.MonomorphizedBody>? monomorphizedBodies = null)
+        Dictionary<string, Instantiation.MonomorphizedBody>? monomorphizedBodies = null)
     {
         Registry = registry;
         VariantBodies = variantBodies ?? new Dictionary<string, Statement>();

@@ -38,7 +38,7 @@ public sealed partial class SemanticVerifier
     private static bool IsReadOnlyTransparentProtocol(TypeSymbol type)
     {
         return type is ProtocolTypeInfo proto &&
-               (proto.GenericDefinition ?? proto).BareName == Compiler.Declaration.RuntimeContract.Accessing;
+               (proto.GenericDefinition ?? proto).BareName == Declaration.RuntimeContract.Accessing;
     }
 
     /// <summary>
@@ -56,8 +56,8 @@ public sealed partial class SemanticVerifier
             IEnumerable<string> protoNames = c.ConstraintTypes.Select(selector: protoExpr => protoExpr.Name);
             foreach (string protoName in protoNames)
             {
-                if (protoName == Compiler.Declaration.RuntimeContract.Controlling) return false;
-                if (protoName == Compiler.Declaration.RuntimeContract.Accessing) sawMarker = true;
+                if (protoName == Declaration.RuntimeContract.Controlling) return false;
+                if (protoName == Declaration.RuntimeContract.Accessing) sawMarker = true;
             }
         }
         return sawMarker;
@@ -111,8 +111,8 @@ public sealed partial class SemanticVerifier
     {
         foreach (TypeExpression protoExpr in constraintTypes)
         {
-            if (protoExpr.Name is not (Compiler.Declaration.RuntimeContract.Accessing
-                    or Compiler.Declaration.RuntimeContract.Controlling))
+            if (protoExpr.Name is not (Declaration.RuntimeContract.Accessing
+                    or Declaration.RuntimeContract.Controlling))
                 continue;
             if (protoExpr.GenericArguments is not { Count: 1 }) continue;
             TypeSymbol resolved = _typeResolver.ResolveType(typeExpr: protoExpr.GenericArguments[index: 0]);
@@ -462,8 +462,8 @@ public sealed partial class SemanticVerifier
         // Suflae `Integer` default (RF escapes this only because its default already IS S64). Inferring
         // the key type through the coercion wrapper is the compiler's job.
         if (paramType.TypeArguments is { Count: >= 1 } referArgs &&
-            GetTypeBaseName(type: paramType) is Compiler.Declaration.RuntimeContract.Accessing
-                or Compiler.Declaration.RuntimeContract.Controlling)
+            GetTypeBaseName(type: paramType) is Declaration.RuntimeContract.Accessing
+                or Declaration.RuntimeContract.Controlling)
         {
             paramType = referArgs[index: 0];
         }

@@ -802,7 +802,7 @@ public enum TokenType
     /// <summary>FreeRoutine arrow operator (->)</summary>
     Arrow,
 
-    /// <summary>Match/lambda fat arrow operator (=>)</summary>
+    /// <summary>CheckAndAdvance/lambda fat arrow operator (=>)</summary>
     FatArrow,
 
     /// <summary>None coalescing operator (??)</summary>

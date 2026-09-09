@@ -509,7 +509,7 @@ internal sealed class SuflaeEntityLoweringPass
     // A call — INCLUDING a constructor call `E(...)`, which is a CallExpression (not a
     // CreatorExpression) at this phase — that produces a bare SF entity: recurse into its parts, then
     // `.roam()` the whole value.
-    private Expression LowerCallExpression(CallExpression call)
+    private CallExpression LowerCallExpression(CallExpression call)
     {
         Expression callee = LowerExpression(call.Callee);
         bool changed = !ReferenceEquals(callee, call.Callee);

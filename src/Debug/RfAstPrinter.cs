@@ -248,7 +248,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         else if (ri.DeclaredMutation == MutationCategory.Readonly)
             anns = new[] { "readonly" };
         else
-            anns = System.Array.Empty<string>();
+            anns = Array.Empty<string>();
         string annotations = string.Concat(anns.Select(a => $"@{a}\n"));
         // Constructor: `routine Type(...)`, not `routine Type.create(...)`.
         string name = ri.IsCreator && ri.OwnerType is { } ctorOwner
@@ -1171,8 +1171,8 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     /// raw AST type expressions when resolution has not run.</summary>
     private (string ReturnStr, string ParamsStr) BuildSignatureStrings(RoutineDeclaration node)
     {
-        // Prefer resolved TypeInfo (module-qualified) for the signature's parameter/return types;
-        // the AST TypeExpressions in a signature carry no ResolvedType.
+        // Prefer resolved TypeInfo (module-qualified) for the signature's parameter/return types.
+        // The AST TypeExpressions in a signature carry no ResolvedType.
         if (node.ResolvedInfo is { } sig)
         {
             string ret = sig.ReturnType != null ? $" -> {sig.ReturnType.FullName}" : ReturnNoneSuffix;

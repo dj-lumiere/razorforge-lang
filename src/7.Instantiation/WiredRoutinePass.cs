@@ -37,9 +37,9 @@ namespace Compiler.Instantiation;
 /// </summary>
 public sealed class WiredRoutinePass(DesugaringContext ctx)
 {
-    private const string RepresentMemberRoutineName = Compiler.Declaration.RuntimeContract.Display.Represent;
-    private const string DiagnoseMemberRoutineName = Compiler.Declaration.RuntimeContract.Display.Diagnose;
-    private const string SerializeMemberRoutineName = Compiler.Declaration.RuntimeContract.Serialize;
+    private const string RepresentMemberRoutineName = Declaration.RuntimeContract.Display.Represent;
+    private const string DiagnoseMemberRoutineName = Declaration.RuntimeContract.Display.Diagnose;
+    private const string SerializeMemberRoutineName = Declaration.RuntimeContract.Serialize;
     private const string HashMemberRoutineName = "hash";
     private const string BitXorMemberRoutineName = "bitxor";
     private const string ResultVarName = "result";
@@ -56,6 +56,11 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         Line: 0,
         Column: 0,
         Position: 0);
+
+    private readonly record struct WiredTypeBundle(
+        TypeInfo TextType, TypeInfo BoolType,
+        TypeInfo? U64Type, TypeInfo? S32Type,
+        TypeInfo? LogicBreachedErrorType, TypeInfo? ListTypeDef, TypeInfo? ListTextType);
 
     /// <summary>Synthesizes and registers all wired routines for the current program.</summary>
     public void RunGlobal()
@@ -110,10 +115,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         {
             if (!routine.IsSynthesized) continue;
             if (SynthesizedBodyAlreadyPresent(routine: routine)) continue;
-            if (TryHandleConcreteRoutine(routine: routine, textType: textType, boolType: boolType,
-                    u64Type: u64Type, s32Type: s32Type,
-                    logicBreachedErrorType: logicBreachedErrorType,
-                    listTypeDef: listTypeDef, listTextType: listTextType)) continue;
+            TryHandleConcreteRoutine(routine: routine,
+                types: new WiredTypeBundle(textType, boolType, u64Type, s32Type,
+                    logicBreachedErrorType, listTypeDef, listTextType));
         }
     }
 
@@ -139,10 +143,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// true when any handler consumed it (variant arm ctor, explicit override skip, BuilderQuery,
     /// or hook/dispatch). A return of false means no synthesis applied — not an error.
     /// </summary>
-    private bool TryHandleConcreteRoutine(RoutineInfo routine, TypeInfo textType, TypeInfo boolType,
-        TypeInfo? u64Type, TypeInfo? s32Type, TypeInfo? logicBreachedErrorType,
-        TypeInfo? listTypeDef, TypeInfo? listTextType)
+    private bool TryHandleConcreteRoutine(RoutineInfo routine, WiredTypeBundle types)
     {
+        var (textType, boolType, u64Type, s32Type, logicBreachedErrorType, listTypeDef, listTextType) = types;
         // Auto-generated variant arm constructors (handled before the by-NAME explicit-impl skip
         // below): an extractor Arm.create(from: V) shares the name "create" with the arm type's
         // other constructors, so a name-only skip would wrongly drop it. This hook is overload-precise
@@ -253,7 +256,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 ctx.VariantBodies[key: routine.RegistryKey] =
                     CloneUniversalDeriveBody(ownerType: destroyOwner, synthesized: routine,
                         memberRoutineName: DestroyMemberRoutineName)
-                    ?? throw new System.InvalidOperationException(
+                    ?? throw new InvalidOperationException(
                         message: $"destroy derive could not be cloned for '{destroyOwner.FullName}'.");
                 break;
             // Derived comparison operators (lt/le/gt/ge) delegate to the type's own `cmp` — the DeriveText
@@ -268,7 +271,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 ctx.VariantBodies[key: routine.RegistryKey] =
                     CloneUniversalDeriveBody(ownerType: cmpOwner, synthesized: routine,
                         memberRoutineName: routine.Name)
-                    ?? throw new System.InvalidOperationException(
+                    ?? throw new InvalidOperationException(
                         message: $"{routine.Name} derive could not be cloned for '{cmpOwner.FullName}'.");
                 break;
             default:
@@ -413,7 +416,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             ctx.VariantBodies[key: routine.RegistryKey] =
                 CloneUniversalDeriveBody(ownerType: routine.OwnerType!, synthesized: routine,
                     memberRoutineName: DestroyMemberRoutineName)
-                ?? throw new System.InvalidOperationException(
+                ?? throw new InvalidOperationException(
                     message: $"destroy derive could not be cloned for '{routine.OwnerType?.FullName}'.");
             return;
         }
@@ -442,7 +445,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             ctx.VariantBodies[key: routine.RegistryKey] =
                 CloneUniversalDeriveBody(ownerType: cmpDefOwner, synthesized: routine,
                     memberRoutineName: routine.Name)
-                ?? throw new System.InvalidOperationException(
+                ?? throw new InvalidOperationException(
                     message: $"{routine.Name} derive could not be cloned for '{cmpDefOwner.FullName}'.");
             return;
         }
@@ -2987,7 +2990,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     MakeTextListLiteral(
                         values: p is ProtocolTypeInfo pt
                             ? pt.MemberRoutines.Select(m => m.Name)
-                            : System.Linq.Enumerable.Empty<string>(),
+                            : Enumerable.Empty<string>(),
                         textType: textType, listTextType: listTextType)),
                 ("is_generated", MakeBoolLit(value: false, boolType: boolType))
             })
@@ -3095,11 +3098,11 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             {
                 var align = ownerPacked
                     ? 1ul
-                    : (ulong)System.Math.Max(val1: 1,
+                    : (ulong)Math.Max(val1: 1,
                         val2: fields[index: i].Type.Alignment(pointerSize: 8));
                 cursor = (cursor + align - 1) / align * align;
                 offsets[i] = cursor;
-                cursor += (ulong)System.Math.Max(val1: 0,
+                cursor += (ulong)Math.Max(val1: 0,
                     val2: fields[index: i].Type.SizeBytes(pointerSize: 8));
             }
             catch
@@ -3153,7 +3156,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // Language-specific: a Suflae compile reports the Suflae version line, a RazorForge compile
                 // the RazorForge one — both sourced from the csproj PropertyGroup via AssemblyMetadata
                 // (Declaration.BuildInfo), the single source of truth. Folded to a build-time literal.
-                string version = ctx.Registry.Language == TypeModel.Enums.Language.Suflae
+                string version = ctx.Registry.Language == Language.Suflae
                     ? Declaration.BuildInfo.SuflaeVersion
                     : Declaration.BuildInfo.RazorForgeVersion;
                 ctx.VariantBodies[key: routine.RegistryKey] =
@@ -3630,7 +3633,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 ctx.VariantBodies[key: routine.RegistryKey] =
                     CloneUniversalDeriveBody(ownerType: tuple, synthesized: routine,
                         memberRoutineName: DestroyMemberRoutineName)
-                    ?? throw new System.InvalidOperationException(
+                    ?? throw new InvalidOperationException(
                         message: $"destroy derive could not be cloned for tuple '{tuple.FullName}'.");
                 break;
 

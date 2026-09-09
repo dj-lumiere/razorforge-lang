@@ -25,13 +25,13 @@ public partial class Parser
         string name = ConsumeIdentifier(errorMessage: "Expected variable name");
 
         TypeExpression? type = null;
-        if (Match(type: TokenType.Colon))
+        if (CheckAndAdvance(type: TokenType.Colon))
         {
             type = ParseType();
         }
 
         Expression? initializer = null;
-        if (Match(type: TokenType.Assign))
+        if (CheckAndAdvance(type: TokenType.Assign))
         {
             initializer = ParseExpression();
         }
@@ -94,7 +94,7 @@ public partial class Parser
         TypeExpression type = ParseType();
 
         Expression? initializer = null;
-        if (Match(type: TokenType.Assign))
+        if (CheckAndAdvance(type: TokenType.Assign))
         {
             initializer = ParseExpression();
         }
@@ -136,7 +136,7 @@ public partial class Parser
             ProcessIndentToken();
             while (!Check(type: TokenType.Dedent) && !IsAtEnd)
             {
-                if (Match(TokenType.Newline, TokenType.DocComment))
+                if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
                 {
                     continue;
                 }
@@ -170,7 +170,7 @@ public partial class Parser
         (VisibilityModifier visibility, _) = ParseModifiers();
 
         // Brace-less form: `[secret] $nameof(m): Type`. The name is the field name; no prefix.
-        if (Match(type: TokenType.Dollar))
+        if (CheckAndAdvance(type: TokenType.Dollar))
         {
             Expression inner = ParseDollarSpliceInner();
             if (inner is not CallExpression
@@ -292,12 +292,12 @@ public partial class Parser
         // A leading `$` (wired member routine like `store`) is a separate Dollar token, recorded
         // structurally (IsWiredMemberRoutine) and dropped from the bare name.
         _routineNameWired = false;
-        if (Match(type: TokenType.Dollar))
+        if (CheckAndAdvance(type: TokenType.Dollar))
         {
             _routineNameWired = true;
         }
         // `None` (a keyword — the void type) is a legal routine owner: `routine None.represent()`.
-        string name = Match(type: TokenType.None)
+        string name = CheckAndAdvance(type: TokenType.None)
             ? "None"
             : ConsumeIdentifier(errorMessage: "Expected routine name");
 
@@ -310,7 +310,7 @@ public partial class Parser
         bool hasGenericParams = false;
 
         // Check for type-level generic params BEFORE the dot (e.g., "List[T].append")
-        if (Match(type: TokenType.LeftBracket))
+        if (CheckAndAdvance(type: TokenType.LeftBracket))
         {
             ParseReceiverTypeArgs(genericParams: out genericParams,
                 receiverTypeArgStrings: out receiverTypeArgStrings,
@@ -341,7 +341,7 @@ public partial class Parser
         // out of the concatenated Name.
         var memberInfo = new RoutineMemberSegmentInfo();
 
-        while (Match(type: TokenType.Dot))
+        while (CheckAndAdvance(type: TokenType.Dot))
         {
             AppendRoutineMemberSegment(
                 baseName: name,
@@ -361,13 +361,13 @@ public partial class Parser
         // Support ! suffix for failable routines (can appear after qualified name).
         // The `!` is a separate Bang token — ConsumeIdentifier/ConsumeMemberRoutineName never fold it
         // into the name, so the stored name is always bare and only this flag records failability.
-        bool isFailable = Match(type: TokenType.Bang);
+        bool isFailable = CheckAndAdvance(type: TokenType.Bang);
 
         // A failable free routine writes the bang immediately after the base name, with its
         // type-level generics following it: `race![T](...)`. (Member routines instead carry their
         // generics on the receiver before the dot, e.g. `Agent[T].retrieve!()`.) Parse those
         // post-bang generics here so they bind exactly like the pre-name form.
-        if (isFailable && !hasGenericParams && Match(type: TokenType.LeftBracket))
+        if (isFailable && !hasGenericParams && CheckAndAdvance(type: TokenType.LeftBracket))
         {
             (List<string> genericParams, List<GenericConstraintDeclaration>? inlineConstraints)
                 result = ParseGenericParametersWithConstraints();
@@ -398,7 +398,7 @@ public partial class Parser
         // PHASE 5: RETURN TYPE
         // ===============================================================================
         TypeExpression? returnType = null;
-        if (Match(type: TokenType.Arrow))
+        if (CheckAndAdvance(type: TokenType.Arrow))
         {
             returnType = ParseType();
         }
@@ -460,7 +460,7 @@ public partial class Parser
                 parameters.Add(item: Check(type: TokenType.Me)
                     ? ParseSelfParameter()
                     : ParseRegularParameter());
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
         }
 
         return parameters;
@@ -474,7 +474,7 @@ public partial class Parser
     {
         Token selfToken = Advance();
         TypeExpression? selfType = null;
-        if (Match(type: TokenType.Colon))
+        if (CheckAndAdvance(type: TokenType.Colon))
         {
             selfType = ParseType();
         }
@@ -494,16 +494,16 @@ public partial class Parser
         // allowKeywords=true lets us use 'from', 'to', etc. as param names
         string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name",
             allowKeywords: true);
-        bool isVariadic = Match(type: TokenType.DotDotDot);
+        bool isVariadic = CheckAndAdvance(type: TokenType.DotDotDot);
         TypeExpression? paramType = null;
         Expression? defaultValue = null;
 
-        if (Match(type: TokenType.Colon))
+        if (CheckAndAdvance(type: TokenType.Colon))
         {
             paramType = ParseType();
         }
 
-        if (Match(type: TokenType.Assign))
+        if (CheckAndAdvance(type: TokenType.Assign))
         {
             defaultValue = ParseExpression();
         }
@@ -559,7 +559,7 @@ public partial class Parser
             {
                 TypeExpression typeArg = ParseTypeOrConstGeneric();
                 typeArgs.Add(item: SerializeTypeExpression(type: typeArg));
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
 
             if (genericParams is { Count: > 0 })
             {
@@ -633,7 +633,7 @@ public partial class Parser
                 typeArgStrings.Add(item: SerializeTypeExpression(type: typeArg));
                 typeArgExprs.Add(item: typeArg);
                 CollectLeafGenericParams(type: typeArg, into: leafParams);
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
 
             genericParams = leafParams;
             receiverTypeArgStrings = typeArgStrings;
@@ -725,7 +725,7 @@ public partial class Parser
 
         // Check for member-routine-level generic params AFTER the routine name
         // e.g., "List[T].get[I]" - the [I] belongs to the member routine
-        if (Match(type: TokenType.LeftBracket))
+        if (CheckAndAdvance(type: TokenType.LeftBracket))
         {
             ParseMemberRoutineGenericParams(genericParams: ref genericParams,
                 inlineConstraints: ref inlineConstraints);
@@ -744,18 +744,18 @@ public partial class Parser
         while (true)
         {
             // Visibility modifiers (Open keyword removed - open is default, not a keyword)
-            if (!hasVisibility && Match(type: TokenType.Posted))
+            if (!hasVisibility && CheckAndAdvance(type: TokenType.Posted))
             {
                 visibility = VisibilityModifier.Posted;
                 hasVisibility = true;
             }
-            else if (!hasVisibility && Match(type: TokenType.Secret))
+            else if (!hasVisibility && CheckAndAdvance(type: TokenType.Secret))
             {
                 visibility = VisibilityModifier.Secret;
                 hasVisibility = true;
             }
             // `common` — a type-level (static) member routine
-            else if (!hasStorage && Match(type: TokenType.Common))
+            else if (!hasStorage && CheckAndAdvance(type: TokenType.Common))
             {
                 isCommon = true;
                 hasStorage = true;

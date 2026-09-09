@@ -339,7 +339,7 @@ public sealed partial class StdlibLoader
             // File-granularity conditional compilation applies to the stdlib too: a platform-specific
             // stdlib file (e.g. the LP64/LLP64 C-type width files) carries a `#@target(...)` directive
             // and only the matching one is loaded.
-            if (!Compiler.Targeting.TargetGate.ShouldCompile(filePath: filePath))
+            if (!Targeting.TargetGate.ShouldCompile(filePath: filePath))
             {
                 continue;
             }
@@ -491,80 +491,6 @@ public sealed partial class StdlibLoader
     }
 
     /// <summary>
-    /// Runs the full three-pass registration sequence (protocol shells → types → routines → presets)
-    /// for a single on-demand module. Extracted from <see cref="LoadModule(TypeRegistry, string)"/> so
-    /// all StampRealm writes happen in a static context.
-    /// </summary>
-    private static void RunModuleRegistrationPasses(TypeRegistry registry,
-        List<(Program Program, string FilePath, string Module)> programs)
-    {
-        // Three-pass registration: protocols first, then other types, then routines
-        // Register protocol shells across all files first, then fill in memberRoutines
-        RegisterCoreProtocolShells(registry: registry, corePrograms: programs);
-        FillCoreProtocolMemberRoutines(registry: registry, corePrograms: programs);
-
-        foreach ((Program program, string _, string _) in programs)
-        {
-            ResolveProtocolParents(registry: registry, program: program);
-        }
-
-        foreach ((Program program, string filePath, string ns) in programs)
-        {
-            StampRealm(realm: RealmOf(filePath: filePath));
-            RegisterProgramTypes(registry: registry, program: program, moduleName: ns);
-        }
-
-        // Re-resolve member variables now that all type shells in this module are registered.
-        // Initial registration may have empty member lists due to forward references
-        // (e.g., Set needs SortedSet which may not be registered yet during alphabetical processing).
-        // Each deferred pass must RE-STAMP `_registeringRealm` per program (the registration loop above
-        // left it at the LAST program's realm — and with an RF `.rf` + SF `.sf` wrapper for the same type
-        // both loaded, that trailing realm is SF, so an RF program's deferred lookups would hit the SF
-        // shell and mis-apply its protocols/members to the wrong realm — the `BitList` not-iterable bug).
-        foreach ((Program program, string filePath, string _) in programs)
-        {
-            StampRealm(realm: RealmOf(filePath: filePath));
-            ResolveProgramMemberVariables(registry: registry, program: program);
-        }
-
-        foreach ((Program program, string filePath, string _) in programs)
-        {
-            StampRealm(realm: RealmOf(filePath: filePath));
-            ResolveProgramProtocolConformances(registry: registry, program: program);
-        }
-
-        // Re-resolve protocol memberRoutine return types that failed due to forward references
-        foreach ((Program program, string filePath, string _) in programs)
-        {
-            StampRealm(realm: RealmOf(filePath: filePath));
-            ResolveProtocolMemberRoutineReturnTypes(registry: registry, program: program);
-            ResolveAssociatedTypeBindings(registry: registry, program: program);
-        }
-
-        foreach ((Program program, string filePath, string ns) in programs)
-        {
-            StampRealm(realm: RealmOf(filePath: filePath));
-            RegisterProgramRoutines(registry: registry, program: program, moduleName: ns);
-        }
-
-        foreach ((Program program, string filePath, string ns) in programs)
-        {
-            StampRealm(realm: RealmOf(filePath: filePath));
-            ResolveRoutineSignatures(registry: registry, program: program, moduleName: ns);
-        }
-
-        // Register presets for the module
-        foreach ((Program program, string filePath, string ns) in programs)
-        {
-            StampRealm(realm: RealmOf(filePath: filePath));
-            RegisterProgramPresets(registry: registry, program: program, moduleName: ns);
-        }
-
-        // Clear the thread-static realm so it never leaks into a later load pass on this thread.
-        StampRealm(realm: null);
-    }
-
-    /// <summary>
     /// Loads a specific module on-demand.
     /// Parses the module file and registers its types and routines.
     /// Uses module-based imports: the import path determines the module.
@@ -623,6 +549,80 @@ public sealed partial class StdlibLoader
     }
 
     /// <summary>
+    /// Runs the full three-pass registration sequence (protocol shells → types → routines → presets)
+    /// for a single on-demand module. Extracted from <see cref="LoadModule(TypeRegistry, string)"/> so
+    /// all StampRealm writes happen in a static context.
+    /// </summary>
+    private static void RunModuleRegistrationPasses(TypeRegistry registry,
+        List<(Program Program, string FilePath, string Module)> programs)
+    {
+        // Three-pass registration: protocols first, then other types, then routines
+        // Register protocol shells across all files first, then fill in memberRoutines
+        RegisterCoreProtocolShells(registry: registry, corePrograms: programs);
+        FillCoreProtocolMemberRoutines(registry: registry, corePrograms: programs);
+
+        foreach ((Program program, string _, string _) in programs)
+        {
+            ResolveProtocolParents(registry: registry, program: program);
+        }
+
+        foreach ((Program program, string filePath, string ns) in programs)
+        {
+            StampRealm(realm: RealmOf(filePath: filePath));
+            RegisterProgramTypes(registry: registry, program: program, moduleName: ns);
+        }
+
+        // Re-resolve member variables now that all type shells in this module are registered.
+        // Initial registration may have empty member lists due to forward references
+        // (e.g., Set needs SortedSet which may not be registered yet during alphabetical processing).
+        // Each deferred pass must RE-STAMP the registering realm per program (the registration loop above
+        // left it at the LAST program's realm — and with an RF + SF wrapper for the same type both loaded,
+        // that trailing realm is SF, so an RF program's deferred lookups would hit the SF shell and
+        // mis-apply its protocols/members to the wrong realm — the BitList not-iterable bug).
+        foreach ((Program program, string filePath, string _) in programs)
+        {
+            StampRealm(realm: RealmOf(filePath: filePath));
+            ResolveProgramMemberVariables(registry: registry, program: program);
+        }
+
+        foreach ((Program program, string filePath, string _) in programs)
+        {
+            StampRealm(realm: RealmOf(filePath: filePath));
+            ResolveProgramProtocolConformances(registry: registry, program: program);
+        }
+
+        // Re-resolve protocol memberRoutine return types that failed due to forward references
+        foreach ((Program program, string filePath, string _) in programs)
+        {
+            StampRealm(realm: RealmOf(filePath: filePath));
+            ResolveProtocolMemberRoutineReturnTypes(registry: registry, program: program);
+            ResolveAssociatedTypeBindings(registry: registry, program: program);
+        }
+
+        foreach ((Program program, string filePath, string ns) in programs)
+        {
+            StampRealm(realm: RealmOf(filePath: filePath));
+            RegisterProgramRoutines(registry: registry, program: program, moduleName: ns);
+        }
+
+        foreach ((Program program, string filePath, string ns) in programs)
+        {
+            StampRealm(realm: RealmOf(filePath: filePath));
+            ResolveRoutineSignatures(registry: registry, program: program, moduleName: ns);
+        }
+
+        // Register presets for the module
+        foreach ((Program program, string filePath, string ns) in programs)
+        {
+            StampRealm(realm: RealmOf(filePath: filePath));
+            RegisterProgramPresets(registry: registry, program: program, moduleName: ns);
+        }
+
+        // Clear the thread-static realm so it never leaks into a later load pass on this thread.
+        StampRealm(realm: null);
+    }
+
+    /// <summary>
     /// Resolves a type expression to a <see cref="TypeInfo"/> using the current generic and module context.
     /// Handles splice handles, comptime values, the <c>Me</c> placeholder, associated-type projections,
     /// generic parameters, const-generic literals, routine types, and parameterized types. Returns null
@@ -660,10 +660,9 @@ public sealed partial class StdlibLoader
 
         string typeName = typeExpr.Name;
 
-        // `Me` (protocol-self / owner placeholder) used as a type or type argument — e.g. in
-        // `Iterable[T].enumerate() -> ?EnumerateIterator[T, Me]`. Resolved to ProtocolSelf here;
-        // re-homing / call-site substitution binds it to the concrete implementer. Without this,
-        // `Me` falls through to the type lookup, returns null, and nulls the whole signature type.
+        // Me (protocol-self / owner placeholder) used as a type or type argument. Resolved to
+        // ProtocolSelf here. Re-homing at the call site binds it to the concrete implementer.
+        // Without this, Me falls through to the type lookup, returns null, and nulls the whole signature type.
         if (typeName == "Me")
         {
             return ProtocolSelfTypeInfo.Instance;
@@ -894,7 +893,7 @@ public sealed partial class StdlibLoader
     /// Resolves a <c>Tuple[..]</c> type expression by resolving each element type argument.
     /// Returns null when any element type fails to resolve (forward reference).
     /// </summary>
-    private static TypeInfo? ResolveTupleType(TypeRegistry registry, TypeExpression typeExpr,
+    private static TupleTypeInfo? ResolveTupleType(TypeRegistry registry, TypeExpression typeExpr,
         List<string>? genericParams, string? moduleName)
     {
         var elemTypes = new List<TypeInfo>();

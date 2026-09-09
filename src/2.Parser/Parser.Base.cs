@@ -93,14 +93,14 @@ public partial class Parser
             TokenType.Identifier => GrammarDiagnosticCode.ExpectedIdentifier,
             TokenType.LeftParen => GrammarDiagnosticCode.ExpectedLeftParen,
             TokenType.As => GrammarDiagnosticCode.ExpectedAs,
-_ => GrammarDiagnosticCode.UnexpectedToken
+            _ => GrammarDiagnosticCode.UnexpectedToken
         };
     }
 
     /// <summary>
     /// Consume token if it matches expected type, return whether successful
     /// </summary>
-    private bool Match(TokenType type)
+    private bool CheckAndAdvance(TokenType type)
     {
         if (!Check(type: type))
         {
@@ -114,7 +114,7 @@ _ => GrammarDiagnosticCode.UnexpectedToken
     /// <summary>
     /// Consume token if it matches any expected type, return whether successful
     /// </summary>
-    protected bool Match(params TokenType[] types)
+    protected bool CheckAndAdvance(params TokenType[] types)
     {
         foreach (TokenType type in types)
         {
@@ -147,11 +147,11 @@ _ => GrammarDiagnosticCode.UnexpectedToken
         if (PeekToken(offset: offset)
                .Type != type)
         {
-            return true; // Don't skip, but let caller check Match
+            return true; // Don't skip, but let caller check CheckAndAdvance
         }
 
         // Actually consume the newlines
-        while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
+        while (Check(type: TokenType.Newline)) { Advance(); }
 
         return true;
     }

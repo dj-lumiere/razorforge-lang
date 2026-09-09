@@ -187,7 +187,7 @@ public partial class Parser
             try
             {
                 // Skip newlines at top level
-                if (Match(type: TokenType.Newline))
+                if (CheckAndAdvance(type: TokenType.Newline))
                 {
                     continue;
                 }
@@ -393,7 +393,7 @@ public partial class Parser
         // e.g., @readonly\nroutine foo() should work
         if (annotations.Count > 0)
         {
-            while (Match(type: TokenType.Newline))
+            while (CheckAndAdvance(type: TokenType.Newline))
             {
                 // Skip newlines
             }
@@ -403,14 +403,14 @@ public partial class Parser
         (VisibilityModifier visibility, bool isCommon) = ParseModifiers();
 
         // Define declaration with annotations (e.g., @llvm("i32") define MyInt as S32)
-        if (Match(type: TokenType.Define))
+        if (CheckAndAdvance(type: TokenType.Define))
         {
             return ParseDefineDeclaration(annotations: annotations);
         }
 
         // Check for dangerous modifier: dangerous routine foo(), dangerous external("C") routine bar()
         // (RazorForge only)
-        bool isDangerous = _language == Language.RazorForge && Match(type: TokenType.Dangerous);
+        bool isDangerous = _language == Language.RazorForge && CheckAndAdvance(type: TokenType.Dangerous);
 
         ISyntaxTreeNode? varOrField = TryParseTypeBodyOrVariableDeclaration(
             visibility: visibility, annotations: annotations);
@@ -430,9 +430,9 @@ public partial class Parser
     {
         // Doc comments are preserved in the token stream but currently not attached to declarations.
         // Skip them to prevent "Unexpected token" errors.
-        while (Match(type: TokenType.DocComment))
+        while (CheckAndAdvance(type: TokenType.DocComment))
         {
-            while (Match(type: TokenType.Newline)) { /* consume trailing newlines after doc comment */ }
+            while (CheckAndAdvance(type: TokenType.Newline)) { /* consume trailing newlines after doc comment */ }
         }
 
         // The @target(...) annotation is read pre-parse by the build's file gate; discard it here.
@@ -441,7 +441,7 @@ public partial class Parser
             && PeekToken(offset: 1).Text == "target")
         {
             ParseAnnotations();
-            while (Match(type: TokenType.Newline)) { /* consume trailing newlines after @target */ }
+            while (CheckAndAdvance(type: TokenType.Newline)) { /* consume trailing newlines after @target */ }
         }
     }
 
@@ -452,10 +452,10 @@ public partial class Parser
     /// </summary>
     private ISyntaxTreeNode? TryParseFileLevelDeclaration()
     {
-        if (Match(type: TokenType.Module)) return ParseModuleDeclaration();
-        if (Match(type: TokenType.Import)) return ParseImportDeclaration();
-        if (Match(type: TokenType.Define)) return ParseDefineDeclaration();
-        if (Match(type: TokenType.Preset)) return ParsePresetDeclaration();
+        if (CheckAndAdvance(type: TokenType.Module)) return ParseModuleDeclaration();
+        if (CheckAndAdvance(type: TokenType.Import)) return ParseImportDeclaration();
+        if (CheckAndAdvance(type: TokenType.Define)) return ParseDefineDeclaration();
+        if (CheckAndAdvance(type: TokenType.Preset)) return ParsePresetDeclaration();
         return null;
     }
 
@@ -492,7 +492,7 @@ public partial class Parser
         if (Check(type: TokenType.Global))
             return ParseGlobalInDeclarationPosition(visibility: visibility, annotations: annotations);
 
-        if (Match(TokenType.Var))
+        if (CheckAndAdvance(TokenType.Var))
         {
             if (_parsingTypeBody)
             {
@@ -509,7 +509,7 @@ public partial class Parser
         }
 
         // Pass statement/declaration (empty placeholder, RazorForge only).
-        if (_language == Language.RazorForge && Match(type: TokenType.Pass))
+        if (_language == Language.RazorForge && CheckAndAdvance(type: TokenType.Pass))
         {
             ConsumeStatementTerminator();
             return _parsingTypeBody
@@ -531,7 +531,7 @@ public partial class Parser
     {
         AsyncStatus asyncStatus = ParseAsyncStatusModifier();
 
-        if (Match(type: TokenType.Routine))
+        if (CheckAndAdvance(type: TokenType.Routine))
         {
             return ParseRoutineOrForeignDeclaration(visibility: visibility,
                 annotations: annotations,
@@ -558,13 +558,13 @@ public partial class Parser
 
         RejectCommonOnTypeDeclaration(isCommon: isCommon);
 
-        if (Match(type: TokenType.Entity))   return ParseEntityDeclaration(visibility: visibility);
-        if (Match(type: TokenType.Record))   return ParseRecordDeclaration(visibility: visibility, annotations: annotations);
-        if (Match(type: TokenType.Choice))   return ParseChoiceDeclaration(visibility: visibility);
-        if (Match(type: TokenType.Flags))    return ParseFlagsDeclaration(visibility: visibility);
-        if (Match(type: TokenType.Crashable)) return ParseCrashableDeclaration(visibility: visibility);
-        if (Match(type: TokenType.Variant))  return ParseVariantDeclaration();
-        if (Match(type: TokenType.Protocol)) return ParseProtocolDeclaration(visibility: visibility);
+        if (CheckAndAdvance(type: TokenType.Entity))   return ParseEntityDeclaration(visibility: visibility);
+        if (CheckAndAdvance(type: TokenType.Record))   return ParseRecordDeclaration(visibility: visibility, annotations: annotations);
+        if (CheckAndAdvance(type: TokenType.Choice))   return ParseChoiceDeclaration(visibility: visibility);
+        if (CheckAndAdvance(type: TokenType.Flags))    return ParseFlagsDeclaration(visibility: visibility);
+        if (CheckAndAdvance(type: TokenType.Crashable)) return ParseCrashableDeclaration(visibility: visibility);
+        if (CheckAndAdvance(type: TokenType.Variant))  return ParseVariantDeclaration();
+        if (CheckAndAdvance(type: TokenType.Protocol)) return ParseProtocolDeclaration(visibility: visibility);
 
         if (visibility != VisibilityModifier.Open)
         {
@@ -670,7 +670,7 @@ public partial class Parser
     private AsyncStatus ParseAsyncStatusModifier()
     {
         // Concurrency modifier: threaded routine foo() (RazorForge only, v0.1)
-        if (_language == Language.RazorForge && Match(type: TokenType.Threaded))
+        if (_language == Language.RazorForge && CheckAndAdvance(type: TokenType.Threaded))
         {
             return AsyncStatus.Threaded;
         }
@@ -678,7 +678,7 @@ public partial class Parser
         // SF (SUFLAE-FOR-AI §2.8 lists `suspended` as an identical keyword; only `threaded` is RF-only,
         // since SF's Roamed/cycle-collected model has no raw shared-memory threading). SF's single-
         // thread/REPL model is exactly where cooperative coroutines fit.
-        if (Match(type: TokenType.Suspended))
+        if (CheckAndAdvance(type: TokenType.Suspended))
         {
             return AsyncStatus.Suspended;
         }
@@ -796,7 +796,7 @@ public partial class Parser
     ///   expr         - Expression statement (fallback)
     /// </remarks>
     /// <returns>The parsed statement, or null if at end of block.</returns>
-    private Statement ParseStatement() // NOSONAR S3776
+    private Statement ParseStatement()
     {
         // ═══════════════════════════════════════════════════════════════════════════
         // INDENTATION HANDLING
@@ -809,43 +809,46 @@ public partial class Parser
         }
 
         // Skip newlines
-        while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
+        while (Check(type: TokenType.Newline))
+        {
+            Advance();
+        }
 
         // ═══════════════════════════════════════════════════════════════════════════
         // CONTROL FLOW STATEMENTS
         // ═══════════════════════════════════════════════════════════════════════════
 
-        if (Match(type: TokenType.If))
+        if (CheckAndAdvance(type: TokenType.If))
         {
             return ParseIfStatement();
         }
 
-        if (Match(type: TokenType.Unless))
+        if (CheckAndAdvance(type: TokenType.Unless))
         {
             return ParseUnlessStatement();
         }
 
-        if (Match(type: TokenType.While))
+        if (CheckAndAdvance(type: TokenType.While))
         {
             return ParseWhileStatement();
         }
 
-        if (Match(type: TokenType.Loop))
+        if (CheckAndAdvance(type: TokenType.Loop))
         {
             return ParseLoopStatement();
         }
 
-        if (Match(type: TokenType.Each))
+        if (CheckAndAdvance(type: TokenType.Each))
         {
             return ParseEachStatement();
         }
 
-        if (Match(type: TokenType.Expand))
+        if (CheckAndAdvance(type: TokenType.Expand))
         {
             return ParseExpandStatement();
         }
 
-        if (Match(type: TokenType.When))
+        if (CheckAndAdvance(type: TokenType.When))
         {
             return ParseWhenStatement();
         }
@@ -854,22 +857,22 @@ public partial class Parser
         // JUMP STATEMENTS
         // ═══════════════════════════════════════════════════════════════════════════
 
-        if (Match(type: TokenType.Return))
+        if (CheckAndAdvance(type: TokenType.Return))
         {
             return ParseReturnStatement();
         }
 
-        if (Match(type: TokenType.Becomes))
+        if (CheckAndAdvance(type: TokenType.Becomes))
         {
             return ParseBecomesStatement();
         }
 
-        if (Match(type: TokenType.Break))
+        if (CheckAndAdvance(type: TokenType.Break))
         {
             return ParseBreakStatement();
         }
 
-        if (Match(type: TokenType.Continue))
+        if (CheckAndAdvance(type: TokenType.Continue))
         {
             return ParseContinueStatement();
         }
@@ -878,33 +881,33 @@ public partial class Parser
         // SPECIAL STATEMENTS
         // ═══════════════════════════════════════════════════════════════════════════
 
-        if (Match(type: TokenType.Pass))
+        if (CheckAndAdvance(type: TokenType.Pass))
         {
             return ParsePassStatement();
         }
 
-        if (Match(type: TokenType.Throw))
+        if (CheckAndAdvance(type: TokenType.Throw))
         {
             return ParseThrowStatement(isFatal: false);
         }
 
-        if (Match(type: TokenType.Pierce))
+        if (CheckAndAdvance(type: TokenType.Pierce))
         {
             return ParseThrowStatement(isFatal: true);
         }
 
         // Using block (scoped resource management with indented body)
-        if (Match(type: TokenType.Using))
+        if (CheckAndAdvance(type: TokenType.Using))
         {
             return ParseUsingStatement();
         }
 
-        if (Match(type: TokenType.Absent))
+        if (CheckAndAdvance(type: TokenType.Absent))
         {
             return ParseAbsentStatement();
         }
 
-        if (Match(type: TokenType.Discard))
+        if (CheckAndAdvance(type: TokenType.Discard))
         {
             return ParseDiscardStatement();
         }
@@ -914,7 +917,7 @@ public partial class Parser
         // ═══════════════════════════════════════════════════════════════════════════
 
         // Danger block (unsafe operations) - RazorForge only
-        if (_language == Language.RazorForge && Match(type: TokenType.Danger))
+        if (_language == Language.RazorForge && CheckAndAdvance(type: TokenType.Danger))
         {
             return ParseDangerStatement();
         }
@@ -930,7 +933,7 @@ public partial class Parser
             Advance(); // consume 'lateinit'
             stmtLateInit = true;
         }
-        if (Match(TokenType.Var, TokenType.Preset))
+        if (CheckAndAdvance(TokenType.Var, TokenType.Preset))
         {
             // Check if this is destructuring: var (a, b) = expr
             if (Check(type: TokenType.LeftParen))

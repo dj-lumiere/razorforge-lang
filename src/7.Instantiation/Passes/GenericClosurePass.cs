@@ -16,7 +16,7 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
         {
             if (_sw == null) return;
             _sw.Stop();
-            System.Console.Error.WriteLine(value: $"      GC sub - {label}: {_sw.ElapsedMilliseconds} ms");
+            Console.Error.WriteLine(value: $"      GC sub - {label}: {_sw.ElapsedMilliseconds} ms");
             _sw.Restart();
         }
 
@@ -157,7 +157,7 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
         // under the demand flip, may not have been preset-inlined before monomorphization, so a preset
         // (e.g. ENTRY_LIVE in a Dict/Set body) survives into the instance and reaches codegen. Inline first —
         // presets are literal values other lowering depends on. Idempotent when the template was already inlined.
-        new Compiler.Desugaring.Passes.PresetInliningPass(ctx: adapter)
+        new PresetInliningPass(ctx: adapter)
             .RunOnInstantiatedGenericBodies(bodies: freshBodies);
         // ControlFlowLowering for instantiated bodies: protocol-default-impl clones (from
         // ProtocolDefaultImplLoweringPass above) carry raw `for` loops from the stdlib AST
@@ -190,7 +190,7 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
         // RunGlobal sweep finished before GMP populated the InstantiatedGenericBodies
         // map). Without this, `me.size = me.size + 1_u64` in a monomorphized routine
         // reaches codegen as a raw `BinaryExpression(Add)` and trips the codegen guard.
-        var postCtx = new Desugaring.PostprocessingContext(
+        var postCtx = new PostprocessingContext(
             registry: ctx.Registry,
             variantBodies: ctx.VariantBodies,
             target: ctx.Target,
@@ -200,7 +200,7 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
         // via VariantReturnLoweringPass.RunOnMonomorphizedBodies at Phase 8, but the collector's
         // freshly-built variant bodies are not in that map — without this they reach codegen as raw
         // VariantReturnStatement and trip the codegen guard.
-        new Desugaring.Passes.VariantReturnLoweringPass(ctx: postCtx)
+        new VariantReturnLoweringPass(ctx: postCtx)
             .RunOnInstantiatedGenericBodies(bodies: freshBodies);
         // FStringLoweringPass runs BEFORE OperatorLoweringPass (per the per-file pipeline order).
         // Monomorphized represent/diagnose bodies need f-strings lowered to represent/diagnose

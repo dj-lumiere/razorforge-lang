@@ -109,7 +109,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
     // retain a field-write RHS of this type (double-count). Delegates to the registry's canonical
     // structural check (matches on GenericDefinition/WrapperTypeInfo) — no ad-hoc name parsing here.
     private static bool IsRcWrapperType(TypeInfo? type) =>
-        type is not null && Compiler.Declaration.TypeRegistry.GetRcWrapperBaseName(type: type) is not null;
+        type is not null && TypeRegistry.GetRcWrapperBaseName(type: type) is not null;
 
     // True when the routine (identified by name OR composite key) is one of the duplication verbs whose
     // body must NOT have retain-injection applied to its `me`/identity references: `assign` (the identity
@@ -526,7 +526,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
         // through a container never reaches its cycle-internal refcount and cc_collect can't
         // reap it). Pass store-primitive args through untouched to keep copy==teardown.
         bool isStorePrimitive = CalleeName(call.Callee) is { } cn
-            && Declaration.RuntimeContract.StorePrimitives.Contains(item: cn);
+            && RuntimeContract.StorePrimitives.Contains(item: cn);
         // A CONSTRUCTOR/conversion call (ConstructedType != null) persists its args into the new
         // value's fields — a DESTINATION, exactly like a CreatorExpression member-init — so its
         // borrowed-ref args must be retained (a bare struct copy would alias the source and
@@ -591,7 +591,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
         // `LLVM::store[T](me, value)`, a generic memberRoutine call whose `value` arg is moved into
         // memory and must NOT be retain-copied here.
         bool isStorePrimitiveG = CalleeName(gmc.Object) is { } gcn
-            && Declaration.RuntimeContract.StorePrimitives.Contains(item: gcn);
+            && RuntimeContract.StorePrimitives.Contains(item: gcn);
         bool isDestinationG = isStorePrimitiveG || gmc.ConstructedType is not null;
         var args = new List<Expression>(capacity: gmc.Arguments.Count);
         foreach (Expression arg in gmc.Arguments)

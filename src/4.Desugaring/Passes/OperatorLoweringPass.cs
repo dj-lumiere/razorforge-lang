@@ -857,10 +857,10 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         TypeInfo? innerRecv = receiverType switch
         {
             WrapperTypeInfo w
-                when Compiler.Declaration.TypeRegistry.GetRcWrapperBaseName(type: w) != null
+                when Declaration.TypeRegistry.GetRcWrapperBaseName(type: w) != null
                 => w.InnerType,
             RecordTypeInfo r
-                when Compiler.Declaration.TypeRegistry.GetRcWrapperBaseName(type: r) != null
+                when Declaration.TypeRegistry.GetRcWrapperBaseName(type: r) != null
                      && r.TypeArguments is { Count: >= 1 } ra
                 => ra[index: 0],
             _ => null
@@ -1024,10 +1024,10 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     // inner-type unwrap so the index (`d[i]`) getitem resolves against the bare container.
     private static TypeInfo? UnwrapRoamedInner(TypeInfo? type) => type switch
     {
-        WrapperTypeInfo w when Compiler.Declaration.TypeRegistry.GetRcWrapperBaseName(type: w) != null
+        WrapperTypeInfo w when Declaration.TypeRegistry.GetRcWrapperBaseName(type: w) != null
             => w.InnerType,
         RecordTypeInfo { TypeArguments: { Count: >= 1 } ra } r
-            when Compiler.Declaration.TypeRegistry.GetRcWrapperBaseName(type: r) != null
+            when Declaration.TypeRegistry.GetRcWrapperBaseName(type: r) != null
             => ra[index: 0],
         _ => null
     };

@@ -69,16 +69,16 @@ public sealed partial class SemanticVerifier
         return bestDistance <= maxDistance ? best : null;
     }
 
+    /// <summary>Holds the three rolling DP row arrays (previous-previous, previous, current) used by
+    /// the bounded Damerau edit-distance algorithm so they can be passed as a single parameter.</summary>
+    private record struct EditDpRows(int[] PrevPrev, int[] Prev, int[] Curr);
+
     /// <summary>
     /// Case-insensitive Damerau (optimal string alignment) edit distance with an early exit
     /// once every cell of a row exceeds <paramref name="cap"/> (returns cap+1 — "too far").
     /// Adjacent transpositions cost 1, so the most common typo class ("Tetx" → "Text",
     /// "add_lats" → "add_last") stays within the tight short-name threshold.
     /// </summary>
-    /// <summary>Holds the three rolling DP row arrays (previous-previous, previous, current) used by
-    /// the bounded Damerau edit-distance algorithm so they can be passed as a single parameter.</summary>
-    private record struct EditDpRows(int[] PrevPrev, int[] Prev, int[] Curr);
-
     private static int BoundedEditDistance(string a, string b, int cap)
     {
         int n = a.Length;

@@ -630,7 +630,7 @@ public sealed partial class SemanticVerifier
         {
             stashedRestoredVariants =
                 new Dictionary<string, Statement>(capacity: _restoredVariantKeys.Count,
-                    comparer: System.StringComparer.Ordinal);
+                    comparer: StringComparer.Ordinal);
             foreach (string key in _restoredVariantKeys)
                 if (_variantBodies.TryGetValue(key: key, value: out Statement? restoredBody))
                 {
@@ -790,16 +790,16 @@ public sealed partial class SemanticVerifier
         tempTeardownPass.RunOnBodies(markerCtx.VariantBodies);
 
         // MarkerProtocolDesugarPass. The warm-daemon RF-S413 false positive is ALREADY fixed by routing
-        // marker protocols through the ordinary generic-bound desugar in SignatureResolver: a param is now a
-        // generic `V obeys Accessing[X]`, never a bare `Accessing[X]` protocol, so RewriteAllSignatures finds
-        // NO marker param to erase in place — the shared/cached RoutineInfo is no longer mutated, so the cache
-        // can't be poisoned. The pass is kept because its expression cleanup + late-resolution/instantiated-
-        // body re-keying is still load-bearing for non-marker lowering (e.g. Sender[T] GMCE construction);
-        // fully removing it requires separately solving that GMCE-lowering gap (warm-restore-gmce-bug).
+        // marker protocols through the ordinary generic-bound desugar in SignatureResolver: a param is now
+        // a bound generic, never a bare marker protocol, so RewriteAllSignatures finds no marker param to
+        // erase in place — the shared/cached RoutineInfo is no longer mutated, so the cache can't be
+        // poisoned. The pass is kept because its expression cleanup + late-resolution/instantiated-body
+        // re-keying is still load-bearing for non-marker lowering (e.g. Sender-of-T GMCE construction).
+        // Fully removing it requires separately solving that GMCE-lowering gap (warm-restore-gmce-bug).
         // The marker-protocol erase pass is no longer needed: marker protocols now desugar to generic
-        // bounds in SignatureResolver, so no bare Accessing[X] param reaches this pass for erasure.
-        // Re-keying via RewriteAllSignatures is also disabled; the GMCE-lowering gap it addressed
-        // (Sender[T] construction) is tracked separately.
+        // bounds in SignatureResolver, so no bare marker-protocol param reaches this pass for erasure.
+        // Re-keying via RewriteAllSignatures is also disabled. The GMCE-lowering gap it addressed
+        // (Sender-of-T construction) is tracked separately.
 
         // Restore the stashed restored variant bodies BEFORE reachability/GMP — the fixpoint below must walk
         // the FULL (restored + fresh) set for liveness (its GMP re-monomorphization short-circuits on the
@@ -932,7 +932,7 @@ public sealed partial class SemanticVerifier
         foreach (string key in maySuspend) ctx.MaySuspendRoutineKeys.Add(item: key);
         _maySuspendRoutineKeys = maySuspend;
 
-        string? dumpPath = Compiler.Diagnostics.DiagnosticFlags.MaySuspendDump;
+        string? dumpPath = DiagnosticFlags.MaySuspendDump;
         if (!string.IsNullOrEmpty(value: dumpPath))
         {
             var lines = new List<string> { "=== MAY-SUSPEND ROUTINES ===" };
@@ -1132,8 +1132,8 @@ public sealed partial class SemanticVerifier
         // The eager sweep is in effect (whether or not there are fresh programs — a warm restore's stdlib
         // was analyzed at capture). Mark it so the Stage-2 demand hook stays a no-op until the Stage-5 flip.
         _eagerStdlibAnalyzed = true;
-        // Analyze only FRESHLY-loaded stdlib programs: in a cold compile that is every stdlib program;
-        // in a warm-restore compile the restored bodies were already analyzed at capture, so this is just
+        // Analyze only FRESHLY-loaded stdlib programs: in a cold compile that is every stdlib program.
+        // In a warm-restore compile the restored bodies were already analyzed at capture, so this is just
         // the modules imported on-demand (e.g. IO/Console) — which still need SA before lowering/codegen.
         var freshStdlibPrograms = _registry.FreshlyLoadedStdlibPrograms;
         if (freshStdlibPrograms.Count == 0)
@@ -1252,7 +1252,7 @@ public sealed partial class SemanticVerifier
     /// on-demand hook drives stdlib analysis. Now DEFAULT-ON — demand is the pipeline; set `RF_NO_FLIP=1`
     /// to restore the pre-(B) eager path (A/B comparison during bug-check).</summary>
     internal static readonly bool FlipDemandStdlib =
-        System.Environment.GetEnvironmentVariable(variable: "RF_NO_FLIP") != "1";
+        Environment.GetEnvironmentVariable(variable: "RF_NO_FLIP") != "1";
 
     /// <summary>
     /// Ensures the stdlib file declaring <paramref name="routineKey"/> has been body-analyzed, running the
@@ -1310,20 +1310,20 @@ public sealed partial class SemanticVerifier
             // eager sweep ran (DesugaringPipeline.Run = syntactic Phase-3; PostprocessingPipeline.Run =
             // type-aware Phase-8). Variant/wired bodies come via the on-demand variant synthesizer + the
             // collector's per-owner materialization, so only the per-file program passes run here.
-            var dctx = new Compiler.Desugaring.DesugaringContext(registry: _registry,
+            var dctx = new DesugaringContext(registry: _registry,
                 routineBodies: _routineBodies, target: _target, buildMode: _buildMode)
             {
                 VariantBodies = _variantBodies, SynthesizeAllDerives = SeedAllStdlibRoutines,
                 RestoredVariantKeys = _restoredVariantKeys
             };
-            new Compiler.Desugaring.DesugaringPipeline(ctx: dctx).Run(program: entry.Program);
-            var pctx = new Compiler.Desugaring.PostprocessingContext(registry: _registry,
+            new DesugaringPipeline(ctx: dctx).Run(program: entry.Program);
+            var pctx = new PostprocessingContext(registry: _registry,
                 variantBodies: _variantBodies,
                 synthesizedBodies: _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
                     elementSelector: kvp => kvp.Value.Body),
                 target: _target, buildMode: _buildMode,
                 monomorphizedBodies: _instantiatedGenericBodies);
-            new Compiler.Desugaring.PostprocessingPipeline(ctx: pctx).Run(program: entry.Program);
+            new PostprocessingPipeline(ctx: pctx).Run(program: entry.Program);
         }
         finally
         {
@@ -1433,7 +1433,7 @@ public sealed partial class SemanticVerifier
         // resolution runs the generic-constraint checks, RF-S150) fills them in.
         foreach ((Program program, string _) in files)
         {
-            Compiler.Declaration.StdlibLoader.ResolveProgramProtocolConformances(registry: _registry, program: program);
+            StdlibLoader.ResolveProgramProtocolConformances(registry: _registry, program: program);
         }
         Mark(label: "Phase 1b -> re-resolve conformances");
 

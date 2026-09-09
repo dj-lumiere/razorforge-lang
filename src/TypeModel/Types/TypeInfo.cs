@@ -227,7 +227,7 @@ public abstract class TypeInfo
     /// C layout that codegen actually emits.
     /// </summary>
     public virtual int Alignment(int pointerSize) =>
-        System.Math.Max(val1: System.Math.Min(val1: SizeBytes(pointerSize: pointerSize), val2: 16), val2: 1);
+        Math.Max(val1: Math.Min(val1: SizeBytes(pointerSize: pointerSize), val2: 16), val2: 1);
 
     /// <summary>
     /// Aligns <paramref name="size"/> up to the next multiple of <paramref name="alignment"/>.

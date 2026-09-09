@@ -132,7 +132,7 @@ public sealed class PostprocessingPipeline(PostprocessingContext ctx)
         // (SemanticVerifier.AnalyzeStdlibProgramOnDemand runs PostprocessingPipeline.Run per file), so skip the
         // eager stdlib sweep here. Default-on; RF_NO_FLIP=1 restores the eager sweep.
         // BASE build (SynthesizeAllDerives) stays eager — it must lower the WHOLE stdlib, not a demand slice.
-        if (Compiler.Verification.SemanticVerifier.FlipDemandStdlib && !ctx.SynthesizeAllDerives) return;
+        if (Verification.SemanticVerifier.FlipDemandStdlib && !ctx.SynthesizeAllDerives) return;
         foreach ((Program program, _, _) in ctx.Registry.FreshlyLoadedStdlibPrograms)
             Run(program);
     }

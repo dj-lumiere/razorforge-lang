@@ -76,7 +76,7 @@ public sealed partial class SemanticVerifier
         if (literal.LiteralType is TokenType.UndecidedInteger or TokenType.UndecidedDecimal
                 or TokenType.IntegerLiteral or TokenType.DecimalLiteral)
             return false;
-        return Compiler.Declaration.TypeResolver.IsImportGatedNumeric(name: typeName)
+        return Declaration.TypeResolver.IsImportGatedNumeric(name: typeName)
             && UsesSuflaeNumericDefaults(literal: literal)
             && !IsStdlibFile(filePath: literal.Location.FileName ?? "")
             && !(_importedModules.Contains(item: "Numerics")
@@ -140,7 +140,7 @@ public sealed partial class SemanticVerifier
         // Roamed handle (roamed_none). Entity references carry their own none via a null pointer, so
         // no Maybe carrier is needed.
         if (_registry.Language == Language.Suflae
-            && expectedType is RecordTypeInfo { GenericDefinition.Name: Compiler.Declaration.RuntimeContract.Roamed })
+            && expectedType is RecordTypeInfo { GenericDefinition.Name: Declaration.RuntimeContract.Roamed })
         {
             return expectedType;
         }

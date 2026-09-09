@@ -527,8 +527,8 @@ public record ExpandStatement(
 public static class ExpandSources
 {
     /// <summary>The recognized reflection-source intrinsic names.</summary>
-    public static readonly System.Collections.Generic.IReadOnlySet<string> Names =
-        new System.Collections.Generic.HashSet<string>(comparer: System.StringComparer.Ordinal)
+    public static readonly IReadOnlySet<string> Names =
+        new HashSet<string>(comparer: StringComparer.Ordinal)
         {
             "openmemvarof", "allmemvarof", "caseof", "branchof"
         };

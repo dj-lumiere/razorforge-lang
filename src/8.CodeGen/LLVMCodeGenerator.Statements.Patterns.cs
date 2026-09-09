@@ -14,6 +14,9 @@ public partial class LlvmCodeGenerator
     private const string UnknownRoutineName = "<unknown>";
     private const string NullDisplayName = "<null>";
 
+    private readonly record struct WhenClauseTarget(string Subject, TypeInfo? SubjectType, int ClauseIndex);
+    private readonly record struct WhenJumpTargets(string NextLabel, string EndLabel);
+
     // Returns true if ALL clauses of the when statement are guaranteed to terminate
     // (i.e. the when_end block is unreachable).
     /// <summary>
@@ -191,8 +194,9 @@ public partial class LlvmCodeGenerator
                 : endLabel;
 
             EmitLine(sb: sb, line: $"{currentLabel}:");
-            EmitWhenChainClause(sb: sb, clause: clause, subject: subject, subjectType: subjectType,
-                clauseIndex: i, nextLabel: nextLabel, endLabel: endLabel,
+            EmitWhenChainClause(sb: sb, clause: clause,
+                target: new WhenClauseTarget(subject, subjectType, i),
+                labels: new WhenJumpTargets(nextLabel, endLabel),
                 handledAbsent: ref handledAbsent, handledCrashable: ref handledCrashable,
                 allTerminated: ref allTerminated);
         }
@@ -204,10 +208,13 @@ public partial class LlvmCodeGenerator
     /// Emits a single when-chain clause: handles the narrowed carrier else-arm fast path,
     /// updates the absent/crashable tracking flags, emits the pattern match, and emits the body.
     /// </summary>
-    private void EmitWhenChainClause(StringBuilder sb, WhenClause clause, string subject,
-        TypeInfo? subjectType, int clauseIndex, string nextLabel, string endLabel,
+    private void EmitWhenChainClause(StringBuilder sb, WhenClause clause,
+        WhenClauseTarget target, WhenJumpTargets labels,
         ref bool handledAbsent, ref bool handledCrashable, ref bool allTerminated)
     {
+        var (subject, subjectType, clauseIndex) = target;
+        var (nextLabel, endLabel) = labels;
+
         // For carrier ElsePattern with a variable: extract the inner T value, mirroring SA narrowing.
         // Must do this BEFORE EmitPatternMatch to pass the right type.
         if (subjectType != null && IsCarrierType(type: subjectType) &&
@@ -219,7 +226,8 @@ public partial class LlvmCodeGenerator
             string elseBodyLabel = NextLabel(prefix: $"when_body{clauseIndex}");
             EmitNarrowedCarrierElseArm(sb: sb, clauseBody: clause.Body, subject: subject,
                 subjectType: subjectType, variableName: elseCarrier.VariableName,
-                bodyLabel: elseBodyLabel, endLabel: endLabel, allTerminated: ref allTerminated);
+                jumpTargets: new WhenJumpTargets(elseBodyLabel, endLabel),
+                allTerminated: ref allTerminated);
             return;
         }
 
@@ -268,9 +276,11 @@ public partial class LlvmCodeGenerator
     /// clearing <paramref name="allTerminated"/>.
     /// </summary>
     private void EmitNarrowedCarrierElseArm(StringBuilder sb, Statement clauseBody, string subject,
-        TypeInfo subjectType, string variableName, string bodyLabel, string endLabel,
+        TypeInfo subjectType, string variableName, WhenJumpTargets jumpTargets,
         ref bool allTerminated)
     {
+        string bodyLabel = jumpTargets.NextLabel;
+        string endLabel = jumpTargets.EndLabel;
         TypeInfo innerType = subjectType.TypeArguments![index: 0];
         EmitCarrierElsePatternExtract(sb: sb,
             subject: subject,

@@ -15,13 +15,13 @@ public partial class Parser
         // Handle @annotation and @[...] compound annotations
         while (Check(type: TokenType.At))
         {
-            if (!Match(type: TokenType.At))
+            if (!CheckAndAdvance(type: TokenType.At))
             {
                 break; // No more annotations
             }
 
             // Check for compound annotation syntax: @[attr1, attr2, ...]
-            if (Match(type: TokenType.LeftBracket))
+            if (CheckAndAdvance(type: TokenType.LeftBracket))
             {
                 ParseCompoundAnnotation(annotations: annotations);
             }
@@ -31,7 +31,7 @@ public partial class Parser
             }
 
             // Skip newlines between annotations (allows multiple @attr on separate lines)
-            while (Match(type: TokenType.Newline))
+            while (CheckAndAdvance(type: TokenType.Newline))
             {
                 // Skip newlines
             }
@@ -53,13 +53,13 @@ public partial class Parser
                 errorMessage: "Expected annotation name in compound annotation");
 
             // Check for optional arguments on each annotation
-            if (Match(type: TokenType.LeftParen))
+            if (CheckAndAdvance(type: TokenType.LeftParen))
             {
                 compoundAnnot += "(" + ParseAnnotationArgumentList() + ")";
             }
 
             annotations.Add(item: compoundAnnot);
-        } while (Match(type: TokenType.Comma));
+        } while (CheckAndAdvance(type: TokenType.Comma));
 
         Consume(type: TokenType.RightBracket,
             errorMessage: "Expected ']' after compound annotations");
@@ -75,7 +75,7 @@ public partial class Parser
         string annotName = ConsumeIdentifier(errorMessage: "Expected annotation name after '@'");
 
         // Check for annotation arguments: @something("size_of") or @deprecated(message: "text")
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             annotName += "(" + ParseAnnotationArgumentList() + ")";
         }
@@ -103,7 +103,7 @@ public partial class Parser
                 {
                     string argName = ConsumeIdentifier(errorMessage: "Expected argument name");
                     // Accept both ':' and '=' as separators
-                    if (!Match(TokenType.Colon, TokenType.Assign))
+                    if (!CheckAndAdvance(TokenType.Colon, TokenType.Assign))
                     {
                         throw ThrowParseError(code: GrammarDiagnosticCode.UnexpectedToken,
                             message: "Expected ':' or '=' after argument name");
@@ -117,7 +117,7 @@ public partial class Parser
                     // Positional argument (string literal, number, identifier)
                     arguments.Add(item: ParseAnnotationValue());
                 }
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
         }
 
         Consume(type: TokenType.RightParen,
@@ -144,12 +144,12 @@ public partial class Parser
         }
 
         // Boolean literals
-        if (Match(type: TokenType.True))
+        if (CheckAndAdvance(type: TokenType.True))
         {
             return "true";
         }
 
-        if (Match(type: TokenType.False))
+        if (CheckAndAdvance(type: TokenType.False))
         {
             return "false";
         }

@@ -164,7 +164,7 @@ internal static class GenericAstRewriter
         /// Resolves a <see cref="TypeInfo"/> through the substitution map. Returns null
         /// when the registry is not available or the type has no substitution.
         /// </summary>
-        public TypeInfo? ResolveType(TypeInfo? original) // NOSONAR S3776
+        public TypeInfo? ResolveType(TypeInfo? original)
         {
             if (original == null || TypeSubs == null || Registry == null)
                 return null;
@@ -200,7 +200,7 @@ internal static class GenericAstRewriter
                 // mirroring TypeRegistry.ExpandSoAColumns' decl-position substitution but driven here by
                 // the active expand unroll at monomorphization. Without this the `$Col` GenericParameter
                 // reaches codegen's GetLlvmType and trips the "all generic parameters must be substituted".
-                if (gp.Name == TypeModel.Symbols.MemberExpandTemplateInfo.ColumnPlaceholderName
+                if (gp.Name == MemberExpandTemplateInfo.ColumnPlaceholderName
                     && ActiveMemberType != null)
                     return ActiveMemberType;
                 if (TypeSubs.TryGetValue(key: gp.Name, value: out TypeInfo? direct))
@@ -541,7 +541,7 @@ internal static class GenericAstRewriter
         }
 
         private static void InferMemberRoutineParam(TypeInfo? paramType, TypeInfo argType,
-            List<string> genericParams, TypeInfo?[] inferred) // NOSONAR S3776
+            List<string> genericParams, TypeInfo?[] inferred)
         {
             if (paramType == null) return;
             if (paramType is GenericParameterTypeInfo gp)
@@ -648,7 +648,6 @@ internal static class GenericAstRewriter
                     callArgTypes: callArgTypes),
                 IdentifierExpression identifier => ResolveFreeCallRoutine(call: call,
                     identifier: identifier,
-                    expressionType: expressionType,
                     callArgTypes: callArgTypes),
                 _ => null
             };
@@ -680,7 +679,7 @@ internal static class GenericAstRewriter
 
         private RoutineInfo? ResolveFreeCallRoutine(CallExpression call,
             IdentifierExpression identifier,
-            TypeInfo? expressionType, List<TypeInfo> callArgTypes)
+            List<TypeInfo> callArgTypes)
         {
             // Identifier names are bare; the failable `!` is a structured flag on the call node.
             string callName = identifier.Name;
@@ -928,8 +927,7 @@ internal static class GenericAstRewriter
 
     #region Expression Rewriting
 
-    private static Expression RewriteExpression(Expression expr, // NOSONAR S3776
-        RewriteContext ctx)
+    private static Expression RewriteExpression(Expression expr, RewriteContext ctx)
     {
         Expression result = expr switch
         {
@@ -1059,7 +1057,7 @@ internal static class GenericAstRewriter
             // placeof(m) / sizeof(m|T) -> folded off the active expand-unroll context. Placed BEFORE the
             // generic CallExpression clone so it never resolves as a real routine call.
             CallExpression { Callee: IdentifierExpression ofId, Arguments: [Expression ofArg] } ofCall
-                when Compiler.Verification.SemanticVerifier.IsMetadataIntrinsic(name: ofId.Name)
+                when Verification.SemanticVerifier.IsMetadataIntrinsic(name: ofId.Name)
                      && IsFoldableMetadataArg(name: ofId.Name, arg: ofArg, ctx: ctx)
                 => FoldMetadataIntrinsic(name: ofId.Name, arg: ofArg, ctx: ctx, location: ofCall.Location),
 
@@ -1362,7 +1360,7 @@ internal static class GenericAstRewriter
         bool exprFoldsTypewise = expr is SpliceExpression
             or MemberExpression { Object: IdentifierExpression }
             || (expr is CallExpression { Callee: IdentifierExpression ofCallId }
-                && Compiler.Verification.SemanticVerifier.IsMetadataIntrinsic(name: ofCallId.Name));
+                && Verification.SemanticVerifier.IsMetadataIntrinsic(name: ofCallId.Name));
         if (resolvedType is null or ErrorTypeInfo
             && result.ResolvedType is not (null or ErrorTypeInfo)
             && exprFoldsTypewise)
@@ -1964,7 +1962,7 @@ internal static class GenericAstRewriter
     /// <c>x.${m.name}</c> splices rewritten to real member accesses. The per-member clones are
     /// flattened into one block (no per-iteration scope, so an outer accumulator var stays visible).
     /// </summary>
-    private static Statement RewriteExpandStatement(ExpandStatement expand, RewriteContext ctx)
+    private static BlockStatement RewriteExpandStatement(ExpandStatement expand, RewriteContext ctx)
     {
         TypeInfo? source = ResolveExpandSource(sourceType: expand.SourceType, ctx: ctx);
 
@@ -2369,7 +2367,7 @@ internal static class GenericAstRewriter
         // The current arm/member type's stable type id (branchof `m.type_id`), matching the C#
         // `TypeIdHelper.ComputeTypeId(FullName)` used by variant `diagnose`.
         ulong typeId = ctx.ActiveMemberType?.FullName is { } fn
-            ? Compiler.TypeIdHelper.ComputeTypeId(fullName: fn)
+            ? TypeIdHelper.ComputeTypeId(fullName: fn)
             : 0UL;
         return new LiteralExpression(Value: typeId,
             LiteralType: TokenType.U64Literal, Location: location)

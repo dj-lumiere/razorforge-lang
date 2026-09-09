@@ -189,7 +189,7 @@ internal sealed class TypeBodyResolver
             protocols: resolvedProtocols);
         if (_sa._currentType is RecordTypeInfo recTi)
             recTi.ConditionalObeys =
-                Compiler.Declaration.StdlibLoader.BuildConditionalObeys(protoExprs: record.Protocols);
+                StdlibLoader.BuildConditionalObeys(protoExprs: record.Protocols);
     }
 
     /// <summary>
@@ -350,7 +350,7 @@ internal sealed class TypeBodyResolver
             protocols: resolvedProtocols);
         if (_sa._currentType is EntityTypeInfo entTi)
             entTi.ConditionalObeys =
-                Compiler.Declaration.StdlibLoader.BuildConditionalObeys(protoExprs: entity.Protocols);
+                StdlibLoader.BuildConditionalObeys(protoExprs: entity.Protocols);
     }
 
     /// <summary>

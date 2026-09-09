@@ -2107,7 +2107,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 : ctx.Registry.LookupType(name: gp))
             .Where(t => t != null)
             .ToList();
-        if (typeArgs.Count != type.GenericParameters.Count) return null;
+        if (typeArgs.Count != type.GenericParameters!.Count) return null;
         return ctx.Registry.TryGetResolution(genericDef: type, typeArguments: typeArgs!);
     }
 

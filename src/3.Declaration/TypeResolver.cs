@@ -344,7 +344,7 @@ internal sealed class TypeResolver
         if (typeExpr.SpliceHandle != null)
         {
             return new GenericParameterTypeInfo(
-                name: TypeModel.Symbols.MemberExpandTemplateInfo.ColumnPlaceholderName);
+                name: MemberExpandTemplateInfo.ColumnPlaceholderName);
         }
 
         // Associated-type projection: `Me/Iter`, `S/Iter` (the parser flattens these into the

@@ -417,7 +417,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsIdentityComparable(TypeSymbol type) =>
         type is EntityTypeInfo ||
-        Compiler.Declaration.RuntimeContract.ForwardingWrapperTypes.Contains(item: type.BareName);
+        Declaration.RuntimeContract.ForwardingWrapperTypes.Contains(item: type.BareName);
 
     /// <summary>Reports RF-S440 if an <c>===</c>/<c>!==</c> operand is a value type, not a reference.</summary>
     private void ValidateIdentityOperand(TypeSymbol type, BinaryOperator op, SourceLocation location)
@@ -850,7 +850,7 @@ public sealed partial class SemanticVerifier
         if (target is TupleLiteralExpression tupleLhs)
         {
             return AnalyzeTupleDestructuringAssignment(tupleLhs: tupleLhs,
-                value: value, targetType: targetType, valueType: valueType, location: location);
+                targetType: targetType, valueType: valueType, location: location);
         }
 
         // Check if target is assignable (variable, member variable, or index)
@@ -887,7 +887,7 @@ public sealed partial class SemanticVerifier
     /// that the RHS arity matches the LHS when the RHS is a known tuple type.
     /// </summary>
     private TypeSymbol AnalyzeTupleDestructuringAssignment(TupleLiteralExpression tupleLhs,
-        Expression value, TypeSymbol targetType, TypeSymbol valueType, SourceLocation location)
+        TypeSymbol targetType, TypeSymbol valueType, SourceLocation location)
     {
         foreach (Expression element in tupleLhs.Elements)
         {
@@ -993,7 +993,7 @@ public sealed partial class SemanticVerifier
             objectType is EntityTypeInfo writeEntity &&
             writeEntity.LookupMemberVariable(memberVariableName: member.MemberName) is
                 { IsNullable: false, Type: RecordTypeInfo
-                    { GenericDefinition.Name: Compiler.Declaration.RuntimeContract.Roamed } } writeField &&
+                    { GenericDefinition.Name: Declaration.RuntimeContract.Roamed } } writeField &&
             IsNullableEntityRead(expr: value))
         {
             ReportNullableIntoNonNull(target: $"field '{writeField.Name}'",
@@ -1395,7 +1395,7 @@ public sealed partial class SemanticVerifier
                 IsOwnedOf(type: inner, out TypeSymbol ownedInner))
             {
                 return _registry.GetOrCreateWrapperType(
-                    wrapperName: Compiler.Declaration.RuntimeContract.Modifying,
+                    wrapperName: Declaration.RuntimeContract.Modifying,
                     innerType: ownedInner,
                     isReadOnly: false);
             }

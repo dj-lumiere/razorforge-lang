@@ -57,7 +57,7 @@ public partial class Parser
         // ═══════════════════════════════════════════════════════════════════════════
         // PHASE 2: ELSEIF CHAIN (convert to nested if-else)
         // ═══════════════════════════════════════════════════════════════════════════
-        while (Match(type: TokenType.Elseif))
+        while (CheckAndAdvance(type: TokenType.Elseif))
         {
             SourceLocation elseifLocation = GetLocation(token: PeekToken(offset: -1));
             Expression elseifCondition = ParseExpression();
@@ -84,7 +84,7 @@ public partial class Parser
         // ═══════════════════════════════════════════════════════════════════════════
         // PHASE 3: FINAL ELSE (optional)
         // ═══════════════════════════════════════════════════════════════════════════
-        if (!Match(type: TokenType.Else))
+        if (!CheckAndAdvance(type: TokenType.Else))
         {
             return new IfStatement(Condition: condition,
                 ThenStatement: thenBranch,
@@ -149,7 +149,7 @@ public partial class Parser
         Statement thenBranch = ParseBody();
         Statement? elseBranch = null;
 
-        if (Match(type: TokenType.Else))
+        if (CheckAndAdvance(type: TokenType.Else))
         {
             elseBranch = ParseBody();
         }
@@ -180,7 +180,7 @@ public partial class Parser
 
         // Check for else clause (runs if loop completes without break)
         Statement? elseBranch = null;
-        if (Match(type: TokenType.Else))
+        if (CheckAndAdvance(type: TokenType.Else))
         {
             elseBranch = ParseBody();
         }
@@ -235,7 +235,7 @@ public partial class Parser
 
         // Check for else clause (runs if loop completes without break)
         Statement? elseBranch = null;
-        if (Match(type: TokenType.Else))
+        if (CheckAndAdvance(type: TokenType.Else))
         {
             elseBranch = ParseBody();
         }
@@ -348,7 +348,7 @@ public partial class Parser
         while (!AtClauseEnd())
         {
             // Skip newlines and doc comments between clauses
-            if (Match(TokenType.Newline, TokenType.DocComment))
+            if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
             {
                 continue;
             }
@@ -382,7 +382,7 @@ public partial class Parser
                 item: new WhenClause(Pattern: pattern, Body: body, Location: GetLocation()));
 
             // Optional comma or newline between clauses
-            Match(TokenType.Comma, TokenType.Newline);
+            CheckAndAdvance(TokenType.Comma, TokenType.Newline);
         }
 
         // Close the when block (indentation-based)
@@ -449,7 +449,7 @@ public partial class Parser
         // Order matters — check specific patterns before general ones.
 
         // Case 1: 'else' keyword - default/fallback case
-        if (Match(type: TokenType.Else))
+        if (CheckAndAdvance(type: TokenType.Else))
         {
             return ParseElseStatementPattern(clauseLocation: clauseLocation);
         }
@@ -461,12 +461,12 @@ public partial class Parser
         }
 
         // Cases 3+4: 'is' / 'isnot' keyword — type or flags pattern
-        if (Match(type: TokenType.Is))
+        if (CheckAndAdvance(type: TokenType.Is))
         {
             return ParseIsWhenPattern();
         }
 
-        if (Match(type: TokenType.IsNot))
+        if (CheckAndAdvance(type: TokenType.IsNot))
         {
             return ParseIsNotWhenPattern(clauseLocation: clauseLocation);
         }
@@ -540,7 +540,7 @@ public partial class Parser
     {
         Statement body;
         _inWhenClauseBody = true;
-        if (Match(type: TokenType.FatArrow))
+        if (CheckAndAdvance(type: TokenType.FatArrow))
         {
             // After =>, check for block form: => \n INDENT block DEDENT
             if (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Indent)
@@ -548,7 +548,7 @@ public partial class Parser
                 Advance(); // consume newline
                 body = ParseIndentedBlock();
             }
-            else if (Match(type: TokenType.Pass))
+            else if (CheckAndAdvance(type: TokenType.Pass))
             {
                 body = new PassStatement(Location: GetLocation());
             }
@@ -592,7 +592,7 @@ public partial class Parser
         }
 
         ProcessIndentToken();
-        while (Match(TokenType.Newline, TokenType.DocComment)) { /* skip interleaved blank lines and doc comments */ }
+        while (CheckAndAdvance(TokenType.Newline, TokenType.DocComment)) { /* skip interleaved blank lines and doc comments */ }
 
         SourceLocation clauseLoc = GetLocation();
         Consume(type: TokenType.Is,
@@ -608,7 +608,7 @@ public partial class Parser
             Location: clauseLoc);
 
         Statement body = ParseWhenClauseBody();
-        Match(TokenType.Comma, TokenType.Newline);
+        CheckAndAdvance(TokenType.Comma, TokenType.Newline);
 
         if (Check(type: TokenType.Dedent))
         {
@@ -626,7 +626,7 @@ public partial class Parser
     /// </summary>
     private void ParseAndValidateArmExpansionSplice(string handle)
     {
-        if (Match(type: TokenType.Dollar))
+        if (CheckAndAdvance(type: TokenType.Dollar))
         {
             SpliceExpression splice = ParseDollarSplice(kind: SpliceKind.Value);
             if (splice.Inner is not CallExpression
@@ -669,12 +669,12 @@ public partial class Parser
 
         if (Check(type: TokenType.And))
         {
-            while (Match(type: TokenType.And))
+            while (CheckAndAdvance(type: TokenType.And))
             {
                 flags.Add(item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
             }
 
-            if (Match(type: TokenType.But))
+            if (CheckAndAdvance(type: TokenType.But))
             {
                 excluded = ParseExcludedFlagsAfterBut();
             }
@@ -682,12 +682,12 @@ public partial class Parser
         else if (Check(type: TokenType.Or))
         {
             connective = FlagsTestConnective.Or;
-            while (Match(type: TokenType.Or))
+            while (CheckAndAdvance(type: TokenType.Or))
             {
                 flags.Add(item: ConsumeIdentifier(errorMessage: "Expected flag name after 'or'"));
             }
         }
-        else if (Match(type: TokenType.But))
+        else if (CheckAndAdvance(type: TokenType.But))
         {
             excluded = ParseExcludedFlagsAfterBut();
         }
@@ -708,7 +708,7 @@ public partial class Parser
         {
             ConsumeIdentifier(errorMessage: "Expected flag name after 'but'")
         };
-        while (Match(type: TokenType.And))
+        while (CheckAndAdvance(type: TokenType.And))
         {
             excluded.Add(item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
         }
@@ -771,7 +771,7 @@ public partial class Parser
 
         // Check for destructuring: Type.CASE (memberVar1, memberVar2), (memberVar: alias), or ((x, y), z)
         List<DestructuringBinding>? bindings = null;
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             bindings = ParseDestructuringBindingList();
             Consume(type: TokenType.RightParen,
@@ -802,9 +802,9 @@ public partial class Parser
     private string ReadQualifiedPatternName(string head)
     {
         var nameSb = new System.Text.StringBuilder(head);
-        while (Match(type: TokenType.Dot))
+        while (CheckAndAdvance(type: TokenType.Dot))
         {
-            if (Match(type: TokenType.Identifier))
+            if (CheckAndAdvance(type: TokenType.Identifier))
             {
                 nameSb.Append('.');
                 nameSb.Append(PeekToken(offset: -1).Text);
@@ -831,7 +831,7 @@ public partial class Parser
         SourceLocation location = GetLocation();
 
         // Handle 'is None' as a special case - None is a keyword
-        if (Match(type: TokenType.None))
+        if (CheckAndAdvance(type: TokenType.None))
         {
             return ParseNoneTypePattern(location: location);
         }
@@ -853,13 +853,13 @@ public partial class Parser
         // gets that full type) — mirrors ParseBaseType's `[...]` handling. Without this, a generic
         // variant arm can't be matched in `when` at all (parser stops at '[').
         List<TypeExpression>? genericArguments = null;
-        if (Match(type: TokenType.LeftBracket))
+        if (CheckAndAdvance(type: TokenType.LeftBracket))
         {
             genericArguments = new List<TypeExpression>();
             do
             {
                 genericArguments.Add(item: ParseTypeOrConstGeneric());
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
 
             Consume(type: TokenType.RightBracket,
                 errorMessage: "Expected ']' after type arguments in pattern");
@@ -867,7 +867,7 @@ public partial class Parser
 
         // Check for destructuring: Type.CASE (memberVar1, memberVar2), (memberVar: alias), or ((x, y), z)
         List<DestructuringBinding>? bindings = null;
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             bindings = ParseDestructuringBindingList();
             Consume(type: TokenType.RightParen,
@@ -928,7 +928,7 @@ public partial class Parser
     /// </summary>
     private Pattern TryParseAndGuard(Pattern innerPattern, bool guardAllowed, SourceLocation location)
     {
-        if (!guardAllowed || !Match(type: TokenType.And))
+        if (!guardAllowed || !CheckAndAdvance(type: TokenType.And))
         {
             return innerPattern;
         }
@@ -974,7 +974,7 @@ public partial class Parser
         // Allow member access and calls on the primary expression (e.g., Status.ACTIVE, get_user())
         while (Check(type: TokenType.Dot) || Check(type: TokenType.LeftParen))
         {
-            if (Match(type: TokenType.Dot))
+            if (CheckAndAdvance(type: TokenType.Dot))
             {
                 string memberName =
                     ConsumeIdentifier(errorMessage: "Expected member name after '.'");
@@ -982,7 +982,7 @@ public partial class Parser
                     MemberName: memberName,
                     Location: GetLocation());
             }
-            else if (Match(type: TokenType.LeftParen))
+            else if (CheckAndAdvance(type: TokenType.LeftParen))
             {
                 List<Expression> args = ParseArgumentList();
                 Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after arguments");
@@ -1167,7 +1167,7 @@ public partial class Parser
                 errorMessage: "Expected 'as' after resource expression in using block");
             string name = ConsumeIdentifier(errorMessage: "Expected binding name after 'as'");
             resources.Add(item: (resource, name));
-        } while (Match(type: TokenType.Comma));
+        } while (CheckAndAdvance(type: TokenType.Comma));
 
         // Parse the indented body
         Statement body = ParseBody();
@@ -1303,7 +1303,7 @@ public partial class Parser
         {
             // Skip empty lines and doc comments (indentation handler doesn't emit
             // Dedent for comment-only lines, so doc comments at lower indent may appear here)
-            if (Match(TokenType.Newline, TokenType.DocComment))
+            if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
             {
                 continue;
             }

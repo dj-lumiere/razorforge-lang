@@ -568,7 +568,7 @@ public sealed partial class StdlibLoader
 
         foreach (string ann in annotations)
         {
-            (string? lib, string? symbol) = TypeModel.Symbols.LinkAnnotation.Parse(annotation: ann);
+            (string? lib, string? symbol) = LinkAnnotation.Parse(annotation: ann);
             if (lib != null || symbol != null)
             {
                 return (lib, symbol);
@@ -790,14 +790,13 @@ public sealed partial class StdlibLoader
         // run in ResolveRoutineSignatures on the same node.
         VariadicParamDesugar.Apply(routine: routine);
 
-        // Owner/member come from the parser-captured structured fields (the ONE canonical split);
-        // `typeName` below is the RENDERED receiver ("S32", "List[Agent[V]]"), whose type-args are then
-        // decoded for the generic-def-vs-specialization decision.
+        // Owner/member come from the parser-captured structured fields (the ONE canonical split).
+        // The rendered receiver string (e.g. "S32" or a parameterized type) is decoded below
+        // for the generic-def-vs-specialization decision.
         string routineName = routine.Name;
         string memberRoutineName = routine.MemberRoutineName ?? routineName;
-        // meTypeName carries the receiver text for a GENERIC specialization (e.g. "List[Agent[V]]");
-        // resolved into MeType once the generic context is built, so `me` is typed as the specialized
-        // receiver.
+        // meTypeName carries the receiver text for a generic specialization.
+        // Resolved into MeType once the generic context is built, so me is typed as the specialized receiver.
         TypeInfo? ownerType = ResolveRoutineOwner(registry: registry, routine: routine,
             routineName: routineName, moduleName: moduleName,
             memberRoutineName: ref memberRoutineName, meTypeName: out string? meTypeName);
@@ -809,9 +808,9 @@ public sealed partial class StdlibLoader
         // `T` behaves exactly like a bracket param. Mutates the shared decl; idempotent.
         if (routine.GenericConstraints is { } typeNameDecls)
         {
-            foreach (SyntaxTree.GenericConstraintDeclaration gc in typeNameDecls)
+            foreach (GenericConstraintDeclaration gc in typeNameDecls)
             {
-                if (gc.ConstraintType != SyntaxTree.ConstraintKind.AnyType) continue;
+                if (gc.ConstraintType != ConstraintKind.AnyType) continue;
                 routine.GenericParameters ??= [];
                 if (!routine.GenericParameters.Contains(item: gc.ParameterName))
                     routine.GenericParameters.Add(item: gc.ParameterName);
@@ -877,8 +876,8 @@ public sealed partial class StdlibLoader
             // stay in lockstep. (Omitting it silently left every stdlib member routine at the RoutineInfo
             // default — e.g. a plainly-@readonly `List.count` looked Reshaping and tripped the RF-S625
             // iteration ban.)
-            MutationCategory = Compiler.Verification.Enums.MutationCategoryExtensions.FromAnnotations(annotations: routine.Annotations),
-            DeclaredMutation = Compiler.Verification.Enums.MutationCategoryExtensions.FromAnnotations(annotations: routine.Annotations),
+            MutationCategory = Verification.Enums.MutationCategoryExtensions.FromAnnotations(annotations: routine.Annotations),
+            DeclaredMutation = Verification.Enums.MutationCategoryExtensions.FromAnnotations(annotations: routine.Annotations),
             IsDangerous = routine.IsDangerous
         };
 
@@ -1005,7 +1004,7 @@ public sealed partial class StdlibLoader
         }
 
         TypeExpression? recvExpr =
-            Compiler.Verification.SemanticVerifier.ParseTypeExpressionString(
+            Verification.SemanticVerifier.ParseTypeExpressionString(
                 text: meTypeName, location: routine.Location);
         if (recvExpr == null)
         {
@@ -1071,7 +1070,7 @@ public sealed partial class StdlibLoader
     /// </summary>
     private static HashSet<string> CollectReceiverLeafParamNames(TypeExpression? receiver)
     {
-        var names = new HashSet<string>(comparer: System.StringComparer.Ordinal);
+        var names = new HashSet<string>(comparer: StringComparer.Ordinal);
         if (receiver?.GenericArguments is { Count: > 0 } args)
         {
             foreach (TypeExpression arg in args)
@@ -1219,12 +1218,11 @@ public sealed partial class StdlibLoader
     {
         bool isEntitySpecialization = IsEntityTypeSpecialization(record: record);
 
-        // Skip if already registered (non-entity-specialization types only;
-        // entity specializations need separate registration even if the base name exists).
-        // Module-QUALIFIED (mirrors RegisterEntityType): a bare-name check depended on the cross-module
-        // short-name scan to find the existing registration — with that scan gone a same-module reload
-        // would miss and re-register (RF-S "already registered"), and a cross-module same-name type
-        // would spuriously skip.
+        // Skip re-registration of non-entity-specialization types that are already registered.
+        // Entity specializations still need separate registration even if the base name exists.
+        // Module-qualified check mirrors RegisterEntityType: a bare-name check relied on the cross-module
+        // short-name scan, which is gone. Without this, a same-module reload would re-register and
+        // a cross-module same-name type would spuriously skip.
         string qualifiedRecordName = string.IsNullOrEmpty(value: moduleName)
             ? record.Name : $"{moduleName}.{record.Name}";
         if (!isEntitySpecialization
@@ -1486,7 +1484,7 @@ public sealed partial class StdlibLoader
                 if (c.ConstraintTypes is { Count: > 0 } cts)
                     foreach (TypeExpression proto in cts)
                         list.Add(item: (c.ParameterName, proto.Name));
-            (result ??= new Dictionary<string, List<(string, string)>>(comparer: System.StringComparer.Ordinal))
+            (result ??= new Dictionary<string, List<(string, string)>>(comparer: StringComparer.Ordinal))
                 [key: pe.Name] = list;
         }
         return result;
@@ -1954,11 +1952,12 @@ public sealed partial class StdlibLoader
         string memberRoutineName, string moduleName, RoutineDeclaration routine,
         List<ParameterInfo> parameters)
     {
+        string freeBaseName = string.IsNullOrEmpty(value: moduleName)
+            ? memberRoutineName
+            : $"{moduleName}.{memberRoutineName}";
         string baseName = ownerType != null
             ? $"{ownerType.Name}.{memberRoutineName}"
-            : (string.IsNullOrEmpty(value: moduleName)
-                ? memberRoutineName
-                : $"{moduleName}.{memberRoutineName}");
+            : freeBaseName;
         return parameters.Count > 0
             ? registry.LookupRoutineOverload(baseName: baseName,
                 argTypes: parameters.Select(selector: p => p.Type).ToList())

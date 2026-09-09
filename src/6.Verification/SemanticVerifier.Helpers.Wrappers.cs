@@ -9,10 +9,10 @@ using TypeSymbol = TypeInfo;
 
 public sealed partial class SemanticVerifier
 {
-    private const string ModifyingWrapperName = Compiler.Declaration.RuntimeContract.Modifying;
-    private const string AmendingWrapperName = Compiler.Declaration.RuntimeContract.Amending;
-    private const string ViewingWrapperName = Compiler.Declaration.RuntimeContract.Viewing;
-    private const string ConsultingWrapperName = Compiler.Declaration.RuntimeContract.Consulting;
+    private const string ModifyingWrapperName = Declaration.RuntimeContract.Modifying;
+    private const string AmendingWrapperName = Declaration.RuntimeContract.Amending;
+    private const string ViewingWrapperName = Declaration.RuntimeContract.Viewing;
+    private const string ConsultingWrapperName = Declaration.RuntimeContract.Consulting;
     private const string ScopedNoEscapeHint = "(none — scoped, can't escape)";
     private const string ShareVerb = "a.share()";
 
@@ -63,7 +63,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsSharedType(TypeSymbol type)
     {
-        return type.Name == Compiler.Declaration.RuntimeContract.Guarded;
+        return type.Name == Declaration.RuntimeContract.Guarded;
     }
 
     /// <summary>
@@ -71,7 +71,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsWatchedType(TypeSymbol type)
     {
-        return type.Name == Compiler.Declaration.RuntimeContract.Witnessed;
+        return type.Name == Declaration.RuntimeContract.Witnessed;
     }
 
     /// <summary>
@@ -80,14 +80,14 @@ public sealed partial class SemanticVerifier
     /// (a local copy silently drifts when a wrapper is added/renamed).
     /// </summary>
     private static readonly IReadOnlySet<string> WrapperTypes =
-        Compiler.Declaration.RuntimeContract.WrapperTypes;
+        Declaration.RuntimeContract.WrapperTypes;
 
     /// <summary>
     /// Read-only wrapper types that can only access @readonly memberRoutines. Single source of truth is
     /// <see cref="Compiler.Declaration.RuntimeContract.ReadOnlyWrapperTypes"/>.
     /// </summary>
     private static readonly IReadOnlySet<string> ReadOnlyWrapperTypes =
-        Compiler.Declaration.RuntimeContract.ReadOnlyWrapperTypes;
+        Declaration.RuntimeContract.ReadOnlyWrapperTypes;
 
     /// <summary>
     /// Checks if a type is a wrapper type (Viewing, Modifying, Guarded, etc.).
@@ -215,10 +215,10 @@ public sealed partial class SemanticVerifier
     private static readonly Dictionary<string, string> NonTriviallyAssignableWrappers =
         new(StringComparer.Ordinal)
         {
-            [Compiler.Declaration.RuntimeContract.Retained] = ShareVerb,
-            [Compiler.Declaration.RuntimeContract.Tracked] = ShareVerb,
-            [Compiler.Declaration.RuntimeContract.Guarded] = ShareVerb,
-            [Compiler.Declaration.RuntimeContract.Witnessed] = ShareVerb,
+            [Declaration.RuntimeContract.Retained] = ShareVerb,
+            [Declaration.RuntimeContract.Tracked] = ShareVerb,
+            [Declaration.RuntimeContract.Guarded] = ShareVerb,
+            [Declaration.RuntimeContract.Witnessed] = ShareVerb,
             [ViewingWrapperName] = ScopedNoEscapeHint,
             [ModifyingWrapperName] = ScopedNoEscapeHint,
             [ConsultingWrapperName] = ScopedNoEscapeHint,
@@ -247,9 +247,9 @@ public sealed partial class SemanticVerifier
     /// <c>steal</c>-moved so unsynchronized state can never alias across the boundary.
     /// </summary>
     private static bool IsThreadShareable(TypeSymbol type) =>
-        type.BareName is Compiler.Declaration.RuntimeContract.Atomic
-            or Compiler.Declaration.RuntimeContract.Guarded or Compiler.Declaration.RuntimeContract.Witnessed
-            or Compiler.Declaration.RuntimeContract.Consulting or Compiler.Declaration.RuntimeContract.Amending;
+        type.BareName is Declaration.RuntimeContract.Atomic
+            or Declaration.RuntimeContract.Guarded or Declaration.RuntimeContract.Witnessed
+            or Declaration.RuntimeContract.Consulting or Declaration.RuntimeContract.Amending;
 
     private static bool IsTriviallyAssignable(TypeSymbol type)
     {

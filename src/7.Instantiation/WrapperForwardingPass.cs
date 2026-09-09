@@ -174,64 +174,58 @@ internal sealed class WrapperForwardingPass
             return null;
 
         if (!TryResolveWrapperContext(wrapperType: wrapperType, memberRoutineName: memberRoutineName,
-                isFailable: isFailable,
-                out TypeSymbol? wrapperDef, out string? genericParamName,
-                out TypeSymbol? innerType, out TypeSymbol? innerLookupType,
-                out RoutineInfo? innerMemberRoutine))
+                isFailable: isFailable, out WrapperResolutionContext ctx))
         {
             return null;
         }
 
-        // Representation-unified Suflae entity member routine: its `me` is ALREADY `Roamed[E]`
+        // Representation-unified Suflae entity member routine: its me is ALREADY Roamed[E]
         // (SignatureResolver sets MeType), so the "bare" routine IS the Roamed routine — it does its
         // own lock_enter + project through RoamController.data. Wrapping it in the projecting forwarder
         // below would project the controller to the entity and hand a BARE entity to a routine that
         // projects AGAIN → double projection → the controller header is read as entity fields → crash.
-        // Resolve a `Roamed[E]` receiver call straight to the inner routine (passing the Roamed handle
-        // as `me`), exactly as a receiver that was still bare at SA already does.
+        // Resolve a Roamed[E] receiver call straight to the inner routine (passing the Roamed handle
+        // as me), exactly as a receiver that was still bare at SA already does.
         if (wrapperType.BareName == RuntimeContract.Roamed
-            && innerMemberRoutine.MeType is RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }
-                                  or WrapperTypeInfo { Name: RuntimeContract.Roamed })
+            && ctx.InnerMemberRoutine.MeType is RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }
+                                      or WrapperTypeInfo { Name: RuntimeContract.Roamed })
         {
-            return innerMemberRoutine;
+            return ctx.InnerMemberRoutine;
         }
 
-        if (IsReadOnlyWrapper(type: wrapperType) && !innerMemberRoutine.IsReadOnly)
+        if (IsReadOnlyWrapper(type: wrapperType) && !ctx.InnerMemberRoutine.IsReadOnly)
             return null;
 
-        // Roamed failable forwarders: the `when`-re-propagation body IS built (see
+        // Roamed failable forwarders: the when-re-propagation body IS built (see
         // BuildWrapperForwarderBody's isFailable path) but is currently GATED OFF — the synthesized
-        // re-throw's `Core.Crashable.crash_message` gets reachability-pruned ("declared+called but never
-        // defined"); the seed attempt in RoutineReachabilityPass (LookupType("Crashable")) did not
-        // resolve it. Re-enable by fixing that seed (find the correct crash_message owner/lookup).
-        if (wrapperType.BareName == RuntimeContract.Roamed && innerMemberRoutine.IsFailable)
+        // re-throw's crash_message gets reachability-pruned ("declared+called but never defined").
+        // Re-enable by fixing that seed (find the correct crash_message owner/lookup).
+        if (wrapperType.BareName == RuntimeContract.Roamed && ctx.InnerMemberRoutine.IsFailable)
             return null;
 
         return SynthesizeForwarder(wrapperType: wrapperType, memberRoutineName: memberRoutineName,
-            isFailable: isFailable, wrapperDef: wrapperDef, genericParamName: genericParamName,
-            innerType: innerType, innerLookupType: innerLookupType, innerMemberRoutine: innerMemberRoutine);
+            isFailable: isFailable, ctx: ctx);
     }
+
+    private readonly record struct WrapperResolutionContext(
+        TypeSymbol WrapperDef, string GenericParamName, TypeSymbol InnerType,
+        TypeSymbol InnerLookupType, RoutineInfo InnerMemberRoutine);
 
     /// <summary>
     /// Resolves the wrapper definition, generic parameter name, inner type, inner lookup type, and inner
     /// member routine needed for forwarder synthesis. Returns false if any required component is absent.
     /// </summary>
-    private bool TryResolveWrapperContext(TypeSymbol wrapperType, string memberRoutineName, bool isFailable,
-        out TypeSymbol? wrapperDef, out string? genericParamName,
-        out TypeSymbol? innerType, out TypeSymbol? innerLookupType,
-        out RoutineInfo? innerMemberRoutine)
+    private bool TryResolveWrapperContext(TypeSymbol wrapperType, string memberRoutineName,
+        bool isFailable, out WrapperResolutionContext ctx)
     {
-        wrapperDef = wrapperType switch
+        ctx = default;
+        TypeSymbol? wrapperDef = wrapperType switch
         {
             RecordTypeInfo { GenericDefinition: { } def } => def,
             EntityTypeInfo { GenericDefinition: { } def } => def,
             WrapperTypeInfo => _registry.LookupType(name: wrapperType.Name),
             _ => wrapperType
         };
-        genericParamName = null;
-        innerType = null;
-        innerLookupType = null;
-        innerMemberRoutine = null;
 
         if (wrapperDef == null || !wrapperDef.IsGenericDefinition
             || wrapperDef.GenericParameters is not { Count: 1 })
@@ -239,11 +233,11 @@ internal sealed class WrapperForwardingPass
             return false;
         }
 
-        genericParamName = wrapperDef.GenericParameters[index: 0];
-        innerType = GetWrapperInnerType(wrapperType: wrapperType);
+        string genericParamName = wrapperDef.GenericParameters[index: 0];
+        TypeSymbol? innerType = GetWrapperInnerType(wrapperType: wrapperType);
         if (innerType == null) return false;
 
-        innerLookupType = innerType switch
+        TypeSymbol innerLookupType = innerType switch
         {
             RecordTypeInfo { GenericDefinition: { } d } => d,
             EntityTypeInfo { GenericDefinition: { } d } => d,
@@ -252,7 +246,7 @@ internal sealed class WrapperForwardingPass
 
         // Resolve against the CONCRETE inner type first so owner type parameters bind correctly.
         // Non-generic inners have innerType == innerLookupType, so this is a no-op there.
-        innerMemberRoutine =
+        RoutineInfo? innerMemberRoutine =
             _registry.LookupMemberRoutine(type: innerType, memberRoutineName: memberRoutineName,
                 isFailable: isFailable);
         if (innerMemberRoutine == null)
@@ -263,17 +257,22 @@ internal sealed class WrapperForwardingPass
 
         // No concrete inner impl → no forwarder. A resolution to the ABSTRACT protocol member does
         // NOT count — forwarding to it would emit a call to an unimplemented abstract symbol.
-        return innerMemberRoutine != null && innerMemberRoutine.OwnerType is not ProtocolTypeInfo;
+        if (innerMemberRoutine == null || innerMemberRoutine.OwnerType is ProtocolTypeInfo)
+            return false;
+
+        ctx = new WrapperResolutionContext(wrapperDef, genericParamName, innerType,
+            innerLookupType, innerMemberRoutine);
+        return true;
     }
 
     /// <summary>
     /// Builds and registers a new forwarding routine on the wrapper type, or returns the already-registered
     /// one when synthesis was previously completed or a source-defined routine takes precedence.
     /// </summary>
-    private RoutineInfo? SynthesizeForwarder(TypeSymbol wrapperType, string memberRoutineName, bool isFailable,
-        TypeSymbol wrapperDef, string genericParamName, TypeSymbol innerType, TypeSymbol innerLookupType,
-        RoutineInfo innerMemberRoutine)
+    private RoutineInfo? SynthesizeForwarder(TypeSymbol wrapperType, string memberRoutineName,
+        bool isFailable, WrapperResolutionContext ctx)
     {
+        var (wrapperDef, genericParamName, innerType, innerLookupType, innerMemberRoutine) = ctx;
         string cacheKey = $"{wrapperDef.Name}.{memberRoutineName}#{(isFailable ? "!" : "")}";
         if (!_synthesizedForwarderKeys.Add(item: cacheKey))
         {

@@ -301,7 +301,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     /// use (as a value) forces the per-type fan-out.
     /// </summary>
     private static readonly HashSet<string> DispatchableCrashableMembers =
-        new(comparer: System.StringComparer.Ordinal)
+        new(comparer: StringComparer.Ordinal)
         {
             Declaration.RuntimeContract.Display.Represent,
             Declaration.RuntimeContract.Display.Diagnose,
@@ -353,7 +353,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     /// left intact (and detected afterward by <see cref="BindingStillReferenced"/> to force the fan-out).
     /// </summary>
     private sealed class CrashableDispatchRewriter(string bindName, Expression carrier)
-        : SyntaxTree.AstRewriter
+        : AstRewriter
     {
         protected override Expression VisitCall(CallExpression e)
         {

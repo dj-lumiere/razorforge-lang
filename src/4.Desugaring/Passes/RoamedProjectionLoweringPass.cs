@@ -75,7 +75,7 @@ internal sealed class RoamedProjectionLoweringPass(PostprocessingContext ctx) : 
         // Stamp the inner memberRoutine (represent/diagnose shadowed by the wrapper → inner's; a null-stamped
         // operator call → the transparently-resolved inner memberRoutine) so codegen emits it directly.
         call.ResolvedRoutine = roamProj.MemberRoutine;
-        call.LoweringKind = Compiler.Verification.CallClassifier.ClassifyMemberRoutineCall(memberRoutine: roamProj.MemberRoutine);
+        call.LoweringKind = Verification.CallClassifier.ClassifyMemberRoutineCall(memberRoutine: roamProj.MemberRoutine);
         if (!roamProj.ProjectToInner) return call;
 
         Expression innerRecv = MakeControlCall(member.Object, receiverType, roamProj.InnerType);

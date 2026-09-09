@@ -130,7 +130,7 @@ public sealed class Scope
     {
         return _excludedArms.TryGetValue(key: name, value: out HashSet<string>? set)
             ? set
-            : Parent?.GetExcludedArms(name: name) ?? System.Array.Empty<string>();
+            : Parent?.GetExcludedArms(name: name) ?? Array.Empty<string>();
     }
 
     /// <summary>

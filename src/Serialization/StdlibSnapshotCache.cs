@@ -18,7 +18,7 @@ public static class StdlibSnapshotCache
     // Process-lifetime memo: repeated cold compiles in one process (e.g. a test run over many fixtures)
     // reuse ONE loaded snapshot instead of re-reading the 40 MB file each time. Reusing a single warm state
     // across compiles is proven safe by WarmCompile_Repeatable_FromSharedState_NoPoisoning.
-    private static readonly System.Collections.Generic.Dictionary<Language, SemanticVerifier.CompiledStdlibState>
+    private static readonly Dictionary<Language, SemanticVerifier.CompiledStdlibState>
         _memo = new();
 
     /// <summary>Returns a compiled-stdlib snapshot, loading it from the on-disk <c>.pbrf</c> cache when the
@@ -107,7 +107,7 @@ public static class StdlibSnapshotCache
 
     /// <summary>The build-output modular-artifact directory for a language: <c>&lt;stdlib&gt;/.pbrf/&lt;Lang&gt;/</c>.</summary>
     private static string ModularDir(Language language) => Path.Combine(
-        path1: Compiler.Declaration.StdlibLoader.GetDefaultStdlibPath(), path2: ".pbrf", path3: language.ToString());
+        path1: Declaration.StdlibLoader.GetDefaultStdlibPath(), path2: ".pbrf", path3: language.ToString());
 
     /// <summary>Loads the modular build-output artifacts when present and their stamp matches the current
     /// stdlib+compiler hash; returns null (→ caller falls back) on absence, hash mismatch, or any error.</summary>
@@ -161,7 +161,7 @@ public static class StdlibSnapshotCache
 
     private static string? ComputeHash(Language language)
     {
-        string root = Compiler.Declaration.StdlibLoader.GetDefaultStdlibPath();
+        string root = Declaration.StdlibLoader.GetDefaultStdlibPath();
         if (string.IsNullOrEmpty(value: root) || !Directory.Exists(path: root)) return null;
 
         var sb = new StringBuilder();
@@ -191,7 +191,7 @@ public static class StdlibSnapshotCache
     /// order. Same scan roots as StdlibLoader: RazorForge/*.rf always; Suflae/*.sf under an SF build.</summary>
     private static void AppendSourceFileMetadata(StringBuilder sb, string root, Language language)
     {
-        var roots = new System.Collections.Generic.List<(string Dir, string Glob)>
+        var roots = new List<(string Dir, string Glob)>
         {
             (Path.Combine(path1: root, path2: "RazorForge"), "*.rf")
         };

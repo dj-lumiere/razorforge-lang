@@ -23,7 +23,7 @@ public partial class Parser
         SourceLocation location = GetLocation(token: PeekToken(offset: -2));
 
         _routineNameWired = false;
-        if (Match(type: TokenType.Dollar))
+        if (CheckAndAdvance(type: TokenType.Dollar))
         {
             _routineNameWired = true;
         }
@@ -32,12 +32,12 @@ public partial class Parser
 
         // Support ! suffix for failable routines. The `!` is a STRUCTURED flag on the
         // ExternalDeclaration — the name stays bare.
-        bool isFailable = Match(type: TokenType.Bang);
+        bool isFailable = CheckAndAdvance(type: TokenType.Bang);
 
         // Check for generic parameters with inline constraints
         List<string>? genericParams = null;
         List<GenericConstraintDeclaration>? inlineConstraints = null;
-        if (Match(type: TokenType.LeftBracket))
+        if (CheckAndAdvance(type: TokenType.LeftBracket))
         {
             (List<string> genericParams, List<GenericConstraintDeclaration>? inlineConstraints)
                 result = ParseGenericParametersWithConstraints();
@@ -57,7 +57,7 @@ public partial class Parser
 
         // Return type
         TypeExpression? returnType = null;
-        if (Match(type: TokenType.Arrow))
+        if (CheckAndAdvance(type: TokenType.Arrow))
         {
             returnType = ParseType();
         }
@@ -96,7 +96,7 @@ public partial class Parser
             ConsumeIdentifier(errorMessage: "Expected routine name"));
 
         // Support slash-based module paths with a dot-qualified routine name like IO/Console.print
-        while (Match(type: TokenType.Dot))
+        while (CheckAndAdvance(type: TokenType.Dot))
         {
             nameSb.Append('.');
             nameSb.Append(ConsumeIdentifier(errorMessage: "Expected identifier after '.'"));
@@ -119,7 +119,7 @@ public partial class Parser
             do
             {
                 // Check for variadic marker (...)
-                if (Match(type: TokenType.DotDotDot))
+                if (CheckAndAdvance(type: TokenType.DotDotDot))
                 {
                     isVariadic = true;
                     // ... must be last
@@ -127,7 +127,7 @@ public partial class Parser
                 }
 
                 parameters.Add(item: ParseExternalParameter(parameters: parameters));
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
         }
 
         return isVariadic;

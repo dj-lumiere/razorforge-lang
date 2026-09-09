@@ -1051,14 +1051,14 @@ public sealed partial class SemanticVerifier
     /// </remarks>
     private static readonly HashSet<string> _markerProtocolBlessedWrappers = new(comparer: StringComparer.Ordinal)
     {
-        Compiler.Declaration.RuntimeContract.Retained, Compiler.Declaration.RuntimeContract.Viewing, Compiler.Declaration.RuntimeContract.Modifying, Compiler.Declaration.RuntimeContract.Hijacked, Compiler.Declaration.RuntimeContract.Tracked,
+        Declaration.RuntimeContract.Retained, Declaration.RuntimeContract.Viewing, Declaration.RuntimeContract.Modifying, Declaration.RuntimeContract.Hijacked, Declaration.RuntimeContract.Tracked,
         // Deferred concurrency wrappers (planned for v0.2+):
-        Compiler.Declaration.RuntimeContract.Guarded, Compiler.Declaration.RuntimeContract.Witnessed, Compiler.Declaration.RuntimeContract.Consulting, Compiler.Declaration.RuntimeContract.Amending,
+        Declaration.RuntimeContract.Guarded, Declaration.RuntimeContract.Witnessed, Declaration.RuntimeContract.Consulting, Declaration.RuntimeContract.Amending,
     };
 
     private static readonly HashSet<string> _markerProtocolNames = new(comparer: StringComparer.Ordinal)
     {
-        Compiler.Declaration.RuntimeContract.Accessing, Compiler.Declaration.RuntimeContract.Controlling,
+        Declaration.RuntimeContract.Accessing, Declaration.RuntimeContract.Controlling,
     };
 
     /// <summary>
@@ -1164,7 +1164,7 @@ public sealed partial class SemanticVerifier
         }
 
         // Look for the member routine on the type (not on its protocols — that would find the protocol's own declaration)
-        // Routine names are bare; the failable `!` is a structured flag. Match the bare name,
+        // Routine names are bare; the failable `!` is a structured flag. CheckAndAdvance the bare name,
         // then (for a failable requirement) fall back to a same-named failable implementation.
         IEnumerable<RoutineInfo> ownMemberRoutines = _registry.GetMemberRoutinesForType(type: type);
         RoutineInfo? typeMemberRoutine =

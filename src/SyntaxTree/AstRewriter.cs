@@ -675,7 +675,7 @@ public abstract class AstRewriter
 
     /// <summary>Rewrites every item; returns the SAME list reference when nothing changed (so parents
     /// can skip rebuilding), otherwise a new list with the rewritten items.</summary>
-    protected static List<T> RewriteList<T>(IReadOnlyList<T> items, System.Func<T, T> rewrite)
+    protected static List<T> RewriteList<T>(IReadOnlyList<T> items, Func<T, T> rewrite)
     {
         List<T>? result = null;
         for (int i = 0; i < items.Count; i++)

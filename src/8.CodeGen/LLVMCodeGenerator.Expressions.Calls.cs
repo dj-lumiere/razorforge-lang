@@ -20,7 +20,7 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static bool MemberwiseCreatorMatchesFields(RoutineInfo creator, TypeInfo owner)
     {
-        System.Collections.Generic.List<MemberVariableInfo>? fields = owner switch
+        List<MemberVariableInfo>? fields = owner switch
         {
             CrashableTypeInfo c => c.MemberVariables,
             EntityTypeInfo e => e.MemberVariables,
@@ -28,7 +28,7 @@ public partial class LlvmCodeGenerator
             _ => null
         };
         if (fields == null || creator.Parameters.Count != fields.Count) return false;
-        var fieldNames = new System.Collections.Generic.HashSet<string>(
+        var fieldNames = new HashSet<string>(
             collection: fields.Select(selector: f => f.Name));
         return creator.Parameters.All(predicate: p => fieldNames.Contains(item: p.Name));
     }
@@ -384,8 +384,8 @@ public partial class LlvmCodeGenerator
             Expression? bound = slotArg[p];
             if (bound != null)
             {
-                EmitBoundFreeCallArgument(sb: sb, bound: bound, param: param, routine: routine,
-                    functionName: functionName,
+                EmitBoundFreeCallArgument(sb: sb, bound: bound, param: param,
+                    callCtx: new FreeCallRoutineContext(routine, functionName),
                     argValues: argValues, argTypes: argTypes, argTypeInfos: argTypeInfos);
             }
             else if (param.HasDefaultValue)
@@ -442,14 +442,18 @@ public partial class LlvmCodeGenerator
         return slotArg;
     }
 
+    private readonly record struct FreeCallRoutineContext(RoutineInfo Routine, string FunctionName);
+
     /// <summary>
     /// Emits a single bound argument for a free call — handling FFI function-pointer, fat-Routine
     /// value, and normal coercion paths — and appends the result to the arg lists.
     /// </summary>
     private void EmitBoundFreeCallArgument(StringBuilder sb, Expression bound, ParameterInfo param,
-        RoutineInfo routine, string functionName,
+        FreeCallRoutineContext callCtx,
         List<string> argValues, List<string> argTypes, List<TypeInfo> argTypeInfos)
     {
+        RoutineInfo routine = callCtx.Routine;
+        string functionName = callCtx.FunctionName;
         Expression argInner = bound is NamedArgumentExpression nb ? nb.Value : bound;
         bool paramTakesCFnPtr = param.Type?.Name == "CPtr"
             || (routine.IsForeign && param.Type is RoutineTypeInfo);
@@ -654,9 +658,9 @@ public partial class LlvmCodeGenerator
         TypeInfo? argType = GetExpressionType(expr: arg);
         if (argType == null) return false;
 
-        // When SA resolved a real create(from: argType) routine, that routine IS the conversion:
-        // its body handles every backend shape correctly — scalar casts for @llvm primitives, and
-        // BID/IEEE encoding for carrier records (F128/F256/D32/D64/D128/Decimal). Honor it;
+        // When SA resolved a real single-parameter creator routine, that routine IS the conversion.
+        // Its body handles every backend shape correctly — scalar casts for @llvm primitives, and
+        // BID/IEEE encoding for carrier records (F128/F256/D32/D64/D128/Decimal). Honor it —
         // never inline a scalar cast that would bypass the encoding and corrupt carrier values.
         // The backend must not re-decide a conversion the resolver already settled.
         if (resolvedRoutine is { IsSynthesized: false, IsCreator: true, Parameters.Count: 1 })
@@ -695,12 +699,12 @@ public partial class LlvmCodeGenerator
 
         // Dynamic call through a callable FIELD on the receiver (e.g. `me.predicate(item)` in
         // a stdlib iterator emitter, where `predicate` is a `secret predicate: Routine[(T,), Bool]`
-        // field). SA classifies these as DynamicCall. There is no memberRoutine named `predicate`; load
+        // field). SA classifies these as DynamicCall. There is no memberRoutine named `predicate`. load
         // the stored function pointer from the field and call it indirectly — mirroring the
         // free-call indirect path for Routine-typed locals/params (see EmitRoutineCall).
         // SA also stamps DynamicCall on its generic fallback for calls it couldn't resolve to a
-        // concrete routine (e.g. `circular_list.first()` where `first` is an ordinary memberRoutine returning S64);
-        // those are NOT field invocations, so only take this path when the member is genuinely a
+        // concrete routine (e.g. a call to an ordinary memberRoutine returning S64 on a generic receiver).
+        // Those are NOT field invocations, so only take this path when the member is genuinely a
         // Routine-typed value — otherwise fall through to normal memberRoutine resolution.
         if (loweringKind == CallLoweringKind.DynamicCall
             && (member.ResolvedType ?? GetMemberType(member: member)) is RoutineTypeInfo)
@@ -713,7 +717,7 @@ public partial class LlvmCodeGenerator
         // ResolvedRoutine) by RoamHookRefLoweringPass, which runs post-monomorphization when the
         // concrete entity type is known. Codegen therefore never sees the `roam_*_ref` member call —
         // it materializes the closure through the pre-resolved-routine path in EmitIdentifier, with no
-        // LookupMemberRoutine of its own. See v0.4.x-cycle-collector.md §9.3.
+        // LookupMemberRoutine of its own.
 
         string? interceptResult = TryEmitInterceptedMemberRoutineCall(sb: sb, member: member,
             arguments: arguments);
@@ -872,13 +876,11 @@ public partial class LlvmCodeGenerator
         var argValues = memberRoutineTakesReceiver
             ? new List<string> { receiver }
             : new List<string>();
+        string receiverLlvmType = ReceiverPassedByRef(receiverType: receiverType)
+            ? "ptr"
+            : GetParameterLlvmType(type: receiverType);
         var argTypes = memberRoutineTakesReceiver
-            ? new List<string>
-            {
-                ReceiverPassedByRef(receiverType: receiverType)
-                    ? "ptr"
-                    : GetParameterLlvmType(type: receiverType)
-            }
+            ? new List<string> { receiverLlvmType }
             : new List<string>();
         var argTypeInfos = memberRoutineTakesReceiver
             ? new List<TypeInfo> { receiverType }
@@ -1091,10 +1093,13 @@ public partial class LlvmCodeGenerator
         }
 
         return EmitMemberRoutineCallInstruction(sb: sb, arguments: arguments,
-            memberRoutine: memberRoutine, memberRoutineTakesReceiver: memberRoutineTakesReceiver,
-            resolvedReturnType: resolvedReturnType, mangledName: mangledName,
+            spec: new MemberCallSpec(memberRoutine, memberRoutineTakesReceiver, resolvedReturnType, mangledName),
             argValues: argValues, argTypes: argTypes, argTypeInfos: argTypeInfos);
     }
+
+    private readonly record struct MemberCallSpec(
+        RoutineInfo? MemberRoutine, bool MemberRoutineTakesReceiver,
+        TypeInfo? ResolvedReturnType, string MangledName);
 
     /// <summary>
     /// Applies ABI coercions (byval / register) to the explicit arguments and emits the final
@@ -1102,10 +1107,11 @@ public partial class LlvmCodeGenerator
     /// and normal value returns. Extracted from <c>EmitMemberRoutineCall</c> to reduce complexity.
     /// </summary>
     private string EmitMemberRoutineCallInstruction(StringBuilder sb, List<Expression> arguments,
-        RoutineInfo? memberRoutine, bool memberRoutineTakesReceiver,
-        TypeInfo? resolvedReturnType, string mangledName,
+        MemberCallSpec spec,
         List<string> argValues, List<string> argTypes, List<TypeInfo> argTypeInfos)
     {
+        var (memberRoutine, memberRoutineTakesReceiver, resolvedReturnType, mangledName) = spec;
+
         // Coerce explicit struct value args to byval (the ABI-Indirect arg form) before the call.
         if (memberRoutine != null)
         {

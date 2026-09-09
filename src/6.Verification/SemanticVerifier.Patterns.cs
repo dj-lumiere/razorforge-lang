@@ -198,7 +198,7 @@ public sealed partial class SemanticVerifier
             // null/none handle, so `is None` / `isnot None` is a legal none-check on it.
             || (_registry.Language == Language.Suflae
                 && matchedType is RecordTypeInfo
-                    { GenericDefinition.Name: Compiler.Declaration.RuntimeContract.Roamed });
+                    { GenericDefinition.Name: Declaration.RuntimeContract.Roamed });
         if (!allowsNone)
         {
             ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,

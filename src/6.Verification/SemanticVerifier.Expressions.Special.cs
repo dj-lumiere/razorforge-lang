@@ -197,7 +197,7 @@ public sealed partial class SemanticVerifier
     /// target-typing lambda arguments. Returns the new routine type when any slot changed,
     /// or null when no substitution was needed.
     /// </summary>
-    private TypeSymbol? SubstituteRoutineType(RoutineTypeInfo routineType,
+    private RoutineTypeInfo? SubstituteRoutineType(RoutineTypeInfo routineType,
         Dictionary<string, TypeSymbol> substitutions)
     {
         var newParams = new List<TypeInfo>(capacity: routineType.ParameterTypes.Count);
@@ -229,7 +229,7 @@ public sealed partial class SemanticVerifier
     /// Substitutes inside a tuple type's element types. Returns the new tuple type when any
     /// element changed, or null when no substitution was needed.
     /// </summary>
-    private TypeSymbol? SubstituteTupleType(TupleTypeInfo tupleType,
+    private TupleTypeInfo? SubstituteTupleType(TupleTypeInfo tupleType,
         Dictionary<string, TypeSymbol> substitutions)
     {
         var newElems = new List<TypeInfo>(capacity: tupleType.ElementTypes.Count);
@@ -313,7 +313,7 @@ public sealed partial class SemanticVerifier
         }
 
         // T is explicitly stealable — ownership transfer is its design purpose
-        bool isOwned = operandType is WrapperTypeInfo { Name: Compiler.Declaration.RuntimeContract.Owned };
+        bool isOwned = operandType is WrapperTypeInfo { Name: Declaration.RuntimeContract.Owned };
 
         // `steal` on a record is a no-op — records are value-typed and have no
         // ownership to transfer. Returning the operand type as-is lets stdlib
@@ -386,7 +386,7 @@ public sealed partial class SemanticVerifier
         // nothing about the others. Clone with `.retain()`/`.track()`, or convert to `Guarded`/
         // `Witnessed` (atomic Arc) to move ownership across a coroutine/thread boundary.
         if (operandType.BareName is
-            Compiler.Declaration.RuntimeContract.Retained or Compiler.Declaration.RuntimeContract.Tracked)
+            Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Tracked)
         {
             ReportError(code: SemanticDiagnosticCode.StealSharedOwnership,
                 message:
@@ -406,7 +406,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsMemoryToken(TypeSymbol type)
     {
-        return type.Name is Compiler.Declaration.RuntimeContract.Viewing or Compiler.Declaration.RuntimeContract.Modifying;
+        return type.Name is Declaration.RuntimeContract.Viewing or Declaration.RuntimeContract.Modifying;
     }
 
     /// <summary>
@@ -414,12 +414,12 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static string GetMemoryTokenKind(TypeSymbol type)
     {
-        if (type.Name.StartsWith(value: Compiler.Declaration.RuntimeContract.Viewing))
+        if (type.Name.StartsWith(value: Declaration.RuntimeContract.Viewing))
         {
             return "Viewing[T]";
         }
 
-        if (type.Name.StartsWith(value: Compiler.Declaration.RuntimeContract.Modifying))
+        if (type.Name.StartsWith(value: Declaration.RuntimeContract.Modifying))
         {
             return "Modifying[T]";
         }
@@ -432,7 +432,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool IsHijacked(TypeSymbol type)
     {
-        return type.Name == Compiler.Declaration.RuntimeContract.Hijacked;
+        return type.Name == Declaration.RuntimeContract.Hijacked;
     }
 
     /// <summary>

@@ -169,7 +169,7 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
         // the CPtr slot (codegen reinterprets a scalar via inttoptr, an entity is already a ptr).
         if (vr.Value is { ResolvedType: { } payloadType })
             return MakeCarrierReturn(carrier: carrier,
-                typeId: Compiler.TypeIdHelper.ComputeTypeId(fullName: payloadType.FullName),
+                typeId: TypeIdHelper.ComputeTypeId(fullName: payloadType.FullName),
                 payload: vr.Value, loc: vr.Location);
 
         // No resolved type on the value — leave for codegen.

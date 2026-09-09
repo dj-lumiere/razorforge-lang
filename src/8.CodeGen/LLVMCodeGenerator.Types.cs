@@ -159,7 +159,7 @@ public partial class LlvmCodeGenerator
             // markers to X before codegen, but the residual (non-monomorphized paths) still arrives here, so
             // fold it to the inner's backend form rather than emitting a wrong `ptr` for a value inner.
             ProtocolTypeInfo { TypeArguments: [{ } markerInner] } markerProto
-                when Compiler.Declaration.RuntimeContract.IsMarkerProtocol(
+                when Declaration.RuntimeContract.IsMarkerProtocol(
                     baseName: (markerProto.GenericDefinition ?? markerProto).BareName)
                 => GetLlvmType(type: markerInner),
 

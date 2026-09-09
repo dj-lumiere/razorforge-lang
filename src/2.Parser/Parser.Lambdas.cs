@@ -19,7 +19,7 @@ public partial class Parser
         var captures = new List<string>();
 
         // Check if parenthesized or single identifier
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             // Parenthesized form: given (x, y, z)
             if (!Check(type: TokenType.RightParen))
@@ -29,7 +29,7 @@ public partial class Parser
                     string captureName =
                         ConsumeIdentifier(errorMessage: "Expected capture variable name");
                     captures.Add(item: captureName);
-                } while (Match(type: TokenType.Comma));
+                } while (CheckAndAdvance(type: TokenType.Comma));
             }
 
             Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after capture list");
@@ -65,7 +65,7 @@ public partial class Parser
 
         // Check for 'given' clause for explicit captures
         List<string>? captures = null;
-        if (Match(type: TokenType.Given))
+        if (CheckAndAdvance(type: TokenType.Given))
         {
             captures = ParseGivenClause();
         }
@@ -232,7 +232,7 @@ public partial class Parser
                     ConsumeIdentifier(errorMessage: "Expected parameter name in lambda");
                 TypeExpression? paramType = null;
 
-                if (Match(type: TokenType.Colon))
+                if (CheckAndAdvance(type: TokenType.Colon))
                 {
                     paramType = ParseType();
                 }
@@ -241,14 +241,14 @@ public partial class Parser
                     Type: paramType,
                     DefaultValue: null,
                     Location: GetLocation()));
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
         }
 
         Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after lambda parameters");
 
         // Check for 'given' clause for explicit captures
         List<string>? captures = null;
-        if (Match(type: TokenType.Given))
+        if (CheckAndAdvance(type: TokenType.Given))
         {
             captures = ParseGivenClause();
         }

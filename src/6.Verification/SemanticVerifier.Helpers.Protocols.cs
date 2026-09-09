@@ -138,7 +138,7 @@ public sealed partial class SemanticVerifier
         if (paramNames is null || args is null)
             return;
 
-        var subs = new Dictionary<string, TypeSymbol>(comparer: System.StringComparer.Ordinal);
+        var subs = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal);
         for (int i = 0; i < paramNames.Count && i < args.Count; i++)
             subs[key: paramNames[i]] = args[i];
 
@@ -311,7 +311,7 @@ public sealed partial class SemanticVerifier
             args[index: 0].Name == type.Name)
         {
             string baseProto = (protoType.GenericDefinition ?? protoType).BareName;
-            if (Compiler.Declaration.RuntimeContract.IsMarkerProtocol(baseName: baseProto))
+            if (Declaration.RuntimeContract.IsMarkerProtocol(baseName: baseProto))
             {
                 return true;
             }
@@ -574,7 +574,7 @@ public sealed partial class SemanticVerifier
         foreach (TypeSymbol proto in protocols)
         {
             string baseName = proto.BareName;
-            if (Compiler.Declaration.RuntimeContract.IsMarkerProtocol(baseName: baseName) && proto.TypeArguments is { Count: 1 })
+            if (Declaration.RuntimeContract.IsMarkerProtocol(baseName: baseName) && proto.TypeArguments is { Count: 1 })
                 return proto.TypeArguments[index: 0];
         }
 

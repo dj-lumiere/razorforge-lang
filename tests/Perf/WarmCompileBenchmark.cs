@@ -165,11 +165,11 @@ public sealed partial class WarmCompileBenchmark
         // (The full byte stream still differs cosmetically — emission ORDER cascades to %tmp/!dbg
         // numbering, and unreachable `declare`s / debug trace strings vary — but every EMITTED routine and
         // its body are identical; a follow-up can make emission order deterministic for byte-equal output.)
-        static System.Collections.Generic.HashSet<string> Defines(string ll) =>
+        static HashSet<string> Defines(string ll) =>
             ll.Split('\n')
-              .Where(l => l.StartsWith("define ", System.StringComparison.Ordinal))
+              .Where(l => l.StartsWith("define ", StringComparison.Ordinal))
               .Select(l => DebugMetaRefPattern().Replace(l.Split(" {", 2)[0], ""))
-              .ToHashSet(System.StringComparer.Ordinal);
+              .ToHashSet(StringComparer.Ordinal);
         var coldDefs = Defines(coldLl);
         var warmDefs = Defines(warmLl);
         _out.WriteLine($"cold defines={coldDefs.Count}  warm defines={warmDefs.Count}");
@@ -181,11 +181,11 @@ public sealed partial class WarmCompileBenchmark
         Assert.Equal(coldDefs, warmDefs);
     }
 
-    private static System.Collections.Generic.HashSet<string> DefineSet(string ll) =>
+    private static HashSet<string> DefineSet(string ll) =>
         ll.Split('\n')
-          .Where(l => l.StartsWith("define ", System.StringComparison.Ordinal))
+          .Where(l => l.StartsWith("define ", StringComparison.Ordinal))
           .Select(l => DebugMetaRefPattern().Replace(l.Split(" {", 2)[0], ""))
-          .ToHashSet(System.StringComparer.Ordinal);
+          .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// STAGE 0 SPIKE (daemon P2 — cross-build poisoning): a compile daemon captures the fully-processed

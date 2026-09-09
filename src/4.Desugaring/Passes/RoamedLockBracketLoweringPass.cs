@@ -238,7 +238,7 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
         {
             ResolvedRoutine = routine,
             ResolvedType = routine.ReturnType,
-            LoweringKind = Compiler.Verification.CallClassifier.ClassifyMemberRoutineCall(memberRoutine: routine)
+            LoweringKind = Verification.CallClassifier.ClassifyMemberRoutineCall(memberRoutine: routine)
         };
         return new ExpressionStatement(Expression: call, Location: handle.Location);
     }

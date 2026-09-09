@@ -329,13 +329,8 @@ public sealed partial class TypeRegistry
 
         if (overloadCandidates is not { Count: > 1 }) return null;
 
-        foreach (RoutineInfo candidate in overloadCandidates)
-        {
-            if (StructuralFreeOverloadMatches(candidate: candidate, argTypes: argTypes))
-                return candidate;
-        }
-
-        return null;
+        return overloadCandidates.FirstOrDefault(candidate =>
+            StructuralFreeOverloadMatches(candidate: candidate, argTypes: argTypes));
     }
 
     /// <summary>
@@ -1913,7 +1908,7 @@ public sealed partial class TypeRegistry
         // - Routines on non-live concrete generic owner types: phantom instantiations.
         // When requireLive is false (base build): keep every concrete non-generic-def routine regardless
         // of liveness, so the resident base materializes the full stdlib generic closure ahead of time.
-        // Normal builds pass requireLive=true for byte-identical output.
+        // Normal builds pass requireLive as true for byte-identical output.
         return all.Where(r =>
                       !r.Annotations.Contains(value: "innate") &&
                       (r.OwnerType == null ||
@@ -2189,7 +2184,7 @@ public sealed partial class TypeRegistry
         // `entity` is a `Roamed` and containers hold `Roamed[E]` elements that MUST auto-retain on store; in
         // RazorForge `Roamed`/RC handles are managed MANUALLY (`.roam()`/`.release()` in danger blocks, e.g.
         // roamed_cycle_api), so auto-retain here would double-count and leak. Gate to the SF compile.
-        if (Language == TypeModel.Enums.Language.Suflae && GetRcWrapperBaseName(type: type) is not null)
+        if (Language == Language.Suflae && GetRcWrapperBaseName(type: type) is not null)
         {
             // RC copy verb is `share` (the refcount-bump co-owner mint) — renamed from the STEP-3 unified
             // `store` so it reads as the explicit-share op and is distinct from value-record `store`.

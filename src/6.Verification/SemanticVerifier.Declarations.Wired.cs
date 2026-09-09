@@ -21,7 +21,7 @@ public sealed partial class SemanticVerifier
     /// <see cref="Compiler.Declaration.WiredViews.KnownWired"/>).
     /// </summary>
     private static readonly HashSet<string> KnownWiredMemberRoutines =
-        Compiler.Declaration.WiredRoutineCatalog.BuildKnownWiredMemberRoutines();
+        Declaration.WiredRoutineCatalog.BuildKnownWiredMemberRoutines();
 
     /// <summary>
     /// Checks whether a routine declared with the wired '$' sigil names something that is NOT a known
@@ -46,7 +46,7 @@ public sealed partial class SemanticVerifier
     /// <see cref="Compiler.Declaration.WiredViews.ProtocolDecl"/>).
     /// </summary>
     private static readonly Dictionary<string, List<string>> WiredToProtocols =
-        Compiler.Declaration.WiredRoutineCatalog.BuildWiredToProtocols();
+        Declaration.WiredRoutineCatalog.BuildWiredToProtocols();
 
     /// <summary>
     /// Gets the required protocol for a wired memberRoutine, or null if no protocol is required.
@@ -219,7 +219,7 @@ public sealed partial class SemanticVerifier
 
         foreach (string ann in annotations)
         {
-            (string? lib, string? symbol) = TypeModel.Symbols.LinkAnnotation.Parse(annotation: ann);
+            (string? lib, string? symbol) = LinkAnnotation.Parse(annotation: ann);
             if (lib != null || symbol != null)
             {
                 return (lib, symbol);

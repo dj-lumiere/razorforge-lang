@@ -45,7 +45,7 @@ public sealed partial class SemanticVerifier
         {
             if (routine.IsForeign)
             {
-                string realm = routine.Realm == TypeModel.Enums.RoutineRealm.C ? "C" : "LLVM";
+                string realm = routine.Realm == RoutineRealm.C ? "C" : "LLVM";
                 // `import Module.C::name` lifts the qualifier requirement for that one routine — a bare
                 // call is then legitimate (the import is the explicit realm-crossing opt-in).
                 if (_importedForeignAliases.Contains(item: $"{realm}::{routine.Name}"))
@@ -64,9 +64,9 @@ public sealed partial class SemanticVerifier
 
         if (tag is "C" or "LLVM")
         {
-            TypeModel.Enums.RoutineRealm expected = tag == "C"
-                ? TypeModel.Enums.RoutineRealm.C
-                : TypeModel.Enums.RoutineRealm.LLVM;
+            RoutineRealm expected = tag == "C"
+                ? RoutineRealm.C
+                : RoutineRealm.LLVM;
             if (routine.Realm != expected)
             {
                 ReportError(code: SemanticDiagnosticCode.DirectWiredRoutineCall,
@@ -774,7 +774,7 @@ public sealed partial class SemanticVerifier
                             // literal `none` or an unchecked `E?` read. Only an optional field (`x: E?`)
                             // may hold a null Roamed handle.
                             if (field is { IsNullable: false, Type: RecordTypeInfo
-                                    { GenericDefinition.Name: Compiler.Declaration.RuntimeContract.Roamed } }
+                                    { GenericDefinition.Name: Declaration.RuntimeContract.Roamed } }
                                 && IsNullableEntityRead(expr: argVal))
                             {
                                 ReportNullableIntoNonNull(target: $"field '{field.Name}'",
@@ -1643,8 +1643,8 @@ public sealed partial class SemanticVerifier
                     }
                 }
 
-                // Named-argument overload disambiguation. LookupMemberRoutine returns one overload by name;
-                // when the call supplies a named argument that the initial overload lacks — e.g.
+                // Named-argument overload disambiguation. LookupMemberRoutine returns one overload by name.
+                // When the call supplies a named argument that the initial overload lacks — e.g.
                 // get_count with a predicate argument resolving first to the zero-arg get_count — prefer
                 // the overload whose parameters cover every named argument. This MUST run before the
                 // arguments are analyzed below: otherwise a callback argument is analyzed against a
@@ -1945,7 +1945,7 @@ public sealed partial class SemanticVerifier
                     // an integer without dereferencing and are safe outside danger (danger-audit).
 
                     // #98: .hijack() on Guarded/Witnessed requires danger block
-                    if (member.MemberName == Compiler.Declaration.RuntimeContract.RawPointer.Hijack && !InDangerBlock &&
+                    if (member.MemberName == Declaration.RuntimeContract.RawPointer.Hijack && !InDangerBlock &&
                         (IsSharedType(type: objectType) || IsWatchedType(type: objectType)))
                     {
                         ReportError(code: SemanticDiagnosticCode.SnatchRequiresDanger,
@@ -1975,7 +1975,7 @@ public sealed partial class SemanticVerifier
                     // a function argument, an unbound statement — with RF-S629. (The "cannot bind to a
                     // var" half is already enforced for inline-only tokens at var-declaration sites.)
                     if (memberRoutine.ReturnType is { } mtReturn &&
-                        mtReturn.BareName is Compiler.Declaration.RuntimeContract.Consulting or Compiler.Declaration.RuntimeContract.Amending &&
+                        mtReturn.BareName is Declaration.RuntimeContract.Consulting or Declaration.RuntimeContract.Amending &&
                         !ReferenceEquals(objA: call, objB: _usingResourceNode))
                     {
                         ReportError(code: SemanticDiagnosticCode.MtTokenRequiresUsing,

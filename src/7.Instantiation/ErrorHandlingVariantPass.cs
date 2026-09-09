@@ -954,7 +954,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     {
         string baseName = original.OriginalName ?? original.Name;
         if (surfaceMember == baseName) return variant.Name;
-        if (variant.Name.EndsWith(value: "_" + baseName, comparisonType: System.StringComparison.Ordinal))
+        if (variant.Name.EndsWith(value: "_" + baseName, comparisonType: StringComparison.Ordinal))
             return $"{variant.Name[..^(baseName.Length + 1)]}_{surfaceMember}";
         return variant.Name;
     }

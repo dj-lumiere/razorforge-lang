@@ -84,7 +84,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
             foreach (TypeInfo owner in _liveOwnerTypes) ctx.LiveOwnerTypeNames.Add(item: owner.FullName);
         }
 
-        string? dumpPath = Compiler.Diagnostics.DiagnosticFlags.ReachabilityDump;
+        string? dumpPath = Diagnostics.DiagnosticFlags.ReachabilityDump;
         if (!string.IsNullOrEmpty(value: dumpPath))
         {
             var lines = new List<string> { "=== LIVE ROUTINES ===" };
@@ -489,7 +489,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         TypeInfo concreteType = RoutineInfo.SubstituteType(type: rawType, substitution: typeSubs);
 
         // Unwrap Owned/Retained/Tracked — these are RecordTypeInfo (declared `record T`),
-        // NOT WrapperTypeInfo. Match by base name + TypeArguments[0] so we get the inner
+        // NOT WrapperTypeInfo. CheckAndAdvance by base name + TypeArguments[0] so we get the inner
         // collection type the lowering will actually call memberRoutines on.
         TypeInfo collectionType = concreteType;
         while (collectionType.TypeArguments is { Count: 1 } args
@@ -1410,7 +1410,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // Substitute through the active frame subs so we enqueue the concrete policy's `create`
         // (and emit its body) rather than a bogus `P.create`.
         ct = RoutineInfo.SubstituteType(type: ct, substitution: _currentFrameSubs);
-        // Match overload by parameter count — Text() (no args) and Text(from: CStr) are
+        // CheckAndAdvance overload by parameter count — Text() (no args) and Text(from: CStr) are
         // distinct create overloads on the same type. LookupMemberRoutine alone returns the
         // first-registered one and misses the no-arg variant when callers use it.
         int argCount = cre.MemberVariables.Count;
@@ -1558,7 +1558,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
 
     /// <summary>
     /// memberRoutine-chain constructor: text.S32!() lowers to S32.create(receiver). The call has
-    /// zero positional arguments but the member-receiver is the conversion source. Match the create
+    /// zero positional arguments but the member-receiver is the conversion source. CheckAndAdvance the create
     /// overload whose single parameter accepts the receiver type so reachability marks the failable
     /// Text overload (not the first-registered S8 one).
     /// </summary>
@@ -2013,7 +2013,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     /// </summary>
     private RoutineDeclaration? FindConcreteOwnerMemberDecl(RoutineInfo callee, TypeInfo owner)
     {
-        // Concrete owner: e.g. "S32.add" or "Bytes.split". Match over BOTH stdlib AND user decls
+        // Concrete owner: e.g. "S32.add" or "Bytes.split". CheckAndAdvance over BOTH stdlib AND user decls
         // combined: a user program may define a NEW overload of a stdlib-type memberRoutine (e.g.
         // `routine F64.create(from: D32B)` in playground code, against Core.F64's many numeric
         // `create` overloads). Checking stdlib alone first lets MatchOverload's count-only
@@ -2362,7 +2362,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // Disambiguate overloads by parameter signature. LookupMemberRoutine's first-match heuristic
         // picks the wrong overload when multiple share name + count + failability — e.g.
         // List[T] has several 1-arg non-failable `create` overloads (create(capacity: U64),
-        // create(from: Set[T]), etc.). Match on substituted parameter type names.
+        // create(from: Set[T]), etc.). CheckAndAdvance on substituted parameter type names.
         RoutineInfo? resolved = LookupMemberRoutineMatchingParamTypes(
             owner: concreteOwner, memberRoutineName: routine.Name, inputRoutine: routine, typeSubs: typeSubs)
             ?? LookupMemberRoutineMatchingSignature(owner: concreteOwner, memberRoutineName: routine.Name,

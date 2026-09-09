@@ -19,17 +19,17 @@ public partial class Parser
             ? FlagsTestKind.IsNot
             : FlagsTestKind.Is;
 
-        if (Match(type: TokenType.And))
+        if (CheckAndAdvance(type: TokenType.And))
         {
             // 'and' chain: READ and WRITE and ...
             flags.Add(item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
-            while (Match(type: TokenType.And))
+            while (CheckAndAdvance(type: TokenType.And))
             {
                 flags.Add(item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
             }
 
             // Optional 'but' exclusion
-            if (Match(type: TokenType.But))
+            if (CheckAndAdvance(type: TokenType.But))
             {
                 excluded = ParseButExclusionList();
             }
@@ -42,10 +42,10 @@ public partial class Parser
                 Location: location);
         }
 
-        if (Match(type: TokenType.Or))
+        if (CheckAndAdvance(type: TokenType.Or))
         {
             flags.Add(item: ConsumeIdentifier(errorMessage: "Expected flag name after 'or'"));
-            while (Match(type: TokenType.Or))
+            while (CheckAndAdvance(type: TokenType.Or))
             {
                 flags.Add(item: ConsumeIdentifier(errorMessage: "Expected flag name after 'or'"));
             }
@@ -58,7 +58,7 @@ public partial class Parser
                 Location: location);
         }
 
-        if (Match(type: TokenType.But))
+        if (CheckAndAdvance(type: TokenType.But))
         {
             // Single flag with but exclusion: is READ but WRITE
             excluded = ParseButExclusionList();
@@ -85,7 +85,7 @@ public partial class Parser
         {
             ConsumeIdentifier(errorMessage: "Expected flag name after 'but'")
         };
-        while (Match(type: TokenType.And))
+        while (CheckAndAdvance(type: TokenType.And))
         {
             excluded.Add(
                 item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
@@ -133,7 +133,7 @@ public partial class Parser
             {
                 bindings.Add(item: ParseNamedOrPositionalBinding(bindingLocation: bindingLocation));
             }
-        } while (Match(type: TokenType.Comma));
+        } while (CheckAndAdvance(type: TokenType.Comma));
 
         Consume(type: TokenType.RightParen,
             errorMessage: "Expected ')' after destructuring pattern");
@@ -153,7 +153,7 @@ public partial class Parser
             errorMessage:
             "Expected member variable name or binding in destructuring pattern");
 
-        if (Match(type: TokenType.Colon))
+        if (CheckAndAdvance(type: TokenType.Colon))
         {
             // Named binding: memberVar: binding
             // Check if binding is a nested pattern
@@ -225,7 +225,7 @@ public partial class Parser
                 bindings.Add(
                     item: ParseNamedOrPositionalBindingForList(bindingLocation: bindingLocation));
             }
-        } while (Match(type: TokenType.Comma));
+        } while (CheckAndAdvance(type: TokenType.Comma));
 
         return bindings;
     }
@@ -243,7 +243,7 @@ public partial class Parser
             errorMessage:
             "Expected member variable name or binding in destructuring pattern");
 
-        if (Match(type: TokenType.Colon))
+        if (CheckAndAdvance(type: TokenType.Colon))
         {
             // Named binding: memberVar: binding or memberVar: (nested)
             if (Check(type: TokenType.LeftParen))
@@ -297,7 +297,7 @@ public partial class Parser
     {
         Expression expr = ParseBitwiseXor();
 
-        while (Match(type: TokenType.Pipe))
+        while (CheckAndAdvance(type: TokenType.Pipe))
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseBitwiseXor();
@@ -319,7 +319,7 @@ public partial class Parser
     {
         Expression expr = ParseBitwiseAnd();
 
-        while (Match(type: TokenType.Caret))
+        while (CheckAndAdvance(type: TokenType.Caret))
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseBitwiseAnd();
@@ -341,7 +341,7 @@ public partial class Parser
     {
         Expression expr = ParseShift();
 
-        while (Match(type: TokenType.Ampersand))
+        while (CheckAndAdvance(type: TokenType.Ampersand))
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseShift();
@@ -363,7 +363,7 @@ public partial class Parser
     {
         Expression expr = ParseAdditive();
 
-        while (Match(TokenType.LeftShift,
+        while (CheckAndAdvance(TokenType.LeftShift,
                    TokenType.RightShift,
                    TokenType.LogicalLeftShift,
                    TokenType.LogicalRightShift))
@@ -388,7 +388,7 @@ public partial class Parser
     {
         Expression expr = ParseMultiplicative();
 
-        while (Match(TokenType.Plus,
+        while (CheckAndAdvance(TokenType.Plus,
                    TokenType.Minus,
                    TokenType.PlusWrap,
                    TokenType.PlusClamp,
@@ -417,7 +417,7 @@ public partial class Parser
     {
         Expression expr = ParsePower();
 
-        while (Match(TokenType.Star,
+        while (CheckAndAdvance(TokenType.Star,
                    TokenType.Slash,
                    TokenType.Percent,
                    TokenType.Divide,
@@ -450,7 +450,7 @@ public partial class Parser
     {
         Expression expr = ParseUnary();
 
-        if (Match(TokenType.Power, TokenType.PowerWrap, TokenType.PowerClamp, TokenType.PowerUnchecked))
+        if (CheckAndAdvance(TokenType.Power, TokenType.PowerWrap, TokenType.PowerClamp, TokenType.PowerUnchecked))
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParsePower(); // Recursive call for right-associativity
@@ -472,7 +472,7 @@ public partial class Parser
     private Expression ParseUnary()
     {
         // Handle steal expression (steal expr = ownership transfer, RazorForge only)
-        if (Match(type: TokenType.Steal))
+        if (CheckAndAdvance(type: TokenType.Steal))
         {
             SourceLocation stealLocation = GetLocation(token: PeekToken(offset: -1));
             Expression operand = ParseUnary(); // Right-associative
@@ -480,14 +480,14 @@ public partial class Parser
         }
 
         // Handle backindex operator (^n = index from end)
-        if (Match(type: TokenType.Caret))
+        if (CheckAndAdvance(type: TokenType.Caret))
         {
             SourceLocation caretLocation = GetLocation(token: PeekToken(offset: -1));
             Expression operand = ParseUnary(); // Right-associative
             return new BackIndexExpression(Operand: operand, Location: caretLocation);
         }
 
-        if (!Match(TokenType.Minus, TokenType.Not, TokenType.Tilde))
+        if (!CheckAndAdvance(TokenType.Minus, TokenType.Not, TokenType.Tilde))
         {
             return ParsePostfix();
         }

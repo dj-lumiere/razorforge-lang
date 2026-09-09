@@ -468,7 +468,7 @@ public static class LspServer
         {
             // A bare or realm-qualified callee (`foo` or `C::foo`). The IdentifierExpression is
             // anchored at its START — the realm tag when one is present — so `C::foo` spans the realm
-            // token AND the name token. Match EITHER, at its exact column, so hovering the `C` in
+            // token AND the name token. CheckAndAdvance EITHER, at its exact column, so hovering the `C` in
             // `C::rf_x()` resolves the routine instead of mistaking `C` for a value of the return type.
             case IdentifierExpression cid when cid.Location.Line == hit.Line:
             {
@@ -790,10 +790,11 @@ public static class LspServer
     private static void CollectVariableOccurrences(VariableInfo binding,
         List<IdentifierExpression> idents, Action<int, int> add)
     {
-        foreach (IdentifierExpression e in idents.Where(predicate: e =>
-            ReferenceEquals(objA: e.ResolvedVariable, objB: binding)))
+        foreach (SourceLocation loc in idents
+            .Where(e => ReferenceEquals(objA: e.ResolvedVariable, objB: binding))
+            .Select(e => e.Location))
         {
-            add(e.Location.Line, e.Location.Column);
+            add(loc.Line, loc.Column);
         }
 
         if (binding.Location is { } decl)
@@ -910,12 +911,12 @@ public static class LspServer
     private static void AddRealmCompletions(DocState doc, List<Dictionary<string, object?>> items,
         HashSet<string> seen, string realm)
     {
-        TypeModel.Enums.RoutineRealm? want = realm switch
+        RoutineRealm? want = realm switch
         {
-            "C" => TypeModel.Enums.RoutineRealm.C,
-            "LLVM" => TypeModel.Enums.RoutineRealm.LLVM,
-            "RF" => TypeModel.Enums.RoutineRealm.RF,
-            "SF" => TypeModel.Enums.RoutineRealm.SF,
+            "C" => RoutineRealm.C,
+            "LLVM" => RoutineRealm.LLVM,
+            "RF" => RoutineRealm.RF,
+            "SF" => RoutineRealm.SF,
             _ => null
         };
         if (want is not { } wr)
@@ -982,16 +983,9 @@ public static class LspServer
             return true;
         }
 
-        foreach (string pfx in new[] { "try_", "check_", "lookup_" })
-        {
-            if (name.StartsWith(value: pfx, comparisonType: StringComparison.Ordinal) &&
-                rejected.Contains(item: name[pfx.Length..]))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return new[] { "try_", "check_", "lookup_" }
+            .Any(pfx => name.StartsWith(value: pfx, comparisonType: StringComparison.Ordinal) &&
+                        rejected.Contains(item: name[pfx.Length..]));
     }
 
     /// <summary>Global (non-member) completions: keywords, visible free routines, and this file's

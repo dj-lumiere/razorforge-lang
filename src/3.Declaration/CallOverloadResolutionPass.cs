@@ -99,9 +99,9 @@ internal sealed class CallOverloadResolutionPass
     /// cascading from it, e.g. `var n = me.count()`) arrive un-typed.
     /// </summary>
     public void RunOnBodiesWithOwners(
-        IEnumerable<(Statement body, TypeInfo? owner, IReadOnlyList<TypeModel.Symbols.ParameterInfo>? parameters)> bodies)
+        IEnumerable<(Statement body, TypeInfo? owner, IReadOnlyList<ParameterInfo>? parameters)> bodies)
     {
-        foreach ((Statement body, TypeInfo? owner, IReadOnlyList<TypeModel.Symbols.ParameterInfo>? parameters) in bodies)
+        foreach ((Statement body, TypeInfo? owner, IReadOnlyList<ParameterInfo>? parameters) in bodies)
             WalkBody(body, owner: owner, parameters: parameters);
     }
 
@@ -139,7 +139,7 @@ internal sealed class CallOverloadResolutionPass
     /// When <paramref name="owner"/> is known (a monomorphized member routine), seeds the implicit receiver
     /// `me` so a variant/monomorph clone that left `me` un-typed can still resolve `me.count()` etc.</summary>
     private void WalkBody(Statement? body, TypeInfo? owner = null,
-        IReadOnlyList<TypeModel.Symbols.ParameterInfo>? parameters = null)
+        IReadOnlyList<ParameterInfo>? parameters = null)
     {
         if (body == null) return;
         _localVarTypes.Clear();
@@ -150,7 +150,7 @@ internal sealed class CallOverloadResolutionPass
         // type is unknown and `.ge` reaches codegen unresolved. Concrete param types only (skip any that
         // still carry a generic parameter).
         if (parameters != null)
-            foreach (TypeModel.Symbols.ParameterInfo p in parameters)
+            foreach (ParameterInfo p in parameters)
                 if (p.Type is { } pt and not ErrorTypeInfo && !TypeContainsGenericParameter(type: pt))
                     _localVarTypes[key: p.Name] = pt;
         WalkStatement(body);

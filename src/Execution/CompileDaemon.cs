@@ -464,7 +464,7 @@ internal partial class Program
                 TryGetWarmDaemonIr(resolved: resolved, ir: out ir, exitCode: out rc);
             if (!haveIr)
             {
-                rc = BuildToIr(entryFile: System.IO.Path.GetFullPath(path: resolved.EntryFile),
+                rc = BuildToIr(entryFile: Path.GetFullPath(path: resolved.EntryFile),
                     ir: out ir,
                     config: resolved);
             }
@@ -479,7 +479,7 @@ internal partial class Program
             {
                 var _swJit = System.Diagnostics.Stopwatch.StartNew();
                 exitCode = OrcJitExecutor.JitAndRun(llvmIr: ir,
-                    programName: System.IO.Path.GetFullPath(path: resolved.EntryFile),
+                    programName: Path.GetFullPath(path: resolved.EntryFile),
                     programArgs: []);
                 _swJit.Stop();
                 if (PhaseTiming())
@@ -684,7 +684,7 @@ internal partial class Program
             catch { /* best-effort */ }
             // Poll until the stale daemon stops answering (pipe freed), up to ~5 s.
             for (int i = 0; i < 50 && PingStamp(timeoutMs: 100) != null; i++)
-                System.Threading.Thread.Sleep(millisecondsTimeout: 100);
+                Thread.Sleep(millisecondsTimeout: 100);
         }
 
         /// <summary>
@@ -706,14 +706,14 @@ internal partial class Program
             }
 
             // (2) Serialize concurrent first-invocations so only one client spawns the daemon.
-            using var mutex = new System.Threading.Mutex(initiallyOwned: false,
+            using var mutex = new Mutex(initiallyOwned: false,
                 name: $"Global\\razorforge-daemon-spawn-{Environment.UserName}");
             bool held;
             try
             {
                 held = mutex.WaitOne(timeout: TimeSpan.FromSeconds(value: 60));
             }
-            catch (System.Threading.AbandonedMutexException)
+            catch (AbandonedMutexException)
             {
                 held = true; // a previous holder crashed; the lock is ours.
             }
@@ -817,7 +817,7 @@ internal partial class Program
                     return true;
                 }
 
-                System.Threading.Thread.Sleep(millisecondsTimeout: 150);
+                Thread.Sleep(millisecondsTimeout: 150);
             }
 
             return false;

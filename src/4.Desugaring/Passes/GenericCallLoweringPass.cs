@@ -61,7 +61,7 @@ internal sealed class GenericCallLoweringPass : AstRewriter
         _registry = registry;
         _variantBodies = variantBodies;
         _instantiatedGenericBodies = instantiatedGenericBodies;
-        _restoredVariantKeys = restoredVariantKeys ?? new HashSet<string>(comparer: System.StringComparer.Ordinal);
+        _restoredVariantKeys = restoredVariantKeys ?? new HashSet<string>(comparer: StringComparer.Ordinal);
     }
 
     /// <summary>

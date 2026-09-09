@@ -105,7 +105,7 @@ public sealed class InstantiationContext
     /// <see cref="Compiler.Verification.CallGraphNode.DirectlySuspends"/> seed when a callee is a suspend
     /// primitive). Consumed by <see cref="Compiler.Verification.MaySuspendAnalysis"/> after that pass.
     /// </summary>
-    public Compiler.Verification.CallGraph MaySuspendGraph { get; } = new();
+    public Verification.CallGraph MaySuspendGraph { get; } = new();
 
     /// <summary>
     /// Result of the may-suspend fixpoint: registry keys of routines that can transitively reach a
@@ -126,7 +126,7 @@ public sealed class InstantiationContext
     /// name callees, each callee is analyzed on reach, and so on). Null ⇒ bodies were analyzed eagerly
     /// (the pre-(B) pipeline), so the collector just reads the already-set resolutions.
     /// </summary>
-    public System.Func<string, bool>? AnalyzeRoutineOnDemand { get; set; }
+    public Func<string, bool>? AnalyzeRoutineOnDemand { get; set; }
 
     /// <summary>
     /// When true, root EVERY concrete stdlib routine in reachability so monomorphization materializes the

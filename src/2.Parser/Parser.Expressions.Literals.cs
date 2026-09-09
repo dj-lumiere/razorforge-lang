@@ -13,7 +13,7 @@ public partial class Parser
         result = null;
 
         // Integer literals (S32/S64/S128 and Integer for arbitrary precision)
-        if (Match(TokenType.UndecidedInteger,
+        if (CheckAndAdvance(TokenType.UndecidedInteger,
                 TokenType.UndecidedDecimal,
                 TokenType.IntegerLiteral,
                 TokenType.S8Literal,
@@ -59,7 +59,7 @@ public partial class Parser
     {
         result = null;
 
-        if (!Match(TokenType.TextLiteral,
+        if (!CheckAndAdvance(TokenType.TextLiteral,
                 TokenType.RawText,
                 TokenType.BytesLiteral,
                 TokenType.BytesRawLiteral))
@@ -86,7 +86,7 @@ public partial class Parser
     {
         result = null;
 
-        if (!Match(type: TokenType.InsertionStart))
+        if (!CheckAndAdvance(type: TokenType.InsertionStart))
         {
             return false;
         }
@@ -97,13 +97,13 @@ public partial class Parser
 
         while (!IsAtEnd && !Check(type: TokenType.InsertionEnd))
         {
-            if (Match(type: TokenType.TextSegment))
+            if (CheckAndAdvance(type: TokenType.TextSegment))
             {
                 Token textToken = PeekToken(offset: -1);
                 parts.Add(item: new TextPart(Text: textToken.Text,
                     Location: GetLocation(token: textToken)));
             }
-            else if (Match(type: TokenType.LeftBrace))
+            else if (CheckAndAdvance(type: TokenType.LeftBrace))
             {
                 Token braceToken = PeekToken(offset: -1);
                 SourceLocation partLocation = GetLocation(token: braceToken);
@@ -113,7 +113,7 @@ public partial class Parser
 
                 // Check for optional format specifier
                 string? formatSpec = null;
-                if (Match(type: TokenType.FormatSpec))
+                if (CheckAndAdvance(type: TokenType.FormatSpec))
                 {
                     formatSpec = PeekToken(offset: -1)
                        .Text;
@@ -146,7 +146,7 @@ public partial class Parser
     {
         result = null;
 
-        if (!Match(TokenType.CharacterLiteral, TokenType.ByteLetterLiteral))
+        if (!CheckAndAdvance(TokenType.CharacterLiteral, TokenType.ByteLetterLiteral))
         {
             return false;
         }
@@ -168,7 +168,7 @@ public partial class Parser
     {
         result = null;
 
-        if (!Match(TokenType.ByteLiteral,
+        if (!CheckAndAdvance(TokenType.ByteLiteral,
                 TokenType.KilobyteLiteral,
                 TokenType.KibibyteLiteral,
                 TokenType.MegabyteLiteral,
@@ -195,7 +195,7 @@ public partial class Parser
     {
         result = null;
 
-        if (!Match(TokenType.WeekLiteral,
+        if (!CheckAndAdvance(TokenType.WeekLiteral,
                 TokenType.DayLiteral,
                 TokenType.HourLiteral,
                 TokenType.MinuteLiteral,

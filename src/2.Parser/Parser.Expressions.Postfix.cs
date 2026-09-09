@@ -48,7 +48,7 @@ public partial class Parser
         }
 
         // Plain call: expr(args)
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             List<Expression> args = ParseArgumentList();
             Consume(type: TokenType.RightParen, errorMessage: ExpectedRightParenAfterArguments);
@@ -57,7 +57,7 @@ public partial class Parser
         }
 
         // Optional chaining: obj?.member
-        if (Match(type: TokenType.QuestionDot))
+        if (CheckAndAdvance(type: TokenType.QuestionDot))
         {
             string member = ConsumeMemberRoutineName(errorMessage: "Expected member name after '?.'");
             expr = new OptionalMemberExpression(Object: expr, MemberName: member,
@@ -73,14 +73,14 @@ public partial class Parser
         }
 
         // Plain member access: obj.member
-        if (Match(type: TokenType.Dot))
+        if (CheckAndAdvance(type: TokenType.Dot))
         {
             expr = HandleMemberAccess(expr: expr).Expr;
             return true;
         }
 
         // Force unwrap: expr!! — extracts the value from Maybe[T], panics if None
-        if (Match(type: TokenType.BangBang))
+        if (CheckAndAdvance(type: TokenType.BangBang))
         {
             expr = new UnaryExpression(Operator: UnaryOperator.ForceUnwrap,
                 Operand: expr, Location: expr.Location);
@@ -150,20 +150,20 @@ public partial class Parser
     /// </summary>
     private Expression HandleBracketAccess(Expression expr)
     {
-        bool isFailable = Match(type: TokenType.Bang);
+        bool isFailable = CheckAndAdvance(type: TokenType.Bang);
 
         Advance(); // consume '['
         var bracketArgs = new List<Expression>();
         do
         {
             bracketArgs.Add(item: ParseBracketArg());
-        } while (Match(type: TokenType.Comma));
+        } while (CheckAndAdvance(type: TokenType.Comma));
 
         Consume(type: TokenType.RightBracket,
             errorMessage: "Expected ']' after bracket contents");
 
         List<Expression>? callArgs = null;
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             callArgs = ParseArgumentList();
             Consume(type: TokenType.RightParen,
@@ -220,7 +220,7 @@ public partial class Parser
         // Member access. The wired marker `$` (me.assign(), me.emit!()) is a separate Dollar
         // token — consume it here; the resolved routine's own IsWiredMemberRoutine carries the
         // wired attribute, and lookup keys on the BARE name, so the call name stays bare.
-        Match(type: TokenType.Dollar);
+        CheckAndAdvance(type: TokenType.Dollar);
         // Consume the bare member name WITHOUT folding a trailing `!` into it (unlike
         // ConsumeMemberRoutineName, which the declaration parser still uses): the `!` stays a separate
         // Bang token so the failable-call / generic-failable handling below records it as a
@@ -258,20 +258,20 @@ public partial class Parser
     /// </summary>
     private Expression HandleGenericMemberAccess(Expression expr, string member)
     {
-        bool isGenericMemOp = Match(type: TokenType.Bang);
+        bool isGenericMemOp = CheckAndAdvance(type: TokenType.Bang);
 
         Advance(); // consume '['
         var bracketArgs = new List<Expression>();
         do
         {
             bracketArgs.Add(item: ParseBracketArg());
-        } while (Match(type: TokenType.Comma));
+        } while (CheckAndAdvance(type: TokenType.Comma));
 
         Consume(type: TokenType.RightBracket,
             errorMessage: "Expected ']' after bracket contents");
 
         List<Expression>? callArgs = null;
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             callArgs = ParseArgumentList();
             Consume(type: TokenType.RightParen,
@@ -296,7 +296,7 @@ public partial class Parser
     {
         // Regular member access
         // Check for failable memberRoutine call with ! suffix
-        if (Match(type: TokenType.Bang) && Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.Bang) && CheckAndAdvance(type: TokenType.LeftParen))
         {
             // Failable memberRoutine call: obj.MemberRoutine!(args)
             // Represented as CallExpression with MemberExpression callee
@@ -312,7 +312,7 @@ public partial class Parser
                 Location: expr.Location);
         }
 
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             // Regular memberRoutine call: obj.MemberRoutine(args)
             // Represented as CallExpression with MemberExpression callee
@@ -336,7 +336,7 @@ public partial class Parser
     /// <summary>Advances past all consecutive <see cref="TokenType.Newline"/> tokens.</summary>
     private void ConsumeNewlines()
     {
-        while (Match(type: TokenType.Newline)) { /* advance past each newline */ }
+        while (CheckAndAdvance(type: TokenType.Newline)) { /* advance past each newline */ }
     }
 
     /// <summary>

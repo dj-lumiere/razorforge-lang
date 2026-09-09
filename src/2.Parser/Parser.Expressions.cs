@@ -69,7 +69,7 @@ public partial class Parser
         string name = CurrentToken.Text;
         Advance();
         Expression expr = new IdentifierExpression(Name: name, Location: loc);
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             List<Expression> args = ParseArgumentList();
             Consume(type: TokenType.RightParen, errorMessage: ExpectedRightParenAfterArguments);
@@ -83,25 +83,25 @@ public partial class Parser
         SourceLocation location = GetLocation();
 
         // Comptime splice in expression position: ${expr} (legacy) or $primary (brace-less).
-        if (Match(type: TokenType.SpliceOpen))
+        if (CheckAndAdvance(type: TokenType.SpliceOpen))
         {
             return ParseSplice(kind: SpliceKind.Value);
         }
 
-        if (Match(type: TokenType.Dollar))
+        if (CheckAndAdvance(type: TokenType.Dollar))
         {
             return ParseDollarSplice(kind: SpliceKind.Value);
         }
 
         // Boolean and none literals
-        if (Match(type: TokenType.True))
+        if (CheckAndAdvance(type: TokenType.True))
         {
             return new LiteralExpression(Value: true,
                 LiteralType: TokenType.True,
                 Location: location);
         }
 
-        if (Match(type: TokenType.False))
+        if (CheckAndAdvance(type: TokenType.False))
         {
             return new LiteralExpression(Value: false,
                 LiteralType: TokenType.False,
@@ -109,7 +109,7 @@ public partial class Parser
         }
 
         // `none` (lowercase) — the absent value literal. Carrier-slot-only (gated downstream).
-        if (Match(type: TokenType.NoneValue))
+        if (CheckAndAdvance(type: TokenType.NoneValue))
         {
             return new LiteralExpression(Value: null!,
                 LiteralType: TokenType.NoneValue,
@@ -134,32 +134,32 @@ public partial class Parser
         // constructor callee — e.g. the choice/flags `all_cases()` derive reconstructs each case via the
         // reverse `Me(from: $valueof(c))` constructor; after the derive-template T→concrete substitution
         // `Me` resolves to the owning type exactly as it does in a hand-written routine body.
-        if (Match(TokenType.Identifier, TokenType.Me, TokenType.MyType))
+        if (CheckAndAdvance(TokenType.Identifier, TokenType.Me, TokenType.MyType))
         {
             return ParseIdentifierPrimary(location: location);
         }
 
         // Parenthesized expression, tuple literal, or arrow lambda with parenthesized params
-        if (Match(type: TokenType.LeftParen))
+        if (CheckAndAdvance(type: TokenType.LeftParen))
         {
             return ParseParenthesizedPrimary(location: location);
         }
 
         // When expression: when x { pattern => expr, ... }
         // Used in expression context: return when x { ... }, var y = when x { ... }
-        if (Match(type: TokenType.When))
+        if (CheckAndAdvance(type: TokenType.When))
         {
             return ParseWhenExpression(location: location);
         }
 
         // List literal: [expr, expr, ...]
-        if (Match(type: TokenType.LeftBracket))
+        if (CheckAndAdvance(type: TokenType.LeftBracket))
         {
             return ParseListLiteral(location: location);
         }
 
         // Set or Dict literal: {expr, expr, ...} or {key: value, ...}
-        if (Match(type: TokenType.LeftBrace))
+        if (CheckAndAdvance(type: TokenType.LeftBrace))
         {
             return ParseSetOrDictLiteral(location: location);
         }
@@ -205,13 +205,13 @@ public partial class Parser
             while (Check(type: TokenType.Dot) || Check(type: TokenType.Slash))
             {
                 char segSep;
-                if (Match(type: TokenType.Dot))
+                if (CheckAndAdvance(type: TokenType.Dot))
                 {
                     segSep = '.';
                 }
                 else
                 {
-                    Match(type: TokenType.Slash);
+                    CheckAndAdvance(type: TokenType.Slash);
                     segSep = '/';
                 }
                 realmSb.Append(segSep);
@@ -245,7 +245,7 @@ public partial class Parser
             Expression firstExpr = ParseExpression();
 
             // Check if this is a tuple (has comma) or just parenthesized expression
-            if (Match(type: TokenType.Comma))
+            if (CheckAndAdvance(type: TokenType.Comma))
             {
                 return ParseTupleLiteralTail(firstExpr: firstExpr, location: location);
             }
@@ -279,7 +279,7 @@ public partial class Parser
         do
         {
             elements.Add(item: ParseExpression());
-        } while (Match(type: TokenType.Comma) && !Check(type: TokenType.RightParen));
+        } while (CheckAndAdvance(type: TokenType.Comma) && !Check(type: TokenType.RightParen));
 
         Consume(type: TokenType.RightParen,
             errorMessage: "Expected ')' after tuple elements");
@@ -304,7 +304,7 @@ public partial class Parser
 
         while (!Check(type: TokenType.Dedent) && !IsAtEnd)
         {
-            if (Match(TokenType.Newline, TokenType.DocComment))
+            if (CheckAndAdvance(TokenType.Newline, TokenType.DocComment))
             {
                 continue;
             }
@@ -315,7 +315,7 @@ public partial class Parser
             Statement body = ParseWhenExpressionArmBody();
 
             clauses.Add(item: new WhenClause(Pattern: pattern, Body: body, Location: GetLocation()));
-            Match(TokenType.Comma, TokenType.Newline);
+            CheckAndAdvance(TokenType.Comma, TokenType.Newline);
         }
 
         if (Check(type: TokenType.Dedent))
@@ -362,7 +362,7 @@ public partial class Parser
     /// </summary>
     private Pattern ParseWhenExpressionPattern(bool isConditionBased, SourceLocation clauseLocation)
     {
-        if (Match(type: TokenType.Else))
+        if (CheckAndAdvance(type: TokenType.Else))
         {
             return ParseElseClausePattern(clauseLocation: clauseLocation);
         }
@@ -384,12 +384,12 @@ public partial class Parser
             return new ExpressionPattern(Expression: condExpr, Location: clauseLocation);
         }
 
-        if (Match(type: TokenType.Is))
+        if (CheckAndAdvance(type: TokenType.Is))
         {
             return ParseIsWhenPattern();
         }
 
-        if (Match(type: TokenType.IsNot))
+        if (CheckAndAdvance(type: TokenType.IsNot))
         {
             return ParseIsNotWhenPattern(clauseLocation: clauseLocation);
         }
@@ -435,7 +435,7 @@ public partial class Parser
         Statement body;
         _inWhenClauseBody = true;
 
-        if (Match(type: TokenType.FatArrow))
+        if (CheckAndAdvance(type: TokenType.FatArrow))
         {
             if (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Indent)
             {

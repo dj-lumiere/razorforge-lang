@@ -57,11 +57,11 @@ public sealed partial class ModularPbrfRoundTripTests
     [GeneratedRegex(@" !dbg ![0-9]+")]
     private static partial Regex DebugAnnotationPattern();
 
-    private static System.Collections.Generic.HashSet<string> DefineSet(string ll) =>
+    private static HashSet<string> DefineSet(string ll) =>
         ll.Split('\n')
-          .Where(l => l.StartsWith("define ", System.StringComparison.Ordinal))
+          .Where(l => l.StartsWith("define ", StringComparison.Ordinal))
           .Select(l => DebugAnnotationPattern().Replace(l.Split(" {", 2)[0], ""))
-          .ToHashSet(System.StringComparer.Ordinal);
+          .ToHashSet(StringComparer.Ordinal);
 
     [Fact]
     public void ModularRoundTrip_ProducesIdenticalDefines()
@@ -73,7 +73,7 @@ public sealed partial class ModularPbrfRoundTripTests
         SemanticVerifier.CompiledStdlibState warm =
             SemanticVerifier.CaptureCompiledStdlib(language: Language.RazorForge);
 
-        string dir = Path.Combine(Path.GetTempPath(), "rf_modular_pbrf_" + System.Guid.NewGuid().ToString("N"));
+        string dir = Path.Combine(Path.GetTempPath(), "rf_modular_pbrf_" + Guid.NewGuid().ToString("N"));
         try
         {
             var labels = ModularStdlibCache.Serialize(state: warm, dir: dir);

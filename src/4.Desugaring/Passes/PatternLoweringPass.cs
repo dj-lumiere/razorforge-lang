@@ -77,7 +77,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// new expression (the hoisted subject temp). Used by <see cref="VisitWhen"/> when the carrier subject
     /// is non-trivial and gets hoisted, so the dispatch reads the temp instead of re-evaluating the subject.
     /// </summary>
-    private sealed class CrashableDispatchCarrierRewriter(Expression newCarrier) : SyntaxTree.AstRewriter
+    private sealed class CrashableDispatchCarrierRewriter(Expression newCarrier) : AstRewriter
     {
         public override Expression VisitExpression(Expression expr) =>
             expr is CrashableDispatchExpression cd

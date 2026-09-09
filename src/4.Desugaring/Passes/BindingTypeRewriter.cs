@@ -161,7 +161,7 @@ internal sealed class BindingTypeRewriter : ISyntaxTreeVisitor<bool>
     public bool VisitGenericMemberExpression(GenericMemberExpression node)
     { Visit(e: node.Object); return false; }
     public bool VisitBracketAccessExpression(BracketAccessExpression node) =>
-        throw new System.InvalidOperationException(
+        throw new InvalidOperationException(
             "BracketAccessExpression must be lowered by BracketReclassifyPass before analysis.");
     public bool VisitCarrierPayloadExpression(CarrierPayloadExpression node)
     { Visit(e: node.Carrier); return false; }

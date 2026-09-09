@@ -59,7 +59,7 @@ public sealed class DesugaringPipeline(DesugaringContext ctx)
         // (SemanticVerifier.AnalyzeStdlibProgramOnDemand runs DesugaringPipeline.Run per file), so skip the
         // eager stdlib sweep here — only user + variant global lowering stays. Default-on; RF_NO_FLIP=1 restores.
         // BASE build (SynthesizeAllDerives) stays eager — it must desugar the WHOLE stdlib, not a demand slice.
-        if (Compiler.Verification.SemanticVerifier.FlipDemandStdlib && !ctx.SynthesizeAllDerives) return;
+        if (Verification.SemanticVerifier.FlipDemandStdlib && !ctx.SynthesizeAllDerives) return;
         foreach ((Program program, _, _) in ctx.Registry.FreshlyLoadedStdlibPrograms)
         {
             new NoneReturnNormalizationPass(ctx).Run(program);

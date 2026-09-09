@@ -141,12 +141,12 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
             // walk ordering that closes the SoA-column-accessor + throw-`create` over-prune). Idempotent on
             // already-resolved calls; scoped to this round's fresh + materialized set via the live keys.
             var roundResolver = new Declaration.CallOverloadResolutionPass(
-                new Desugaring.PostprocessingContext(registry: ctx.Registry,
+                new PostprocessingContext(registry: ctx.Registry,
                     variantBodies: ctx.VariantBodies, target: ctx.Target, buildMode: ctx.BuildMode));
             roundResolver.RunOnBodiesWithOwners(
                 bodies: ctx.InstantiatedGenericBodies.Values.Select(
                     selector: b => (b.Ast.Body, b.Info.OwnerType,
-                        (IReadOnlyList<TypeModel.Symbols.ParameterInfo>?)b.Info.Parameters)));
+                        (IReadOnlyList<ParameterInfo>?)b.Info.Parameters)));
             // Terminate only when a round adds NO new built instance, NO PDIL synth, AND NO new live key. The
             // live-key check is load-bearing: a reached NON-generic stdlib body (U64.represent, Text.create)
             // grows LiveRoutineKeys without incrementing `built`, and its callees are only discovered when the
@@ -178,7 +178,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
         // CallOverloadResolutionPass (that ran on the then-empty set). A body with an unresolved call (e.g.
         // `me.assign()` in a record's `duplicate` derive, ResolvedRoutine=null) makes codegen throw. Resolve
         // them here so codegen — the dumb translator — receives fully-annotated bodies.
-        var classCtx = new Desugaring.PostprocessingContext(registry: ctx.Registry,
+        var classCtx = new PostprocessingContext(registry: ctx.Registry,
             variantBodies: ctx.VariantBodies, target: ctx.Target, buildMode: ctx.BuildMode);
         // Resolve BOTH the monomorphized bodies AND the variant bodies (failable originals + try_/check_/
         // lookup_ variants). A monomorphized variant like `List[S64].try_pick` lives in VariantBodies; its
@@ -188,7 +188,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
         resolver.RunOnBodiesWithOwners(
             bodies: ctx.InstantiatedGenericBodies.Values.Select(
                 selector: b => (b.Ast.Body, b.Info.OwnerType,
-                    (IReadOnlyList<TypeModel.Symbols.ParameterInfo>?)b.Info.Parameters)));
+                    (IReadOnlyList<ParameterInfo>?)b.Info.Parameters)));
         resolver.RunOnVariantBodies();
     }
 
@@ -203,7 +203,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
     private void MaterializeReachedStdlibBodies(Dictionary<string, Statement> programBodies)
     {
         HashSet<string> userKeys = CollectUserRoutineKeys();
-        foreach (string liveKey in ctx.LiveRoutineKeys.ToList().Where(k => !userKeys.Contains(k)))
+        foreach (string liveKey in ctx.LiveRoutineKeys.Where(k => !userKeys.Contains(k)))
             TryMaterializeStdlibBody(liveKey: liveKey, programBodies: programBodies);
     }
 

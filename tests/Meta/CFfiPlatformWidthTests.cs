@@ -211,7 +211,7 @@ public sealed class CFfiPlatformWidthTests
     /// <summary>Keeps only the stdout lines starting with one of <paramref name="prefixes"/>, newline-joined.</summary>
     private static string KeepPrefixed(string stdout, params string[] prefixes)
     {
-        var kept = new System.Collections.Generic.List<string>();
+        var kept = new List<string>();
         foreach (string raw in stdout.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n'))
         {
             string line = raw.Trim();

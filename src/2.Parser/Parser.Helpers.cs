@@ -29,7 +29,7 @@ public partial class Parser
         }
 
         // Optionally consume a newline if present
-        Match(type: TokenType.Newline);
+        CheckAndAdvance(type: TokenType.Newline);
     }
 
     /// <summary>
@@ -41,7 +41,7 @@ public partial class Parser
     /// <exception cref="GrammarException">Thrown if current token is not a valid identifier.</exception>
     private string ConsumeIdentifier(string errorMessage, bool allowKeywords = false)
     {
-        if (Match(type: TokenType.Identifier))
+        if (CheckAndAdvance(type: TokenType.Identifier))
         {
             return PeekToken(offset: -1)
                .Text;
@@ -49,7 +49,7 @@ public partial class Parser
 
         // Allow 'me' or 'Me' (Self tokens) as a valid identifier for memberRoutine parameters
         // 'me' is lowercase self reference, 'Me' is the type of self (for protocol memberRoutine signatures)
-        if (Match(TokenType.Me, TokenType.MyType))
+        if (CheckAndAdvance(TokenType.Me, TokenType.MyType))
         {
             return PeekToken(offset: -1)
                .Text;
@@ -87,7 +87,7 @@ public partial class Parser
     {
         // Wired member-routine marker: `$` is a separate Dollar token, recorded structurally in
         // _routineNameWired and dropped from the name (bare canonical name).
-        if (Match(type: TokenType.Dollar))
+        if (CheckAndAdvance(type: TokenType.Dollar))
         {
             _routineNameWired = true;
         }
@@ -114,7 +114,7 @@ public partial class Parser
     /// </summary>
     private void ProcessIndentToken()
     {
-        if (!Match(type: TokenType.Indent))
+        if (!CheckAndAdvance(type: TokenType.Indent))
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedIndentedBlock,
                 message: "Expected INDENT token");
@@ -240,24 +240,24 @@ public partial class Parser
         try
         {
             // Skip leading newlines
-            while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
+            while (Check(type: TokenType.Newline)) { Advance(); }
 
             if (!Check(type: TokenType.RightParen))
             {
                 do
                 {
                     // Skip newlines before each argument (for multi-line formatting)
-                    while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
+                    while (Check(type: TokenType.Newline)) { Advance(); }
 
                     args.Add(item: ParseArgument());
 
                     // Skip newlines after each argument (before comma or closing paren)
-                    while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
-                } while (Match(type: TokenType.Comma));
+                    while (Check(type: TokenType.Newline)) { Advance(); }
+                } while (CheckAndAdvance(type: TokenType.Comma));
             }
 
             // Skip trailing newlines
-            while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
+            while (Check(type: TokenType.Newline)) { Advance(); }
 
             return args;
         }
@@ -286,7 +286,7 @@ public partial class Parser
             do
             {
                 elements.Add(item: ParseExpression());
-            } while (Match(type: TokenType.Comma));
+            } while (CheckAndAdvance(type: TokenType.Comma));
         }
 
         Consume(type: TokenType.RightBracket, errorMessage: "Expected ']' after list elements");
@@ -316,7 +316,7 @@ public partial class Parser
         }
 
         // {} -> empty set
-        if (Match(type: TokenType.RightBrace))
+        if (CheckAndAdvance(type: TokenType.RightBrace))
         {
             return new SetLiteralExpression(Elements: [], ElementType: null, Location: location);
         }
@@ -325,7 +325,7 @@ public partial class Parser
         Expression firstExpr = ParseExpression();
 
         // If we see a colon, this is a dict literal
-        if (Match(type: TokenType.Colon))
+        if (CheckAndAdvance(type: TokenType.Colon))
         {
             return ParseDictLiteralContinuation(firstKey: firstExpr, location: location);
         }
@@ -347,7 +347,7 @@ public partial class Parser
         pairs.Add(item: (firstKey, firstValue));
 
         // Parse remaining key-value pairs
-        while (Match(type: TokenType.Comma))
+        while (CheckAndAdvance(type: TokenType.Comma))
         {
             Expression key = ParseExpression();
             Consume(type: TokenType.Colon,
@@ -373,7 +373,7 @@ public partial class Parser
         var elements = new List<Expression> { firstElement };
 
         // Parse remaining elements
-        while (Match(type: TokenType.Comma))
+        while (CheckAndAdvance(type: TokenType.Comma))
         {
             elements.Add(item: ParseExpression());
         }

@@ -56,7 +56,7 @@ public static class AstWalker
             ?? EnumeratePatternChildren(node: node)
             ?? EnumerateDeclarationChildren(node: node)
             ?? EnumerateAuxiliaryChildren(node: node)
-            ?? System.Linq.Enumerable.Empty<object>();
+            ?? Enumerable.Empty<object>();
     }
 
     // -------- Program --------
@@ -85,13 +85,13 @@ public static class AstWalker
             case DestructuringStatement s:
                 return new object[] { s.Pattern, s.Initializer };
             case ReturnStatement s:
-                return s.Value != null ? new object[] { s.Value } : System.Linq.Enumerable.Empty<object>();
+                return s.Value != null ? new object[] { s.Value } : Enumerable.Empty<object>();
             case BecomesStatement s:
                 return new object[] { s.Value };
             case ThrowStatement s:
                 return new object[] { s.Error };
             case VariantReturnStatement s:
-                return s.Value != null ? new object[] { s.Value } : System.Linq.Enumerable.Empty<object>();
+                return s.Value != null ? new object[] { s.Value } : Enumerable.Empty<object>();
             case DiscardStatement s:
                 return new object[] { s.Expression };
             case IfStatement s:
@@ -114,7 +114,7 @@ public static class AstWalker
             case PassStatement:
             case BreakStatement:
             case ContinueStatement:
-                return System.Linq.Enumerable.Empty<object>();
+                return Enumerable.Empty<object>();
             default:
                 return null;
         }
@@ -237,7 +237,7 @@ public static class AstWalker
                 return new object[] { e.Operand };
             case LiteralExpression:
             case IdentifierExpression:
-                return System.Linq.Enumerable.Empty<object>();
+                return Enumerable.Empty<object>();
             default:
                 return null;
         }
@@ -376,7 +376,7 @@ public static class AstWalker
             case GuardPattern p:
                 return new object[] { p.InnerPattern, p.Guard };
             case CrashablePattern p:
-                return p.ErrorType != null ? new object[] { p.ErrorType } : System.Linq.Enumerable.Empty<object>();
+                return p.ErrorType != null ? new object[] { p.ErrorType } : Enumerable.Empty<object>();
             case DestructuringPattern p:
                 return DestructuringPatternChildren(p: p);
             case TypeDestructuringPattern p:
@@ -387,7 +387,7 @@ public static class AstWalker
             case WildcardPattern:
             case NonePattern:
             case ElsePattern:
-                return System.Linq.Enumerable.Empty<object>();
+                return Enumerable.Empty<object>();
             default:
                 return null;
         }
@@ -449,7 +449,7 @@ public static class AstWalker
             case ModuleDeclaration:
             case ImportDeclaration:
             case DefineDeclaration:
-                return System.Linq.Enumerable.Empty<object>();
+                return Enumerable.Empty<object>();
             default:
                 return null;
         }
@@ -521,11 +521,11 @@ public static class AstWalker
             case WhenClause c:
                 return new object[] { c.Pattern, c.Body };
             case DestructuringBinding b:
-                return b.NestedPattern != null ? new object[] { b.NestedPattern } : System.Linq.Enumerable.Empty<object>();
+                return b.NestedPattern != null ? new object[] { b.NestedPattern } : Enumerable.Empty<object>();
             case Parameter p:
                 return ParameterChildren(p: p);
             case ChoiceCase c:
-                return c.Value != null ? new object[] { c.Value } : System.Linq.Enumerable.Empty<object>();
+                return c.Value != null ? new object[] { c.Value } : Enumerable.Empty<object>();
             case VariantMember m:
                 return new object[] { m.Type };
             case RoutineSignature r:
@@ -535,7 +535,7 @@ public static class AstWalker
             case ExpressionPart ep:
                 return new object[] { ep.Expression };
             case TextPart:
-                return System.Linq.Enumerable.Empty<object>();
+                return Enumerable.Empty<object>();
             default:
                 return null;
         }
