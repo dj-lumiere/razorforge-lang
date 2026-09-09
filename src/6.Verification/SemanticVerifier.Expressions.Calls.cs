@@ -726,7 +726,7 @@ public sealed partial class SemanticVerifier
     /// may not resolve by concrete type name).
     /// Returns <see cref="ErrorTypeInfo.Instance"/> on a hard error, null when the call may proceed.
     /// </summary>
-    private TypeSymbol? ValidateMemberCallOperandType(CallExpression call, MemberExpression member,
+    private ErrorTypeInfo? ValidateMemberCallOperandType(CallExpression call, MemberExpression member,
         TypeSymbol objectType)
     {
         // Choice types cannot use any operator wired memberRoutines
@@ -1228,6 +1228,15 @@ public sealed partial class SemanticVerifier
         creator ??= FallbackGenericDefCreatorByArity(callableType: callableType,
             creatorArgTypes: creatorArgTypes);
 
+        // Field-init recovery: the by-TYPE overload lookup above misses when an argument's type failed
+        // to resolve (e.g. a generic-call arg `hijacked_none[U64]()` left un-lowered by the reduced
+        // stdlib-validation pipeline yields ErrorType, so no by-type creator matches). A memberwise
+        // field-init `Type(field: value, ...)` is identified by NAMES, not arg types — every provided
+        // name is a field of the type — so recover the synthesized all-fields creator by matching field
+        // names. Keeps field-init construction resolving for EVERY type regardless of whether each arg
+        // type resolved; a no-op in the full pipeline, where the by-type lookup already succeeds.
+        creator ??= FallbackMemberwiseCreatorByFieldNames(callableType: callableType, call: call);
+
         TryInferGenericDefinitionCreatorType(callableType: ref callableType,
             creator: creator,
             creatorArgTypes: creatorArgTypes);
@@ -1484,6 +1493,68 @@ public sealed partial class SemanticVerifier
                                         creatorArgTypes.Count)
                                    .ToList();
         return defCreators.Count == 1 ? defCreators[index: 0] : null;
+    }
+
+    /// <summary>
+    /// Field-init recovery when the by-TYPE creator lookup missed because an argument's type failed to
+    /// resolve. A memberwise <c>Type(field: value, ...)</c> is identified by NAMES: every named argument
+    /// is a field of the type and the arity matches the field count. Returns the synthesized all-fields
+    /// creator (params == the fields, registered by AutoWiredRegistrationPass) matched by field-NAME set
+    /// rather than arg types, so field-init construction resolves even when an arg type is ErrorType (as
+    /// in the reduced stdlib-validation pipeline, whose un-lowered generic-call args do not resolve).
+    /// Null when the call is not a name-complete field-init (arity/name mismatch, positional, or a
+    /// non-aggregate target) — so it never displaces a genuine by-type overload match.
+    /// </summary>
+    private RoutineInfo? FallbackMemberwiseCreatorByFieldNames(TypeInfo callableType, CallExpression call)
+    {
+        List<MemberVariableInfo>? fields = callableType switch
+        {
+            EntityTypeInfo e => e.MemberVariables,
+            RecordTypeInfo r => r.MemberVariables,
+            _ => null
+        };
+        if (fields is not { Count: > 0 } || call.Arguments.Count != fields.Count)
+        {
+            return null;
+        }
+
+        // Every argument must be a NAMED arg naming a field (positional field-init was already punned to
+        // named form by PunMatchingNamedArgs before this point).
+        var fieldNames = fields.Select(selector: f => f.Name).ToHashSet();
+        foreach (Expression arg in call.Arguments)
+        {
+            if (arg is not NamedArgumentExpression named || !fieldNames.Contains(item: named.Name))
+            {
+                return null;
+            }
+        }
+
+        // Prefer a registered memberwise creator (entities get one from AutoWiredRegistrationPass),
+        // matched by field-NAME set rather than by arg types.
+        RoutineInfo? registered = _registry.GetMemberRoutinesForType(type: callableType)
+                                           .FirstOrDefault(predicate: m =>
+                                                m.IsCreator && m.Parameters.Count == fields.Count &&
+                                                m.Parameters.Select(selector: p => p.Name)
+                                                 .ToHashSet()
+                                                 .SetEquals(other: fieldNames));
+        if (registered != null)
+        {
+            return registered;
+        }
+
+        // A RECORD has no registered memberwise creator — its field-init is inline construction — so
+        // synthesize a transient all-fields creator here. The caller treats a synthesized creator as
+        // inline field-init (it emits no ResolvedRoutine), so this only supplies the ConstructedType /
+        // arity the resolution needs; codegen still does inline field construction.
+        return new RoutineInfo(name: RoutineInfo.CreatorName)
+        {
+            Kind = RoutineKind.Creator,
+            OwnerType = callableType,
+            Parameters = fields.Select(selector: f => new ParameterInfo(name: f.Name, type: f.Type))
+                               .ToList(),
+            ReturnType = callableType,
+            IsSynthesized = true
+        };
     }
 
     private void TryInferGenericDefinitionCreatorType(ref TypeInfo callableType,
@@ -2063,7 +2134,7 @@ public sealed partial class SemanticVerifier
     /// to the creator parameter type. Returns <see cref="ErrorTypeInfo.Instance"/> on failure,
     /// null on success.
     /// </summary>
-    private TypeSymbol? ValidateMemberConversionCreator(CallExpression call, TypeInfo objectType,
+    private ErrorTypeInfo? ValidateMemberConversionCreator(CallExpression call, TypeInfo objectType,
         string potentialTypeName, RoutineInfo creator)
     {
         var nonMeParams = creator.Parameters
