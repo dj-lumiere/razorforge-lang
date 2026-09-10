@@ -80,6 +80,20 @@ public static class LspServer
         Stream stdout = Console.OpenStandardOutput();
         Stream stdin = Console.OpenStandardInput();
         Console.SetOut(newOut: Console.Error);
+        return Run(stdin: stdin, stdout: stdout);
+    }
+
+    /// <summary>
+    /// Core JSON-RPC loop, parameterized over the transport streams so tests can drive the full
+    /// request/response surface in-process by feeding LSP-framed messages through a
+    /// <see cref="MemoryStream"/> and reading the framed replies back. The public
+    /// <see cref="Run()"/> binds these to the process stdin/stdout.
+    /// </summary>
+    internal static int Run(Stream stdin, Stream stdout)
+    {
+        // Fresh transport = fresh document set; a real server starts with none open, and clearing
+        // here keeps successive in-process test sessions from leaking state into one another.
+        Docs.Clear();
 
         bool shutdownRequested = false;
         while (true)
