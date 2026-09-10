@@ -300,19 +300,14 @@ needs T obeys Hashable
   return acc
 
 ### The auto-derived default `serialize()` for a composite record/entity: field-walk into a
-### `Dict[Text, SerialValue]` arm over the publicly-readable (`openmemvarof`) members. A member whose
-### type obeys `Serializable` (scalars box their scalar arm, aggregate records/entities/variants recurse)
-### is lowered through its OWN `serialize()`. Every OTHER member type has no `serialize` and boxes its
-### `represent()` Text instead: a routine-typed member (entities may hold one — records can't, RF-S412)
-### whose serialized code is meaningless, an enum-like `choice`/`flags` (Diagnosable but not Serializable
-### — e.g. BuilderQuery's `Visibility`), and any opaque @llvm leaf. The buildtime `m.obeying(Serializable)`
-### gate prunes to exactly one arm per member at monomorph, so codegen never sees a `.serialize()` on a
-### type that has none. Keys are the field names in declaration order; `Dict` iteration is
-### insertion-ordered, so the output is stable.
+### `Dict[Text, SerialValue]` arm over the publicly-readable (`openmemvarof`) members, keyed by field
+### name in declaration order (`Dict` iteration is insertion-ordered, so the output is stable).
 ###
-### `serialize` is UNIVERSAL — EVERY type has one (a scalar boxes its own SerialValue arm; an aggregate
-### recurses; a `choice`/`flags` or zero-field opaque leaf boxes its `represent()` Text as ITS serialize),
-### so the walk calls `me.field.serialize()` UNCONDITIONALLY — no capability gate, no buildtime prune.
+### `serialize` is UNIVERSAL — EVERY type has one, so the walk calls `me.field.serialize()`
+### UNCONDITIONALLY (no capability gate, no buildtime prune): a scalar boxes its own SerialValue arm; an
+### aggregate record/entity/variant recurses; a `choice`/`flags` or zero-field opaque @llvm leaf (and a
+### routine-typed member — entities may hold one, records can't per RF-S412) boxes its `represent()` Text
+### as ITS serialize.
 @overridable
 routine T.serialize() -> SerialValue
 needs AnyType T
@@ -440,12 +435,11 @@ needs VariantType T
 
 ### The auto-derived `assign()` (Assignable — the shallow store / alias-safe verb): a shallow `var result
 ### = me` (the compiler does NOT re-enter `store` on this self-copy — no recursion), then re-store each
-### member IN PLACE so a retaining field (a managed leaf like Text/Decimal, or a record owning one) gets
-### its refcount bumped on the copy — a bare bitwise alias would double-free at teardown. Only members
-### that actually carry a retaining `store` are re-stored (`m.is_retaining`); a pure value field, or an
-### @llvm-backed aggregate like `Array[T, N]` that has NO `store` at all, is left as the shallow bitwise
-### copy — emitting `me.field.assign()` on it would call a store that does not exist. Replaces the C#
-### reconstruction `T(f: me.f.assign(), …)` with a mutation walk — no creator arg-list needed.
+### member IN PLACE via its OWN `assign()`. `assign` is UNIVERSAL (Assignable is conferred everywhere), so
+### the walk is unconditional: a managed leaf (Text/Decimal, or a record owning one) bumps its refcount on
+### the copy — a bare bitwise alias would double-free at teardown — while a pure value field's `assign` is
+### the bitwise `return me`. Replaces the C# reconstruction `T(f: me.f.assign(), …)` with a mutation walk
+### — no creator arg-list needed.
 @overridable
 routine T.assign() -> Me
 needs T obeys Assignable

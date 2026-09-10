@@ -28,8 +28,10 @@ module BuilderExpansion
 ###   `orderof(m) -> U64`          — the member's declaration index.
 ###   `placeof(m) -> U64`          — the member's byte offset in the type's layout.
 ###   `sizeof(T) -> U64`           — the byte size of a type.
-###   `valueof(m) -> S32`          — a choice case's computed integer value.
+###   `valueof(c) -> S32|U64`      — a case's computed value: a choice's S32 discriminant / a flags' U64 bit.
 ###   `visibilityof(m) -> Visibility` — the member's OPEN/POSTED/SECRET visibility (the BuilderQuery choice).
 ###
-### Splice `${...}` weaves a handle projection into surface syntax, e.g. `x.${nameof(m)}` becomes a real
-### member access at unroll. See the Wiki (Expansion) for worked derives.
+### Splice `$` weaves a handle projection into surface syntax: it binds to the immediately-following
+### primary (an intrinsic call or identifier) and injects that buildtime value as code — `me.$nameof(m)`
+### becomes a real member access at unroll, `$typeof(m)` a type argument / typewise receiver, `$valueof(c)`
+### a case constant. See the Wiki (Expansion) for worked derives.

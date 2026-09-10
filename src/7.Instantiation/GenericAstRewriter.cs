@@ -15,8 +15,8 @@ namespace Builder.Instantiation;
 /// </summary>
 internal static class GenericAstRewriter
 {
-    // Projection name shared by FoldHandleProjection, RewriteExpression member-arm, FoldMetadataIntrinsic,
-    // and the BuilderQuery splice, to avoid the S1192 duplicate-literal warning.
+    // Projection name shared by FoldHandleProjection, FoldMetadataIntrinsic, and the BuilderQuery
+    // `type_id()` fold, to avoid the S1192 duplicate-literal warning.
     private const string TypeIdProjection = "type_id";
 
     /// <summary>
@@ -128,9 +128,6 @@ internal static class GenericAstRewriter
         /// <summary>The current member's static type during expand unrolling (for annotating the
         /// unrolled member access so the chained call resolves).</summary>
         public TypeSymbol? ActiveMemberType { get; set; }
-
-        /// <summary>Whether the current member is secret-visibility during expand unrolling.</summary>
-        public bool ActiveMemberIsSecret { get; set; }
 
         /// <summary>The current member's full OPEN/POSTED/SECRET visibility during expand unrolling,
         /// folded by <c>visibilityof(m)</c> to the matching <c>Visibility</c> choice case.</summary>
@@ -1242,20 +1239,6 @@ internal static class GenericAstRewriter
                     TypeArguments = null
                 },
 
-            // Buildtime expand-handle capability probe: m.obeying(Protocol) -> folded Bool literal
-            // (the current member's type conformance), only inside an active expand unroll. Placed
-            // BEFORE the generic CallExpression clone so it never resolves as a real routine call.
-            CallExpression
-                {
-                    Callee: MemberExpression
-                    {
-                        Object: IdentifierExpression obeysHandle, MemberName: "obeying"
-                    }
-                } obeysCall when !ctx.CloneOnly && ctx.ActiveExpandHandle != null &&
-                                 obeysHandle.Name == ctx.ActiveExpandHandle => FoldHandleObeys(
-                    call: obeysCall,
-                    ctx: ctx),
-
             // Buildtime metadata intrinsic: nameof(m) / orderof(m) / typeof(m) / typeidof(m) / valueof(c) /
             // placeof(m) / sizeof(m|T) -> folded off the active expand-unroll context. Placed BEFORE the
             // generic CallExpression clone so it never resolves as a real routine call.
@@ -1271,17 +1254,6 @@ internal static class GenericAstRewriter
                     location: ofCall.Location),
 
             CallExpression call => CloneCall(call: call, ctx: ctx),
-
-            // Buildtime expand-handle projection: m.name / m.id -> folded literal (only inside an
-            // active expand unroll; a same-named local elsewhere is left to the generic arm below).
-            MemberExpression { Object: IdentifierExpression handleId } handleMember when
-                !ctx.CloneOnly &&
-                ctx.ActiveExpandHandle != null && handleId.Name == ctx.ActiveExpandHandle &&
-                handleMember.MemberName is "name" or "id" or "is_secret" or "is_routine" or "value"
-                    or "is_inert" or "is_retaining" or TypeIdProjection
-                    or "type" => FoldHandleProjection(projection: handleMember.MemberName,
-                    ctx: ctx,
-                    location: handleMember.Location),
 
             // Buildtime splice selector: x.${m.name} -> real member access on the current field.
             // CloneOnly: keep the splice node intact (structural clone) — folding it needs the expand
@@ -2324,7 +2296,6 @@ internal static class GenericAstRewriter
             string? prevName = ctx.ActiveMemberName;
             long prevIndex = ctx.ActiveMemberIndex;
             TypeSymbol? prevType = ctx.ActiveMemberType;
-            bool prevSecret = ctx.ActiveMemberIsSecret;
             VisibilityModifier prevVis = ctx.ActiveMemberVisibility;
             long prevOffset = ctx.ActiveMemberOffset;
 
@@ -2334,7 +2305,6 @@ internal static class GenericAstRewriter
                 ctx.ActiveMemberName = mv.Name;
                 ctx.ActiveMemberIndex = mv.Index;
                 ctx.ActiveMemberType = mv.Type;
-                ctx.ActiveMemberIsSecret = mv.Visibility == VisibilityModifier.Secret;
                 ctx.ActiveMemberVisibility = mv.Visibility;
                 ctx.ActiveMemberOffset = offsets.TryGetValue(key: mv, value: out long off)
                     ? off
@@ -2355,7 +2325,6 @@ internal static class GenericAstRewriter
             ctx.ActiveMemberName = prevName;
             ctx.ActiveMemberIndex = prevIndex;
             ctx.ActiveMemberType = prevType;
-            ctx.ActiveMemberIsSecret = prevSecret;
             ctx.ActiveMemberVisibility = prevVis;
             ctx.ActiveMemberOffset = prevOffset;
         }
@@ -2682,8 +2651,10 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Folds a buildtime expand-handle projection to a literal: <c>m.name</c>→Text field name,
-    /// <c>m.id</c>→U64 ordinal.
+    /// Folds a buildtime expand-handle projection to a literal, dispatched by the function-form
+    /// metadata intrinsic (<see cref="FoldMetadataIntrinsic"/>): <c>name</c>→Text field name (nameof),
+    /// <c>id</c>→U64 ordinal (orderof), <c>value</c>→the caseof constant (valueof), <c>type_id</c>→the
+    /// arm/member type's stable id (typeidof).
     /// </summary>
     private static Expression FoldHandleProjection(string projection, RewriteContext ctx,
         SourceLocation location)
@@ -2691,13 +2662,8 @@ internal static class GenericAstRewriter
         return projection switch
         {
             "name" => FoldProjectionName(ctx: ctx, location: location),
-            "is_secret" => FoldProjectionIsSecret(ctx: ctx, location: location),
             "value" => FoldProjectionValue(ctx: ctx, location: location),
             TypeIdProjection => FoldProjectionTypeId(ctx: ctx, location: location),
-            "is_inert" => FoldProjectionIsInert(ctx: ctx, location: location),
-            "is_retaining" => FoldProjectionIsRetaining(ctx: ctx, location: location),
-            "type" => FoldProjectionType(ctx: ctx, location: location),
-            "is_routine" => FoldProjectionIsRoutine(ctx: ctx, location: location),
             _ => FoldProjectionId(ctx: ctx, location: location) // "id"
         };
     }
@@ -2708,16 +2674,6 @@ internal static class GenericAstRewriter
         return new LiteralExpression(Value: ctx.ActiveMemberName ?? "",
             LiteralType: TokenType.TextLiteral,
             Location: location) { ResolvedType = ctx.Registry?.LookupType(name: "Text") };
-    }
-
-    private static LiteralExpression FoldProjectionIsSecret(RewriteContext ctx,
-        SourceLocation location)
-    {
-        return new LiteralExpression(Value: ctx.ActiveMemberIsSecret,
-            LiteralType: ctx.ActiveMemberIsSecret
-                ? TokenType.True
-                : TokenType.False,
-            Location: location) { ResolvedType = ctx.Registry?.LookupType(name: "Bool") };
     }
 
     private static LiteralExpression FoldProjectionValue(RewriteContext ctx,
@@ -2744,70 +2700,6 @@ internal static class GenericAstRewriter
         return new LiteralExpression(Value: typeId,
             LiteralType: TokenType.U64Literal,
             Location: location) { ResolvedType = ctx.Registry?.LookupType(name: "U64") };
-    }
-
-    private static LiteralExpression FoldProjectionIsInert(RewriteContext ctx,
-        SourceLocation location)
-    {
-        // "뒷끝 없다" — the member's type tears down to nothing (owns no entity / RC / managed leaf /
-        // raw pointer needing release): its `destroy` is a transitive no-op, and may not even be
-        // DEFINED (reachability prunes trivial destroys — e.g. `Hijacked[…].destroy`), so a derive
-        // must SKIP calling `.destroy()` on it, not just for size but for link-correctness.
-        bool inert = ctx.ActiveMemberType != null && ctx.Registry != null;
-        return new LiteralExpression(Value: inert,
-            LiteralType: inert
-                ? TokenType.True
-                : TokenType.False,
-            Location: location) { ResolvedType = ctx.Registry?.LookupType(name: "Bool") };
-    }
-
-    private static LiteralExpression FoldProjectionIsRetaining(RewriteContext ctx,
-        SourceLocation location)
-    {
-        // The member's type has a RETAINING copy hook — a resolvable `store` (the managed-leaf
-        // refcount bump, e.g. Text/Decimal, or a record owning one). A bitwise alias of such a
-        // member would double-free at teardown, so the derived `store` must re-store it. Every
-        // OTHER member (a pure value, or an @llvm-backed aggregate like `Array[T, N]` that has NO
-        // `store` at all — even when its `destroy` walks elements) is copied bitwise and MUST be
-        // skipped: emitting `me.field.assign()` on it would call a `store` that does not exist
-        // (the RoutineTrace `Array[RoutineRecord, 10]` codegen failure). This is the store-side
-        // dual of `is_inert` (which keys off destructibility, the wrong axis for a copy).
-        bool retaining = ctx.ActiveMemberType != null && ctx.Registry != null && ctx.Registry
-           .GetLifecycle(type: ctx.ActiveMemberType)
-           .Store is not null;
-        return new LiteralExpression(Value: retaining,
-            LiteralType: retaining
-                ? TokenType.True
-                : TokenType.False,
-            Location: location) { ResolvedType = ctx.Registry?.LookupType(name: "Bool") };
-    }
-
-    private static IdentifierExpression FoldProjectionType(RewriteContext ctx,
-        SourceLocation location)
-    {
-        // `${m.type}` in EXPRESSION position folds to a TYPEWISE receiver: an identifier naming the
-        // concrete member/arm type, annotated with that type so a following static call
-        // (`.data_size()`, `.type_id()`, …) re-resolves as a universal memberRoutine on it — exactly like a
-        // hand-written `S64.data_size()`. (In TYPE/pattern position `${m.type}` is a different node,
-        // TypeExpression.SpliceHandle / SpliceTypePattern, handled at parse/resolve time.)
-        TypeSymbol? memberType = ctx.ActiveMemberType;
-        return new IdentifierExpression(Name: memberType?.Name ?? "None", Location: location)
-        {
-            ResolvedType = memberType
-        };
-    }
-
-    private static LiteralExpression FoldProjectionIsRoutine(RewriteContext ctx,
-        SourceLocation location)
-    {
-        // A routine-typed member (only entities may hold one; records are barred by RF-S412) has
-        // neither `serialize` nor `represent`, so a derive skips it (boxes a `<routine>` placeholder).
-        bool isRoutine = ctx.ActiveMemberType is RoutineTypeSymbol;
-        return new LiteralExpression(Value: isRoutine,
-            LiteralType: isRoutine
-                ? TokenType.True
-                : TokenType.False,
-            Location: location) { ResolvedType = ctx.Registry?.LookupType(name: "Bool") };
     }
 
     private static LiteralExpression FoldProjectionId(RewriteContext ctx, SourceLocation location)
@@ -2874,9 +2766,9 @@ internal static class GenericAstRewriter
     /// <summary>
     /// Folds a buildtime metadata intrinsic (<c>nameof</c>/<c>orderof</c>/<c>typeof</c>/<c>typeidof</c>/
     /// <c>valueof</c>/<c>placeof</c>/<c>sizeof</c>) to a literal or typewise receiver off the active
-    /// expand-unroll context. The name/order/type/type_id/value cases delegate to
-    /// <see cref="FoldHandleProjection"/> (same folds as the retired dot-projection); <c>placeof</c> and
-    /// <c>sizeof</c> are new repr-C layout reads.
+    /// expand-unroll context. The name/order/type_id/value cases delegate to
+    /// <see cref="FoldHandleProjection"/>; <c>typeof</c> builds a typewise receiver directly, and
+    /// <c>placeof</c>/<c>sizeof</c> are repr-C layout reads.
     /// </summary>
     private static Expression FoldMetadataIntrinsic(string name, Expression arg,
         RewriteContext ctx, SourceLocation location)
@@ -2931,41 +2823,17 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Folds a buildtime expand-handle capability probe <c>m.obeying(Protocol)</c> to a literal Bool:
-    /// does the CURRENT member's type conform to the named protocol? The argument must be a bare
-    /// protocol identifier. A derive template gates a per-field call on this (e.g. only call
-    /// <c>me.field.serialize()</c> when the field <c>m.obeying(Serializable)</c>, else fall back to
-    /// <c>represent</c>) — the enclosing <c>if</c> then buildtime-prunes so the untaken branch (an
-    /// invalid call for this member) never reaches codegen (see <see cref="RewriteIf"/>).
-    /// </summary>
-    private static LiteralExpression FoldHandleObeys(CallExpression call, RewriteContext ctx)
-    {
-        string? protocolName = call.Arguments is [IdentifierExpression protoId]
-            ? protoId.Name
-            : null;
-        bool obeys = protocolName != null && ctx.ActiveMemberType != null &&
-                     ctx.Registry != null &&
-                     ctx.Registry.DoesTypeObeyProtocol(type: ctx.ActiveMemberType,
-                         protocolName: protocolName);
-        return new LiteralExpression(Value: obeys,
-            LiteralType: obeys
-                ? TokenType.True
-                : TokenType.False,
-            Location: call.Location) { ResolvedType = ctx.Registry?.LookupType(name: "Bool") };
-    }
-
-    /// <summary>
     /// Rewrites an <c>if</c>, buildtime-PRUNING it when — inside an active expand unroll — its condition
-    /// folded to a constant Bool (e.g. <c>if m.obeys(Serializable)</c>). Only the taken branch is
-    /// kept, so codegen never sees the dead branch, which may contain a call that is invalid for this
-    /// concrete member (e.g. <c>.serialize()</c> on a non-serializable field). Outside expand, or with
-    /// a non-constant condition, both branches are preserved as an ordinary runtime <c>if</c>.
+    /// folded to a constant Bool (e.g. a <c>T is X</c> type test over a now-concrete member/param type).
+    /// Only the taken branch is kept, so codegen never sees the dead branch, which may contain a call
+    /// that is invalid for this concrete member. Outside expand, or with a non-constant condition, both
+    /// branches are preserved as an ordinary runtime <c>if</c>.
     /// </summary>
     private static Statement RewriteIf(IfStatement ifs, RewriteContext ctx)
     {
         Expression cond = RewriteExpression(expr: ifs.Condition, ctx: ctx);
 
-        // A folded handle projection may be wrapped in `not` (e.g. `if not m.is_inert`); fold the
+        // A folded constant condition may be wrapped in `not` (e.g. `if not (T is X)`); fold the
         // negation so the constant-condition prune below still fires.
         if (cond is UnaryExpression
             {

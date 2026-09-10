@@ -638,11 +638,8 @@ public sealed partial class SemanticVerifier
 
         TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
 
-        // Buildtime expand-handle capability probe: `m.obeying(SomeProtocol)` -> Bool, folded at
-        // monomorphization to the member type's conformance. The argument is a PROTOCOL name
-        // (a type/protocol identifier, not a runtime value), so short-circuit before normal
-        // argument analysis. The handle types leniently so an expand body typechecks before
-        // monomorphization; any other call on it is a clear mistake.
+        // A buildtime `expand` handle has no callable methods — its metadata is read via the
+        // function-form intrinsics (`nameof(m)`/`typeof(m)`/…), so `m.foo(...)` is a mistake.
         if (AnalyzeBuildtimeHandleCall(call: call, member: member, objectType: objectType) is
             { } resultAnalyzeBuildtimeHandleCall)
         {
@@ -2913,14 +2910,10 @@ public sealed partial class SemanticVerifier
     {
         if (objectType is BuildtimeHandleTypeSymbol)
         {
-            if (member.MemberName == "obeying" && call.Arguments is [IdentifierExpression])
-            {
-                return _registry.LookupType(name: "Bool") ?? ErrorTypeSymbol.Instance;
-            }
-
             ReportError(code: SemanticDiagnosticCode.MemberNotFound,
-                message: $"Buildtime expand handle has no call '{member.MemberName}(...)'. " +
-                         "Available: 'obeying(Protocol)' -> Bool.",
+                message: $"A buildtime expand handle has no method '{member.MemberName}(...)'. Read " +
+                         "its metadata with an intrinsic instead: nameof(m), orderof(m), typeof(m), " +
+                         "typeidof(m), valueof(m), placeof(m), sizeof(m), or visibilityof(m).",
                 location: call.Location);
             return ErrorTypeSymbol.Instance;
         }

@@ -200,43 +200,20 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Types a projection off a buildtime <c>expand</c> handle (<c>m.name</c>/<c>m.id</c>/…). The handle
-    /// is a sentinel; projections type leniently so the expand body typechecks before monomorphization.
-    /// Any other projection on the handle is a clear mistake.
+    /// Rejects a member access off a buildtime <c>expand</c> handle (<c>m.name</c> etc.). The handle is
+    /// a sentinel with no member projections — its metadata is read only through the function-form
+    /// intrinsics (<c>nameof(m)</c>/<c>orderof(m)</c>/<c>typeof(m)</c>/…), so <c>m.&lt;anything&gt;</c>
+    /// is always a mistake.
     /// </summary>
     private TypeSymbol AnalyzeBuildtimeHandleProjection(MemberExpression member)
     {
-        switch (member.MemberName)
-        {
-            case "name":
-                return _registry.LookupType(name: "Text") ?? ErrorTypeSymbol.Instance;
-            case "id":
-                return _registry.LookupType(name: "U64") ?? ErrorTypeSymbol.Instance;
-            case "is_secret":
-            case "is_routine":
-            case "is_inert":
-                return _registry.LookupType(name: "Bool") ?? ErrorTypeSymbol.Instance;
-            case "value":
-                // caseof `c.value` — a choice's S32 discriminant / a flags member's U64 bit. Only
-                // ever spliced (`${c.value}`, deferred); type leniently as S32 for a bare reference.
-                return _registry.LookupType(name: "S32") ?? ErrorTypeSymbol.Instance;
-            case "type_id":
-                // branchof `m.type_id` — the arm type's stable id (U64), used by variant diagnose.
-                return _registry.LookupType(name: "U64") ?? ErrorTypeSymbol.Instance;
-            case "type":
-                // `${m.type}` in EXPRESSION position — the member/arm type as a buildtime typewise
-                // receiver (e.g. `${m.type}.data_size()` / `.type_id()`, or a column-buffer size in a
-                // SoA memberRoutine). Deferred like the type/pattern-position splice: the real type only
-                // exists at monomorphization, so a bare projection types leniently and the static
-                // call on it is re-resolved on the folded concrete type post-monomorph.
-                return ErrorTypeSymbol.Instance;
-            default:
-                ReportError(code: SemanticDiagnosticCode.MemberNotFound,
-                    message:
-                    $"Buildtime expand handle has no projection '{member.MemberName}'. Available: 'name' (Text), 'id' (U64), 'is_secret'/'is_routine' (Bool), 'value' (caseof).",
-                    location: member.Location);
-                return ErrorTypeSymbol.Instance;
-        }
+        ReportError(code: SemanticDiagnosticCode.MemberNotFound,
+            message:
+            $"A buildtime expand handle has no member '{member.MemberName}'. Read its metadata with " +
+            "an intrinsic instead: nameof(m), orderof(m), typeof(m), typeidof(m), valueof(m), " +
+            "placeof(m), sizeof(m), or visibilityof(m).",
+            location: member.Location);
+        return ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
@@ -264,9 +241,8 @@ public sealed partial class SemanticVerifier
     {
         TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
 
-        // Buildtime `expand` handle projection: `m.name` (field name, Text), `m.id` (ordinal, U64).
-        // The handle is a sentinel; its projections type leniently so the expand body typechecks
-        // before monomorphization. Any other projection on the handle is a clear mistake.
+        // A buildtime `expand` handle has no member projections — its metadata is read via the
+        // function-form intrinsics (`nameof(m)`/`orderof(m)`/…), so `m.<anything>` is a mistake.
         if (objectType is BuildtimeHandleTypeSymbol)
         {
             return AnalyzeBuildtimeHandleProjection(member: member);
