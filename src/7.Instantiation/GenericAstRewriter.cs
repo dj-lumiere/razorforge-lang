@@ -101,6 +101,17 @@ internal static class GenericAstRewriter
         public TypeRegistry? Registry { get; } = registry;
 
         /// <summary>
+        /// PURE STRUCTURAL DEEP-COPY mode. When true, NO comptime folding/unrolling runs — every
+        /// <c>expand</c> loop, <c>when T … is X</c> type-switch, arm-expansion, splice, and metadata
+        /// intrinsic (<c>nameof</c>/<c>orderof</c>/…) is left INTACT and merely recursed into structurally.
+        /// Used to clone a GENERIC-DEFINITION template body (which must stay UNFOLDED until real
+        /// monomorphization binds its type params) so each warm build owns a private copy — on-demand SA
+        /// then mutates the copy, never the shared stdlib snapshot template (the warm/cold define-set
+        /// leak). A non-clone rewrite (real subs) leaves this false so folding proceeds as before.
+        /// </summary>
+        public bool CloneOnly { get; init; }
+
+        /// <summary>
         /// The active comptime <c>expand</c> handle name (e.g. <c>m</c>) while its body is being
         /// unrolled for one member, or null outside any expand. When set, <c>m.name</c>/<c>m.id</c>
         /// member accesses fold to literals and <c>x.${m.name}</c> splices become real member
@@ -1193,10 +1204,11 @@ internal static class GenericAstRewriter
         {
             // Comptime type test `T is X` (T a generic parameter concrete in this instantiation) folds
             // to a bool literal — so `if T is X` selects a branch with no runtime IsPatternExpression.
-            IsPatternExpression { Pattern: TypePattern tsp } ipeType when TryEvalTypeParamIs(
-                operand: ipeType.Expression,
-                typePattern: tsp,
-                ctx: ctx) is bool matched => MakeBoolLiteral(value: matched ^ ipeType.IsNegated,
+            IsPatternExpression { Pattern: TypePattern tsp } ipeType when !ctx.CloneOnly &&
+                TryEvalTypeParamIs(
+                    operand: ipeType.Expression,
+                    typePattern: tsp,
+                    ctx: ctx) is bool matched => MakeBoolLiteral(value: matched ^ ipeType.IsNegated,
                 ctx: ctx,
                 loc: ipeType.Location),
 
@@ -1218,7 +1230,8 @@ internal static class GenericAstRewriter
                     Callee: MemberExpression { MemberName: var bsName } bsCallee,
                     Arguments: { Count: 0 }
                 } bsCall when
-                ctx.Registry != null && BuilderQueryInliningPass.IsFoldable(routineName: bsName) =>
+                !ctx.CloneOnly && ctx.Registry != null &&
+                BuilderQueryInliningPass.IsFoldable(routineName: bsName) =>
                 TryFoldBsCallViaStringSubs(callee: bsCallee,
                     location: bsCall.Location,
                     ctx: ctx) ??
@@ -1238,7 +1251,7 @@ internal static class GenericAstRewriter
                     {
                         Object: IdentifierExpression obeysHandle, MemberName: "obeying"
                     }
-                } obeysCall when ctx.ActiveExpandHandle != null &&
+                } obeysCall when !ctx.CloneOnly && ctx.ActiveExpandHandle != null &&
                                  obeysHandle.Name == ctx.ActiveExpandHandle => FoldHandleObeys(
                     call: obeysCall,
                     ctx: ctx),
@@ -1249,7 +1262,8 @@ internal static class GenericAstRewriter
             CallExpression
                 {
                     Callee: IdentifierExpression ofId, Arguments: [Expression ofArg]
-                } ofCall when Verification.SemanticVerifier.IsMetadataIntrinsic(name: ofId.Name) &&
+                } ofCall when !ctx.CloneOnly &&
+                              Verification.SemanticVerifier.IsMetadataIntrinsic(name: ofId.Name) &&
                               IsFoldableMetadataArg(name: ofId.Name, arg: ofArg, ctx: ctx) =>
                 FoldMetadataIntrinsic(name: ofId.Name,
                     arg: ofArg,
@@ -1261,6 +1275,7 @@ internal static class GenericAstRewriter
             // Comptime expand-handle projection: m.name / m.id -> folded literal (only inside an
             // active expand unroll; a same-named local elsewhere is left to the generic arm below).
             MemberExpression { Object: IdentifierExpression handleId } handleMember when
+                !ctx.CloneOnly &&
                 ctx.ActiveExpandHandle != null && handleId.Name == ctx.ActiveExpandHandle &&
                 handleMember.MemberName is "name" or "id" or "is_secret" or "is_routine" or "value"
                     or "is_inert" or "is_retaining" or TypeIdProjection
@@ -1269,10 +1284,23 @@ internal static class GenericAstRewriter
                     location: handleMember.Location),
 
             // Comptime splice selector: x.${m.name} -> real member access on the current field.
-            SpliceMemberExpression sm => RewriteSpliceMember(sm: sm, ctx: ctx),
+            // CloneOnly: keep the splice node intact (structural clone) — folding it needs the expand
+            // context a bare template clone doesn't have.
+            SpliceMemberExpression sm when !ctx.CloneOnly => RewriteSpliceMember(sm: sm, ctx: ctx),
 
-            // Comptime splice in expression position: fold the inner projection.
-            SpliceExpression se => RewriteExpression(expr: se.Inner, ctx: ctx),
+            SpliceMemberExpression sm => sm with
+            {
+                Object = RewriteExpression(expr: sm.Object, ctx: ctx),
+                Selector = (SpliceExpression)RewriteExpression(expr: sm.Selector, ctx: ctx)
+            },
+
+            // Comptime splice in expression position: fold the inner projection (real subs only).
+            SpliceExpression se when !ctx.CloneOnly => RewriteExpression(expr: se.Inner, ctx: ctx),
+
+            SpliceExpression se => se with
+            {
+                Inner = RewriteExpression(expr: se.Inner, ctx: ctx)
+            },
 
             MemberExpression me => CloneMember(me: me, ctx: ctx),
 
@@ -2056,6 +2084,9 @@ internal static class GenericAstRewriter
 
     #region Statement Rewriting
 
+    private static readonly Dictionary<string, string> NoStringSubs =
+        new(comparer: StringComparer.Ordinal);
+
     /// <summary>
     /// Public entry point: rewrites a pre-transformed variant body <see cref="Statement"/>
     /// by substituting all generic type parameter references with concrete names.
@@ -2158,15 +2189,23 @@ internal static class GenericAstRewriter
 
             // Comptime member-expansion: unroll the body once per member of the concrete source
             // type. Never survives to codegen — replaced by a flat block of the per-member clones.
-            ExpandStatement expand => RewriteExpandStatement(expand: expand, ctx: ctx),
-
-            WhenStatement { ArmExpansion: not null } armWhen => RewriteWhenArmExpansion(
-                ws: armWhen,
+            // CloneOnly: leave the expand INTACT (structural recurse) so the generic-def template stays
+            // foldable by a later real monomorphization.
+            ExpandStatement expand when !ctx.CloneOnly => RewriteExpandStatement(expand: expand,
                 ctx: ctx),
+
+            ExpandStatement expand => expand with
+            {
+                Body = RewriteStatement(stmt: expand.Body, ctx: ctx)
+            },
+
+            WhenStatement { ArmExpansion: not null } armWhen when !ctx.CloneOnly =>
+                RewriteWhenArmExpansion(ws: armWhen, ctx: ctx),
 
             // Comptime type-switch: `when T … is X => …` where T is this instantiation's concrete type.
             // Fold to the matching arm (or else / no-op) so codegen never sees `T` in value position.
-            WhenStatement typeSwitch when IsTypeParamSubject(expr: typeSwitch.Expression, ctx: ctx)
+            WhenStatement typeSwitch when !ctx.CloneOnly &&
+                                          IsTypeParamSubject(expr: typeSwitch.Expression, ctx: ctx)
                 => FoldTypeSwitch(ws: typeSwitch, ctx: ctx),
 
             WhenStatement ws => ws with
@@ -2215,6 +2254,23 @@ internal static class GenericAstRewriter
 
             _ => stmt
         };
+    }
+
+    /// <summary>
+    /// Pure structural DEEP-CLONE of a statement (no substitutions, no comptime folding). Every node is
+    /// copied so mutation of the clone (e.g. on-demand SA annotating <c>ResolvedCreatorRoutine</c> /
+    /// <c>ResolvedType</c>) cannot leak into the original. Unlike the substituting rewrite, comptime
+    /// constructs (<c>expand</c>, type-switch <c>when</c>, arm-expansion, splices, metadata intrinsics)
+    /// are LEFT INTACT — so a GENERIC-DEFINITION template body stays foldable by a later real
+    /// monomorphization. This is the isolation primitive for warm builds sharing one stdlib snapshot.
+    /// </summary>
+    public static Statement DeepCloneStatement(Statement stmt)
+    {
+        return RewriteStatement(stmt: stmt,
+            ctx: new RewriteContext(stringSubs: NoStringSubs, typeSubs: null, registry: null)
+            {
+                CloneOnly = true
+            });
     }
 
     /// <summary>
