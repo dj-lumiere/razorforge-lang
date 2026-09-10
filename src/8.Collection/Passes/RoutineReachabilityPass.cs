@@ -3123,6 +3123,17 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     private RoutineInfo? SubstituteOwnerGenericDef(RoutineInfo routine, TypeInfo owner,
         List<string> gParams, Dictionary<string, TypeInfo> typeSubs)
     {
+        // BuilderQuery reflection routines (type_name / full_type_name / data_size / …) are build-time
+        // name/size throwers: the builder folds each to a constant (BuilderQueryInliningPass) and emits NO
+        // runtime definition, so resolving one must NOT instantiate + live-mark its owner. Doing so
+        // spuriously drags a concrete owner into the live set (e.g. Range[U64] while walking an unrelated
+        // represent/cmp/destroy body) that a demand-driven cold compile never reaches — the root of the
+        // warm/cold define-set divergence. Leave the call generic (it is folded downstream).
+        if (Compiler.Verification.BuilderInfoProvider.IsBuilderQueryRoutine(name: routine.Name))
+        {
+            return null;
+        }
+
         var concreteArgs = new List<TypeInfo>(capacity: gParams.Count);
         foreach (string p in gParams)
         {

@@ -1,0 +1,43 @@
+module Core
+
+### Shared growth policy for flat, contiguous collections (`List`, `PriorityQueue`).
+###
+### Growth batches reallocations so append stays O(1) amortized. The batch factor is a
+### trade-off: a larger factor reallocates less often (fewer copies) but leaves more slack
+### memory; a smaller factor wastes less memory but copies more. A hybrid resolves it by
+### size, because the balance flips as a buffer grows:
+###
+### - **Small buffers double.** A few extra bytes of slack are irrelevant, and the priority
+###   is to reach a stable size in as few reallocations as possible. Under C `malloc` the
+###   allocation is also rounded up to a size class anyway, so a sub-2x factor would save
+###   little in practice at this scale.
+### - **Large buffers grow by 1.5x.** Here the slack is measured in megabytes, so the
+###   absolute waste of doubling (up to 100% of a large buffer, held live during the copy)
+###   dominates. Past `malloc`'s mmap threshold the allocation is page-mapped directly, so
+###   the size-class rounding that hid the small-buffer savings no longer applies, and the
+###   copy is memory-bandwidth-bound regardless of factor — so trading a few more copies for
+###   bounded waste is the right call. 1.5 stays below the golden-ratio ceiling (~1.618)
+###   under which freed blocks can eventually be reused.
+###
+### The threshold is expressed in BYTES, not elements, because the balance tracks `malloc`'s
+### behaviour (cache residency, the mmap boundary), which is about allocation size — so the
+### per-element size must factor in.
+###
+### NOTE: This policy does NOT apply to `CircularList`, `Set`, or `Dict`. Those pin capacity
+### to a power of two (bitmask index wrapping / hash-slot masking), so a 1.5x request would
+### round straight back up to the next power of two — a no-op. They stay at 2x by design.
+secret preset GROWTH_HYBRID_THRESHOLD_BYTES: U64 = 262144u64
+
+### Computes the next backing capacity for a contiguous buffer that must hold at least
+### `min_needed` elements. Buffers whose current allocation is under
+### `GROWTH_HYBRID_THRESHOLD_BYTES` double; larger buffers grow by 1.5x. An empty buffer
+### seeds at four slots. The result is always at least `min_needed`.
+### :param current: The current capacity, in elements.
+### :param min_needed: The minimum capacity the caller requires after growth, in elements.
+### :param element_size: The size of one element, in bytes (`T.data_size()`).
+### :returns: The capacity to reserve, in elements.
+routine next_grow_capacity(current: U64, min_needed: U64, element_size: U64) -> U64
+  var grown = if current == 0u64 then 4u64 else current * 2u64
+  if current * element_size >= GROWTH_HYBRID_THRESHOLD_BYTES
+    grown = current + current // 2u64
+  return if grown < min_needed then min_needed else grown

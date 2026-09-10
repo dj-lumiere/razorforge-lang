@@ -179,11 +179,12 @@ routine PriorityQueue[TPriority, TElement].reserve(new_capacity: U64)
     me.capacity = new_capacity
   return
 
-### Grows the backing storage using the pool's standard doubling policy.
-### Empty pools start at four slots; subsequent growth always doubles.
+### Grows the backing storage using the shared `next_grow_capacity` policy: empty pools
+### start at four slots; small pools double; large pools grow by 1.5x to bound memory waste.
+### Both the priority and element buffers grow together via `reserve`.
 routine PriorityQueue[TPriority, TElement].grow()
-  var new_capacity = if me.capacity == 0u64 then 4u64 else me.capacity *% 2u64
-  me.reserve(new_capacity)
+  # Size the growth off the priority buffer's element size; the element buffer grows in lockstep.
+  me.reserve(next_grow_capacity(current: me.capacity, min_needed: me.capacity +% 1u64, element_size: TPriority.data_size().byte_size()))
   return
 
 # ============================================================================

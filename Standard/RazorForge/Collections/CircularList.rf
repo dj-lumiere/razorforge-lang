@@ -300,6 +300,10 @@ routine CircularList[T].clear()
 
 ### Grows the backing storage using the circular list's standard doubling policy.
 ### Empty circular lists start at four slots; subsequent growth always doubles.
+### NOTE: Unlike `List`/`PriorityQueue`, this deliberately does NOT use the hybrid
+### `next_grow_capacity` (double-then-1.5x) policy. Capacity is pinned to a power of two so
+### index wrapping can use a bitmask (`reserve` rounds up), and a 1.5x request would round
+### straight back up to the next power of two — a no-op. Staying at 2x is intentional here.
 @reshaping
 routine CircularList[T].grow()
   var new_capacity = if me.capacity == 0u64 then 4u64 else me.capacity *% 2u64

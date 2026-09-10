@@ -12,18 +12,20 @@ public class ParserErrorTests
     #region Record Errors
 
     /// <summary>
-    /// Verifies that the parser accepts record missing brace throws or recovers.
+    /// Verifies that a record member missing its <c>: Type</c> annotation throws or recovers.
+    /// RF records are indentation-delimited — there is no brace to omit; the real malformation is a
+    /// member line that is not <c>name: Type</c>.
     /// </summary>
     [Fact]
-    public void Parse_Record_MissingBrace_ThrowsOrRecovers()
+    public void Parse_Record_MemberMissingColon_ThrowsOrRecovers()
     {
         string source = """
                         record Point
-                          x: F32
+                          x F32
                           y: F32
                         """;
 
-        // Parser either throws on the malformed input or recovers and reports errors — both are acceptable.
+        // Parser either throws on the malformed member or recovers and reports errors — both are acceptable.
         Exception? thrownEx = null;
         Compiler.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
@@ -31,7 +33,7 @@ public class ParserErrorTests
 
         Assert.True(condition: thrownEx != null || recoveredParser!.HasErrors,
             userMessage:
-            "Expected parse to throw or report errors for a record missing its closing brace.");
+            "Expected parse to throw or report errors for a record member missing its ': Type'.");
     }
     /// <summary>
     /// Verifies that the parser accepts record missing member variable type throws or recovers.
@@ -391,25 +393,27 @@ public class ParserErrorTests
         AssertParseError(source: source);
     }
     /// <summary>
-    /// Verifies that the parser accepts mismatched braces and fails in the expected way.
+    /// Verifies that a block header with no indented body throws or recovers. RF blocks are
+    /// indentation-delimited — there is no brace to mismatch; the real malformation is a block
+    /// header (<c>if true</c>) followed by no deeper-indented body.
     /// </summary>
     [Fact]
-    public void Parse_MismatchedBraces_Throws()
+    public void Parse_BlockMissingBody_Throws()
     {
         string source = """
                         routine foo()
                           if true
-                            return 1
+                          return 1
                         """;
 
-        // Missing closing brace for if statement: parser should throw or recover with errors.
+        // `if true` has no indented body: parser should throw or recover with errors.
         Exception? thrownEx = null;
         Compiler.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
 
         Assert.True(condition: thrownEx != null || recoveredParser!.HasErrors,
-            userMessage: "Expected parse to throw or report errors for mismatched braces.");
+            userMessage: "Expected parse to throw or report errors for a block header with no body.");
     }
     /// <summary>
     /// Verifies that the parser accepts mismatched parens and fails in the expected way.

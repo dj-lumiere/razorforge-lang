@@ -5,8 +5,9 @@ import BuilderQuery
 ### A growable, contiguous sequence of elements with amortized O(1) append.
 ###
 ### `List[T]` stores elements in a single resizable heap buffer. Random access
-### by index is O(1). Appending to the back is O(1) amortized because the
-### buffer doubles each time capacity runs out. Inserting or removing near the
+### by index is O(1). Appending to the back is O(1) amortized because the buffer grows
+### geometrically when capacity runs out (see `next_grow_capacity`: it doubles while small,
+### then grows by 1.5x once large to bound memory waste). Inserting or removing near the
 ### front is O(n) due to element shifting.
 ###
 ### **When to use**
@@ -126,13 +127,13 @@ routine List[T].is_empty() -> Bool
   return me.count == 0u64
 
 ### Appends `value` at the back of the list.
-### The buffer is doubled automatically when the current capacity is exhausted.
+### The buffer grows automatically when the current capacity is exhausted, following the
+### shared `next_grow_capacity` policy (double while small, 1.5x once large).
 ### :param value: The value to append.
 @reshaping
 routine List[T].add_last(value: T)
   if me.count >= me.capacity
-    var new_capacity = if me.capacity == 0u64 then 4u64 else me.capacity *% 2u64
-    me.reserve(new_capacity)
+    me.reserve(next_grow_capacity(current: me.capacity, min_needed: me.count +% 1u64, element_size: T.data_size().byte_size()))
 
   var byte_offset = T.data_size() * me.count
   danger
@@ -196,8 +197,7 @@ routine List[T].add_at!(index: U64, value: T)
     throw IndexOutOfBoundsError(index: index.U64(), count: me.count.U64())
 
   if me.count >= me.capacity
-    var new_capacity = if me.capacity == 0u64 then 4u64 else me.capacity * 2u64
-    me.reserve(new_capacity)
+    me.reserve(next_grow_capacity(current: me.capacity, min_needed: me.count +% 1u64, element_size: T.data_size().byte_size()))
 
   # Shift elements right via memmove
   if index < me.count
@@ -454,7 +454,7 @@ needs T obeys Copyable
 
   var new_count = me.count + count
   if new_count > me.capacity
-    me.reserve(new_count * 2u64)
+    me.reserve(next_grow_capacity(current: me.capacity, min_needed: new_count, element_size: T.data_size().byte_size()))
 
   # Clone each element through the read-only borrow. `clone` is elided for trivially-copyable T
   # (no symbol) and delegates to the retain-aware `store` for RC records like Text, so appended

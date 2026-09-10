@@ -20,8 +20,10 @@ public sealed partial class SourceFolderFailurePointTests
                 "DetectLinkerFromStderr"
             ]
         },
-        // Phase folders now numbered 1..8 by pull/(B) pipeline order: 1 tokenize · 2 parse · 3 declarations ·
-        // 4 desugar · 5 collect-from-start · 6 semantic errors · 7 monomorphize · 8 LLVM IR.
+        // Source folders numbered by primary execution phase (see CLAUDE.md): 1 tokenize · 2 parse ·
+        // 3 declarations · 4 syntactic desugar · 5 verification · 6 type-aware lowering · 7 monomorphize ·
+        // 8 demand collect · 9 LLVM IR. (4.Desugaring = syntactic/DesugaringPipeline; 6.Lowering =
+        // type-aware/PostprocessingPipeline.)
         {
             "1.Tokenizer",
             "source validation rejects ambiguous bytes and whitespace before scanning",
@@ -45,23 +47,26 @@ public sealed partial class SourceFolderFailurePointTests
         },
         {
             "4.Desugaring",
-            "operator + syntax desugaring and type-aware lowering cover user + variant bodies",
+            "syntactic (type-independent) desugaring covers user + variant bodies before analysis",
             [
-                "DesugaringPipeline", "PostprocessingPipeline", "OperatorLoweringPass",
-                "FStringLoweringPass", "ControlFlowLoweringPass"
+                "DesugaringPipeline", "ControlFlowLoweringPass", "GenericCallLoweringPass",
+                "NoneReturnNormalizationPass"
             ]
         },
         {
-            "5.Collection",
-            "demand collection walks the closure reachable from start (+ retiring push reachability)",
-            ["RoutineCollectionPass", "RoutineReachabilityPass", "ReachableGenericCollectionPass"]
-        },
-        {
-            "6.Verification",
+            "5.Verification",
             "semantic analysis runs ordered phases and reports diagnostics instead of raw exceptions",
             [
                 "RunPhase1Declarations", "RunPhase2Resolution", "RunPhase5SemanticAnalysis",
                 "ReportError"
+            ]
+        },
+        {
+            "6.Lowering",
+            "type-aware lowering (post-verification) covers user + variant bodies",
+            [
+                "PostprocessingPipeline", "OperatorLoweringPass", "FStringLoweringPass",
+                "PatternLoweringPass"
             ]
         },
         {
@@ -73,7 +78,12 @@ public sealed partial class SourceFolderFailurePointTests
             ]
         },
         {
-            "8.CodeGen",
+            "8.Collection",
+            "demand collection walks the closure reachable from start (+ retiring push reachability)",
+            ["RoutineCollectionPass", "RoutineReachabilityPass", "ReachableGenericCollectionPass"]
+        },
+        {
+            "9.CodeGen",
             "backend rejects unsupported AST/metadata states before emitting invalid IR",
             [
                 "InvalidOperationException", "NotImplementedException", "GetExpressionType",
@@ -146,8 +156,9 @@ public sealed partial class SourceFolderFailurePointTests
             "2.Parser",
             "3.Declaration",
             "4.Desugaring",
-            "5.Collection",
-            "6.Verification"
+            "5.Verification",
+            "6.Lowering",
+            "8.Collection"
         ];
 
         var offenders = frontendFolders.SelectMany(selector: folder =>

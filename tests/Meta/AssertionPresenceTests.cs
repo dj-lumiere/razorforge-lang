@@ -21,7 +21,9 @@ public sealed partial class AssertionPresenceTests
         "AssertAnalyzes",
         "AssertAnalyzesSuflae",
         "AssertHasError",
-        "AssertHasErrorSuflae"
+        "AssertHasErrorSuflae",
+        "GenerateIr",
+        "AssertBundleCompilesInProcess"
     ];
 
     /// <summary>

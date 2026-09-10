@@ -2046,6 +2046,22 @@ public sealed partial class SemanticVerifier
             // it is invoked indirectly through the stored closure pointer.
             if (namedField is not { Type: RoutineTypeInfo })
             {
+                // #151: a common (static) routine invoked on an instance reaches here because instance
+                // overload resolution excludes common routines. Report the precise static/instance
+                // mismatch instead of a misleading "no routine defined". Enumerate own routines by owner
+                // (not a name-only LookupMemberRoutine — that returns null when >1 overload shares the
+                // name, e.g. the synthesized constructor `create(value:)` alongside a user `create()`).
+                RoutineInfo? commonMatch = _registry.GetMemberRoutinesForType(type: objectType)
+                    .FirstOrDefault(predicate: r => r.Name == callLookupName && r.IsCommon);
+                if (commonMatch != null)
+                {
+                    ReportError(code: SemanticDiagnosticCode.CommonRoutineMismatch,
+                        message:
+                        $"Common routine '{commonMatch.Name}' must be called on the type '{objectType.Name}', not on an instance.",
+                        location: call.Location);
+                    return ErrorTypeInfo.Instance;
+                }
+
                 string hint;
                 if (namedField != null)
                 {

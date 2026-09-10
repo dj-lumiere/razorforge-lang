@@ -136,15 +136,18 @@ public class RoutineValidationTests
     [Fact]
     public void Analyze_CommonRoutineCalledOnInstance_ReportsError()
     {
+        // `make`, not `create`: `create` is the reserved constructor identity (RoutineKind.Creator),
+        // so a `common routine T.create()` is folded to a constructor and could never be a common
+        // routine. Use a plain common routine name to exercise the static/instance mismatch.
         string source = """
                         record Counter
                           value: S32
-                        common routine Counter.create() -> Counter
+                        common routine Counter.make() -> Counter
                           return Counter(value: 0)
 
                         routine test()
                           var c = Counter(value: 0)
-                          var d = c.create()
+                          var d = c.make()
                           return
                         """;
 
