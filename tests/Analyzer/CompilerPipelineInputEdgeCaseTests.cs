@@ -1,4 +1,4 @@
-using Compiler.CodeGen;
+using Compiler.LlvmEmit;
 using Compiler.Diagnostics;
 using Compiler.Targeting;
 using SyntaxTree;
@@ -170,9 +170,9 @@ public class CompilerPipelineInputEdgeCaseTests
         AnalysisResult result = analyzer.Analyze(program: program);
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 BuildMode = RfBuildMode.ReleaseSpace,

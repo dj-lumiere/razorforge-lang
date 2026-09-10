@@ -22,7 +22,7 @@ namespace Compiler.Lowering.Passes;
 /// reference the lowered backing fields.</para>
 ///
 /// <para>Codegen carrier helpers (<c>IsCarrierType</c>, <c>IsMaybeType</c>, etc.) in
-/// <c>LLVMCodeGenerator.Types.cs</c> remain because <c>EmitCrashablePatternMatch</c> writes
+/// <c>LlvmEmitter.Types.cs</c> remain because <c>EmitCrashablePatternMatch</c> writes
 /// to <c>_protocolTypeIdAllocas</c> (LLVM alloca addresses for runtime protocol dispatch on bound
 /// error variables) — IR-specific state with no AST equivalent.</para>
 /// </summary>

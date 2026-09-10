@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using SyntaxTree;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Line-tables-only DWARF debug info emission, so tools (Compiler Explorer, debuggers) can map
@@ -11,7 +11,7 @@ namespace Compiler.CodeGen;
 /// as the per-instruction source-location cursor). Implemented as a post-process over the finished IR
 /// text — mirroring <c>ApplyTbaa</c> — so the hot emission path stays untouched.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     /// <summary>Emit debug info exactly when the runtime trace is emitted (Debug/Release builds); the
     /// trace calls it depends on for line/col are present under the same condition.</summary>

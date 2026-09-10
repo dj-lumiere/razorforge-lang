@@ -4,12 +4,12 @@ using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Expression code generation: allocation, member variable access, memberRoutine calls, operators.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     private const string FloatTypeName = "float";
     private const string DoubleTypeName = "double";

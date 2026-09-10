@@ -3,12 +3,12 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Statement code generation: control flow, assignments, declarations, returns.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     #region Statement Dispatch
 
@@ -1576,7 +1576,7 @@ public partial class LlvmCodeGenerator
 }
 
 /// <summary>
-/// Bundles the wrapper-related arguments for <see cref="LlvmCodeGenerator.EmitWrapperForwardingMemberVariableWrite"/>
+/// Bundles the wrapper-related arguments for <see cref="LlvmEmitter.EmitWrapperForwardingMemberVariableWrite"/>
 /// so the method stays within the parameter-count limit.
 /// </summary>
 internal sealed record WrapperWriteContext(

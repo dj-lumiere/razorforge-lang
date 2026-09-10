@@ -47,9 +47,9 @@ public sealed class WarmLeakDiagTests
             programs: r.Registry.UserPrograms,
             instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys, registry: r.Registry);
-        var gen = new Compiler.CodeGen.LlvmCodeGenerator(userPrograms: r.Registry.UserPrograms,
+        var gen = new Compiler.LlvmEmit.LlvmEmitter(userPrograms: r.Registry.UserPrograms,
             registry: r.Registry,
-            options: new Compiler.CodeGen.LlvmCodeGeneratorOptions
+            options: new Compiler.LlvmEmit.LlvmEmitterOptions
             {
                 StdlibPrograms = r.Registry.StdlibPrograms,
                 SynthesizedBodies = r.SynthesizedBodies,

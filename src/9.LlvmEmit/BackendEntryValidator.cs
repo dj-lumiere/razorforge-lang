@@ -8,7 +8,7 @@ using Compiler.Verification.Results;
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Validates that programs crossing the backend boundary no longer contain AST shapes that

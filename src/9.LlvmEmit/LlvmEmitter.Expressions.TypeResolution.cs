@@ -3,12 +3,12 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Expression code generation helpers for result type resolution and conditional lowering.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     /// <summary>
     /// Resolves the identifier type from semantic compiler state.

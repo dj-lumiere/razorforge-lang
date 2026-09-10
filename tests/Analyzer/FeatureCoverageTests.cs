@@ -1,4 +1,4 @@
-using Compiler.CodeGen;
+using Compiler.LlvmEmit;
 using Compiler.Targeting;
 using Compiler.Verification;
 using Compiler.Verification.Results;
@@ -54,9 +54,9 @@ public class FeatureCoverageTests
 
     private static string Emit(Program program, AnalysisResult result)
     {
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 BuildMode = RfBuildMode.ReleaseSpace,

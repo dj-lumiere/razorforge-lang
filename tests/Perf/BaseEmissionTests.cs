@@ -1,4 +1,4 @@
-using Compiler.CodeGen;
+using Compiler.LlvmEmit;
 using Compiler.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
@@ -12,7 +12,7 @@ namespace RazorForge.Tests.Perf;
 
 /// <summary>
 /// Resident-JIT incremental Phase 0a (see internal-wiki/RESIDENT-JIT-INCREMENTAL-V0.5.md §2A.5): validates
-/// <see cref="LlvmCodeGenerator.GenerateBase"/> — the NON-PRUNED precompiled stdlib base. The load-bearing
+/// <see cref="LlvmEmitter.GenerateBase"/> — the NON-PRUNED precompiled stdlib base. The load-bearing
 /// correctness property is that the base is a SUPERSET of any pruned build's stdlib defines: a delta module
 /// only ever emits an extern <c>declare</c> for a symbol it doesn't define, so every such symbol MUST be
 /// present in the base or JIT-link fails with an undefined symbol.
@@ -106,9 +106,9 @@ public sealed partial class BaseEmissionTests
     /// <summary>The normal whole-program (pruned) build — what ships today.</summary>
     private static string PrunedBuild(AnalysisResult r)
     {
-        return new LlvmCodeGenerator(userPrograms: r.Registry.UserPrograms,
+        return new LlvmEmitter(userPrograms: r.Registry.UserPrograms,
             registry: r.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = r.Registry.StdlibPrograms,
                 SynthesizedBodies = r.SynthesizedBodies,
@@ -121,9 +121,9 @@ public sealed partial class BaseEmissionTests
     /// <summary>The delta build: user code with the base's symbols marked resident (⇒ declare, not define).</summary>
     private static string DeltaBuild(AnalysisResult r, IReadOnlyCollection<string> residentSymbols)
     {
-        return new LlvmCodeGenerator(userPrograms: r.Registry.UserPrograms,
+        return new LlvmEmitter(userPrograms: r.Registry.UserPrograms,
             registry: r.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = r.Registry.StdlibPrograms,
                 SynthesizedBodies = r.SynthesizedBodies,
@@ -150,9 +150,9 @@ public sealed partial class BaseEmissionTests
 
         // BASE: empty user programs + null live set (⇒ non-pruned) + stdlib present. Runs to completion
         // over the full stdlib (the non-pruned-emission risk) and emits no @main.
-        var baseGen = new LlvmCodeGenerator(userPrograms: new List<(Program, string, string)>(),
+        var baseGen = new LlvmEmitter(userPrograms: new List<(Program, string, string)>(),
             registry: r.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = r.Registry.StdlibPrograms,
                 SynthesizedBodies = r.SynthesizedBodies,
@@ -237,9 +237,9 @@ public sealed partial class BaseEmissionTests
             maySuspendKeys: baseR.MaySuspendRoutineKeys,
             registry: baseR.Registry);
 
-        var baseGen = new LlvmCodeGenerator(userPrograms: new List<(Program, string, string)>(),
+        var baseGen = new LlvmEmitter(userPrograms: new List<(Program, string, string)>(),
             registry: baseR.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = baseR.Registry.StdlibPrograms,
                 SynthesizedBodies = baseR.SynthesizedBodies,
@@ -307,9 +307,9 @@ public sealed partial class BaseEmissionTests
             maySuspendKeys: baseR.MaySuspendRoutineKeys,
             registry: baseR.Registry);
 
-        var baseGen = new LlvmCodeGenerator(userPrograms: new List<(Program, string, string)>(),
+        var baseGen = new LlvmEmitter(userPrograms: new List<(Program, string, string)>(),
             registry: baseR.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = baseR.Registry.StdlibPrograms,
                 SynthesizedBodies = baseR.SynthesizedBodies,
@@ -346,9 +346,9 @@ public sealed partial class BaseEmissionTests
             instantiatedBodies: baseR.InstantiatedGenericBodies,
             maySuspendKeys: baseR.MaySuspendRoutineKeys,
             registry: baseR.Registry);
-        var baseGen = new LlvmCodeGenerator(userPrograms: new List<(Program, string, string)>(),
+        var baseGen = new LlvmEmitter(userPrograms: new List<(Program, string, string)>(),
             registry: baseR.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = baseR.Registry.StdlibPrograms,
                 SynthesizedBodies = baseR.SynthesizedBodies,

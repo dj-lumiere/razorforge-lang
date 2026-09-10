@@ -32,7 +32,7 @@ public static class RuntimeContract
 
     /// <summary>Raw-pointer / entity-escape surface on <c>Hijacked[T]</c> and bare entities.</summary>
     /// <remarks>Sites: WrapperForwardingPass (LookupMemberRoutine/MemberName), PatternLoweringPass,
-    /// WiredRoutinePass, LLVMCodeGenerator.Expressions.Calls.</remarks>
+    /// WiredRoutinePass, LlvmEmitter.Expressions.Calls.</remarks>
     public static class RawPointer
     {
         /// <summary><c>Hijacked[T].peek()</c> — non-destructive read (<c>*ptr</c>).</summary>
@@ -71,7 +71,7 @@ public static class RuntimeContract
 
     /// <summary><c>Roamed[T]</c> memberRoutines that codegen inserts implicitly (no surface AST call),
     /// so RoutineReachabilityPass must anticipate them via the ImplicitCallContract.</summary>
-    /// <remarks>Sites: LLVMCodeGenerator (promote at spawn boundary, lock_enter/lock_exit around
+    /// <remarks>Sites: LlvmEmitter (promote at spawn boundary, lock_enter/lock_exit around
     /// direct field access, raw_inner for display-transparency projection) mirrored by
     /// ImplicitCallContract.ForLiveType — keep both bound to these constants, never bare literals.</remarks>
     public static class RoamedMemberRoutine
@@ -123,7 +123,7 @@ public static class RuntimeContract
 
     /// <summary>Carrier record field names on <c>Maybe[T]</c>/<c>Result[T]</c>.</summary>
     /// <remarks>Sites: ExpressionLoweringPass (tuple synthesis), PatternLoweringPass, ErrorHandlingVariantPass,
-    /// LLVMCodeGenerator.Statements (field lookup).</remarks>
+    /// LlvmEmitter.Statements (field lookup).</remarks>
     public static class Carrier
     {
         /// <summary>Presence flag field (<c>true</c> = value present / not-absent).</summary>
@@ -135,7 +135,7 @@ public static class RuntimeContract
 
     /// <summary>Collection-shape routines resolved by literal during lowering / reachability.</summary>
     /// <remarks>Sites: OperatorLoweringPass, ExpressionLoweringPass, RoutineReachabilityPass,
-    /// LLVMCodeGenerator.Expressions.Collections. <see cref="AddLast"/> vs <see cref="Add"/> is chosen
+    /// LlvmEmitter.Expressions.Collections. <see cref="AddLast"/> vs <see cref="Add"/> is chosen
     /// by base-name (<c>List</c>/<c>CircularList</c>/<c>BitList</c> → add_last, else add).</remarks>
     public static class Collection
     {
@@ -163,7 +163,7 @@ public static class RuntimeContract
     public const string DataSize = "data_size";
 
     /// <summary><c>crash_message()</c> on error types — extracts the diagnostic string on the throw path.</summary>
-    /// <remarks>Sites: LLVMCodeGenerator.Statements.Returns, WiredRoutinePass, RoutineReachabilityPass.</remarks>
+    /// <remarks>Sites: LlvmEmitter.Statements.Returns, WiredRoutinePass, RoutineReachabilityPass.</remarks>
     public const string CrashMessage = "crash_message";
 
     /// <summary><c>crash_title()</c> on error types — the second Crashable protocol member.</summary>
@@ -307,7 +307,7 @@ public static class RuntimeContract
     }
 
     /// <summary>All wrapper types recognized for layout/dispatch. Mirrors WrapperForwardingPass.WrapperTypes
-    /// and LLVMCodeGenerator.WrapperTypeNames.</summary>
+    /// and LlvmEmitter.WrapperTypeNames.</summary>
     public static readonly IReadOnlySet<string> WrapperTypes =
         new HashSet<string>(comparer: StringComparer.Ordinal)
         {
@@ -426,7 +426,7 @@ public static class RuntimeContract
     // These are matched against the native runtime library (native/runtime/*.c), NOT stdlib
     // .rf, so they are a DIFFERENT contract (a rename here means editing the C side too, and
     // validate-stdlib cannot check them). Collected here so codegen has one name table.
-    // Sites: LLVMCodeGenerator.Expressions (declarations + call sites).
+    // Sites: LlvmEmitter.Expressions (declarations + call sites).
     // =====================================================================================
 
     /// <summary>Native runtime function symbols referenced by codegen. Names must match

@@ -16,7 +16,7 @@ using Compiler.Verification.Enums;
 using Compiler.Verification.Results;
 using Compiler.Verification.Scopes;
 using Compiler.Collection.Passes;
-using Compiler.CodeGen;
+using Compiler.LlvmEmit;
 using Compiler.Collection;
 using Compiler.Tokenizer;
 
@@ -350,7 +350,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// When true, root EVERY concrete stdlib routine in reachability so monomorphization materializes the
     /// full stdlib generic closure — for emitting a precompiled stdlib base (see
-    /// <see cref="Compiler.CodeGen.LlvmCodeGenerator.GenerateBase"/>) that must define everything it
+    /// <see cref="Compiler.LlvmEmit.LlvmEmitter.GenerateBase"/>) that must define everything it
     /// references. Threaded into <see cref="InstantiationContext.SeedAllStdlibRoutines"/> and (as
     /// <see cref="Compiler.Desugaring.DesugaringContext.SynthesizeAllDerives"/>) the Phase-6 derive
     /// synthesis. Default false = normal builds (byte-identical).

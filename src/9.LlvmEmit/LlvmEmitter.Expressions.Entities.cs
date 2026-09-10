@@ -5,12 +5,12 @@ using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Expression code generation for entity construction and entity member operations.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     /// <summary>
     /// Resolves which call argument initializes the field <paramref name="fieldName"/> declared at

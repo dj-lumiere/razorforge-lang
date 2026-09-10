@@ -4,7 +4,7 @@ using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// ABI boundary coercion for struct-record values crossing a call boundary.
@@ -21,7 +21,7 @@ namespace Compiler.CodeGen;
 /// until then anything not Indirect stays Direct (LLVM's natural lowering, which already happens to
 /// match the ABI for simple ≤16-byte integer aggregates).
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     /// <summary>How a struct-record value is passed/returned across a call boundary.</summary>
     internal enum AbiKind

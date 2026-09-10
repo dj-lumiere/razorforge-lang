@@ -1760,7 +1760,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         {
             ctx.InstantiatedGenericBodies[key: key] = body;
             // Keep codegen's Phase-B live gate in sync with GMP's wired-routine bypass.
-            // LLVMCodeGenerator emits an instantiated body only when its key is in the live set,
+            // LlvmEmitter emits an instantiated body only when its key is in the live set,
             // with NO wired bypass — so a wired routine emitted here for a live owner that
             // post-dates RoutineReachabilityPass (e.g. try_emit on a chained iterator emitter
             // like SelectEmitter[S64, S64, ListEmitter[S64]]) was never seeded and would be

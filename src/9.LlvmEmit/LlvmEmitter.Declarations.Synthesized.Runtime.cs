@@ -2,12 +2,12 @@ using System.Text;
 using SyntaxTree;
 using TypeModel.Symbols;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Declaration code generation for synthesized runtime-support routines.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     private void EmitSynthesizedBodyFromAst(RoutineInfo routine, string funcName, Statement body)
     {

@@ -2,12 +2,12 @@ using System.Text;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Declaration code generation for LLVM types and routine signatures.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     private void GenerateEntityType(EntityTypeInfo entity)
     {

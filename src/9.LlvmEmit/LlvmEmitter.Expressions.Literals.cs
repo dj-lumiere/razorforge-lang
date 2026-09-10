@@ -6,7 +6,7 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 // D2 (DEFERRED): Text/Bytes literals still emit their backing arrays + carrier struct as constant
 // globals here rather than lowering to a `CreatorExpression` against the real stdlib Text/Bytes
@@ -17,7 +17,7 @@ namespace Compiler.CodeGen;
 /// <summary>
 /// Expression code generation for literals and scalar literal helpers.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     /// <summary>Module-level constant globals emitted for aggregate (Array[T,N]) presets,
     /// keyed by the preset's qualified name so the table is emitted once and shared.</summary>

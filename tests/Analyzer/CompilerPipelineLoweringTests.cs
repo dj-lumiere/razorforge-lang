@@ -1,4 +1,4 @@
-using Compiler.CodeGen;
+using Compiler.LlvmEmit;
 using Compiler.Diagnostics;
 using Compiler.Instantiation;
 using Compiler.Verification;
@@ -338,9 +338,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -370,9 +370,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -420,9 +420,9 @@ public class CompilerPipelineLoweringTests
         Assert.Equal(expected: "Core.List[Core.List[Core.S64]]",
             actual: variable.Initializer?.ResolvedType?.FullName);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -462,9 +462,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -499,9 +499,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -547,9 +547,9 @@ public class CompilerPipelineLoweringTests
         Assert.Empty(collection: result.Errors);
         Assert.False(condition: ContainsLambda(program: program));
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -585,9 +585,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -619,9 +619,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -659,9 +659,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -696,9 +696,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -743,9 +743,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -793,7 +793,7 @@ public class CompilerPipelineLoweringTests
         TypeInfo maybeS64 = result.Registry.GetOrCreateResolution(genericDef: maybeDef,
             typeArguments: [s64Type]);
 
-        string fromS8 = LlvmCodeGenerator.MangleRoutineName(
+        string fromS8 = LlvmEmitter.MangleRoutineName(
             routine: new RoutineInfo(name: "try_create")
             {
                 OwnerType = s64Type,
@@ -803,7 +803,7 @@ public class CompilerPipelineLoweringTests
                 IsSynthesized = true
             });
 
-        string fromText = LlvmCodeGenerator.MangleRoutineName(
+        string fromText = LlvmEmitter.MangleRoutineName(
             routine: new RoutineInfo(name: "try_create")
             {
                 OwnerType = s64Type,
@@ -839,9 +839,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -870,9 +870,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -914,9 +914,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -947,9 +947,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -990,9 +990,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -1086,9 +1086,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -1327,9 +1327,9 @@ public class CompilerPipelineLoweringTests
         Assert.Equal(expected: 16, actual: resolvedWidth.Value);
         Assert.Equal(expected: "Address", actual: resolvedWidth.ExplicitTypeName);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -1360,9 +1360,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,
@@ -1400,9 +1400,9 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        var generator = new LlvmCodeGenerator(program: program,
+        var generator = new LlvmEmitter(program: program,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = result.Registry.StdlibPrograms,
                 SynthesizedBodies = result.SynthesizedBodies,

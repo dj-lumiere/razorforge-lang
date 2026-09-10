@@ -1941,7 +1941,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         return found;
     }
 
-    /// <summary>Replicates <c>LlvmCodeGenerator.ContainsGenericParameter</c> so the dump's drop-set
+    /// <summary>Replicates <c>LlvmEmitter.ContainsGenericParameter</c> so the dump's drop-set
     /// matches codegen's emit-set exactly.</summary>
     private static bool ContainsGenericParameter(TypeInfo type)
     {

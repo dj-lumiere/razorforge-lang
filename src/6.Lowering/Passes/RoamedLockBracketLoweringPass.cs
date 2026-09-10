@@ -153,7 +153,7 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
             } => (b.Left, b.Right),
             _ => null
         };
-        return tv is { } p && CodeGen.LlvmCodeGenerator.TryMatchAtomicModuleGlobalRmw(
+        return tv is { } p && LlvmEmit.LlvmEmitter.TryMatchAtomicModuleGlobalRmw(
             target: p.Target,
             value: p.Value,
             fieldMember: out _,

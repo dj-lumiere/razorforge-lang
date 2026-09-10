@@ -3,7 +3,7 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Expression code generation for collection literals and variadic argument packing.
@@ -13,7 +13,7 @@ namespace Compiler.CodeGen;
 /// The CollectionConstruction lowering kind (from explicit List(...) calls) still routes
 /// through EmitCollectionLiteralConstructor for non-literal construction.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     private static TypeInfo UnwrapCollectionStorageType(TypeInfo type)
     {

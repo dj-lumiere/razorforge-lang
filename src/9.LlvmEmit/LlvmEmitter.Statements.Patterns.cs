@@ -4,12 +4,12 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Coordinates LLVM code generator behavior for this compiler phase.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     private const string UnknownRoutineName = "<unknown>";
     private const string NullDisplayName = "<null>";

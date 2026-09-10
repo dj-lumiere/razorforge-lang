@@ -4,13 +4,13 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// LLVM intrinsic call emission — template-based IR generation for
 /// routines annotated with <c>@llvm_ir("...")</c>.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     /// <summary>
     /// Emits a call to an LLVM intrinsic routine using its <c>@llvm_ir</c> template.

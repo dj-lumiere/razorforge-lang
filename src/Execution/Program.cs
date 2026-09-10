@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Text;
-using Compiler.CodeGen;
+using Compiler.LlvmEmit;
 using Compiler.Declaration;
 using Compiler.Diagnostics;
 using Compiler.Tokenizer;
@@ -1204,9 +1204,9 @@ internal partial class Program
                 maySuspendKeys: result.MaySuspendRoutineKeys,
                 registry: result.Registry);
 
-            var generator = new LlvmCodeGenerator(program: ast,
+            var generator = new LlvmEmitter(program: ast,
                 registry: result.Registry,
-                options: new LlvmCodeGeneratorOptions
+                options: new LlvmEmitterOptions
                 {
                     StdlibPrograms = stdlibPrograms,
                     Target = target,
@@ -1310,7 +1310,7 @@ internal partial class Program
 
     /// <summary>
     /// Runs the multi-file build pipeline: BuildDriver (parse + resolve imports + topo sort)
-    /// -> SemanticVerifier.AnalyzeMultiple -> LLVMCodeGenerator with multiple user programs.
+    /// -> SemanticVerifier.AnalyzeMultiple -> LlvmEmitter with multiple user programs.
     /// Returns 0 on success or 1 if any stage fails.
     /// </summary>
     private static int BuildMultiFile(string entryFile, string? outputFile,
@@ -1696,9 +1696,9 @@ internal partial class Program
                 ? entryUnit.Module
                 : null;
 
-        var generator = new LlvmCodeGenerator(userPrograms: userPrograms,
+        var generator = new LlvmEmitter(userPrograms: userPrograms,
             registry: result.Registry,
-            options: new LlvmCodeGeneratorOptions
+            options: new LlvmEmitterOptions
             {
                 StdlibPrograms = stdlibPrograms,
                 Target = target,

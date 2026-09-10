@@ -6,7 +6,7 @@ using Compiler.Targeting;
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Computes <see cref="Expression.ResolvedRepr"/> for all backend-visible expressions

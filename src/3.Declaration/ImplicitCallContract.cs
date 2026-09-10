@@ -7,7 +7,7 @@ namespace Compiler.Declaration;
 /// Single source of truth for the routines codegen inserts IMPLICITLY — with no surface AST call
 /// node — for a value of a given live type. <c>RoutineReachabilityPass</c> consumes this to seed
 /// those routines so monomorphization and codegen emit their bodies; the matching codegen insertion
-/// sites (<c>LLVMCodeGenerator</c>'s promote / lock_enter / lock_exit / raw_inner, and the RC-wrapper
+/// sites (<c>LlvmEmitter</c>'s promote / lock_enter / lock_exit / raw_inner, and the RC-wrapper
 /// copy verb) are bound to the same <see cref="RuntimeContract"/> constants.
 /// <para>
 /// Reachability runs BEFORE generic monomorphization, so it walks generic-def bodies and cannot see

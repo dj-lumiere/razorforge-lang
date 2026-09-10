@@ -2,12 +2,12 @@ using System.Text;
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Statement code generation for return, throw, absent, and variant-return paths.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     private const string TracePop = "  call void @_rf_trace_pop()";
     private const string RetVoid = "  ret void";

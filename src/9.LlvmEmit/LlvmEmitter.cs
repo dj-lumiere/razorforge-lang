@@ -8,13 +8,13 @@ using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
-/// Optional configuration for <see cref="LlvmCodeGenerator"/>. Bundles the parameters that are
+/// Optional configuration for <see cref="LlvmEmitter"/>. Bundles the parameters that are
 /// rarely all supplied at once so neither constructor overload exceeds seven parameters.
 /// </summary>
-public sealed class LlvmCodeGeneratorOptions
+public sealed class LlvmEmitterOptions
 {
     /// <summary>Optional stdlib programs for intrinsic routine definitions.</summary>
     public List<(Program Program, string FilePath, string Module)>? StdlibPrograms { get; init; }
@@ -45,7 +45,7 @@ public sealed class LlvmCodeGeneratorOptions
 /// LLVM IR code generator for RazorForge and Suflae.
 /// Consumes a fully-typed AST from the semantic analyzer.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     private const string EntryLabel = "entry:";
     private const string RetVoidInstruction = "  ret void";
@@ -309,8 +309,8 @@ public partial class LlvmCodeGenerator
     /// <param name="program">The program AST to generate code for.</param>
     /// <param name="registry">The type registry from semantic analysis.</param>
     /// <param name="options">Optional generation settings (stdlib, target, build mode, bodies, keys).</param>
-    public LlvmCodeGenerator(Program program, TypeRegistry registry,
-        LlvmCodeGeneratorOptions? options = null) : this(userPrograms:
+    public LlvmEmitter(Program program, TypeRegistry registry,
+        LlvmEmitterOptions? options = null) : this(userPrograms:
         [
             (program, program.Location.FileName, program.Declarations
                                                         .OfType<ModuleDeclaration>()
@@ -328,10 +328,10 @@ public partial class LlvmCodeGenerator
     /// <param name="userPrograms">The user program ASTs with file paths and module names.</param>
     /// <param name="registry">The type registry from semantic analysis.</param>
     /// <param name="options">Optional generation settings (stdlib, target, build mode, bodies, keys).</param>
-    public LlvmCodeGenerator(List<(Program Program, string FilePath, string Module)> userPrograms,
-        TypeRegistry registry, LlvmCodeGeneratorOptions? options = null)
+    public LlvmEmitter(List<(Program Program, string FilePath, string Module)> userPrograms,
+        TypeRegistry registry, LlvmEmitterOptions? options = null)
     {
-        options ??= new LlvmCodeGeneratorOptions();
+        options ??= new LlvmEmitterOptions();
         _target = options.Target ?? TargetConfig.ForCurrentHost();
         if (_target.PointerBitWidth != 64)
         {

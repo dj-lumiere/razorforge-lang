@@ -1,4 +1,4 @@
-using Compiler.CodeGen;
+using Compiler.LlvmEmit;
 using Compiler.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
@@ -199,7 +199,7 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
     private ExpressionStatement? TryMakePromote(Expression handle)
     {
         if (handle.ResolvedType is not RecordTypeInfo rec ||
-            LlvmCodeGenerator.GetGenericBaseNameStatic(type: rec) != RuntimeContract.Roamed)
+            LlvmEmitter.GetGenericBaseNameStatic(type: rec) != RuntimeContract.Roamed)
         {
             return null;
         }

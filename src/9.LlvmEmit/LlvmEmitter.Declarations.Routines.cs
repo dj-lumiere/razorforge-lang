@@ -5,9 +5,9 @@ using TypeModel.Symbols;
 using TypeModel.Types;
 using Compiler.Verification.Enums;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     private void GenerateRoutineDeclaration(RoutineInfo routine, string? nameOverride = null)
     {

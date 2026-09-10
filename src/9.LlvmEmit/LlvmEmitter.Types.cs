@@ -4,12 +4,12 @@ using TypeModel.Reprs;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Type mapping: RazorForge/Suflae types -> LLVM IR types.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     #region Type Mapping
 

@@ -3,7 +3,7 @@ using Compiler.Targeting;
 using TypeModel.Reprs;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Computes backend representation metadata for fully resolved semantic types.

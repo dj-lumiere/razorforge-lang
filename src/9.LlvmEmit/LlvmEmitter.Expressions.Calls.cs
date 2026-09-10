@@ -4,12 +4,12 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.CodeGen;
+namespace Compiler.LlvmEmit;
 
 /// <summary>
 /// Expression code generation for routine calls and compound assignment.
 /// </summary>
-public partial class LlvmCodeGenerator
+public partial class LlvmEmitter
 {
     /// <summary>
     /// True when <paramref name="creator"/> is the auto-synthesized ALL-FIELDS memberwise constructor of
@@ -2413,7 +2413,7 @@ public partial class LlvmCodeGenerator
 }
 
 /// <summary>
-/// Bundles the initial argument lists for <see cref="LlvmCodeGenerator.EmitMemberCallArgumentsInDeclarationOrder"/>
+/// Bundles the initial argument lists for <see cref="LlvmEmitter.EmitMemberCallArgumentsInDeclarationOrder"/>
 /// — the receiver flag plus the three parallel accumulation lists — so the method stays within the parameter-count limit.
 /// </summary>
 internal sealed record MemberCallArgContext(
@@ -2423,7 +2423,7 @@ internal sealed record MemberCallArgContext(
     List<TypeInfo> TypeInfos);
 
 /// <summary>
-/// Bundles the arguments for <see cref="LlvmCodeGenerator"/> free-function call emission.
+/// Bundles the arguments for <see cref="LlvmEmitter"/> free-function call emission.
 /// Replaces the 8-parameter overload so callers pass a single context value.
 /// </summary>
 internal sealed record RoutineCallRequest(
