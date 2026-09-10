@@ -240,7 +240,7 @@ public sealed partial class SemanticVerifier
     private Dictionary<string, MonomorphizedBody> _instantiatedGenericBodies = new();
 
     /// <summary>
-    /// Reachable routine keys produced by <see cref="RoutineReachabilityPass"/>.
+    /// Reachable routine keys produced by <c>RoutineReachabilityPass</c>.
     /// Captured from <see cref="InstantiationContext.LiveRoutineKeys"/> after Phase 7.
     /// </summary>
     private IReadOnlyCollection<string> _liveRoutineKeys = Array.Empty<string>();
@@ -646,19 +646,7 @@ public sealed partial class SemanticVerifier
         // get their represent/diagnose stubs registered before WiredRoutinePass synthesizes
         // bodies. MaybeRegisterWired is idempotent on existing memberRoutines.
         AutoRegisterWiredRoutines();
-        var lateCtx =
-            new DesugaringContext(registry: _registry,
-                routineBodies: _routineBodies,
-                target: _target,
-                buildMode: _buildMode)
-            {
-                VariantBodies = _variantBodies,
-                SynthesizeAllDerives = SeedAllStdlibRoutines,
-                RestoredVariantKeys = _restoredVariantKeys
-            };
-        new WiredRoutinePass(ctx: lateCtx).RunGlobal();
-        SubMark(
-            label: $"{nameof(AutoRegisterWiredRoutines)} + {nameof(WiredRoutinePass)}.RunGlobal");
+        SubMark(label: nameof(AutoRegisterWiredRoutines));
 
         var p7ctx = new PostprocessingContext(registry: _registry,
             variantBodies: _variantBodies,
@@ -998,27 +986,17 @@ public sealed partial class SemanticVerifier
 
                 new ReachableGenericCollectionPass(ctx: ctx).Run();
                 Step(label: nameof(ReachableGenericCollectionPass));
-                new RoutineReachabilityPass(ctx: ctx).Run();
-                Step(label: nameof(RoutineReachabilityPass));
-                // Eager monomorphization is retired for normal builds; only the base build still needs it.
-                if (ctx.SeedAllStdlibRoutines)
-                {
-                    new GenericClosurePass(ctx: ctx).Run();
-                    Step(label: nameof(GenericClosurePass));
-                }
+                // Base-only path: GenericClosurePass builds the WHOLE stdlib closure eagerly. (The push
+                // RoutineReachabilityPass walk is gone — the demand collector is the sole walk for normal
+                // builds, and base emits everything via the closure + empty LiveRoutineKeys.)
+                new GenericClosurePass(ctx: ctx).Run();
+                Step(label: nameof(GenericClosurePass));
             }
             else
             {
                 new ReachableGenericCollectionPass(ctx: ctx).Run();
-                new RoutineReachabilityPass(ctx: ctx).Run();
-                // Eager monomorphization over the reachability live set is retired for normal builds —
-                // the demand collector (Phase 9) is the sole monomorphizer, building exactly the referenced
-                // closure. Base mode (SeedAllStdlibRoutines) still runs the full closure because it must
-                // define every stdlib instance, not just what one entry program reaches.
-                if (ctx.SeedAllStdlibRoutines)
-                {
-                    new GenericClosurePass(ctx: ctx).Run();
-                }
+                // Base-only path: eager full-stdlib closure. (No push RoutineReachabilityPass.)
+                new GenericClosurePass(ctx: ctx).Run();
             }
         } while (ctx.SeedAllStdlibRoutines && ctx.InstantiatedGenericBodies.Count != prevCount &&
                  ++guard < 20);
@@ -1037,7 +1015,7 @@ public sealed partial class SemanticVerifier
 
     /// <summary>
     /// Runs the v0.2.0 may-suspend fixpoint over the call graph that
-    /// <see cref="RoutineReachabilityPass"/> populated, storing the result for codegen's 9-2
+    /// <c>RoutineReachabilityPass</c> populated, storing the result for codegen's 9-2
     /// cancellation instrumentation. Optional <c>RF_MAYSUSPEND_DUMP</c> writes the set for probes.
     /// </summary>
     private void ComputeMaySuspend(InstantiationContext ctx)

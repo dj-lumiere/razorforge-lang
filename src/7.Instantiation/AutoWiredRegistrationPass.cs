@@ -864,7 +864,7 @@ internal sealed class AutoWiredRegistrationPass
     /// <summary>
     /// Registers the auto-derived <c>destroy()</c> destructor if not already user-defined.
     /// Marked <c>dangerous</c>: calling it (explicitly or overriding it) is manual memory
-    /// management. The body is synthesized by <see cref="WiredRoutinePass"/>.
+    /// management. The body is synthesized by <c>WiredRoutinePass</c>.
     /// </summary>
     private void MaybeRegisterDestroy(TypeSymbol owner, TypeSymbol noneType,
         List<RoutineInfo> existingMemberRoutines)
@@ -892,7 +892,7 @@ internal sealed class AutoWiredRegistrationPass
     /// <summary>
     /// Registers a cycle-collector hook memberRoutine (<c>roam_trace</c> / <c>roam_free</c>) if
     /// not already user-defined. Marked <c>dangerous</c> (raw controller/pointer work). No params,
-    /// void return; the body is synthesized by <see cref="WiredRoutinePass"/>.
+    /// void return; the body is synthesized by <c>WiredRoutinePass</c>.
     /// </summary>
     private void MaybeRegisterRoamHook(TypeSymbol owner, string name, TypeSymbol noneType,
         List<RoutineInfo> existingMemberRoutines)

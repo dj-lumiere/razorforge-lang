@@ -13,7 +13,7 @@ namespace Compiler.Collection.Passes;
 /// Stage ② of the demand-driven ("pull") codegen architecture:
 /// <c>desugar-all → [COLLECT + BUILD] → dumb codegen</c>.
 ///
-/// <para>This pass UNIFIES what today are three separate steps — <see cref="RoutineReachabilityPass"/>
+/// <para>This pass UNIFIES what today are three separate steps — <c>RoutineReachabilityPass</c>
 /// (walk references from entry points), <see cref="GenericMonomorphizationPass"/> (monomorphize the live
 /// set), and per-instance lowering — into ONE demand loop: follow every reference (AST
 /// <c>CallExpression.ResolvedRoutine</c>) and monomorphize + lower each referenced routine ON DEMAND, to
@@ -570,7 +570,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
     /// the <see cref="RoutineDeclaration"/> (a user <c>start</c> body lives in <c>UserPrograms</c>, not in the
     /// RoutineBodies store), and the key resolves via the module-qualified <see cref="RoutineInfo"/> so a
     /// harness with several <c>start</c>s maps each to its own root. Mirrors
-    /// <see cref="RoutineReachabilityPass"/>'s <c>SeedFromEntryPoints</c>.
+    /// <c>RoutineReachabilityPass</c>'s <c>SeedFromEntryPoints</c>.
     /// </summary>
     private List<(string Key, Statement Body)> CollectEntrySeeds()
     {

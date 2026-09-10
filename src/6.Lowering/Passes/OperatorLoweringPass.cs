@@ -1006,7 +1006,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
 
     /// <summary>
     /// Lowers operator expressions in all synthesized bodies stored in <see cref="PostprocessingContext.VariantBodies"/>.
-    /// Called once from <see cref="DesugaringPipeline.RunGlobal"/> after <c>WiredRoutinePass</c> has
+    /// Called once from <c>DesugaringPipeline.RunGlobal</c> after <c>WiredRoutinePass</c> has
     /// populated <c>VariantBodies</c>.
     /// </summary>
     public void RunOnVariantBodies()

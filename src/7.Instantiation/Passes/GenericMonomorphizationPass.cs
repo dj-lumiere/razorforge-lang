@@ -26,7 +26,7 @@ namespace Compiler.Instantiation.Passes;
 /// </list>
 /// Pure-synthesized memberRoutines (<see cref="RoutineInfo.IsSynthesized"/> = true with no
 /// body anywhere) are skipped here; their AST bodies are produced by
-/// <see cref="Compiler.Instantiation.WiredRoutinePass"/> and emitted via
+/// <c>WiredRoutinePass</c> and emitted via
 /// <c>EmitSynthesizedBodyFromAst</c>.
 /// </para>
 ///

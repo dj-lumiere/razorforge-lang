@@ -37,7 +37,6 @@ public sealed class DesugaringPipeline(DesugaringContext ctx)
     public void RunGlobal()
     {
         new ErrorHandlingVariantPass(ctx: ctx).RunGlobal();
-        new WiredRoutinePass(ctx: ctx).RunGlobal();
         ctx.Registry.PruneUnusedGenericRoutines();
 
         foreach (string key in ctx.VariantBodies.Keys.ToList())
