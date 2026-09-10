@@ -1,4 +1,5 @@
 using Compiler.Desugaring.Passes;
+using Compiler.Lowering;
 using Compiler.Instantiation;
 using SyntaxTree;
 using TypeModel.Symbols;

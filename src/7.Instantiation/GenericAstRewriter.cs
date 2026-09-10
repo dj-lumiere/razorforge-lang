@@ -1,5 +1,6 @@
 using Compiler.Tokenizer;
 using Compiler.Desugaring.Passes;
+using Compiler.Lowering.Passes;
 using Compiler.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;

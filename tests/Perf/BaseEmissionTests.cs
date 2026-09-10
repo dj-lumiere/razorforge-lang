@@ -142,7 +142,7 @@ public sealed partial class BaseEmissionTests
             new SemanticVerifier(language: Language.RazorForge).Analyze(
                 program: Parse(src: Trivial, file: "bench.rf"));
         Assert.Empty(collection: r.Errors);
-        Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
+        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: r.Registry.UserPrograms,
             instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys,
@@ -231,7 +231,7 @@ public sealed partial class BaseEmissionTests
             baseSa.Analyze(program: Parse(src: "module Base\nroutine start()\n  return",
                 file: "base.rf"));
         Assert.Empty(collection: baseR.Errors);
-        Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
+        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: baseR.Registry.UserPrograms,
             instantiatedBodies: baseR.InstantiatedGenericBodies,
             maySuspendKeys: baseR.MaySuspendRoutineKeys,
@@ -301,7 +301,7 @@ public sealed partial class BaseEmissionTests
         AnalysisResult baseR = new SemanticVerifier(language: Language.RazorForge).Analyze(
             program: Parse(src: "module Base\nroutine start()\n  return", file: "base.rf"));
         Assert.Empty(collection: baseR.Errors);
-        Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
+        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: baseR.Registry.UserPrograms,
             instantiatedBodies: baseR.InstantiatedGenericBodies,
             maySuspendKeys: baseR.MaySuspendRoutineKeys,
@@ -341,7 +341,7 @@ public sealed partial class BaseEmissionTests
             baseSa.Analyze(program: Parse(src: "module Base\nroutine start()\n  return",
                 file: "base.rf"));
         Assert.Empty(collection: baseR.Errors);
-        Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
+        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: baseR.Registry.UserPrograms,
             instantiatedBodies: baseR.InstantiatedGenericBodies,
             maySuspendKeys: baseR.MaySuspendRoutineKeys,
@@ -361,7 +361,7 @@ public sealed partial class BaseEmissionTests
             new SemanticVerifier(language: Language.RazorForge).Analyze(
                 program: Parse(src: Trivial, file: "bench.rf"));
         Assert.Empty(collection: r.Errors);
-        Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
+        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: r.Registry.UserPrograms,
             instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys,

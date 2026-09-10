@@ -282,7 +282,7 @@ public record IdentifierExpression(string Name, SourceLocation Location, string?
     public VariableInfo? ResolvedVariable { get; set; }
 
     /// <summary>
-    /// Set by <see cref="Compiler.Desugaring.Passes.TemporaryTeardownPass"/> on the synthetic temp
+    /// Set by <see cref="Compiler.Lowering.Passes.TemporaryTeardownPass"/> on the synthetic temp
     /// identifier it introduces as the tail of a lowered managed-leaf reassignment
     /// (<c>target = __rv</c>). It marks, STRUCTURALLY (not by parsing the <c>__rv_</c> name), that this
     /// reassignment is already the pass's OWN output — so a second run over the same body (the

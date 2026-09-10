@@ -44,7 +44,7 @@ public sealed partial class ModularPbrfRoundTripTests
 
     private static string Codegen(AnalysisResult r)
     {
-        Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
+        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: r.Registry.UserPrograms,
             instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys,

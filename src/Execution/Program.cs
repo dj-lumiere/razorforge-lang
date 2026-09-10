@@ -1198,7 +1198,7 @@ internal partial class Program
             // 9-2: instrument may-suspend routine bodies with cancellation push/pop markers
             // (no-op unless something reaches a coroutine suspend point). Mutates `ast` in place,
             // which is the same AST object codegen consumes below.
-            Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(programs:
+            Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(programs:
                 [(ast, ast.Location.FileName, "")],
                 instantiatedBodies: result.InstantiatedGenericBodies,
                 maySuspendKeys: result.MaySuspendRoutineKeys,
@@ -1683,7 +1683,7 @@ internal partial class Program
         // 9-2: instrument may-suspend routine bodies with cancellation push/pop markers
         // (no-op unless something reaches a coroutine suspend point). Mutates the userPrograms
         // ASTs in place — the same objects codegen consumes below.
-        Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(programs: userPrograms,
+        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(programs: userPrograms,
             instantiatedBodies: result.InstantiatedGenericBodies,
             maySuspendKeys: result.MaySuspendRoutineKeys,
             registry: result.Registry);

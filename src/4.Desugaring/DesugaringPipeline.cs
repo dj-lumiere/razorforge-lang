@@ -32,7 +32,7 @@ public sealed class DesugaringPipeline(DesugaringContext ctx)
     /// Generates error-handling variants, wired routine bodies, prunes unused generics,
     /// then applies Phase 3 passes to the generated variant bodies and stdlib programs.
     /// Phase 8 variant-body and stdlib lowering is handled by
-    /// <see cref="Compiler.Desugaring.PostprocessingPipeline.RunGlobal"/>.
+    /// <see cref="Compiler.Lowering.PostprocessingPipeline.RunGlobal"/>.
     /// </summary>
     public void RunGlobal()
     {

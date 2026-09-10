@@ -55,7 +55,7 @@ namespace Compiler.Desugaring.Passes;
 ///
 /// <para>Range-based loops (<c>for x in 0 to n</c>) are also covered: the
 /// <c>RangeExpression</c> iterable is converted to <c>Range[T](...)</c> by
-/// <see cref="ExpressionLoweringPass"/> (which runs after this pass).</para>
+/// <see cref="Compiler.Lowering.Passes.ExpressionLoweringPass"/> (which runs after this pass).</para>
 /// </summary>
 internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
 {

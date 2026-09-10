@@ -1,6 +1,7 @@
 using Compiler.Desugaring;
 using Compiler.Tokenizer;
 using Compiler.Desugaring.Passes;
+using Compiler.Lowering.Passes;
 using Compiler.Targeting;
 using SyntaxTree;
 using TypeModel.Enums;

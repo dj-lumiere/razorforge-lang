@@ -8,7 +8,7 @@ namespace Compiler.Desugaring.Passes;
 
 /// <summary>
 /// Lowers <see cref="GenericMemberRoutineCallExpression"/> nodes to plain <see cref="CallExpression"/>
-/// nodes where possible. Runs after <see cref="ExpressionLoweringPass"/> in the per-file pipeline.
+/// nodes where possible. Runs after <see cref="Compiler.Lowering.Passes.ExpressionLoweringPass"/> in the per-file pipeline.
 ///
 /// <para>Lowered cases (require <c>ResolvedRoutine != null</c> from Phase 4):</para>
 /// <list type="bullet">

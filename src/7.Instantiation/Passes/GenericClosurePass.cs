@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Compiler.Desugaring;
 using Compiler.Desugaring.Passes;
+using Compiler.Lowering;
+using Compiler.Lowering.Passes;
 
 namespace Compiler.Instantiation.Passes;
 
