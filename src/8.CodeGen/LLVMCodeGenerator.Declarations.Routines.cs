@@ -162,7 +162,7 @@ public partial class LlvmCodeGenerator
             // Lookup[None] degenerates to Result[None]: a None value payload makes the
             // "found vs not-found" distinction meaningless, so use the Result carrier instead.
             returnType = routine.ReturnType?.IsNone == true
-                ? GetResultCarrierLlvmType(valueType: routine.ReturnType!)
+                ? GetResultCarrierLlvmType(valueType: routine.ReturnType)
                 : GetLookupCarrierLlvmType(valueType: routine.ReturnType!);
         }
         else if (routine.FailableVariant == FailableVariant.Check)
@@ -1446,7 +1446,7 @@ public partial class LlvmCodeGenerator
         return type switch
         {
             RecordTypeInfo { BackendType: not null } record => GetZeroValueForLlvmType(
-                llvmType: record.BackendType!),
+                llvmType: record.BackendType),
             EntityTypeInfo or WrapperTypeInfo => "null",
             _ => "zeroinitializer"
         };

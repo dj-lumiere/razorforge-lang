@@ -270,7 +270,7 @@ public static class PbrfSerializer
             skipVisibility: true);
         ILGenerator il = dm.GetILGenerator();
         il.Emit(opcode: OpCodes.Ldarg_0);
-        il.Emit(opcode: OpCodes.Castclass, cls: f.DeclaringType!);
+        il.Emit(opcode: OpCodes.Castclass, cls: f.DeclaringType);
         il.Emit(opcode: OpCodes.Ldfld, field: f);
         if (f.FieldType.IsValueType)
         {
@@ -291,7 +291,7 @@ public static class PbrfSerializer
             skipVisibility: true);
         ILGenerator il = dm.GetILGenerator();
         il.Emit(opcode: OpCodes.Ldarg_0);
-        il.Emit(opcode: OpCodes.Castclass, cls: f.DeclaringType!);
+        il.Emit(opcode: OpCodes.Castclass, cls: f.DeclaringType);
         il.Emit(opcode: OpCodes.Ldarg_1);
         il.Emit(opcode: f.FieldType.IsValueType
                 ? OpCodes.Unbox_Any

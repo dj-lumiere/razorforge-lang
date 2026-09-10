@@ -306,7 +306,7 @@ internal static class GenericAstRewriter
             // name as a structural marker (`ForwarderOriginalName`). At monomorphization
             // time the binding lives under that name, not under the disambiguated `Name`.
             if (gp.ForwarderOriginalName is { } originalInnerName &&
-                TypeSubs!.TryGetValue(key: originalInnerName, value: out TypeInfo? renamed))
+                TypeSubs.TryGetValue(key: originalInnerName, value: out TypeInfo? renamed))
             {
                 return renamed;
             }
@@ -318,7 +318,7 @@ internal static class GenericAstRewriter
         {
             bool anyChanged = false;
             var newArgs = new List<TypeInfo>(capacity: original.TypeArguments!.Count);
-            foreach (TypeInfo arg in original.TypeArguments!)
+            foreach (TypeInfo arg in original.TypeArguments)
             {
                 TypeInfo? resolved = ResolveType(original: arg);
                 if (resolved != null && !ReferenceEquals(objA: resolved, objB: arg))
@@ -350,7 +350,7 @@ internal static class GenericAstRewriter
                     // seen the combination, leaving the inner type-arg substitution lost.
                     return Registry!.TryGetResolution(genericDef: genericBase,
                                typeArguments: newArgs) ??
-                           Registry!.GetOrCreateResolution(genericDef: genericBase,
+                           Registry.GetOrCreateResolution(genericDef: genericBase,
                                typeArguments: newArgs);
                 }
             }
@@ -362,7 +362,7 @@ internal static class GenericAstRewriter
         {
             var typeArgs = new List<TypeInfo>(capacity: original.GenericParameters!.Count);
             bool complete = true;
-            foreach (string gpName in original.GenericParameters!)
+            foreach (string gpName in original.GenericParameters)
             {
                 if (TypeSubs!.TryGetValue(key: gpName, value: out TypeInfo? subType))
                 {
@@ -835,7 +835,7 @@ internal static class GenericAstRewriter
             }
 
             RoutineInfo? routine = Registry!.LookupRoutineOverload(baseName: callName,
-                argTypes: callArgTypes!);
+                argTypes: callArgTypes);
             if (routine != null && routine.IsFailable == isFailable)
             {
                 return InstantiateFreeRoutine(candidate: routine);

@@ -75,7 +75,7 @@ internal partial class Program
                 Environment.GetEnvironmentVariable(variable: "RAZORFORGE_DAEMON_PIPE");
             if (!string.IsNullOrWhiteSpace(value: overridden))
             {
-                return overridden!;
+                return overridden;
             }
 
             string user = Environment.UserName;

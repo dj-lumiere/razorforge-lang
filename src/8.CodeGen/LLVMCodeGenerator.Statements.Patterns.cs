@@ -59,7 +59,7 @@ public partial class LlvmCodeGenerator
             allTerminated = EmitWhenSwitch(sb: sb,
                 whenStmt: whenStmt,
                 subject: subject,
-                subjectType: subjectType!,
+                subjectType: subjectType,
                 endLabel: endLabel);
         }
         else

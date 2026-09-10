@@ -356,7 +356,7 @@ public static class LspServer
         string hoverValue = $"```razorforge\n{label}\n```";
         if (!string.IsNullOrWhiteSpace(value: documentation))
         {
-            hoverValue += $"\n\n{RenderDoc(doc: documentation!)}";
+            hoverValue += $"\n\n{RenderDoc(doc: documentation)}";
         }
 
         WriteResult(stdout: stdout,
@@ -1345,7 +1345,7 @@ public static class LspServer
 
         (string? calleeName, int calleeLine, int activeParam) = enclosing;
         RoutineInfo? routine =
-            ResolveSignatureRoutine(doc: doc, calleeName: calleeName!, calleeLine: calleeLine);
+            ResolveSignatureRoutine(doc: doc, calleeName: calleeName, calleeLine: calleeLine);
         if (routine == null)
         {
             WriteResult(stdout: stdout, id: id, result: null);
@@ -1395,7 +1395,7 @@ public static class LspServer
         // Pull per-parameter descriptions from the routine's `:param name:` doc fields.
         DocInfo? sigDoc = string.IsNullOrWhiteSpace(value: routine.Documentation)
             ? null
-            : ParseDoc(doc: routine.Documentation!);
+            : ParseDoc(doc: routine.Documentation);
 
         List<object?> parameters = BuildSignatureParameters(routine: routine, sigDoc: sigDoc);
 
@@ -1407,7 +1407,7 @@ public static class LspServer
             ? null
             : (object?)new Dictionary<string, object?>
             {
-                [key: "kind"] = PropMarkdown, [key: PropValue] = sigDoc!.Summary
+                [key: "kind"] = PropMarkdown, [key: PropValue] = sigDoc.Summary
             };
 
         return new Dictionary<string, object?>
@@ -2186,7 +2186,7 @@ public static class LspServer
         {
             item[key: PropDocumentation] = new Dictionary<string, object?>
             {
-                [key: "kind"] = PropMarkdown, [key: PropValue] = RenderDoc(doc: documentation!)
+                [key: "kind"] = PropMarkdown, [key: PropValue] = RenderDoc(doc: documentation)
             };
         }
 

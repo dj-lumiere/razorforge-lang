@@ -134,7 +134,7 @@ public sealed class ComptimeConstGenericTypeInfo : TypeInfo
 
         // Strip a trailing type suffix (e.g. "8u64", "8_s32") and separator underscores.
         int end = 0;
-        while (end < text!.Length &&
+        while (end < text.Length &&
                (char.IsDigit(c: text[index: end]) || text[index: end] == '-'))
         {
             end++;

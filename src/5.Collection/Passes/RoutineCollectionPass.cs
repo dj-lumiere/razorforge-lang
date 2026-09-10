@@ -524,7 +524,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
                 continue;
             }
 
-            TypeInfo concreteInner = concreteWf.OwnerType!.TypeArguments![index: 0];
+            TypeInfo concreteInner = concreteWf.OwnerType.TypeArguments[index: 0];
             var wfSubs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal)
             {
                 [key: wrapperParamName] = concreteInner

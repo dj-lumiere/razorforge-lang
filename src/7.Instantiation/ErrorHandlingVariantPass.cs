@@ -852,7 +852,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
                 return false;
         }
 
-        RoutineInfo failRoutine = failCall.ResolvedRoutine!;
+        RoutineInfo failRoutine = failCall.ResolvedRoutine;
         if (failRoutine.OwnerType is not { } owner)
         {
             return false;
@@ -896,7 +896,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
                 Callee = m with
                 {
                     MemberName = VariantSurfaceMember(surfaceMember: m.MemberName,
-                        original: failCall.ResolvedRoutine!,
+                        original: failCall.ResolvedRoutine,
                         variant: variant),
                     IsFailable = false
                 }
@@ -985,7 +985,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
                 return false;
         }
 
-        RoutineInfo failRoutine = failCall.ResolvedRoutine!;
+        RoutineInfo failRoutine = failCall.ResolvedRoutine;
         if (failRoutine.OwnerType is not { } owner)
         {
             return false;
@@ -1037,7 +1037,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
                 Callee = m with
                 {
                     MemberName = VariantSurfaceMember(surfaceMember: m.MemberName,
-                        original: failCall.ResolvedRoutine!,
+                        original: failCall.ResolvedRoutine,
                         variant: variant),
                     IsFailable = false
                 }

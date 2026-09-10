@@ -121,7 +121,7 @@ public partial class LlvmCodeGenerator
             } arrayType && GetGenericBaseName(type: arrayType) == "Array")
         {
             TypeInfo elem = arrayType.TypeArguments![index: 0];
-            long count = ((ConstGenericValueTypeInfo)arrayType.TypeArguments![index: 1]).Value;
+            long count = ((ConstGenericValueTypeInfo)arrayType.TypeArguments[index: 1]).Value;
             return $"[{count} x {GetLlvmType(type: elem)}]";
         }
 

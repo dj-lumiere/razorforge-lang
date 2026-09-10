@@ -1250,9 +1250,9 @@ public partial class LlvmCodeGenerator
         string elemType = targetType switch
         {
             RecordTypeInfo { TypeArguments.Count: > 0 } r => GetLlvmType(
-                type: r.TypeArguments![index: 0]!),
+                type: r.TypeArguments![index: 0]),
             EntityTypeInfo { TypeArguments.Count: > 0 } e => GetLlvmType(
-                type: e.TypeArguments![index: 0]!),
+                type: e.TypeArguments![index: 0]),
             _ => throw new InvalidOperationException(
                 message:
                 $"Cannot determine element type for index assignment on type: {targetType?.Name}")

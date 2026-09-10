@@ -683,7 +683,7 @@ public sealed partial class SemanticVerifier
 
         SelectMemberOverloadByArgumentTypes(call: call,
             callLookupName: callLookupName,
-            dispatchType: dispatchType!,
+            dispatchType: dispatchType,
             memberRoutine: ref memberRoutine,
             ambiguousSeed: ambiguousSeed);
 

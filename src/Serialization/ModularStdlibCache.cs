@@ -59,7 +59,7 @@ public static class ModularStdlibCache
 
                 return string.IsNullOrEmpty(value: t.Module)
                     ? Builtin
-                    : t.Module!;
+                    : t.Module;
             case RoutineInfo r:
                 if (r.TypeArguments is { Count: > 0 })
                 {
@@ -75,7 +75,7 @@ public static class ModularStdlibCache
                 string? m = owner?.Module ?? r.Module;
                 return string.IsNullOrEmpty(value: m)
                     ? Builtin
-                    : m!;
+                    : m;
             case VariableInfo:
                 return Builtin;
             default:

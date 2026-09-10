@@ -19,7 +19,7 @@ public sealed partial class SemanticVerifier
         if (type is ProtocolTypeInfo { TypeArguments: { Count: > 0 } } proto &&
             HasOnlyMarkerCoercionMemberRoutines(proto: proto))
         {
-            targetType = proto.TypeArguments![index: 0]!;
+            targetType = proto.TypeArguments![index: 0];
             return true;
         }
 

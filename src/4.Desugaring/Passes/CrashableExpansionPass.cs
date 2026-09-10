@@ -273,7 +273,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
                 WhenClause? dispatchClause = TryMakeCrashableDispatchClause(clause: clause,
                     bindName: bangBindName,
                     loc: bangLoc!,
-                    carrier: when.Expression!);
+                    carrier: when.Expression);
                 if (dispatchClause != null)
                 {
                     expanded.Add(item: dispatchClause);
@@ -362,9 +362,9 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         Statement body = clause.Body;
         if (!string.IsNullOrEmpty(value: bindName))
         {
-            body = new CrashableDispatchRewriter(bindName: bindName!, carrier: carrier)
+            body = new CrashableDispatchRewriter(bindName: bindName, carrier: carrier)
                .VisitStatement(stmt: body);
-            if (BindingStillReferenced(root: body, bindName: bindName!))
+            if (BindingStillReferenced(root: body, bindName: bindName))
             {
                 return null;
             }
@@ -446,7 +446,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             if (!string.IsNullOrEmpty(value: bangBindName))
             {
                 BindingTypeRewriter.Apply(body: clonedBody,
-                    bindingName: bangBindName!,
+                    bindingName: bangBindName,
                     concreteType: crashable,
                     registry: ctx.Registry);
             }

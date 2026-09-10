@@ -155,7 +155,7 @@ public sealed partial class SemanticVerifier
         // AST scan: routines with direct throw/absent get precise variants.
         // Routines without any (propagated-failability via called `!` routines) get
         // pessimistic try_+lookup_ stubs so callsites can resolve them during SA.
-        bool hasDirect = ErrorHandlingGenerator.BodyHasThrowOrAbsent(body: decl.Body!);
+        bool hasDirect = ErrorHandlingGenerator.BodyHasThrowOrAbsent(body: decl.Body);
 
         RoutineInfo? routineInfo =
             ResolveRoutineInfoForDeclaration(decl: decl, moduleName: module);
@@ -175,7 +175,7 @@ public sealed partial class SemanticVerifier
         // Non-emit variants are LAZY: only the base is indexed; the try_/check_/lookup_ variant is
         // synthesized the first time a call site looks it up (TrySynthesizeVariantOnDemand).
         _registry.DeferredVariantBases[key: routineInfo.RegistryKey] =
-            (routineInfo, decl.Body!, !hasDirect);
+            (routineInfo, decl.Body, !hasDirect);
 
         // ITERATOR `emit` stays EAGER and is owned END-TO-END by the existing pipeline (for-loop desugar
         // synthesizes `iter.try_emit()`; Phase-8 monomorphization path-2 generates each composed emitter's
@@ -190,7 +190,7 @@ public sealed partial class SemanticVerifier
         }
 
         ErrorHandlingResult result = generator.GenerateVariants(routine: routineInfo,
-            body: decl.Body!,
+            body: decl.Body,
             pessimistic: !hasDirect);
         if (result.Error != null)
         {

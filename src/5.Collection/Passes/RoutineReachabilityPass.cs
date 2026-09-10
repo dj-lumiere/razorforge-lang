@@ -1612,7 +1612,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
                         .Where(predicate: mv =>
                              mv.Type is not null and not GenericParameterTypeInfo))
             {
-                RoutineInfo? memberDestroy = ctx.Registry.LookupMemberRoutine(type: mv.Type!,
+                RoutineInfo? memberDestroy = ctx.Registry.LookupMemberRoutine(type: mv.Type,
                     memberRoutineName: DestroyMemberRoutineName);
                 if (memberDestroy != null)
                 {
@@ -1640,7 +1640,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
                         .Where(predicate: mv =>
                              mv.Type is not null and not GenericParameterTypeInfo))
             {
-                RoutineInfo? memberSerialize = ctx.Registry.LookupMemberRoutine(type: mv.Type!,
+                RoutineInfo? memberSerialize = ctx.Registry.LookupMemberRoutine(type: mv.Type,
                     memberRoutineName: SerializeMemberRoutineName);
                 if (memberSerialize != null)
                 {
@@ -2615,7 +2615,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         string genericKey = $"{RoutineInfo.GetTypeIdentity(type: genDef)}.{callee.Name}";
         // Stdlib decl name is the SHORT form like "List[T].insertion_sort" / "Iterable[T].Set".
         string shortKey =
-            $"{genDef.Name}[{string.Join(separator: ", ", values: genDef.GenericParameters!)}].{callee.Name}";
+            $"{genDef.Name}[{string.Join(separator: ", ", values: genDef.GenericParameters)}].{callee.Name}";
         // REALM-SCOPED: the decl key is realm-FREE (`List[T].create`), so the RazorForge-realm
         // `Core.List` and the Suflae-realm wrapper both index here. Without realm scoping the
         // first-registered (RF) body is walked for the SF wrapper create — so the wrapper's inner

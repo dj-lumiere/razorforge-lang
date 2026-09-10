@@ -157,7 +157,7 @@ public sealed partial class SemanticVerifier
         if (collectionExpectedType is { IsGenericResolution: true, TypeArguments.Count: >= 1 } &&
             expectedBaseName is "List" or "CircularList" or "SortedList" or CollectionNameArray)
         {
-            return collectionExpectedType.TypeArguments![index: 0];
+            return collectionExpectedType.TypeArguments[index: 0];
         }
 
         if (expectedBaseName is "BitList" or CollectionNameBitArray)
@@ -385,7 +385,7 @@ public sealed partial class SemanticVerifier
         if (collectionExpectedType is { IsGenericResolution: true, TypeArguments.Count: 1 } &&
             expectedBaseName is "Set" or "SortedSet" or "SecureSet")
         {
-            expectedElementType = collectionExpectedType.TypeArguments![index: 0];
+            expectedElementType = collectionExpectedType.TypeArguments[index: 0];
         }
 
         TypeSymbol? elementType = ResolveSetElementType(set: set,
@@ -481,8 +481,8 @@ public sealed partial class SemanticVerifier
         if (collectionExpectedType is { IsGenericResolution: true, TypeArguments.Count: 2 } &&
             expectedBaseName is "Dict" or "SortedDict" or "PriorityQueue" or "SecureDict")
         {
-            expectedKeyType = collectionExpectedType.TypeArguments![index: 0];
-            expectedValueType = collectionExpectedType.TypeArguments![index: 1];
+            expectedKeyType = collectionExpectedType.TypeArguments[index: 0];
+            expectedValueType = collectionExpectedType.TypeArguments[index: 1];
         }
 
         (TypeSymbol? keyType, TypeSymbol? valueType) = InferDictKeyValueTypes(dict: dict,

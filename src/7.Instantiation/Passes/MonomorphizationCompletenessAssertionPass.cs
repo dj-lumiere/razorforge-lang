@@ -74,7 +74,7 @@ internal static class MonomorphizationCompletenessAssertionPass
     private static void CheckBody(string key, MonomorphizedBody body)
     {
         string routine = body.Info.FullName;
-        AstWalker.Walk(root: body.Ast!.Body,
+        AstWalker.Walk(root: body.Ast.Body,
             visit: node =>
             {
                 switch (node)

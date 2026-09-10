@@ -580,7 +580,7 @@ public partial class LlvmCodeGenerator
                 MemberRoutines.Count: 0, TypeArguments.Count: > 0
             } transparentProto)
         {
-            receiverType = transparentProto.TypeArguments![index: 0]!;
+            receiverType = transparentProto.TypeArguments![index: 0];
         }
 
         string memberRoutineName = member.MemberName;

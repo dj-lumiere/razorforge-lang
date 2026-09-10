@@ -720,7 +720,7 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
             // Variant is a RecordTypeInfo subclass, so it MUST precede the Record arms below.
             VariantTypeInfo v => (ulong)v.SizeBytes(pointerSize: 8),
             RecordTypeInfo { BackendType: not null } r => LlvmBackendTypeSize(
-                llvmType: r.BackendType!),
+                llvmType: r.BackendType),
             // Delegate to the SAME size function codegen uses (RecordTypeInfo.SizeBytes) so the List
             // element stride matches the actual struct layout. `member_count * 8` was wrong for any
             // record with a non-8-byte member (a nested value-record like Text=24, or i32/i128).

@@ -386,7 +386,7 @@ public partial class LlvmCodeGenerator
 
             string v = EmitExpression(sb: sb, expr: arguments[index: i]);
             TypeInfo actual = GetExpressionType(expr: arguments[index: i]) ??
-                              routine.Parameters[index: i].Type!;
+                              routine.Parameters[index: i].Type;
             (string cv, string _) = CoerceCallArgumentToParameter(sb: sb,
                 argValue: v,
                 actualType: actual,
@@ -480,7 +480,7 @@ public partial class LlvmCodeGenerator
         {
             string v = EmitExpression(sb: sb, expr: arguments[index: i]);
             TypeInfo actual = GetExpressionType(expr: arguments[index: i]) ??
-                              routine.Parameters[index: i].Type!;
+                              routine.Parameters[index: i].Type;
             (string cv, string _) = CoerceCallArgumentToParameter(sb: sb,
                 argValue: v,
                 actualType: actual,

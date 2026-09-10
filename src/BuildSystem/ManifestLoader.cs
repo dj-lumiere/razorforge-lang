@@ -157,13 +157,13 @@ public static class ManifestLoader
         if (debugTable.TryGetValue(key: "reachability-dump", value: out object? rd) &&
             !string.IsNullOrWhiteSpace(value: rd?.ToString()))
         {
-            d.ReachabilityDump = rd!.ToString();
+            d.ReachabilityDump = rd.ToString();
         }
 
         if (debugTable.TryGetValue(key: "maysuspend-dump", value: out object? md) &&
             !string.IsNullOrWhiteSpace(value: md?.ToString()))
         {
-            d.MaySuspendDump = md!.ToString();
+            d.MaySuspendDump = md.ToString();
         }
     }
 
@@ -201,7 +201,7 @@ public static class ManifestLoader
         if (table.TryGetValue(key: "name", value: out object? linkName) &&
             !string.IsNullOrWhiteSpace(value: linkName?.ToString()))
         {
-            lib.Name = linkName!.ToString()!.Trim();
+            lib.Name = linkName.ToString()!.Trim();
         }
 
         if (table.TryGetValue(key: "kind", value: out object? kindObj))
@@ -222,7 +222,7 @@ public static class ManifestLoader
         if (table.TryGetValue(key: "calling-convention", value: out object? ccObj) &&
             !string.IsNullOrWhiteSpace(value: ccObj?.ToString()))
         {
-            lib.CallingConvention = ccObj!.ToString()!.Trim()
+            lib.CallingConvention = ccObj.ToString()!.Trim()
                                           .ToLowerInvariant();
         }
 
@@ -295,7 +295,7 @@ public static class ManifestLoader
         if (table.TryGetValue(key: "mode", value: out object? mode) &&
             !string.IsNullOrWhiteSpace(value: mode?.ToString()))
         {
-            target.Mode = mode!.ToString()!;
+            target.Mode = mode.ToString()!;
         }
 
         // Dev-loop daemon routing (formerly the RAZORFORGE_DAEMON env var). The JIT dev loop is now the

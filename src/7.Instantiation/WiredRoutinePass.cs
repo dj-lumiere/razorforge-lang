@@ -1208,7 +1208,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // Reverse constructor `Choice(from: S32)` — reinterpret the discriminant bits.
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmIntrinsicCallBody(
                     intrinsicName: ReinterpretBitsIntrinsicName,
-                    fromType: routine.Parameters[index: 0].Type!,
+                    fromType: routine.Parameters[index: 0].Type,
                     toType: choice,
                     paramName: "from");
                 break;
@@ -2577,7 +2577,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // Reverse constructor `Flags(from: U64)` — reinterpret the bitmask bits.
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmIntrinsicCallBody(
                     intrinsicName: ReinterpretBitsIntrinsicName,
-                    fromType: routine.Parameters[index: 0].Type!,
+                    fromType: routine.Parameters[index: 0].Type,
                     toType: flags,
                     paramName: "from");
                 break;
