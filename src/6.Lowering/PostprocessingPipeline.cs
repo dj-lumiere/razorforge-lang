@@ -137,9 +137,9 @@ public sealed class PostprocessingPipeline(PostprocessingContext ctx)
         // Cold: all stdlib; warm-restore: only freshly on-demand-loaded programs (restored are lowered).
         // STAGE-5 FLIP (pull/(B)): the collector drives per-file stdlib lowering on reach
         // (SemanticVerifier.AnalyzeStdlibProgramOnDemand runs PostprocessingPipeline.Run per file), so skip the
-        // eager stdlib sweep here. Default-on; RF_NO_FLIP=1 restores the eager sweep.
+        // eager stdlib sweep here (demand collector drives stdlib per-file).
         // BASE build (SynthesizeAllDerives) stays eager — it must lower the WHOLE stdlib, not a demand slice.
-        if (Verification.SemanticVerifier.FlipDemandStdlib && !ctx.SynthesizeAllDerives)
+        if (!ctx.SynthesizeAllDerives)
         {
             return;
         }

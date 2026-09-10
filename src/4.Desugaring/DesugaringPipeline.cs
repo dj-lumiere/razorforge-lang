@@ -60,9 +60,9 @@ public sealed class DesugaringPipeline(DesugaringContext ctx)
         // the restored programs are already desugared).
         // STAGE-5 FLIP (pull/(B)): the collector drives per-file stdlib desugaring on reach
         // (SemanticVerifier.AnalyzeStdlibProgramOnDemand runs DesugaringPipeline.Run per file), so skip the
-        // eager stdlib sweep here — only user + variant global lowering stays. Default-on; RF_NO_FLIP=1 restores.
+        // eager stdlib sweep here — only user + variant global lowering stays (demand collector drives stdlib per-file).
         // BASE build (SynthesizeAllDerives) stays eager — it must desugar the WHOLE stdlib, not a demand slice.
-        if (Verification.SemanticVerifier.FlipDemandStdlib && !ctx.SynthesizeAllDerives)
+        if (!ctx.SynthesizeAllDerives)
         {
             return;
         }

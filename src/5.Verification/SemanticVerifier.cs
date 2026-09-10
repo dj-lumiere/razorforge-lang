@@ -545,7 +545,7 @@ public sealed partial class SemanticVerifier
         // Base build (SeedAllStdlibRoutines) ALWAYS analyzes the whole stdlib eagerly — it must DEFINE every
         // routine for the precompiled base, which demand-from-`start` cannot (it only reaches what one entry
         // program uses). Only NORMAL builds take the demand path.
-        if (!FlipDemandStdlib || SeedAllStdlibRoutines)
+        if (SeedAllStdlibRoutines)
         {
             int errorsBeforeStdlib = _errors.Count;
             int warningsBeforeStdlib = _warnings.Count;
@@ -1380,11 +1380,6 @@ public sealed partial class SemanticVerifier
     /// load-bearing (the collector drives per-file analysis on reach).</summary>
     private bool _eagerStdlibAnalyzed;
 
-    /// <summary>Stage-5 FLIP switch (pull/(B)): the eager stdlib SA sweep is skipped so the collector's
-    /// on-demand hook drives stdlib analysis. Now DEFAULT-ON — demand is the pipeline; set `RF_NO_FLIP=1`
-    /// to restore the pre-(B) eager path (A/B comparison during bug-check).</summary>
-    internal static readonly bool FlipDemandStdlib =
-        Environment.GetEnvironmentVariable(variable: "RF_NO_FLIP") != "1";
 
     /// <summary>
     /// Ensures the stdlib file declaring <paramref name="routineKey"/> has been body-analyzed, running the
@@ -1758,7 +1753,7 @@ public sealed partial class SemanticVerifier
         // the flip, so stdlib bodies would end up SA'd-but-NEVER-LOWERED (a raw `me == 0u64` in U64.represent
         // reaching codegen). Skip the eager sweep here for a normal build; the BASE build (SeedAllStdlibRoutines)
         // still needs it (it must DEFINE + lower the whole stdlib, not a demand slice).
-        if (!FlipDemandStdlib || SeedAllStdlibRoutines)
+        if (SeedAllStdlibRoutines)
         {
             int errorsBeforeStdlib = _errors.Count;
             AnalyzeStdlibBodies();
