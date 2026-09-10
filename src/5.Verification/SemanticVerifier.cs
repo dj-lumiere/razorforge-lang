@@ -521,8 +521,10 @@ public sealed partial class SemanticVerifier
         InferWiredMemberRoutines();
         ValidateProtocolImplementations();
         PreRegisterUserVariants(program: program);
-        // Snapshot mode: stdlib variants are already registered in the restored registry.
-        if (!_memo.IsWarm)
+        // Memo content: when the memo carries restored stdlib bodies, the stdlib failable variants were
+        // already registered in the restored registry — re-registering is pure warm overhead. A cold
+        // compile's memo has no restored bodies (WarmStdlibRoutineBodies == null) ⇒ it does the work.
+        if (_memo.WarmStdlibRoutineBodies == null)
         {
             PreRegisterStdlibVariants();
         }
@@ -802,7 +804,8 @@ public sealed partial class SemanticVerifier
                 InstantiatedGenericBodies = _instantiatedGenericBodies,
                 Target = _target,
                 BuildMode = _buildMode,
-                StdlibTemplateBodies = _memo.WarmStdlibRoutineBodies
+                StdlibTemplateBodies = _memo.WarmStdlibRoutineBodies,
+                RestoredVariantKeys = _memo.RestoredVariantKeys
             }) { SaTiming = SaTiming, SeedAllStdlibRoutines = SeedAllStdlibRoutines };
 
         // Rewrite Accessing[T]/Controlling[T] params to inner T before reachability so
@@ -1678,9 +1681,10 @@ public sealed partial class SemanticVerifier
         // Phase 3 global (pre-pass): pre-register stdlib failable memberRoutine variants (try_emit, try_recover, etc.)
         // Must run before Phase 5 body analysis and before Phase 4 syntax prepass
         // (ControlFlowLoweringPass generates try_emit calls that Phase 5 must resolve).
-        // Snapshot mode: stdlib variants are already registered in the restored registry (parity with the
-        // single-file Analyze gate) — re-registering them is pure warm-compile overhead (~240 ms).
-        if (!_memo.IsWarm)
+        // Memo content: the memo's restored stdlib bodies imply the stdlib variants are already registered
+        // in the restored registry (parity with the single-file Analyze gate) — re-registering them is pure
+        // warm-compile overhead (~240 ms). A cold compile has no restored bodies ⇒ it does the work.
+        if (_memo.WarmStdlibRoutineBodies == null)
         {
             PreRegisterStdlibVariants();
         }

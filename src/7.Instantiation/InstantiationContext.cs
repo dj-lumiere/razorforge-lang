@@ -58,6 +58,16 @@ public sealed class InstantiationContext
     public Dictionary<string, Statement> VariantBodies { get; }
 
     /// <summary>
+    /// Read-only memo CONTENT: registry keys of variant bodies that were restored from a warm snapshot
+    /// (already lowered + analyzed at capture). A pass must NOT overwrite these with a fresh
+    /// regeneration — the restored body is what <c>AnalyzeVariantBodies</c> skips, so overwriting would
+    /// leave it un-analyzed. Empty on a cold compile (nothing restored ⇒ every regeneration is kept).
+    /// This is the memo-content signal that replaces the old <c>Registry.SkipStdlibReprocessing</c> mode
+    /// branch — a downstream pass branches on "is this key already supplied?", never on "am I warm?".
+    /// </summary>
+    public IReadOnlySet<string> RestoredVariantKeys { get; }
+
+    /// <summary>
     /// Concrete generic bodies produced by instantiation and later consumed by codegen.
     /// </summary>
     public Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies { get; }
@@ -164,6 +174,8 @@ public sealed class InstantiationContext
         StdlibTemplateBodies =
             options?.StdlibTemplateBodies ?? new Dictionary<string, Statement>();
         VariantBodies = options?.VariantBodies ?? [];
+        RestoredVariantKeys = options?.RestoredVariantKeys ??
+                              new HashSet<string>(comparer: StringComparer.Ordinal);
         InstantiatedGenericBodies = options?.InstantiatedGenericBodies ?? [];
         Target = options?.Target ?? TargetConfig.ForCurrentHost();
         BuildMode = options?.BuildMode ?? RfBuildMode.Debug;
@@ -179,6 +191,12 @@ public sealed class InstantiationOptions
 {
     /// <summary>Synthesized error-handling variant bodies that may contain reachable generic calls.</summary>
     public Dictionary<string, Statement>? VariantBodies { get; init; }
+
+    /// <summary>
+    /// Memo content: registry keys of variant bodies restored from a warm snapshot (already lowered +
+    /// analyzed). Empty/null on a cold compile. See <see cref="InstantiationContext.RestoredVariantKeys"/>.
+    /// </summary>
+    public IReadOnlySet<string>? RestoredVariantKeys { get; init; }
 
     /// <summary>Concrete generic bodies produced by prior instantiation runs.</summary>
     public Dictionary<string, MonomorphizedBody>? InstantiatedGenericBodies { get; init; }

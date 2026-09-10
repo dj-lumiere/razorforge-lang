@@ -379,10 +379,10 @@ public sealed partial class SemanticVerifier
             // Not in the pre-registered index (e.g. a `Type!(from_text:)` constructor whose declaration
             // resolves under a different key than its registered `create#…` overload). Its body is still in
             // the collected routine bodies (CollectStdlibBodiesForVariantGeneration) — synthesize from there.
-            // WARM: stdlib routine bodies are NOT collected into _routineBodies (SkipStdlibReprocessing)
-            // and PreRegisterStdlibVariants (which fills DeferredVariantBases) is skipped — so a STDLIB
-            // base reached on demand by a USER variant body has no body here. The captured
-            // stdlib bodies ARE available via `_warmStdlibRoutineBodies`; use them so warm can synthesize
+            // WARM (memo carries restored bodies): stdlib routine bodies are NOT collected into
+            // _routineBodies and PreRegisterStdlibVariants (which fills DeferredVariantBases) is skipped —
+            // so a STDLIB base reached on demand by a USER variant body has no body here. The captured
+            // stdlib bodies ARE available via `_memo.WarmStdlibRoutineBodies`; use them so warm can synthesize
             // the variant exactly as cold does — else the inner rewrite fails and the user variant calls
             // the raw failable form, crashing on the recoverable path.
             if (!_routineBodies.TryGetValue(key: baseRoutine.RegistryKey,
@@ -573,13 +573,15 @@ public sealed partial class SemanticVerifier
                     continue;
                 }
 
-                // WARM: derive templates (above) MUST still register — user types clone their destroy/
-                // represent/… derives from them (WiredRoutinePass). But the stdlib routine BODIES must NOT
-                // re-enter _routineBodies: the warm snapshot already restored the stdlib variant/synthesized
-                // bodies, and re-adding the bases here would make ErrorHandlingVariantPass.RunGlobal
-                // REGENERATE all stdlib variants (key drift → thousands of duplicate variant bodies that
-                // AnalyzeVariantBodies re-analyzes (~8 s) + codegen over-prune). So skip only the body-add.
-                if (_registry.SkipStdlibReprocessing)
+                // Memo content: derive templates (above) MUST still register — user types clone their
+                // destroy/represent/… derives from them (WiredRoutinePass). But when the memo already
+                // carries the restored stdlib bodies, the stdlib routine BODIES must NOT re-enter
+                // _routineBodies: the snapshot already restored the stdlib variant/synthesized bodies, and
+                // re-adding the bases here would make ErrorHandlingVariantPass.RunGlobal REGENERATE all
+                // stdlib variants (key drift → thousands of duplicate variant bodies that AnalyzeVariantBodies
+                // re-analyzes (~8 s) + codegen over-prune). Branch on memo CONTENT: a cold compile has no
+                // restored bodies (WarmStdlibRoutineBodies == null) ⇒ it collects every stdlib body here.
+                if (_memo.WarmStdlibRoutineBodies != null)
                 {
                     continue;
                 }
