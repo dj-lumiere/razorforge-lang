@@ -966,6 +966,19 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void RunReachabilityMonomorphizationFixpoint(InstantiationContext ctx)
     {
+        // PULL UNIFICATION: for NORMAL builds the demand collector (RunShadowCollectorIfNeeded ->
+        // RoutineCollectionPass) is the SOLE monomorphizer + liveness authority — it OVERWRITES
+        // _liveRoutineKeys/_liveOwnerTypeNames and builds InstantiatedGenericBodies. The push reachability
+        // walk below merely DUPLICATED that work and, running first, POLLUTED the shared registry by
+        // materializing instances the demand walk never reaches (e.g. Range[U64] pulled in via reflection
+        // over-reach), which the demand collector then inherited — the warm/cold define-set divergence.
+        // Skip the whole push fixpoint for normal builds; keep it ONLY for the base build, whose eager
+        // GenericClosurePass must define the ENTIRE stdlib closure (demand-from-start cannot).
+        if (!ctx.SeedAllStdlibRoutines)
+        {
+            return;
+        }
+
         int prevCount;
         int guard = 0;
         do
