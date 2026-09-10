@@ -12,13 +12,13 @@ namespace TypeModel.Types;
 /// generic parameter) so existing category-based switches treat it as "not yet concrete" without
 /// needing a new category. Substitution logic recognizes it by C# type, not by category.
 /// </summary>
-public sealed class AssociatedProjectionTypeInfo : TypeInfo
+public sealed class AssociatedProjectionTypeSymbol : TypeSymbol
 {
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.TypeParameter;
 
     /// <summary>The type being projected from (e.g. the generic parameter <c>S</c>).</summary>
-    public TypeInfo Base { get; }
+    public TypeSymbol Base { get; }
 
     /// <summary>The associated-type slot name being projected (e.g. <c>Iter</c>).</summary>
     public string SlotName { get; }
@@ -26,7 +26,7 @@ public sealed class AssociatedProjectionTypeInfo : TypeInfo
     /// <summary>Initializes a new projection <c>Base/SlotName</c>.</summary>
     /// <param name="baseType">The type being projected from.</param>
     /// <param name="slotName">The associated-type slot name.</param>
-    public AssociatedProjectionTypeInfo(TypeInfo baseType, string slotName) : base(
+    public AssociatedProjectionTypeSymbol(TypeSymbol baseType, string slotName) : base(
         name: $"{baseType.Name}/{slotName}")
     {
         Base = baseType;
@@ -36,7 +36,7 @@ public sealed class AssociatedProjectionTypeInfo : TypeInfo
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">Always — a projection is resolved by
     /// substitution during monomorphization, not by direct instantiation.</exception>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         throw new InvalidOperationException(
             message: $"Cannot directly instantiate an associated-type projection '{Name}'.");

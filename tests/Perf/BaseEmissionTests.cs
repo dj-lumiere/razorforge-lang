@@ -1,9 +1,9 @@
-using Compiler.LlvmEmit;
-using Compiler.Tokenizer;
+using Builder.LlvmEmit;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.Verification;
+using Builder.Verification.Results;
 using System.Text.RegularExpressions;
 using Xunit.Abstractions;
 
@@ -38,7 +38,7 @@ public sealed partial class BaseEmissionTests
 
     private static Program Parse(string src, string file)
     {
-        return new Compiler.Parser.Parser(
+        return new Builder.Parser.Parser(
             tokens: new Tokenizer(source: src, fileName: file, language: Language.RazorForge)
                .Tokenize(),
             language: Language.RazorForge,
@@ -142,7 +142,7 @@ public sealed partial class BaseEmissionTests
             new SemanticVerifier(language: Language.RazorForge).Analyze(
                 program: Parse(src: Trivial, file: "bench.rf"));
         Assert.Empty(collection: r.Errors);
-        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
+        Builder.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: r.Registry.UserPrograms,
             instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys,
@@ -222,7 +222,7 @@ public sealed partial class BaseEmissionTests
     /// materialized — the genuine (a') closure tail, now free of BuilderQuery artifacts.
     /// </summary>
     [Fact(Skip =
-        "WIP resident-JIT base define-completeness oracle. Base BUILDS at gap=102/defined=12309 (was 695). ISOLATED-BUILD primitive (GenericClosurePass.RunIsolatedTail, post-fixpoint, build-one-no-drain) closes: entity self-free tail (call-driven closure) + all per-type LIFECYCLE HOOKS (destroy/roam_free/roam_trace) built on every registered concrete+wrapper instance (bounded, self-contained; the call-driven closure discovers the leaf callees field.destroy/cyclic_visit/Hijacked.cyclic_trace_buffer; skip unfolded-comptime Array[U8,${...}] carriers). Remaining 102 = represent(98)+serialize: represent is a force-seeded display closure that does NOT converge (its callees escape the registry — adding it took gap 140->367); needs delta-definition or codegen-materialize. base+delta coverage proven by GenerateBase_And_Delta_CoverPrunedBuild_WithTinyDelta. See .claude-memory/base-completeness-const-generic-array-gap.md.")]
+        "WIP resident-JIT base define-completeness oracle. Base BUILDS at gap=102/defined=12309 (was 695). ISOLATED-BUILD primitive (GenericClosurePass.RunIsolatedTail, post-fixpoint, build-one-no-drain) closes: entity self-free tail (call-driven closure) + all per-type LIFECYCLE HOOKS (destroy/roam_free/roam_trace) built on every registered concrete+wrapper instance (bounded, self-contained; the call-driven closure discovers the leaf callees field.destroy/cyclic_visit/Hijacked.cyclic_trace_buffer; skip unfolded-buildtime Array[U8,${...}] carriers). Remaining 102 = represent(98)+serialize: represent is a force-seeded display closure that does NOT converge (its callees escape the registry — adding it took gap 140->367); needs delta-definition or codegen-materialize. base+delta coverage proven by GenerateBase_And_Delta_CoverPrunedBuild_WithTinyDelta. See .claude-memory/base-completeness-const-generic-array-gap.md.")]
     public void GenerateBase_Standalone_DefineCompleteness()
     {
         var baseSa =
@@ -231,7 +231,7 @@ public sealed partial class BaseEmissionTests
             baseSa.Analyze(program: Parse(src: "module Base\nroutine start()\n  return",
                 file: "base.rf"));
         Assert.Empty(collection: baseR.Errors);
-        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
+        Builder.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: baseR.Registry.UserPrograms,
             instantiatedBodies: baseR.InstantiatedGenericBodies,
             maySuspendKeys: baseR.MaySuspendRoutineKeys,
@@ -301,7 +301,7 @@ public sealed partial class BaseEmissionTests
         AnalysisResult baseR = new SemanticVerifier(language: Language.RazorForge).Analyze(
             program: Parse(src: "module Base\nroutine start()\n  return", file: "base.rf"));
         Assert.Empty(collection: baseR.Errors);
-        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
+        Builder.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: baseR.Registry.UserPrograms,
             instantiatedBodies: baseR.InstantiatedGenericBodies,
             maySuspendKeys: baseR.MaySuspendRoutineKeys,
@@ -317,7 +317,7 @@ public sealed partial class BaseEmissionTests
             });
         (string baseIr, IReadOnlyCollection<string> baseSyms) = baseGen.GenerateBase();
 
-        bool ok = Builder.OrcJitExecutor.TryParseIr(llvmIr: baseIr, error: out string? err);
+        bool ok = Builder.Execution.OrcJitExecutor.TryParseIr(llvmIr: baseIr, error: out string? err);
         _out.WriteLine(
             message:
             $"standalone base: syms={baseSyms.Count} chars={baseIr.Length} parse={(ok ? "OK" : err)}");
@@ -341,7 +341,7 @@ public sealed partial class BaseEmissionTests
             baseSa.Analyze(program: Parse(src: "module Base\nroutine start()\n  return",
                 file: "base.rf"));
         Assert.Empty(collection: baseR.Errors);
-        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
+        Builder.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: baseR.Registry.UserPrograms,
             instantiatedBodies: baseR.InstantiatedGenericBodies,
             maySuspendKeys: baseR.MaySuspendRoutineKeys,
@@ -361,14 +361,14 @@ public sealed partial class BaseEmissionTests
             new SemanticVerifier(language: Language.RazorForge).Analyze(
                 program: Parse(src: Trivial, file: "bench.rf"));
         Assert.Empty(collection: r.Errors);
-        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
+        Builder.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: r.Registry.UserPrograms,
             instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys,
             registry: r.Registry);
         string deltaIr = DeltaBuild(r: r, residentSymbols: baseSyms);
 
-        int rc = Builder.OrcJitExecutor.JitAndRunSplit(baseIr: baseIr,
+        int rc = Builder.Execution.OrcJitExecutor.JitAndRunSplit(baseIr: baseIr,
             deltaIr: deltaIr,
             programName: "test",
             programArgs: Array.Empty<string>());

@@ -1,11 +1,9 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Instantiation;
-
-using TypeInfo = TypeInfo;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// Generates error handling variants for failable (!) routines.
@@ -304,16 +302,16 @@ public sealed class ErrorHandlingGenerator
 
     private RoutineInfo GenerateTryVariant(RoutineInfo original)
     {
-        TypeInfo noneType = _registry.LookupType(name: NoneTypeName) ??
+        TypeSymbol noneType = _registry.LookupType(name: NoneTypeName) ??
                             throw new InvalidOperationException(
                                 message: "None type not registered");
-        TypeInfo returnType = original.ReturnType ?? noneType;
+        TypeSymbol returnType = original.ReturnType ?? noneType;
 
         // try_x on a None-returning routine -> returns Bool (true=success, false=absent/throw)
         // Maybe[None] = { i1, void } is not valid LLVM, so Bool is used directly.
         if (returnType.Name == NoneTypeName)
         {
-            TypeInfo boolType = _registry.LookupType(name: "Bool") ??
+            TypeSymbol boolType = _registry.LookupType(name: "Bool") ??
                                 throw new InvalidOperationException(
                                     message: "Bool type not registered");
 
@@ -341,12 +339,12 @@ public sealed class ErrorHandlingGenerator
             };
         }
 
-        TypeInfo carrierInner = WrapBareEntityForCarrier(type: returnType);
+        TypeSymbol carrierInner = WrapBareEntityForCarrier(type: returnType);
 
-        TypeInfo maybeDef = _registry.LookupType(name: "Maybe") ??
+        TypeSymbol maybeDef = _registry.LookupType(name: "Maybe") ??
                             throw new InvalidOperationException(
                                 message: "Maybe type not registered");
-        TypeInfo maybeType = _registry.GetOrCreateResolution(
+        TypeSymbol maybeType = _registry.GetOrCreateResolution(
             genericDef: maybeDef,
             typeArguments: [carrierInner]);
 
@@ -382,15 +380,15 @@ public sealed class ErrorHandlingGenerator
     private RoutineInfo GenerateCheckVariant(RoutineInfo original)
     {
         // check_ returns Result[T] — success carries T, throw carries the error.
-        TypeInfo innerType = original.ReturnType ?? _registry.LookupType(name: NoneTypeName) ??
+        TypeSymbol innerType = original.ReturnType ?? _registry.LookupType(name: NoneTypeName) ??
             throw new InvalidOperationException(message: "None type not registered");
 
-        TypeInfo carrierInner = WrapBareEntityForCarrier(type: innerType);
+        TypeSymbol carrierInner = WrapBareEntityForCarrier(type: innerType);
 
-        TypeInfo resultDef = _registry.LookupType(name: "Result") ??
+        TypeSymbol resultDef = _registry.LookupType(name: "Result") ??
                              throw new InvalidOperationException(
                                  message: "Result type not registered");
-        TypeInfo resultType = _registry.GetOrCreateResolution(
+        TypeSymbol resultType = _registry.GetOrCreateResolution(
             genericDef: resultDef,
             typeArguments: [carrierInner]);
 
@@ -426,19 +424,19 @@ public sealed class ErrorHandlingGenerator
     /// <returns>The lookup_ variant routine info.</returns>
     private RoutineInfo GenerateLookupVariant(RoutineInfo original)
     {
-        TypeInfo noneType = _registry.LookupType(name: NoneTypeName) ??
+        TypeSymbol noneType = _registry.LookupType(name: NoneTypeName) ??
                             throw new InvalidOperationException(
                                 message: "None type not registered");
-        TypeInfo returnType = original.ReturnType ?? noneType;
+        TypeSymbol returnType = original.ReturnType ?? noneType;
 
         // Lookup[None] degenerates to Result[None]: absent and return are both None,
         // so the only distinction is throw vs no-throw — same as check_.
         if (returnType.Name == NoneTypeName)
         {
-            TypeInfo resultDef = _registry.LookupType(name: "Result") ??
+            TypeSymbol resultDef = _registry.LookupType(name: "Result") ??
                                  throw new InvalidOperationException(
                                      message: "Result type not registered");
-            TypeInfo resultType = _registry.GetOrCreateResolution(
+            TypeSymbol resultType = _registry.GetOrCreateResolution(
                 genericDef: resultDef,
                 typeArguments: [noneType]);
 
@@ -466,12 +464,12 @@ public sealed class ErrorHandlingGenerator
             };
         }
 
-        TypeInfo carrierInner = WrapBareEntityForCarrier(type: returnType);
+        TypeSymbol carrierInner = WrapBareEntityForCarrier(type: returnType);
 
-        TypeInfo lookupDef = _registry.LookupType(name: "Lookup") ??
+        TypeSymbol lookupDef = _registry.LookupType(name: "Lookup") ??
                              throw new InvalidOperationException(
                                  message: "Lookup type not registered");
-        TypeInfo lookupType = _registry.GetOrCreateResolution(
+        TypeSymbol lookupType = _registry.GetOrCreateResolution(
             genericDef: lookupDef,
             typeArguments: [carrierInner]);
 
@@ -507,7 +505,7 @@ public sealed class ErrorHandlingGenerator
     /// carrier-element transforms (e.g., needs-RecordType relaxation) want a single
     /// chokepoint.
     /// </summary>
-    private static TypeInfo WrapBareEntityForCarrier(TypeInfo type)
+    private static TypeSymbol WrapBareEntityForCarrier(TypeSymbol type)
     {
         return type;
     }

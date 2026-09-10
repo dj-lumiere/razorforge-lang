@@ -1,4 +1,4 @@
-using Compiler.Verification.Results;
+using Builder.Verification.Results;
 using TypeModel.Types;
 
 namespace RazorForge.Tests.Analyzer;
@@ -25,11 +25,11 @@ public class MarkerConformanceTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Empty(collection: result.Errors);
 
-        TypeInfo? pointType = result.Registry.LookupType(name: "Point");
+        TypeSymbol? pointType = result.Registry.LookupType(name: "Point");
         Assert.NotNull(@object: pointType);
-        Assert.IsType<RecordTypeInfo>(@object: pointType);
+        Assert.IsType<RecordTypeSymbol>(@object: pointType);
 
-        var record = (RecordTypeInfo)pointType;
+        var record = (RecordTypeSymbol)pointType;
         Assert.Contains(collection: record.ImplementedProtocols,
             filter: p => p.Name == "RecordType");
     }
@@ -55,7 +55,7 @@ public class MarkerConformanceTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Empty(collection: result.Errors);
 
-        var record = (RecordTypeInfo)result.Registry.LookupType(name: "Point")!;
+        var record = (RecordTypeSymbol)result.Registry.LookupType(name: "Point")!;
 
         // Point opts into Equatable/Comparable/Hashable; the `needs P everywhere` gate passes (all
         // members are S32, which obeys them) so each gets a real auto-derived body.
@@ -82,7 +82,7 @@ public class MarkerConformanceTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Empty(collection: result.Errors);
 
-        var record = (RecordTypeInfo)result.Registry.LookupType(name: "Holder")!;
+        var record = (RecordTypeSymbol)result.Registry.LookupType(name: "Holder")!;
         Assert.DoesNotContain(collection: record.ImplementedProtocols,
             filter: p => p.Name == "Equatable");
     }
@@ -100,11 +100,11 @@ public class MarkerConformanceTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Empty(collection: result.Errors);
 
-        TypeInfo? widgetType = result.Registry.LookupType(name: "Widget");
+        TypeSymbol? widgetType = result.Registry.LookupType(name: "Widget");
         Assert.NotNull(@object: widgetType);
-        Assert.IsType<EntityTypeInfo>(@object: widgetType);
+        Assert.IsType<EntityTypeSymbol>(@object: widgetType);
 
-        var entity = (EntityTypeInfo)widgetType;
+        var entity = (EntityTypeSymbol)widgetType;
         Assert.Contains(collection: entity.ImplementedProtocols,
             filter: p => p.Name == "EntityType");
     }
@@ -124,11 +124,11 @@ public class MarkerConformanceTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Empty(collection: result.Errors);
 
-        TypeInfo? colorType = result.Registry.LookupType(name: "Color");
+        TypeSymbol? colorType = result.Registry.LookupType(name: "Color");
         Assert.NotNull(@object: colorType);
-        Assert.IsType<ChoiceTypeInfo>(@object: colorType);
+        Assert.IsType<ChoiceTypeSymbol>(@object: colorType);
 
-        var choice = (ChoiceTypeInfo)colorType;
+        var choice = (ChoiceTypeSymbol)colorType;
         Assert.Contains(collection: choice.ImplementedProtocols,
             filter: p => p.Name == "ChoiceType");
         Assert.Contains(collection: choice.ImplementedProtocols,
@@ -150,11 +150,11 @@ public class MarkerConformanceTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Empty(collection: result.Errors);
 
-        TypeInfo? permType = result.Registry.LookupType(name: "Permission");
+        TypeSymbol? permType = result.Registry.LookupType(name: "Permission");
         Assert.NotNull(@object: permType);
-        Assert.IsType<FlagsTypeInfo>(@object: permType);
+        Assert.IsType<FlagsTypeSymbol>(@object: permType);
 
-        var flags = (FlagsTypeInfo)permType;
+        var flags = (FlagsTypeSymbol)permType;
         Assert.Contains(collection: flags.ImplementedProtocols,
             filter: p => p.Name == "FlagsType");
         Assert.Contains(collection: flags.ImplementedProtocols, filter: p => p.Name == "Hashable");

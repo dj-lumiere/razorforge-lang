@@ -62,18 +62,18 @@ The value/copy rules were reworked into one coherent model.
   (which now folds in the old `release`). Aggregate-steal holes (`steal l[i]`, `steal o.field`) are
   rejected (RF-S622).
 
-## 🪞 Comptime reflection
+## 🪞 Buildtime reflection
 
-A first compile-time reflection surface, for serialization, FFI layout, and GPU-vertex-style codegen.
+A first buildtime reflection surface, for serialization, FFI layout, and GPU-vertex-style codegen.
 
-- **Member listings:** `openmemvarof(T)` / `allmemvarof(T)` enumerate a type's members at compile time.
+- **Member listings:** `openmemvarof(T)` / `allmemvarof(T)` enumerate a type's members at build time.
 - **Metadata intrinsics:** `nameof` / `orderof` / `typeof` / `placeof` (offset) / `sizeof` / `valueof`
   of a member, with full repr-C offset and size folding.
 - **The `$primary` splice** injects a reflected member as code (`me.$nameof(m)` → `me.x`), and `expand m
   in openmemvarof(T)` unrolls a body per member at monomorphization.
 - **SoA collections:** `SplitList` / `SplitArray` store a record's fields as parallel arrays, gated on
   `needs T is SplittableType`.
-- **Comptime-value const generics** (`${...}`) for sizes and counts.
+- **Buildtime-value const generics** (`${...}`) for sizes and counts.
 - `represent` / `diagnose` / `serialize` are now **universal built-ins** (every type has them) rather
   than opt-in protocols — the `Representable` / `Diagnosable` / `Serializable` protocols are removed.
 
@@ -111,15 +111,15 @@ Internal-only, but load-bearing for correctness and future speed.
 
 ## ✅ Tests
 
-Full suite green — **1,511 unit + analyzer tests** and the single-compile stdlib harness (**188
-fixtures**, including the C-FFI, ABI struct-by-value, comptime-reflection, realm, and Suflae-equivalence
+Full suite green — **1,511 unit + analyzer tests** and the single-build stdlib harness (**188
+fixtures**, including the C-FFI, ABI struct-by-value, buildtime-reflection, realm, and Suflae-equivalence
 fixtures). CI green on Linux, macOS, and Windows.
 
 ## 🔮 Suflae arrives
 
 **Suflae** — the sharing-first sister language that hides RazorForge's memory-management surface behind a
 biased-refcount `Roamed` runtime — ships its **first preview** as a separate `sf-v0.1.0` release. The
-same compiler binary runs it (`suflae hello.sf`, or any `.sf` file). See the Suflae v0.1.0 release notes
+same builder binary runs it (`suflae hello.sf`, or any `.sf` file). See the Suflae v0.1.0 release notes
 for scope.
 
 ## ⚠️ Not yet

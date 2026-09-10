@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Build metadata surfaced from the csproj PropertyGroup via <c>&lt;AssemblyMetadata&gt;</c> — the single
@@ -8,7 +8,7 @@ namespace Compiler.Declaration;
 /// <c>&lt;SuflaeVersion&gt;</c> in the csproj, never a literal in code.
 /// </summary>
 /// <remarks>
-/// Read by the CLI version banner (<c>Builder.Program</c>) and by the compile-time-folded BuilderQuery
+/// Read by the CLI version banner (<c>Builder.Execution.Program</c>) and by the compile-time-folded BuilderQuery
 /// <c>builder_version()</c> intrinsic (<c>WiredRoutinePass</c>), which selects the line by the compiled
 /// language. Both live in this assembly, so <c>typeof(BuildInfo).Assembly</c> carries the attributes.
 /// </remarks>

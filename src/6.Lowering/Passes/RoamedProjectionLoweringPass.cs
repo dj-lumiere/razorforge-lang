@@ -1,9 +1,9 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Suflae <c>Roamed[E]</c> receiver-transparency lowering. A Suflae local promoted to
@@ -70,7 +70,7 @@ internal sealed class RoamedProjectionLoweringPass(PostprocessingContext ctx) : 
             return call;
         }
 
-        TypeInfo? receiverType = member.Object.ResolvedType;
+        TypeSymbol? receiverType = member.Object.ResolvedType;
         if (receiverType is null)
         {
             return call;
@@ -120,8 +120,8 @@ internal sealed class RoamedProjectionLoweringPass(PostprocessingContext ctx) : 
     // real, already-resolved call. Reachability seeds control via ImplicitCallContract.ForLiveType, so
     // the target is live/monomorphized. The access lock is applied around the enclosing statement by
     // RoamedLockBracketLoweringPass (which recognizes this control() coercion), so the deref is safe.
-    private Expression MakeControlCall(Expression receiver, TypeInfo receiverType,
-        TypeInfo innerType)
+    private Expression MakeControlCall(Expression receiver, TypeSymbol receiverType,
+        TypeSymbol innerType)
     {
         RoutineInfo? control = Registry.LookupMemberRoutine(type: receiverType,
             memberRoutineName: RuntimeContract.Control);

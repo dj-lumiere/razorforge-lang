@@ -4,7 +4,7 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// LLVM intrinsic call emission — template-based IR generation for
@@ -19,7 +19,7 @@ public partial class LlvmEmitter
     /// </summary>
     private string EmitLlvmIntrinsicCall(StringBuilder sb, RoutineInfo routine, string? receiver,
         List<Expression> arguments, List<TypeExpression>? typeArguments,
-        TypeInfo? resolvedReturnType = null)
+        TypeSymbol? resolvedReturnType = null)
     {
         // Named arguments may be written out of order; the template substitution and generic
         // inference below bind args to parameters positionally, so reorder into declaration order
@@ -143,16 +143,16 @@ public partial class LlvmEmitter
 
     /// <summary>
     /// Builds a param-name → numeric-value map. Prefers the routine's resolved TypeArguments (so
-    /// ConstGenericValueTypeInfo.Value is exact), falling back to parsing llvmTypeArgs strings.
+    /// ConstGenericValueTypeSymbol.Value is exact), falling back to parsing llvmTypeArgs strings.
     /// </summary>
     private static Dictionary<string, long> BuildConstParamValues(List<string> genericParameters,
-        List<TypeInfo>? routineTypeArgs, List<string> llvmTypeArgs)
+        List<TypeSymbol>? routineTypeArgs, List<string> llvmTypeArgs)
     {
         var paramValues = new Dictionary<string, long>(comparer: StringComparer.Ordinal);
         for (int i = 0; i < genericParameters.Count; i++)
         {
             if (routineTypeArgs is { } rta && i < rta.Count &&
-                rta[index: i] is ConstGenericValueTypeInfo constVal)
+                rta[index: i] is ConstGenericValueTypeSymbol constVal)
             {
                 paramValues[key: genericParameters[index: i]] = constVal.Value;
                 continue;
@@ -186,7 +186,7 @@ public partial class LlvmEmitter
         try
         {
             long val =
-                RecordTypeInfo.EvaluateConstExprPublic(expr: hole, paramValues: paramValues);
+                RecordTypeSymbol.EvaluateConstExprPublic(expr: hole, paramValues: paramValues);
             sb.Append(value: val);
         }
         catch
@@ -196,7 +196,7 @@ public partial class LlvmEmitter
     }
 
     private List<string> InferLlvmIntrinsicTypeArguments(RoutineInfo routine,
-        List<Expression> arguments, TypeInfo? resolvedReturnType)
+        List<Expression> arguments, TypeSymbol? resolvedReturnType)
     {
         if (routine.TypeArguments is { Count: > 0 })
         {
@@ -212,11 +212,11 @@ public partial class LlvmEmitter
             return [];
         }
 
-        var inferred = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
+        var inferred = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal);
         var inferredLlvmTypes = new Dictionary<string, string>(comparer: StringComparer.Ordinal);
         for (int i = 0; i < routine.Parameters.Count && i < arguments.Count; i++)
         {
-            TypeInfo? argType = GetExpressionType(expr: arguments[index: i]);
+            TypeSymbol? argType = GetExpressionType(expr: arguments[index: i]);
             if (argType != null)
             {
                 InferGenericBindings(pattern: routine.Parameters[index: i].Type,
@@ -230,7 +230,7 @@ public partial class LlvmEmitter
         }
 
         if (resolvedReturnType != null && routine.ReturnType != null &&
-            resolvedReturnType is not GenericParameterTypeInfo)
+            resolvedReturnType is not GenericParameterTypeSymbol)
         {
             InferGenericBindings(pattern: routine.ReturnType,
                 concrete: resolvedReturnType,
@@ -243,7 +243,7 @@ public partial class LlvmEmitter
         var llvmTypeArgs = new List<string>(capacity: genericParameters.Count);
         foreach (string genericParam in genericParameters)
         {
-            if (inferred.TryGetValue(key: genericParam, value: out TypeInfo? concreteType))
+            if (inferred.TryGetValue(key: genericParam, value: out TypeSymbol? concreteType))
             {
                 llvmTypeArgs.Add(item: GetLlvmIntrinsicTypeArgument(type: concreteType));
                 continue;
@@ -262,24 +262,24 @@ public partial class LlvmEmitter
         return llvmTypeArgs;
     }
 
-    private string GetLlvmIntrinsicTypeArgument(TypeInfo type)
+    private string GetLlvmIntrinsicTypeArgument(TypeSymbol type)
     {
-        return type is ConstGenericValueTypeInfo constValue
+        return type is ConstGenericValueTypeSymbol constValue
             ? constValue.Value.ToString()
             : GetLlvmType(type: type);
     }
 
-    private static void InferGenericBindings(TypeInfo pattern, TypeInfo concrete,
-        Dictionary<string, TypeInfo> inferred)
+    private static void InferGenericBindings(TypeSymbol pattern, TypeSymbol concrete,
+        Dictionary<string, TypeSymbol> inferred)
     {
-        if (pattern is GenericParameterTypeInfo genericParam)
+        if (pattern is GenericParameterTypeSymbol genericParam)
         {
             inferred.TryAdd(key: genericParam.Name, value: concrete);
             return;
         }
 
-        if (pattern is RoutineTypeInfo patternRoutine &&
-            concrete is RoutineTypeInfo concreteRoutine)
+        if (pattern is RoutineTypeSymbol patternRoutine &&
+            concrete is RoutineTypeSymbol concreteRoutine)
         {
             InferRoutineBindings(patternRoutine: patternRoutine,
                 concreteRoutine: concreteRoutine,
@@ -287,7 +287,7 @@ public partial class LlvmEmitter
             return;
         }
 
-        if (pattern is TupleTypeInfo patternTuple && concrete is TupleTypeInfo concreteTuple)
+        if (pattern is TupleTypeSymbol patternTuple && concrete is TupleTypeSymbol concreteTuple)
         {
             InferPairwiseBindings(patterns: patternTuple.ElementTypes,
                 concretes: concreteTuple.ElementTypes,
@@ -305,8 +305,8 @@ public partial class LlvmEmitter
     }
 
     /// <summary>Infers generic bindings from a routine pattern's parameter + return types.</summary>
-    private static void InferRoutineBindings(RoutineTypeInfo patternRoutine,
-        RoutineTypeInfo concreteRoutine, Dictionary<string, TypeInfo> inferred)
+    private static void InferRoutineBindings(RoutineTypeSymbol patternRoutine,
+        RoutineTypeSymbol concreteRoutine, Dictionary<string, TypeSymbol> inferred)
     {
         InferPairwiseBindings(patterns: patternRoutine.ParameterTypes,
             concretes: concreteRoutine.ParameterTypes,
@@ -320,8 +320,8 @@ public partial class LlvmEmitter
     }
 
     /// <summary>Infers generic bindings pairwise across two positionally-aligned type lists.</summary>
-    private static void InferPairwiseBindings(List<TypeInfo> patterns, List<TypeInfo> concretes,
-        Dictionary<string, TypeInfo> inferred)
+    private static void InferPairwiseBindings(List<TypeSymbol> patterns, List<TypeSymbol> concretes,
+        Dictionary<string, TypeSymbol> inferred)
     {
         for (int i = 0; i < patterns.Count && i < concretes.Count; i++)
         {
@@ -331,10 +331,10 @@ public partial class LlvmEmitter
         }
     }
 
-    private static void InferGenericLlvmBindings(TypeInfo pattern, string concreteLlvmType,
+    private static void InferGenericLlvmBindings(TypeSymbol pattern, string concreteLlvmType,
         Dictionary<string, string> inferredLlvmTypes)
     {
-        if (pattern is GenericParameterTypeInfo genericParam)
+        if (pattern is GenericParameterTypeSymbol genericParam)
         {
             inferredLlvmTypes.TryAdd(key: genericParam.Name, value: concreteLlvmType);
         }
@@ -584,9 +584,9 @@ public partial class LlvmEmitter
         }
 
         // Overflow intrinsics return anonymous struct types like { i128, i1 }.
-        // If the memberRoutine's return type is a TupleTypeInfo, coerce via extractvalue/insertvalue
+        // If the memberRoutine's return type is a TupleTypeSymbol, coerce via extractvalue/insertvalue
         // so the caller receives the named LLVM type (%"Record.Tuple[...]").
-        if (lastResult != null && memberRoutine.ReturnType is TupleTypeInfo tupleReturn)
+        if (lastResult != null && memberRoutine.ReturnType is TupleTypeSymbol tupleReturn)
         {
             return CoerceAnonStructToNamedTuple(sb: sb,
                 tupleReturn: tupleReturn,
@@ -651,7 +651,7 @@ public partial class LlvmEmitter
         }
 
         // Arithmetic holes over const generic params: {(N+7)//8}, {N*2}, etc.
-        // BackendType templates (resolved in RecordTypeInfo.CreateInstance) handle these
+        // BackendType templates (resolved in RecordTypeSymbol.CreateInstance) handle these
         // already; @llvm_ir templates need the same support so e.g. BitArray[N]'s
         // byte_at_bits intrinsic emits `[1 x i8]` for N=8 instead of `[{(N+7)//8} x i8]`.
         substituted = ResolveArithmeticHoles(template: substituted,
@@ -666,7 +666,7 @@ public partial class LlvmEmitter
     /// <c>{ i128, i1 }</c>) into the named tuple LLVM type via per-element extractvalue/insertvalue,
     /// Bool-zext'ing each element to its i8 storage form. Returns the built named-tuple SSA value.
     /// </summary>
-    private string CoerceAnonStructToNamedTuple(StringBuilder sb, TupleTypeInfo tupleReturn,
+    private string CoerceAnonStructToNamedTuple(StringBuilder sb, TupleTypeSymbol tupleReturn,
         string lastResult)
     {
         string namedType = GetLlvmType(type: tupleReturn);
@@ -678,7 +678,7 @@ public partial class LlvmEmitter
             string elem = NextTemp();
             EmitLine(sb: sb, line: $"  {elem} = extractvalue {anonType} {lastResult}, {i}");
             // The named tuple stores a Bool element as i8 — zext the i1 from the anon result.
-            TypeInfo elemType = tupleReturn.ElementTypes[index: i];
+            TypeSymbol elemType = tupleReturn.ElementTypes[index: i];
             elem = CoerceBoolToStorage(sb: sb, value: elem, fieldType: elemType);
             string ins = NextTemp();
             EmitLine(sb: sb,
@@ -696,12 +696,12 @@ public partial class LlvmEmitter
     /// </summary>
     private string ResolveTypeExpressionToLlvm(TypeExpression typeExpr)
     {
-        if (typeExpr.ResolvedType is { } resolvedType and not ErrorTypeInfo)
+        if (typeExpr.ResolvedType is { } resolvedType and not ErrorTypeSymbol)
         {
             return GetLlvmType(type: ApplyTypeSubstitutions(type: resolvedType));
         }
 
-        TypeInfo? type = _registry.LookupType(name: typeExpr.Name);
+        TypeSymbol? type = _registry.LookupType(name: typeExpr.Name);
         if (type != null)
         {
             return type.IsGenericDefinition && typeExpr.GenericArguments is { Count: > 0 }
@@ -720,20 +720,20 @@ public partial class LlvmEmitter
     /// preferring a registered full-name instance, else resolving the arguments and instantiating.
     /// Falls back to the bare generic-definition LLVM type when the arity doesn't match.
     /// </summary>
-    private string ResolveGenericDefinitionLlvm(TypeExpression typeExpr, TypeInfo genericDef)
+    private string ResolveGenericDefinitionLlvm(TypeExpression typeExpr, TypeSymbol genericDef)
     {
         string fullName =
             $"{typeExpr.Name}[{string.Join(separator: ", ", values: typeExpr.GenericArguments!.Select(selector: g => g.Name))}]";
-        TypeInfo? fullType = _registry.LookupType(name: fullName);
+        TypeSymbol? fullType = _registry.LookupType(name: fullName);
         if (fullType != null)
         {
             return GetLlvmType(type: fullType);
         }
 
-        var resolvedArgs = new List<TypeInfo>();
+        var resolvedArgs = new List<TypeSymbol>();
         foreach (TypeExpression ga in typeExpr.GenericArguments!)
         {
-            TypeInfo? r = ResolveTypeArgument(ta: ga);
+            TypeSymbol? r = ResolveTypeArgument(ta: ga);
             if (r != null)
             {
                 resolvedArgs.Add(item: r);
@@ -765,7 +765,7 @@ public partial class LlvmEmitter
                                   expr: a is NamedArgumentExpression na
                                       ? na.Value
                                       : a))
-                             .OfType<TypeInfo>()
+                             .OfType<TypeSymbol>()
                              .ToList());
         }
 

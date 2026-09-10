@@ -8,12 +8,12 @@ namespace TypeModel.Types;
 /// Variants are local-only and unmodifiable with no memberRoutines.
 /// Members are types — the type IS the tag. No named cases.
 /// </summary>
-// Variant is a value type ({ i64 tag, [payload] } aggregate, like a record) → extends RecordTypeInfo,
+// Variant is a value type ({ i64 tag, [payload] } aggregate, like a record) → extends RecordTypeSymbol,
 // sharing MemberVariables / ImplementedProtocols / AssociatedTypeBindings / GenericDefinition. Variant
-// arm data lives in Members. NOTE: any codegen/lifecycle switch that handles RecordTypeInfo must place
-// a `case VariantTypeInfo` FIRST where variant semantics differ (tag+payload layout, not record fields)
+// arm data lives in Members. NOTE: any codegen/lifecycle switch that handles RecordTypeSymbol must place
+// a `case VariantTypeSymbol` FIRST where variant semantics differ (tag+payload layout, not record fields)
 // — a missing Variant case silently treats a variant as a record (wrong copy/diagnose/serialize).
-public sealed class VariantTypeInfo : RecordTypeInfo
+public sealed class VariantTypeSymbol : RecordTypeSymbol
 {
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.Variant;
@@ -24,10 +24,10 @@ public sealed class VariantTypeInfo : RecordTypeInfo
     public List<VariantMemberInfo> Members { get; set; } = [];
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="VariantTypeInfo"/> class.
+    /// Initializes a new instance of the <see cref="VariantTypeSymbol"/> class.
     /// </summary>
     /// <param name="name">The name of the variant type.</param>
-    public VariantTypeInfo(string name) : base(name: name)
+    public VariantTypeSymbol(string name) : base(name: name)
     {
     }
 
@@ -36,7 +36,7 @@ public sealed class VariantTypeInfo : RecordTypeInfo
     /// </summary>
     /// <param name="type">The type to look up.</param>
     /// <returns>The matching member info, or null if not found.</returns>
-    public VariantMemberInfo? FindMember(TypeInfo type)
+    public VariantMemberInfo? FindMember(TypeSymbol type)
     {
         return Members.FirstOrDefault(predicate: member => member.Type?.Name == type.Name);
     }
@@ -65,7 +65,7 @@ public sealed class VariantTypeInfo : RecordTypeInfo
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">Thrown if this is not a generic definition.</exception>
     /// <exception cref="ArgumentException">Thrown if the number of type arguments doesn't match.</exception>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         if (!IsGenericDefinition)
         {
@@ -81,7 +81,7 @@ public sealed class VariantTypeInfo : RecordTypeInfo
         }
 
         // Create type parameter substitution map
-        var substitution = new Dictionary<string, TypeInfo>();
+        var substitution = new Dictionary<string, TypeSymbol>();
         for (int i = 0; i < GenericParameters.Count; i++)
         {
             substitution[key: GenericParameters[index: i]] = typeArguments[index: i];
@@ -97,7 +97,7 @@ public sealed class VariantTypeInfo : RecordTypeInfo
         string resolvedName = $"{Name}[{string.Join(separator: ", ",
             values: typeArguments.Select(selector: t => t.Name))}]";
 
-        return new VariantTypeInfo(name: resolvedName)
+        return new VariantTypeSymbol(name: resolvedName)
         {
             Members = substitutedMembers,
             TypeArguments = typeArguments,
@@ -113,14 +113,14 @@ public sealed class VariantTypeInfo : RecordTypeInfo
     /// Substitutes the type in a member for generic resolution.
     /// </summary>
     private static VariantMemberInfo SubstituteMemberType(VariantMemberInfo memberInfo,
-        Dictionary<string, TypeInfo> substitution)
+        Dictionary<string, TypeSymbol> substitution)
     {
         if (memberInfo.IsNone)
         {
             return memberInfo; // None state has no type to substitute
         }
 
-        TypeInfo substitutedType =
+        TypeSymbol substitutedType =
             SubstituteType(type: memberInfo.Type!, substitution: substitution);
         if (substitutedType == memberInfo.Type)
         {
@@ -133,10 +133,10 @@ public sealed class VariantTypeInfo : RecordTypeInfo
     /// <summary>
     /// Recursively substitutes type parameters in a type.
     /// </summary>
-    private static new TypeInfo SubstituteType(TypeInfo type,
-        Dictionary<string, TypeInfo> substitution)
+    private static new TypeSymbol SubstituteType(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitution)
     {
-        if (substitution.TryGetValue(key: type.Name, value: out TypeInfo? substituted))
+        if (substitution.TryGetValue(key: type.Name, value: out TypeSymbol? substituted))
         {
             return substituted;
         }
@@ -148,7 +148,7 @@ public sealed class VariantTypeInfo : RecordTypeInfo
                                    SubstituteType(type: arg, substitution: substitution))
                               .ToList();
 
-            if (type is VariantTypeInfo { GenericDefinition: not null } variantType)
+            if (type is VariantTypeSymbol { GenericDefinition: not null } variantType)
             {
                 return variantType.GenericDefinition.CreateInstance(typeArguments: newArgs);
             }

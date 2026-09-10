@@ -1,11 +1,9 @@
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Types;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {
@@ -39,13 +37,13 @@ public sealed partial class SemanticVerifier
                        !_registry.IsVariableProvenNonNull(name: id.Name);
 
             // A read of an optional entity field (`obj.optField`). The field's IsNullable is set in
-            // TypeBodyResolver. At SA time the object type is the bare EntityTypeInfo (Roamed lowering
+            // TypeBodyResolver. At SA time the object type is the bare EntityTypeSymbol (Roamed lowering
             // is a later phase), so look the field up directly on the entity.
             case MemberExpression m:
             {
                 TypeSymbol objType =
                     m.Object.ResolvedType ?? AnalyzeExpression(expression: m.Object);
-                return objType is EntityTypeInfo entity &&
+                return objType is EntityTypeSymbol entity &&
                        entity.LookupMemberVariable(memberVariableName: m.MemberName) is
                            { IsNullable: true };
             }
@@ -56,13 +54,13 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Suflae: true if the type is an entity reference (a bare <c>EntityTypeInfo</c> or a
+    /// Suflae: true if the type is an entity reference (a bare <c>EntityTypeSymbol</c> or a
     /// <c>Roamed[E]</c> handle) — i.e. something that participates in nullability flow analysis.
     /// </summary>
     private bool IsEntityRefType(TypeSymbol type)
     {
-        return _registry.Language == Language.Suflae && (type is EntityTypeInfo ||
-                                                         type is RecordTypeInfo
+        return _registry.Language == Language.Suflae && (type is EntityTypeSymbol ||
+                                                         type is RecordTypeSymbol
                                                          {
                                                              GenericDefinition.Name:
                                                              Declaration.RuntimeContract.Roamed
@@ -73,7 +71,7 @@ public sealed partial class SemanticVerifier
     /// Suflae: reports a possibly-none value flowing into a non-nullable entity slot (field, variable, or
     /// parameter). The message adapts: a literal <c>none</c> gets the crisp "Cannot assign 'none'" wording,
     /// any other possibly-none value gets "Cannot assign a possibly-none value … null-check it first".
-    /// Uses <see cref="Compiler.Diagnostics.SemanticDiagnosticCode.AssignmentTypeMismatch"/> (RF-S252),
+    /// Uses <see cref="Builder.Diagnostics.SemanticDiagnosticCode.AssignmentTypeMismatch"/> (RF-S252),
     /// consistent with the construction/assignment none-checks.
     /// </summary>
     private void ReportNullableIntoNonNull(string target, Expression value, string optionalHint)
@@ -121,18 +119,18 @@ public sealed partial class SemanticVerifier
         return annotated switch
         {
             // bare `E` -> non-null Roamed[E]
-            EntityTypeInfo entity => (
+            EntityTypeSymbol entity => (
                 _registry.GetOrCreateResolution(genericDef: roamedDef, typeArguments: [entity]),
                 false, true),
             // `E?` (= Maybe[E]) -> nullable Roamed[E]
-            RecordTypeInfo
+            RecordTypeSymbol
             {
-                GenericDefinition.Name: "Maybe", TypeArguments: [EntityTypeInfo inner]
+                GenericDefinition.Name: "Maybe", TypeArguments: [EntityTypeSymbol inner]
             } => (
                 _registry.GetOrCreateResolution(genericDef: roamedDef, typeArguments: [inner]),
                 true, true),
             // Already a Roamed[E] (e.g. an annotation that spelled the wrapper directly) — non-null slot.
-            RecordTypeInfo { GenericDefinition.Name: Declaration.RuntimeContract.Roamed } => (
+            RecordTypeSymbol { GenericDefinition.Name: Declaration.RuntimeContract.Roamed } => (
                 annotated, false, true),
             _ => (annotated, false, false)
         };

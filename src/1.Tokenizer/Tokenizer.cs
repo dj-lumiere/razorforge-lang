@@ -1,8 +1,8 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using System.Globalization;
 using TypeModel.Enums;
 
-namespace Compiler.Tokenizer;
+namespace Builder.Tokenizer;
 
 /// <summary>
 /// Unified tokenizer for both RazorForge and Suflae programming languages.
@@ -241,7 +241,7 @@ public partial class Tokenizer
             _keywords[key: "dangerous"] = TokenType.Dangerous;
             _keywords[key: "steal"] = TokenType.Steal;
             _keywords[key: "threaded"] = TokenType.Threaded;
-            // Comptime reflection is RF's model (monomorph unroll). Suflae's reflection is the runtime
+            // Buildtime reflection is RF's model (monomorph unroll). Suflae's reflection is the runtime
             // ObjectHacker (later); SF inherits the RF-mode-compiled stdlib derives via wholesale Core
             // reuse, so it never needs `expand` itself. `expand` is the ONLY reflection keyword; the sources
             // (`openmemvarof`/`allmemvarof`/`caseof`/`branchof`) and accessors (`nameof`/`typeof`/…)

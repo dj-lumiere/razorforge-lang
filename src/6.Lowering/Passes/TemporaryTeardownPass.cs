@@ -1,10 +1,10 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification;
+using Builder.Verification;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// RAII teardown for owned <b>rvalue temporaries</b> — the heap-owning intermediate values that
@@ -57,7 +57,7 @@ namespace Compiler.Lowering.Passes;
 /// </summary>
 internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
 {
-    private readonly TypeInfo? _blankType = ctx.Registry.LookupType(name: "None");
+    private readonly TypeSymbol? _blankType = ctx.Registry.LookupType(name: "None");
     private int _counter;
 
     /// <summary>The reference primitives whose result is a borrow of a referent owned elsewhere —
@@ -80,7 +80,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         return RuntimeContract.StorePrimitives.Contains(item: calleeName);
     }
 
-    private sealed record Spill(string Name, TypeInfo Type, RoutineInfo Destroy, Expression Init);
+    private sealed record Spill(string Name, TypeSymbol Type, RoutineInfo Destroy, Expression Init);
 
     public void Run(Program program)
     {
@@ -398,7 +398,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
             return SpillAround(owner: owner, root: rhs, rebuildWithCondition: rebuild);
         }
 
-        TypeInfo t = target.ResolvedType!;
+        TypeSymbol t = target.ResolvedType!;
         RoutineInfo destroy = ctx.Registry.GetLifecycle(type: t)
                                  .Destroy!;
         var spills = new List<Spill>();
@@ -449,9 +449,9 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
     /// field) that is neither a <c>HasRCMemberVariables</c> record nor an RC wrapper (both released by
     /// codegen). Scalars (no retaining copy) and entities (handled by ScopeTeardownLoweringPass) are
     /// excluded.</summary>
-    private bool IsManagedLeafReassignTarget(TypeInfo? t)
+    private bool IsManagedLeafReassignTarget(TypeSymbol? t)
     {
-        if (t is not RecordTypeInfo rec || rec.HasRCMemberVariables)
+        if (t is not RecordTypeSymbol rec || rec.HasRCMemberVariables)
         {
             return false;
         }
@@ -556,7 +556,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         // bare entity (STRUCTURAL: entity receiver + RC-wrapper result) moves it into the
         // controller — in both cases the receiver is not a fresh producer to tear down here.
         bool receiverConsumed = m.MemberName is "assign" or "duplicate" ||
-                                m.Object.ResolvedType is EntityTypeInfo &&
+                                m.Object.ResolvedType is EntityTypeSymbol &&
                                 call.ResolvedType is { } rcCtorRes &&
                                 TypeRegistry.GetRcWrapperBaseName(type: rcCtorRes) is not null;
         Expression newRecv = Visit(e: m.Object, objectPos: false, spills: spills);
@@ -611,7 +611,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
 
     private IdentifierExpression MakeSpill(Expression producer, List<Spill> spills)
     {
-        TypeInfo type = producer.ResolvedType!;
+        TypeSymbol type = producer.ResolvedType!;
         RoutineInfo destroy = ctx.Registry.GetLifecycle(type: type)
                                  .Destroy!;
         string name = $"__tt_{_counter++}";
@@ -641,7 +641,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
             return false;
         }
 
-        TypeInfo? t = e.ResolvedType;
+        TypeSymbol? t = e.ResolvedType;
         if (t is null)
         {
             return false;
@@ -658,21 +658,21 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         // an extra balanced release is always safe. Entities are deliberately excluded for now (their
         // single-owner lifetime and fluent `me` returns are trickier to prove alias-free); plain value
         // records / scalars have a no-op destroy and would only bloat the IR.
-        return t is RecordTypeInfo rec && (lc.Store != null || rec.HasRCMemberVariables);
+        return t is RecordTypeSymbol rec && (lc.Store != null || rec.HasRCMemberVariables);
     }
 
     /// <summary>True when a call result MAY be a borrow/view pointing into the receiver, so freeing
     /// the receiver after the call could dangle it. Borrow/view wrappers and unknown/abstract results
     /// are treated as possibly-aliasing; scalars, value/RC records, RC wrappers, entities, and
     /// <c>None</c> are independent of an RC-record receiver and safe.</summary>
-    private static bool ResultMayAliasReceiver(TypeInfo? resultType)
+    private static bool ResultMayAliasReceiver(TypeSymbol? resultType)
     {
         return resultType switch
         {
             null => true,
-            GenericParameterTypeInfo => true,
-            ProtocolTypeInfo => true,
-            WrapperTypeInfo w => BorrowWrapperNames.Contains(item: w.Name),
+            GenericParameterTypeSymbol => true,
+            ProtocolTypeSymbol => true,
+            WrapperTypeSymbol w => BorrowWrapperNames.Contains(item: w.Name),
             _ => false
         };
     }
@@ -685,7 +685,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
             loc: loc);
     }
 
-    private ExpressionStatement MakeDestroyCall(string name, TypeInfo type, RoutineInfo destroy,
+    private ExpressionStatement MakeDestroyCall(string name, TypeSymbol type, RoutineInfo destroy,
         SourceLocation loc)
     {
         var ident = new IdentifierExpression(Name: name, Location: loc) { ResolvedType = type };

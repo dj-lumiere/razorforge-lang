@@ -1,7 +1,7 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 
-namespace Compiler.Verification.Results;
+namespace Builder.Verification.Results;
 
 /// <summary>
 /// Represents a semantic warning during analysis.

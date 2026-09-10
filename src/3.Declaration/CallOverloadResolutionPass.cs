@@ -1,13 +1,13 @@
-using Compiler.Desugaring.Passes;
-using Compiler.Lowering;
-using Compiler.Instantiation;
+using Builder.Desugaring.Passes;
+using Builder.Lowering;
+using Builder.Instantiation;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification;
-using Compiler.Desugaring;
+using Builder.Verification;
+using Builder.Desugaring;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Post-instantiation pass that resolves overloads and assigns <see cref="CallLoweringKind"/>
@@ -37,7 +37,7 @@ internal sealed class CallOverloadResolutionPass
     // Per-body local-variable types (name → declared/inferred type), populated as the walk visits declarations
     // in order. Recovers a monomorphized body's member-call receiver whose reference ResolvedType is null
     // (`n.eq(...)` where `var n = me.count()`). Cleared per top-level body via WalkBody.
-    private readonly Dictionary<string, TypeInfo> _localVarTypes =
+    private readonly Dictionary<string, TypeSymbol> _localVarTypes =
         new(comparer: StringComparer.Ordinal);
 
     /// <summary>
@@ -111,11 +111,11 @@ internal sealed class CallOverloadResolutionPass
     /// cascading from it, e.g. `var n = me.count()`) arrive un-typed.
     /// </summary>
     public void RunOnBodiesWithOwners(
-        IEnumerable<(Statement body, TypeInfo? owner, IReadOnlyList<ParameterInfo>? parameters)>
+        IEnumerable<(Statement body, TypeSymbol? owner, IReadOnlyList<ParamInfo>? parameters)>
             bodies)
     {
-        foreach ((Statement body, TypeInfo? owner,
-                     IReadOnlyList<ParameterInfo>? parameters) in bodies)
+        foreach ((Statement body, TypeSymbol? owner,
+                     IReadOnlyList<ParamInfo>? parameters) in bodies)
         {
             WalkBody(body: body, owner: owner, parameters: parameters);
         }
@@ -124,7 +124,7 @@ internal sealed class CallOverloadResolutionPass
     /// <summary>
     /// Classifies all <see cref="CallExpression"/> nodes inside synthesized derived-operator bodies
     /// (ne, lt, le, gt, ge, notcontains). These bodies are built by
-    /// <see cref="Compiler.Instantiation.DerivedOperatorPass"/> with <c>ResolvedRoutine</c> set but
+    /// <see cref="Builder.Instantiation.DerivedOperatorPass"/> with <c>ResolvedRoutine</c> set but
     /// <c>LoweringKind = Unknown</c>; this pass fills in the missing kind before codegen.
     /// </summary>
     public void RunOnSynthesizedBodies()
@@ -158,18 +158,18 @@ internal sealed class CallOverloadResolutionPass
 
     /// <summary>True when <paramref name="type"/> still carries a generic parameter (directly or nested in a
     /// type argument) — i.e. it is not yet a fully-concrete monomorphized type.</summary>
-    private static bool TypeContainsGenericParameter(TypeInfo type)
+    private static bool TypeContainsGenericParameter(TypeSymbol type)
     {
-        return type is GenericParameterTypeInfo or ProtocolSelfTypeInfo
-                   or ComptimeConstGenericTypeInfo ||
+        return type is GenericParameterTypeSymbol or ProtocolSelfTypeSymbol
+                   or BuildtimeConstGenericTypeSymbol ||
                (type.TypeArguments?.Any(predicate: TypeContainsGenericParameter) ?? false);
     }
 
     /// <summary>Walks one top-level routine body, resetting the per-body local-variable type scope first.
     /// When <paramref name="owner"/> is known (a monomorphized member routine), seeds the implicit receiver
     /// `me` so a variant/monomorph clone that left `me` un-typed can still resolve `me.count()` etc.</summary>
-    private void WalkBody(Statement? body, TypeInfo? owner = null,
-        IReadOnlyList<ParameterInfo>? parameters = null)
+    private void WalkBody(Statement? body, TypeSymbol? owner = null,
+        IReadOnlyList<ParamInfo>? parameters = null)
     {
         if (body == null)
         {
@@ -177,21 +177,21 @@ internal sealed class CallOverloadResolutionPass
         }
 
         _localVarTypes.Clear();
-        if (owner is { } o and not ErrorTypeInfo)
+        if (owner is { } o and not ErrorTypeSymbol)
         {
             _localVarTypes[key: "me"] = o;
         }
 
         // Seed the routine's PARAMETERS so a bare param reference used as a member-call receiver resolves.
-        // A comptime-`expand` monomorph body (SplitArray.getitem's `index >= N` → `index.ge(N)`) leaves the
+        // A buildtime-`expand` monomorph body (SplitArray.getitem's `index >= N` → `index.ge(N)`) leaves the
         // `index` reference un-typed (the clone doesn't re-annotate every ref), so without this the receiver
         // type is unknown and `.ge` reaches codegen unresolved. Concrete param types only (skip any that
         // still carry a generic parameter).
         if (parameters != null)
         {
-            foreach (ParameterInfo p in parameters)
+            foreach (ParamInfo p in parameters)
             {
-                if (p.Type is { } pt and not ErrorTypeInfo &&
+                if (p.Type is { } pt and not ErrorTypeSymbol &&
                     !TypeContainsGenericParameter(type: pt))
                 {
                     _localVarTypes[key: p.Name] = pt;
@@ -255,7 +255,7 @@ internal sealed class CallOverloadResolutionPass
                 WalkExpression(expr: vd.Initializer);
                 // Track the local's inferred type (from the walked initializer) so a later member call on a
                 // reference to it can recover a receiver type the monomorph clone left un-annotated.
-                if (vd.Initializer.ResolvedType is { } vt and not ErrorTypeInfo)
+                if (vd.Initializer.ResolvedType is { } vt and not ErrorTypeSymbol)
                 {
                     _localVarTypes[key: vd.Name] = vt;
                 }
@@ -502,7 +502,7 @@ internal sealed class CallOverloadResolutionPass
             return;
         }
 
-        List<TypeInfo> argTypes =
+        List<TypeSymbol> argTypes =
             CollectCallArgTypes(call: call, allKnown: out bool allArgTypesKnown);
 
         switch (call.Callee)
@@ -524,15 +524,15 @@ internal sealed class CallOverloadResolutionPass
 
     /// <summary>
     /// Backfills a null/Error ResolvedType on an already-resolved call from the routine's concrete return type.
-    /// Skips ProtocolTypeInfo returns — those are handled by the stale-protocol re-resolve path in
+    /// Skips ProtocolTypeSymbol returns — those are handled by the stale-protocol re-resolve path in
     /// <see cref="IsStaleProtocolReturn"/>, which forces a full re-resolution rather than a naive backfill
     /// (a naive backfill of iter() would recurse into RangeEmittable[RangeEmittable[…]]).
     /// </summary>
     private static void TryBackfillAlreadyResolvedType(CallExpression call)
     {
         if (call.ResolvedRoutine is { ReturnType: { } rrRet } &&
-            rrRet is not ProtocolTypeInfo and not ErrorTypeInfo &&
-            call.ResolvedType is null or ErrorTypeInfo)
+            rrRet is not ProtocolTypeSymbol and not ErrorTypeSymbol &&
+            call.ResolvedType is null or ErrorTypeSymbol)
         {
             call.ResolvedType = rrRet;
         }
@@ -548,10 +548,10 @@ internal sealed class CallOverloadResolutionPass
     /// </summary>
     private static bool IsStaleProtocolReturn(CallExpression call)
     {
-        return call.ResolvedType is ProtocolTypeInfo && call.Callee is MemberExpression
+        return call.ResolvedType is ProtocolTypeSymbol && call.Callee is MemberExpression
         {
-            Object.ResolvedType: { } recvT and not ProtocolTypeInfo
-            and not GenericParameterTypeInfo and not ErrorTypeInfo
+            Object.ResolvedType: { } recvT and not ProtocolTypeSymbol
+            and not GenericParameterTypeSymbol and not ErrorTypeSymbol
         } && !TypeContainsGenericParameter(type: recvT);
     }
 
@@ -560,13 +560,13 @@ internal sealed class CallOverloadResolutionPass
     /// <paramref name="allKnown"/> to false when any argument's type is missing.
     /// Some stdlib generic bodies are lowered before SA runs, so literals may lack ResolvedType.
     /// </summary>
-    private static List<TypeInfo> CollectCallArgTypes(CallExpression call, out bool allKnown)
+    private static List<TypeSymbol> CollectCallArgTypes(CallExpression call, out bool allKnown)
     {
-        var argTypes = new List<TypeInfo>(capacity: call.Arguments.Count);
+        var argTypes = new List<TypeSymbol>(capacity: call.Arguments.Count);
         allKnown = true;
         foreach (Expression arg in call.Arguments)
         {
-            TypeInfo? t = arg is NamedArgumentExpression named
+            TypeSymbol? t = arg is NamedArgumentExpression named
                 ? named.Value.ResolvedType
                 : arg.ResolvedType;
             if (t == null)
@@ -587,22 +587,22 @@ internal sealed class CallOverloadResolutionPass
     /// fallback and the failable-form retry.
     /// </summary>
     private void ClassifyMemberCall(CallExpression call, MemberExpression member,
-        List<TypeInfo> argTypes, bool allArgTypesKnown)
+        List<TypeSymbol> argTypes, bool allArgTypesKnown)
     {
-        TypeInfo? receiverType = RecoverReceiverType(member: member);
+        TypeSymbol? receiverType = RecoverReceiverType(member: member);
         if (receiverType == null)
         {
             return;
         }
 
-        // Const-generic value types (e.g. ConstGenericValueTypeInfo for N=63 in Array[T,63]) are
+        // Const-generic value types (e.g. ConstGenericValueTypeSymbol for N=63 in Array[T,63]) are
         // not registered in _routinesByOwner. Resolve to the underlying numeric type so member-routine
         // lookup can find operators like sub!. Arguments may also lack ResolvedType (pre-SA stdlib
         // bodies), so a by-name fallback lookup is allowed — there is typically one overload.
-        if (receiverType is ConstGenericValueTypeInfo constVal)
+        if (receiverType is ConstGenericValueTypeSymbol constVal)
         {
             string underlyingName = constVal.ExplicitTypeName ?? "U64";
-            TypeInfo? resolved = _registry.LookupType(name: underlyingName);
+            TypeSymbol? resolved = _registry.LookupType(name: underlyingName);
             if (resolved == null)
             {
                 return;
@@ -622,15 +622,15 @@ internal sealed class CallOverloadResolutionPass
 
         call.ResolvedRoutine = memberRoutine;
         call.LoweringKind = CallClassifier.ClassifyMemberRoutineCall(memberRoutine: memberRoutine);
-        // Backfill a call whose ResolvedType is stale/unresolved (null, ErrorTypeInfo, or a lingering abstract
+        // Backfill a call whose ResolvedType is stale/unresolved (null, ErrorTypeSymbol, or a lingering abstract
         // protocol) from the freshly-resolved concrete routine's return type. A monomorphized / variant-clone
-        // body leaves member-call ResolvedTypes stale: `var n = me.count()` keeps an ErrorTypeInfo so `n` is
+        // body leaves member-call ResolvedTypes stale: `var n = me.count()` keeps an ErrorTypeSymbol so `n` is
         // untyped and a later `n.eq(...)` can't recover its receiver; `var it = r.iter()` keeps the abstract
         // Emittable[S64] which leaks into codegen. Propagating the concrete return forward types the local
         // (count→U64 lets `n` resolve, iter→RangeEmittable[S64] fixes the each-loop var).
-        if (call.ResolvedType is null or ErrorTypeInfo or ProtocolTypeInfo &&
+        if (call.ResolvedType is null or ErrorTypeSymbol or ProtocolTypeSymbol &&
             memberRoutine.ReturnType is { } concreteRet &&
-            concreteRet is not ProtocolTypeInfo and not ErrorTypeInfo)
+            concreteRet is not ProtocolTypeSymbol and not ErrorTypeSymbol)
         {
             call.ResolvedType = concreteRet;
         }
@@ -641,32 +641,32 @@ internal sealed class CallOverloadResolutionPass
     /// (1) the node's own ResolvedType if non-null and non-error;
     /// (2) a deferred-type walk for field-walk bodies whose member accesses are intentionally left un-typed;
     /// (3) the local-variable declaration type tracked during this walk (for un-annotated monomorph references);
-    /// (4) a type-registry lookup when the receiver is a bare concrete type name (comptime-expand monomorphs).
+    /// (4) a type-registry lookup when the receiver is a bare concrete type name (buildtime-expand monomorphs).
     /// Returns null when none of the strategies can determine the type.
     /// </summary>
-    private TypeInfo? RecoverReceiverType(MemberExpression member)
+    private TypeSymbol? RecoverReceiverType(MemberExpression member)
     {
         // Prefer the node's own type; fall back to a deferred chain walk for derive-template bodies
         // (GenericAstRewriter leaves member types deferred to avoid unbounded concrete instantiations).
-        TypeInfo? receiverType = member.Object.ResolvedType is { } rt and not ErrorTypeInfo
+        TypeSymbol? receiverType = member.Object.ResolvedType is { } rt and not ErrorTypeSymbol
             ? rt
             : ComputeDeferredType(expr: member.Object);
 
         // A monomorphized body's local-variable reference can arrive with a null/deferred ResolvedType
         // (the clone doesn't re-annotate every reference). Recover from the var's DECLARATION type,
         // tracked as this walk visits declarations in body order.
-        if (receiverType is null or ErrorTypeInfo &&
+        if (receiverType is null or ErrorTypeSymbol &&
             member.Object is IdentifierExpression idRecv &&
-            _localVarTypes.TryGetValue(key: idRecv.Name, value: out TypeInfo? declaredT))
+            _localVarTypes.TryGetValue(key: idRecv.Name, value: out TypeSymbol? declaredT))
         {
             receiverType = declaredT;
         }
 
         // TYPEWISE TYPE RECEIVER: T.blank() → Point.blank() after T→Point. The receiver is a bare
-        // identifier naming a concrete TYPE (not a local/param — checked above). A comptime-expand
+        // identifier naming a concrete TYPE (not a local/param — checked above). A buildtime-expand
         // monomorph body leaves it un-typed; type it as the type it names so the static/wired member
         // resolves. Checked AFTER locals/params so a same-named local still wins.
-        if (receiverType is null or ErrorTypeInfo &&
+        if (receiverType is null or ErrorTypeSymbol &&
             member.Object is IdentifierExpression typeRecv &&
             _registry.LookupType(name: typeRecv.Name) is { IsGenericDefinition: false } typeRecvTy)
         {
@@ -681,12 +681,12 @@ internal sealed class CallOverloadResolutionPass
     /// (when all arg types are known), then by name alone. If the non-failable form is not found and
     /// <paramref name="member"/> is not already marked failable, retries with <c>isFailable: true</c>
     /// (e.g. U64.sub! — underflow is undefined so only the failable form is registered).
-    /// Unknown arg types no longer bail: a monomorphized body can leave a literal arg with ErrorTypeInfo
+    /// Unknown arg types no longer bail: a monomorphized body can leave a literal arg with ErrorTypeSymbol
     /// while the receiver is concrete and the name is unambiguous; the by-name lookup returns null on
     /// genuine ambiguity, leaving the call unresolved exactly as the old bail did.
     /// </summary>
-    private RoutineInfo? LookupMemberRoutineWithFallback(TypeInfo receiverType,
-        MemberExpression member, List<TypeInfo> argTypes, bool allArgTypesKnown)
+    private RoutineInfo? LookupMemberRoutineWithFallback(TypeSymbol receiverType,
+        MemberExpression member, List<TypeSymbol> argTypes, bool allArgTypesKnown)
     {
         RoutineInfo? memberRoutine = allArgTypesKnown
             ? _registry.LookupMemberRoutineOverload(type: receiverType,
@@ -721,23 +721,23 @@ internal sealed class CallOverloadResolutionPass
     /// are intentionally left type-deferred (see <c>GenericAstRewriter</c>). Returns null when the chain does
     /// not bottom out in a known type. Does NOT mutate the AST — resolution-only.
     /// </summary>
-    private static TypeInfo? ComputeDeferredType(Expression expr)
+    private static TypeSymbol? ComputeDeferredType(Expression expr)
     {
-        if (expr.ResolvedType is { } t and not ErrorTypeInfo)
+        if (expr.ResolvedType is { } t and not ErrorTypeSymbol)
         {
             return t;
         }
 
         if (expr is MemberExpression member)
         {
-            TypeInfo? ownerType = ComputeDeferredType(expr: member.Object);
+            TypeSymbol? ownerType = ComputeDeferredType(expr: member.Object);
             return ownerType switch
             {
-                RecordTypeInfo record => record
+                RecordTypeSymbol record => record
                                         .LookupMemberVariable(
                                              memberVariableName: member.MemberName)
                                        ?.Type,
-                EntityTypeInfo entity => entity
+                EntityTypeSymbol entity => entity
                                         .LookupMemberVariable(
                                              memberVariableName: member.MemberName)
                                        ?.Type,
@@ -752,7 +752,7 @@ internal sealed class CallOverloadResolutionPass
     /// Resolves and classifies a standalone (free-routine) call by overload-by-arg-types,
     /// falling back to a unique by-name lookup.
     /// </summary>
-    private void ClassifyStandaloneCall(CallExpression call, string name, List<TypeInfo> argTypes,
+    private void ClassifyStandaloneCall(CallExpression call, string name, List<TypeSymbol> argTypes,
         bool allArgTypesKnown)
     {
         // Overload-by-arg-types when all arg types are known; otherwise fall back to a
@@ -766,7 +766,7 @@ internal sealed class CallOverloadResolutionPass
         routine ??= _registry.LookupRoutine(fullName: name);
         if (routine == null)
         {
-            // Not a free routine — a TYPE-CONSTRUCTION call `TypeName(args)` (a comptime-`expand` monomorph
+            // Not a free routine — a TYPE-CONSTRUCTION call `TypeName(args)` (a buildtime-`expand` monomorph
             // body's `throw IndexOutOfBoundsError(index:, count:)`, unresolved because the body was never
             // SA'd). SA normally stamps ConstructedType + `create` here; do the same so codegen's constructor
             // path emits it instead of tripping the RF-S959 gate. Only fires on an unresolved call whose name

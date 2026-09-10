@@ -4,7 +4,7 @@ using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace Compiler.Serialization;
+namespace Builder.Serialization;
 
 /// <summary>
 /// A general reflection-based binary graph serializer for the RazorForge compiled-stdlib snapshot

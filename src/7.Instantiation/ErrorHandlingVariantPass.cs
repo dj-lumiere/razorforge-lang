@@ -1,10 +1,10 @@
-using Compiler.Desugaring;
-using Compiler.Declaration;
+using Builder.Desugaring;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// Generates try_/check_/lookup_ routine variants for all failable routines.
@@ -74,7 +74,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
                 routine.HasAbsent = true;
             }
 
-            foreach (TypeInfo t in analysis.ThrownTypes.Where(predicate: t =>
+            foreach (TypeSymbol t in analysis.ThrownTypes.Where(predicate: t =>
                          !routine.ThrowableTypes.Contains(item: t)))
             {
                 routine.ThrowableTypes.Add(item: t);
@@ -673,9 +673,9 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
     /// from S8/S16/S32/S64/…): it returns an arbitrary <c>try_create</c> (the first-registered S8) whose
     /// parameter type mismatches the call's argument, producing invalid IR (a <c>try_create(from: S8)</c>
     /// fed an i64). Falls back to an overload-typed lookup, then a name-only lookup, when the hook is
-    /// absent or a parameter type isn't a concrete <see cref="TypeInfo"/>.
+    /// absent or a parameter type isn't a concrete <see cref="TypeSymbol"/>.
     /// </summary>
-    private static RoutineInfo? LookupVariantForOverload(TypeRegistry registry, TypeInfo owner,
+    private static RoutineInfo? LookupVariantForOverload(TypeRegistry registry, TypeSymbol owner,
         string prefix, RoutineInfo original)
     {
         RoutineInfo? synth = registry.OnDemandVariantForBase?.Invoke(arg1: original, arg2: prefix);
@@ -685,10 +685,10 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
         }
 
         string variantName = $"{prefix}_{original.OriginalName ?? original.Name}";
-        var argTypes = new List<TypeInfo>();
-        foreach (ParameterInfo p in original.Parameters)
+        var argTypes = new List<TypeSymbol>();
+        foreach (ParamInfo p in original.Parameters)
         {
-            if (p.Type is TypeInfo ti)
+            if (p.Type is TypeSymbol ti)
             {
                 argTypes.Add(item: ti);
             }
@@ -927,7 +927,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
 
         if (bindName != null)
         {
-            TypeInfo? valueType = carrier.TypeArguments[index: 0];
+            TypeSymbol? valueType = carrier.TypeArguments[index: 0];
             Expression valueAccess = new MemberExpression(
                 Object: new IdentifierExpression(Name: tempName, Location: loc)
                 {
@@ -1106,7 +1106,7 @@ internal sealed class ErrorHandlingVariantPass(DesugaringContext ctx)
 
     /// <summary>
     /// Builds a registry-based <see cref="VariantCallRewriter"/> for the monomorphized fallback path
-    /// (<see cref="Compiler.Instantiation.Passes.GenericMonomorphizationPass"/>), which has no
+    /// (<see cref="Builder.Instantiation.Passes.GenericMonomorphizationPass"/>), which has no
     /// per-pass rewriter instance. It rewrites a TAIL-position <c>return src.emit!()</c> into a
     /// passthrough call to the matching <c>try_/check_/lookup_emit</c> variant (resolved via
     /// <see cref="TypeRegistry.LookupMemberRoutine"/> on the concrete callee owner). Restricted to

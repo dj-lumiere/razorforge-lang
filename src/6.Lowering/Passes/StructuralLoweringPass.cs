@@ -1,10 +1,10 @@
 using SyntaxTree;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Lowers structural type declarations to plain record/entity forms.
-/// Must run BEFORE <see cref="Compiler.Desugaring.Passes.ControlFlowLoweringPass"/> and <see cref="PatternLoweringPass"/>
+/// Must run BEFORE <see cref="Builder.Desugaring.Passes.ControlFlowLoweringPass"/> and <see cref="PatternLoweringPass"/>
 /// because pattern matching on these types uses the lowered record fields.
 ///
 /// <para>Transformations applied:</para>

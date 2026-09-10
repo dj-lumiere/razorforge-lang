@@ -1,6 +1,6 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
-using Compiler.Verification.Results;
+using Builder.Verification.Results;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
@@ -36,7 +36,7 @@ public class UnwrapOperatorTests
         // Variant is synthesized ON DEMAND — the trigger call above generates try_get.
         RoutineInfo? tryVariant = result.Registry.GetRoutine(name: "try_get");
         Assert.NotNull(@object: tryVariant);
-        Assert.IsType<RecordTypeInfo>(@object: tryVariant.ReturnType);
+        Assert.IsType<RecordTypeSymbol>(@object: tryVariant.ReturnType);
     }
 
     /// <summary>

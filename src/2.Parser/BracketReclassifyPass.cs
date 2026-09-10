@@ -1,7 +1,7 @@
 using System.Text;
 using SyntaxTree;
 
-namespace Compiler.Parser;
+namespace Builder.Parser;
 
 /// <summary>
 /// Reclassifies the parser's uniform <see cref="BracketAccessExpression"/> nodes into the existing
@@ -151,7 +151,7 @@ internal static class BracketReclassifyPass
                 new TypeExpression(Name: "-" + LiteralText(lit: neg),
                     GenericArguments: null,
                     Location: expr.Location),
-            // A comptime type-position splice `${m.type}` as a (possibly nested) generic argument —
+            // A buildtime type-position splice `${m.type}` as a (possibly nested) generic argument —
             // e.g. `hijacked_from[${m.type}]` / `blank[Hijacked[${m.type}]]`. Bracket contents parse as
             // EXPRESSIONS first, so the splice arrives as a SpliceExpression wrapping `m.type`; mirror
             // ParseBaseType's `${m.type}` handling by producing the SpliceHandle TypeExpression the
@@ -181,14 +181,14 @@ internal static class BracketReclassifyPass
                 GenericArguments: null,
                 Location: seOf.Location,
                 SpliceHandle: typeofHandle.Name),
-            // A comptime VALUE-position splice as a const-generic argument, e.g.
+            // A buildtime VALUE-position splice as a const-generic argument, e.g.
             // `Array[U8, ${max(T.data_size().byte_size(), 8)}]`. Unlike the `${m.type}` TYPE splice above,
-            // the inner is a scalar comptime expression; carry it on ComptimeValue for the monomorphizer
+            // the inner is a scalar buildtime expression; carry it on BuildtimeValue for the monomorphizer
             // to fold into a ConstGenericValueTypeInfo once the concrete type args are known.
             SpliceExpression valueSplice => new TypeExpression(Name: "splice_value",
                 GenericArguments: null,
                 Location: valueSplice.Location,
-                ComptimeValue: valueSplice.Inner),
+                BuildtimeValue: valueSplice.Inner),
             // A TypeExpression already (should not normally occur from bracket parsing) passes through.
             TypeExpression te => te,
             _ => new TypeExpression(Name: "", GenericArguments: null, Location: expr.Location)

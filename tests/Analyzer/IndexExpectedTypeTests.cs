@@ -1,6 +1,6 @@
 using SyntaxTree;
 using TypeModel.Types;
-using Compiler.Verification.Results;
+using Builder.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 
@@ -32,7 +32,7 @@ public class IndexExpectedTypeTests
 
         AnalysisResult result = AssertAnalyzesSa(source: source);
         IndexExpression idx = FindFirstIndexExpression(result: result, routineName: "probe");
-        TypeInfo? indexType = idx.Index.ResolvedType;
+        TypeSymbol? indexType = idx.Index.ResolvedType;
         Assert.NotNull(@object: indexType);
         Assert.Equal(expected: "Core.U64", actual: indexType!.FullName);
     }
@@ -56,7 +56,7 @@ public class IndexExpectedTypeTests
 
         AnalysisResult result = AssertAnalyzesSa(source: source);
         IndexExpression idx = FindFirstIndexExpression(result: result, routineName: "probe");
-        TypeInfo? indexType = idx.Index.ResolvedType;
+        TypeSymbol? indexType = idx.Index.ResolvedType;
         Assert.NotNull(@object: indexType);
         Assert.Equal(expected: "Core.U32", actual: indexType!.FullName);
     }
@@ -81,7 +81,7 @@ public class IndexExpectedTypeTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.IntegerLiteralOverflow);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.IntegerLiteralOverflow);
     }
 
     /// <summary>Verifies integer literal 0 on a U64 indexer retypes to U64 without overflow.</summary>

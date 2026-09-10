@@ -1,9 +1,9 @@
-using Compiler.Declaration;
-using Compiler.Targeting;
+using Builder.Declaration;
+using Builder.Targeting;
 using TypeModel.Reprs;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Computes backend representation metadata for fully resolved semantic types.
@@ -13,69 +13,69 @@ public static class BackendReprResolver
     /// <summary>
     /// Resolves the backend ABI/storage representation for a semantic type.
     /// </summary>
-    public static BackendRepr Resolve(TypeInfo type, TypeRegistry registry, TargetConfig target)
+    public static BackendRepr Resolve(TypeSymbol type, TypeRegistry registry, TargetConfig target)
     {
         return type switch
         {
-            TupleTypeInfo tuple => new BackendRepr(Kind: BackendReprKind.Aggregate,
+            TupleTypeSymbol tuple => new BackendRepr(Kind: BackendReprKind.Aggregate,
                 SourceType: type,
                 LlvmAbiType: $"{{ {string.Join(separator: ", ",
                     values: tuple.ElementTypes.Select(selector: selector =>
                         Resolve(type: selector, registry: registry, target: target).LlvmAbiType))} }}",
                 AggregateLayoutKey: type.FullName),
 
-            // Variant is a RecordTypeInfo subclass — must precede the Record arms.
-            VariantTypeInfo => new BackendRepr(Kind: BackendReprKind.Aggregate,
+            // Variant is a RecordTypeSymbol subclass — must precede the Record arms.
+            VariantTypeSymbol => new BackendRepr(Kind: BackendReprKind.Aggregate,
                 SourceType: type,
                 LlvmAbiType: type.FullName,
                 AggregateLayoutKey: type.FullName),
 
-            RecordTypeInfo
+            RecordTypeSymbol
             {
                 BackendType: not null, IsGenericDefinition: false
             } record => ResolveDirectBackendRecord(record: record),
 
-            RecordTypeInfo record => new BackendRepr(Kind: BackendReprKind.Aggregate,
+            RecordTypeSymbol record => new BackendRepr(Kind: BackendReprKind.Aggregate,
                 SourceType: type,
                 LlvmAbiType: record.LlvmType,
                 AggregateLayoutKey: type.FullName,
                 IsPassedIndirectly: false),
 
             // Entity (and Crashable, an entity subclass) -> entity ref pointer.
-            EntityTypeInfo => new BackendRepr(Kind: BackendReprKind.EntityRef,
+            EntityTypeSymbol => new BackendRepr(Kind: BackendReprKind.EntityRef,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Entity,
                 PointeeType: type),
 
-            ProtocolTypeInfo => new BackendRepr(Kind: BackendReprKind.ProtocolRef,
+            ProtocolTypeSymbol => new BackendRepr(Kind: BackendReprKind.ProtocolRef,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Protocol,
                 PointeeType: type),
 
-            WrapperTypeInfo wrapper => new BackendRepr(Kind: BackendReprKind.WrapperRef,
+            WrapperTypeSymbol wrapper => new BackendRepr(Kind: BackendReprKind.WrapperRef,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: ClassifyPointerFlavor(typeName: wrapper.Name),
                 PointeeType: wrapper.InnerType,
                 IsTransparent: true),
 
-            RoutineTypeInfo => new BackendRepr(Kind: BackendReprKind.RoutineRef,
+            RoutineTypeSymbol => new BackendRepr(Kind: BackendReprKind.RoutineRef,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Routine),
 
-            ConstGenericValueTypeInfo => new BackendRepr(Kind: BackendReprKind.Scalar,
+            ConstGenericValueTypeSymbol => new BackendRepr(Kind: BackendReprKind.Scalar,
                 SourceType: type,
                 LlvmAbiType: "i64"),
 
-            GenericParameterTypeInfo => new BackendRepr(Kind: BackendReprKind.RawPtr,
+            GenericParameterTypeSymbol => new BackendRepr(Kind: BackendReprKind.RawPtr,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Raw),
 
-            ErrorTypeInfo => new BackendRepr(Kind: BackendReprKind.RawPtr,
+            ErrorTypeSymbol => new BackendRepr(Kind: BackendReprKind.RawPtr,
                 SourceType: type,
                 LlvmAbiType: "ptr",
                 PointerFlavor: PointerFlavor.Raw),
@@ -90,7 +90,7 @@ public static class BackendReprResolver
     /// <summary>
     /// Resolves records that explicitly declare their backend type instead of using their field layout.
     /// </summary>
-    private static BackendRepr ResolveDirectBackendRecord(RecordTypeInfo record)
+    private static BackendRepr ResolveDirectBackendRecord(RecordTypeSymbol record)
     {
         if (record.BackendType == "void")
         {
@@ -105,7 +105,7 @@ public static class BackendReprResolver
             BackendReprKind kind = flavor == PointerFlavor.Raw
                 ? BackendReprKind.RawPtr
                 : BackendReprKind.WrapperRef;
-            TypeInfo? pointeeType = record.TypeArguments is { Count: > 0 }
+            TypeSymbol? pointeeType = record.TypeArguments is { Count: > 0 }
                 ? record.TypeArguments[index: 0]
                 : null;
 

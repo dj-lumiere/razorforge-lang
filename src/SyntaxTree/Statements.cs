@@ -1,5 +1,5 @@
-using Compiler.Tokenizer;
-using Compiler.Instantiation;
+using Builder.Tokenizer;
+using Builder.Instantiation;
 
 namespace SyntaxTree;
 
@@ -406,7 +406,7 @@ public record LoopStatement(Statement Body, SourceLocation Location)
     }
 
     /// <summary>
-    /// True when <see cref="Compiler.Desugaring.Passes.ControlFlowLoweringPass"/> synthesized this
+    /// True when <see cref="Builder.Desugaring.Passes.ControlFlowLoweringPass"/> synthesized this
     /// loop as the body of a lowered <c>for x in coll</c> — i.e. its body is a
     /// <see cref="WhenStatement"/> over an <c>iter.try_emit()</c> call. Marks the loop so the
     /// <c>IteratorInlineLoweringPass</c> can find the iterator-advance loops to rewrite, instead of
@@ -460,7 +460,7 @@ public record EachStatement(
     }
 }
 
-/// <summary>The comptime source an <see cref="ExpandStatement"/> iterates over.</summary>
+/// <summary>The buildtime source an <see cref="ExpandStatement"/> iterates over.</summary>
 public enum ExpandSourceKind
 {
     /// <summary><c>openmemvarof(T)</c> — the OPEN ∪ POSTED (publicly readable) member variables,
@@ -584,7 +584,7 @@ public record BlockStatement(List<Statement> Statements, SourceLocation Location
 /// <param name="Expression">Expression whose value will be matched against patterns</param>
 /// <param name="Clauses">List of pattern-action pairs with optional guard conditions</param>
 /// <param name="Location">Source location information</param>
-/// <param name="ArmExpansion">Comptime arm-expansion template; when set, clauses are unrolled per variant arm at monomorphization. Null for ordinary <c>when</c>.</param>
+/// <param name="ArmExpansion">Buildtime arm-expansion template; when set, clauses are unrolled per variant arm at monomorphization. Null for ordinary <c>when</c>.</param>
 /// <remarks>
 /// Advanced pattern matching features:
 /// <list type="bullet">
@@ -598,7 +598,7 @@ public record WhenStatement(
     Expression Expression,
     List<WhenClause> Clauses,
     SourceLocation Location,
-    // Comptime arm-expansion: `when me` / `expand m in branchof(T)` / `is ${m.type} x => …`. When set,
+    // Buildtime arm-expansion: `when me` / `expand m in branchof(T)` / `is ${m.type} x => …`. When set,
     // the (initially empty) Clauses are UNROLLED from this template at monomorphization — one clause
     // per variant arm, with `${m.type}` folded to the arm type. Null for an ordinary `when`.
     WhenArmExpansion? ArmExpansion = null) : Statement(Location: Location)
@@ -623,7 +623,7 @@ public record WhenStatement(
 public record WhenClause(Pattern Pattern, Statement Body, SourceLocation Location);
 
 /// <summary>
-/// A comptime clause-template for <c>expand m in branchof(T)</c> inside a <c>when</c>. Carries the
+/// A buildtime clause-template for <c>expand m in branchof(T)</c> inside a <c>when</c>. Carries the
 /// handle name, the variant source type, and the single template clause (whose pattern is a
 /// <see cref="SpliceTypePattern"/>). Monomorphization unrolls this into one concrete
 /// <see cref="WhenClause"/> per arm.
@@ -746,7 +746,7 @@ public record TypePattern(
     SourceLocation Location) : Pattern(Location: Location);
 
 /// <summary>
-/// A comptime type-splice pattern: <c>is ${m.type} x</c> inside an <c>expand m in branchof(T)</c>.
+/// A buildtime type-splice pattern: <c>is ${m.type} x</c> inside an <c>expand m in branchof(T)</c>.
 /// The concrete arm type is unknown until monomorphization, where this is replaced by a
 /// <see cref="TypePattern"/> bound to the current arm's type. <see cref="VariableName"/> is null
 /// for a payload-less arm (<c>is ${m.type} =></c>).
@@ -1019,7 +1019,7 @@ public enum VariantSiteKind
 
     /// <summary>
     /// <c>Value</c> is already a variant carrier of the right type (rewritten by
-    /// <see cref="Compiler.Instantiation.ErrorHandlingVariantPass"/> when the original wrapper body
+    /// <see cref="Builder.Instantiation.ErrorHandlingVariantPass"/> when the original wrapper body
     /// tail-returned a call to a failable routine, e.g. <c>return F!(x)</c> -> <c>return try_F(x)</c>).
     /// Codegen returns <c>Value</c> directly without wrapping it in Some/Ok/Found.
     /// </summary>

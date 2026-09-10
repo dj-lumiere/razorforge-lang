@@ -1,8 +1,8 @@
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
 using SyntaxTree;
 
-namespace Compiler.Parser;
+namespace Builder.Parser;
 
 /// <summary>
 /// Partial class containing statement parsing (if, while, for, when, return, using, release, danger, etc.).
@@ -356,7 +356,7 @@ public partial class Parser
                 continue;
             }
 
-            // Comptime arm-expansion: `expand m in branchof(T)` generates one type-dispatch clause per
+            // Buildtime arm-expansion: `expand m in branchof(T)` generates one type-dispatch clause per
             // variant arm at monomorphization. It may sit ALONGSIDE explicit clauses (e.g. an
             // `is None => …` clause the payload-arm expansion doesn't cover) — at most one per `when`.
             if (Check(type: TokenType.Expand))
@@ -575,7 +575,7 @@ public partial class Parser
     }
 
     /// <summary>
-    /// Parses a comptime arm-expansion inside a <c>when</c>:
+    /// Parses a buildtime arm-expansion inside a <c>when</c>:
     /// <c>expand m in branchof(T)</c> then an indented template clause <c>is ${m.type} x => body</c>
     /// (or payload-less <c>is ${m.type} => body</c>). Unrolled per variant arm at monomorphization.
     /// </summary>

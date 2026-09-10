@@ -1,11 +1,11 @@
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using Compiler.Targeting;
-using Compiler.Verification;
+using Builder.Targeting;
+using Builder.Verification;
 using TypeModel.Enums;
 
-namespace Builder;
+namespace Builder.Execution;
 
 internal partial class Program
 {
@@ -94,7 +94,7 @@ internal partial class Program
         /// the dev loop; off by default so normal runs are quiet.</summary>
         private static bool PhaseTiming()
         {
-            return Compiler.Diagnostics.DiagnosticFlags.PhaseTiming;
+            return Builder.Diagnostics.DiagnosticFlags.PhaseTiming;
         }
 
         // ---- server --------------------------------------------------------------------------------
@@ -117,7 +117,7 @@ internal partial class Program
             // Load from the on-disk .pbrf cache when the stdlib+compiler hash matches (~1–2 s), else capture
             // fresh (~5–8 s) and write the cache for next startup.
             SemanticVerifier.CompiledStdlibState state =
-                Compiler.Serialization.StdlibSnapshotCache.LoadOrCapture(language: language,
+                Builder.Serialization.StdlibSnapshotCache.LoadOrCapture(language: language,
                     log: msg => Console.Error.WriteLine(value: $"[daemon] {msg}"));
             WarmCache[key: language] = state;
             Console.Error.WriteLine(
@@ -145,8 +145,8 @@ internal partial class Program
             }
 
             IReadOnlyDictionary<string, string> index =
-                Compiler.Declaration.BuildDriver.BuildStdlibIndex(
-                    stdlibRoot: Compiler.Declaration.StdlibLoader.GetDefaultStdlibPath(),
+                Builder.Declaration.BuildDriver.BuildStdlibIndex(
+                    stdlibRoot: Builder.Declaration.StdlibLoader.GetDefaultStdlibPath(),
                     language: language,
                     libraryRoots: libraryRoots);
             StdlibIndexCache[key: key] = index;
@@ -292,8 +292,8 @@ internal partial class Program
         {
             // Per-request diagnostic flags from the client's manifest (the daemon is project-less and serves
             // serially, so reset-then-set is race-free). `timing` = the merged sa/phase flag (req.SaTiming).
-            Compiler.Diagnostics.DiagnosticFlags.Reset();
-            Compiler.Diagnostics.DiagnosticFlags.PhaseTiming = req.SaTiming;
+            Builder.Diagnostics.DiagnosticFlags.Reset();
+            Builder.Diagnostics.DiagnosticFlags.PhaseTiming = req.SaTiming;
             var captured = new StringWriter();
             var sw = System.Diagnostics.Stopwatch.StartNew();
             TextWriter savedOut = Console.Out;
@@ -351,8 +351,8 @@ internal partial class Program
         /// build diagnostics and returns the IR text so the client can JIT-and-run it in-process.</summary>
         private static DaemonResponse HandleIr(DaemonRequest req)
         {
-            Compiler.Diagnostics.DiagnosticFlags.Reset();
-            Compiler.Diagnostics.DiagnosticFlags.PhaseTiming = req.SaTiming;
+            Builder.Diagnostics.DiagnosticFlags.Reset();
+            Builder.Diagnostics.DiagnosticFlags.PhaseTiming = req.SaTiming;
             var captured = new StringWriter();
             var sw = System.Diagnostics.Stopwatch.StartNew();
             TextWriter savedOut = Console.Out;

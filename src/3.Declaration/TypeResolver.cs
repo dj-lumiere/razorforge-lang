@@ -1,15 +1,13 @@
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
-using Compiler.Verification;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
+using Builder.Verification;
 using SyntaxTree;
 using TypeModel;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Declaration;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Handles resolution of type expressions for the semantic analyzer.
@@ -151,7 +149,7 @@ internal sealed class TypeResolver
     }
 
     /// <summary>
-    /// Resolves a type expression to a TypeInfo.
+    /// Resolves a type expression to a TypeSymbol.
     /// Nullable types (T?) are desugared to Maybe&lt;T&gt; at parse time,
     /// so by the time we see them here, they're already Maybe&lt;T&gt;.
     /// </summary>
@@ -161,7 +159,7 @@ internal sealed class TypeResolver
     {
         if (typeExpr == null)
         {
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         EnforceSuflaeNumberGate(typeExpr: typeExpr);
@@ -173,7 +171,7 @@ internal sealed class TypeResolver
         // `.sf` reaches the RazorForge-realm list. No-op when the effective realm IS the ambient one (the
         // common case, and every pure-RF/pure-SF bare reference), and null-safe if no bridged type exists.
         string effectiveRealm = typeExpr.Realm ?? _sa._registry.AmbientRealm;
-        if (resolved is TypeInfo ti && effectiveRealm != ti.Realm &&
+        if (resolved is TypeSymbol ti && effectiveRealm != ti.Realm &&
             _sa._registry.ReResolveInRealm(type: ti, realm: effectiveRealm) is { } bridged)
         {
             resolved = bridged;
@@ -294,7 +292,7 @@ internal sealed class TypeResolver
         // `RF::`-qualified reference. SF must NOT auto-roam it (that silently wraps an RF entity in a
         // RoamController whose ABI the RF constructor/methods don't expect → crash). SF holds it as a bare
         // local, or wraps it in an SF entity for persistence (the RF:: wrapper pattern).
-        if (resolved is TypeInfo { Location.FileName: { } defFile } &&
+        if (resolved is TypeSymbol { Location.FileName: { } defFile } &&
             defFile.EndsWith(value: ".rf", comparisonType: StringComparison.OrdinalIgnoreCase) &&
             !_sa.IsStdlibFile(filePath: defFile))
         {
@@ -316,7 +314,7 @@ internal sealed class TypeResolver
     /// recursion the element stays a bare single-owner entity and the RC copy machinery never engages —
     /// storing it drops the refcount → dangling → UAF on read-back.
     /// </summary>
-    private TypeSymbol RoamSlot(TypeSymbol resolved, TypeInfo roamedDef)
+    private TypeSymbol RoamSlot(TypeSymbol resolved, TypeSymbol roamedDef)
     {
         // Already Roamed — idempotent, and its inner arg is intentionally left as-is (no Roamed[Roamed[E]]).
         if (IsRoamed(type: resolved))
@@ -329,15 +327,15 @@ internal sealed class TypeResolver
 
         return resolved switch
         {
-            EntityTypeInfo entity => _sa._registry.GetOrCreateResolution(genericDef: roamedDef,
+            EntityTypeSymbol entity => _sa._registry.GetOrCreateResolution(genericDef: roamedDef,
                 typeArguments: [entity]),
-            RecordTypeInfo
+            RecordTypeSymbol
             {
                 GenericDefinition.Name: MaybeTypeName,
-                TypeArguments: [EntityTypeInfo innerEntity]
+                TypeArguments: [EntityTypeSymbol innerEntity]
             } => _sa._registry.GetOrCreateResolution(genericDef: roamedDef,
                 typeArguments: [innerEntity]),
-            RecordTypeInfo
+            RecordTypeSymbol
             {
                 GenericDefinition.Name: MaybeTypeName, TypeArguments: [{ } innerRoamed]
             } when IsRoamed(type: innerRoamed) => innerRoamed,
@@ -350,15 +348,15 @@ internal sealed class TypeResolver
     /// resolution. <c>Maybe[...]</c> is skipped (the caller's switch collapses it); an already-<c>Roamed</c>
     /// argument is left untouched by <see cref="RoamSlot"/>'s idempotency guard.
     /// </summary>
-    private TypeSymbol RoamTypeArguments(TypeSymbol resolved, TypeInfo roamedDef)
+    private TypeSymbol RoamTypeArguments(TypeSymbol resolved, TypeSymbol roamedDef)
     {
-        (TypeInfo? genericDef, IReadOnlyList<TypeInfo>? args) = resolved switch
+        (TypeSymbol? genericDef, IReadOnlyList<TypeSymbol>? args) = resolved switch
         {
-            EntityTypeInfo
+            EntityTypeSymbol
             {
                 IsGenericResolution: true, GenericDefinition: { } gd, TypeArguments: { } a
-            } => ((TypeInfo?)gd, (IReadOnlyList<TypeInfo>?)a),
-            RecordTypeInfo
+            } => ((TypeSymbol?)gd, (IReadOnlyList<TypeSymbol>?)a),
+            RecordTypeSymbol
             {
                 IsGenericResolution: true, GenericDefinition: { } gd, TypeArguments: { } a
             } => (gd, a),
@@ -375,9 +373,9 @@ internal sealed class TypeResolver
             return resolved;
         }
 
-        var newArgs = new List<TypeInfo>(capacity: args.Count);
+        var newArgs = new List<TypeSymbol>(capacity: args.Count);
         bool changed = false;
-        foreach (TypeInfo arg in args)
+        foreach (TypeSymbol arg in args)
         {
             TypeSymbol lowered = RoamSlot(resolved: arg, roamedDef: roamedDef);
             if (!ReferenceEquals(objA: lowered, objB: arg))
@@ -395,18 +393,18 @@ internal sealed class TypeResolver
 
     private static bool IsRoamed(TypeSymbol type)
     {
-        return type is RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }
-            or WrapperTypeInfo { Name: RuntimeContract.Roamed };
+        return type is RecordTypeSymbol { GenericDefinition.Name: RuntimeContract.Roamed }
+            or WrapperTypeSymbol { Name: RuntimeContract.Roamed };
     }
 
     private TypeSymbol ResolveTypeCore(TypeExpression typeExpr)
     {
-        // Comptime type-position splice `${m.type}` in a decl-position expand column template: resolve
+        // Buildtime type-position splice `${m.type}` in a decl-position expand column template: resolve
         // to the synthetic per-field placeholder. The registry substitutes it with each concrete
         // field's type when the SoA container is instantiated.
         if (typeExpr.SpliceHandle != null)
         {
-            return new GenericParameterTypeInfo(name: MemberExpandTemplateInfo
+            return new GenericParameterTypeSymbol(name: MemberExpandTemplateInfo
                .ColumnPlaceholderName);
         }
 
@@ -421,10 +419,10 @@ internal sealed class TypeResolver
 
         // `Me` in a member-routine signature refers to the owner type
         // (e.g. `routine SumS64.combine(you: Me) -> Me` — Me is SumS64).
-        // Protocol contexts use ProtocolSelfTypeInfo via ResolveProtocolType; concrete owners
-        // resolve directly to the owner TypeInfo so callers see Me as a normal nominal type.
+        // Protocol contexts use ProtocolSelfTypeSymbol via ResolveProtocolType; concrete owners
+        // resolve directly to the owner TypeSymbol so callers see Me as a normal nominal type.
         if (typeExpr is { Name: "Me", GenericArguments: not { Count: > 0 } } &&
-            _sa._currentRoutine?.OwnerType is { } meOwner and not GenericParameterTypeInfo)
+            _sa._currentRoutine?.OwnerType is { } meOwner and not GenericParameterTypeSymbol)
         {
             return ResolveMeType(meOwner: meOwner);
         }
@@ -435,7 +433,7 @@ internal sealed class TypeResolver
             return ResolveTupleType(typeExpr: typeExpr);
         }
 
-        // Handle Routine type: Routine[(T, T), Bool] -> RoutineTypeInfo
+        // Handle Routine type: Routine[(T, T), Bool] -> RoutineTypeSymbol
         if (typeExpr is { Name: "Routine", GenericArguments.Count: 2 })
         {
             return ResolveRoutineType(typeExpr: typeExpr);
@@ -465,7 +463,7 @@ internal sealed class TypeResolver
         if (nameIsParam &&
             (globalType is null || IsGenericDefinitionScopeParam(name: typeExpr.Name)))
         {
-            return new GenericParameterTypeInfo(name: typeExpr.Name,
+            return new GenericParameterTypeSymbol(name: typeExpr.Name,
                 slot: GenericParameterSlot(name: typeExpr.Name));
         }
 
@@ -493,7 +491,7 @@ internal sealed class TypeResolver
         // returned for the genuine-definition-scope case) still resolves to the parameter here.
         if (nameIsParam)
         {
-            return new GenericParameterTypeInfo(name: typeExpr.Name,
+            return new GenericParameterTypeSymbol(name: typeExpr.Name,
                 slot: GenericParameterSlot(name: typeExpr.Name));
         }
 
@@ -501,19 +499,19 @@ internal sealed class TypeResolver
     }
 
     /// <summary>
-    /// Resolves the tail cases of <see cref="ResolveTypeCore"/>: comptime value splices, const-generic
+    /// Resolves the tail cases of <see cref="ResolveTypeCore"/>: buildtime value splices, const-generic
     /// literals, preset constants, and the unknown-type fallback. Extracted to keep the parent method
     /// within the allowed cognitive-complexity budget.
     /// </summary>
     private TypeSymbol ResolveConstGenericOrUnknown(TypeExpression typeExpr)
     {
-        // Comptime const-generic argument from a `${…}` value-splice (e.g. the payload buffer size
-        // `${max(T.data_size().byte_size(), 8)}`). Resolves to a symbolic ComptimeConstGenericTypeInfo.
+        // Buildtime const-generic argument from a `${…}` value-splice (e.g. the payload buffer size
+        // `${max(T.data_size().byte_size(), 8)}`). Resolves to a symbolic BuildtimeConstGenericTypeSymbol.
         // RoutineInfo.SubstituteType folds it to a concrete value once the enclosing type's parameters
         // are bound at monomorphization.
-        if (typeExpr.ComptimeValue != null)
+        if (typeExpr.BuildtimeValue != null)
         {
-            return new ComptimeConstGenericTypeInfo(comptimeExpr: typeExpr.ComptimeValue);
+            return new BuildtimeConstGenericTypeSymbol(buildtimeExpr: typeExpr.BuildtimeValue);
         }
 
         // Check for const generic literal values (e.g., 4, 8u64, true/false)
@@ -522,7 +520,7 @@ internal sealed class TypeResolver
                 value: out long constValue,
                 explicitType: out string? explicitType))
         {
-            return new ConstGenericValueTypeInfo(literalText: typeExpr.Name,
+            return new ConstGenericValueTypeSymbol(literalText: typeExpr.Name,
                 value: constValue,
                 explicitTypeName: explicitType);
         }
@@ -538,19 +536,19 @@ internal sealed class TypeResolver
         // hidden on purpose; if so, report that explicitly rather than a misleading "unknown type".
         if (_sa.TryReportSecretTypeAccess(name: typeExpr.Name, location: typeExpr.Location))
         {
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         _sa.ReportError(code: SemanticDiagnosticCode.UnknownType,
             message:
             $"Unknown type '{typeExpr.Name}'.{_sa.UnknownTypeSuggestion(typeName: typeExpr.Name)}",
             location: typeExpr.Location);
-        return ErrorTypeInfo.Instance;
+        return ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
     /// Resolves a bare <c>Me</c> in a member-routine signature to its concrete owner type. A protocol
-    /// owner yields <see cref="ProtocolSelfTypeInfo"/>; a generic-definition owner yields the owner
+    /// owner yields <see cref="ProtocolSelfTypeSymbol"/>; a generic-definition owner yields the owner
     /// applied to its own parameters (<c>Box</c> → <c>Box[T]</c>); a plain owner returns itself.
     /// </summary>
     private TypeSymbol ResolveMeType(TypeSymbol meOwner)
@@ -559,9 +557,9 @@ internal sealed class TypeResolver
         // abstract self, resolved per-implementer later. Use ProtocolSelf so a body construction
         // `EnumerateIterator[T, Me]` matches the signature's `Me` (both ProtocolSelf) — otherwise
         // self-applying to `Iterable[T]` mismatches the return type (S301).
-        if (meOwner is ProtocolTypeInfo)
+        if (meOwner is ProtocolTypeSymbol)
         {
-            return ProtocolSelfTypeInfo.Instance;
+            return ProtocolSelfTypeSymbol.Instance;
         }
 
         // When the owner is a generic definition (e.g. `Box[T]`), `Me` must resolve to the
@@ -572,7 +570,7 @@ internal sealed class TypeResolver
         if (meOwner is { IsGenericDefinition: true, GenericParameters: { } ownerParams })
         {
             var selfArgs = ownerParams
-                          .Select(selector: p => (TypeInfo)new GenericParameterTypeInfo(name: p))
+                          .Select(selector: p => (TypeSymbol)new GenericParameterTypeSymbol(name: p))
                           .ToList();
             return _sa._registry.GetOrCreateResolution(genericDef: meOwner,
                 typeArguments: selfArgs);
@@ -585,9 +583,9 @@ internal sealed class TypeResolver
     /// Resolves a parser <c>Tuple(T, U, ...)</c> type expression to a tuple type by resolving each
     /// element type in order.
     /// </summary>
-    private TupleTypeInfo ResolveTupleType(TypeExpression typeExpr)
+    private TupleTypeSymbol ResolveTupleType(TypeExpression typeExpr)
     {
-        var elementTypes = new List<TypeInfo>();
+        var elementTypes = new List<TypeSymbol>();
         foreach (TypeExpression argExpr in typeExpr.GenericArguments!)
         {
             TypeSymbol argType = ResolveType(typeExpr: argExpr);
@@ -598,15 +596,15 @@ internal sealed class TypeResolver
     }
 
     /// <summary>
-    /// Resolves a <c>Routine[(T, T), Bool]</c> type expression to a <see cref="RoutineTypeInfo"/>,
+    /// Resolves a <c>Routine[(T, T), Bool]</c> type expression to a <see cref="RoutineTypeSymbol"/>,
     /// unpacking the parameter tuple and resolving the return type.
     /// </summary>
-    private RoutineTypeInfo ResolveRoutineType(TypeExpression typeExpr)
+    private RoutineTypeSymbol ResolveRoutineType(TypeExpression typeExpr)
     {
         TypeExpression paramTupleExpr = typeExpr.GenericArguments![index: 0];
         TypeExpression returnTypeExpr = typeExpr.GenericArguments[index: 1];
 
-        var paramTypes = new List<TypeInfo>();
+        var paramTypes = new List<TypeSymbol>();
         if (paramTupleExpr is { Name: "Tuple", GenericArguments: not null })
         {
             foreach (TypeExpression paramTypeExpr in paramTupleExpr.GenericArguments)
@@ -619,7 +617,7 @@ internal sealed class TypeResolver
             paramTypes.Add(item: ResolveType(typeExpr: paramTupleExpr));
         }
 
-        TypeInfo? returnType = ResolveType(typeExpr: returnTypeExpr);
+        TypeSymbol? returnType = ResolveType(typeExpr: returnTypeExpr);
         return _sa._registry.GetOrCreateRoutineType(parameterTypes: paramTypes,
             returnType: returnType,
             isFailable: false);
@@ -630,18 +628,18 @@ internal sealed class TypeResolver
     /// Handles the special 'Me' type which represents the implementing type.
     /// </summary>
     /// <param name="typeExpr">The type expression to resolve.</param>
-    /// <returns>The resolved type, or ProtocolSelfTypeInfo for 'Me'.</returns>
+    /// <returns>The resolved type, or ProtocolSelfTypeSymbol for 'Me'.</returns>
     internal TypeSymbol ResolveProtocolType(TypeExpression? typeExpr)
     {
         if (typeExpr == null)
         {
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         // Handle the special 'Me' type in protocol signatures
         if (typeExpr is { Name: "Me", GenericArguments: not { Count: > 0 } })
         {
-            return ProtocolSelfTypeInfo.Instance;
+            return ProtocolSelfTypeSymbol.Instance;
         }
 
         // Associated-type projection in a protocol signature (e.g. `Me/Iter` in
@@ -653,11 +651,11 @@ internal sealed class TypeResolver
             TypeSymbol? projBase;
             if (segments[0] == "Me")
             {
-                projBase = ProtocolSelfTypeInfo.Instance;
+                projBase = ProtocolSelfTypeSymbol.Instance;
             }
             else if (IsGenericParameter(name: segments[0]))
             {
-                projBase = new GenericParameterTypeInfo(name: segments[0]);
+                projBase = new GenericParameterTypeSymbol(name: segments[0]);
             }
             else
             {
@@ -693,14 +691,14 @@ internal sealed class TypeResolver
         {
             if (_sa.TryReportSecretTypeAccess(name: typeExpr.Name, location: typeExpr.Location))
             {
-                return ErrorTypeInfo.Instance;
+                return ErrorTypeSymbol.Instance;
             }
 
             _sa.ReportError(code: SemanticDiagnosticCode.UnknownType,
                 message:
                 $"Unknown type '{typeExpr.Name}'.{_sa.UnknownTypeSuggestion(typeName: typeExpr.Name)}",
                 location: typeExpr.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         if (!genericDef.IsGenericDefinition)
@@ -708,7 +706,7 @@ internal sealed class TypeResolver
             _sa.ReportError(code: SemanticDiagnosticCode.TypeNotGeneric,
                 message: $"Type '{typeExpr.Name}' is not a generic type.",
                 location: typeExpr.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         var typeArgs = new List<TypeSymbol>();
@@ -724,7 +722,7 @@ internal sealed class TypeResolver
                 message:
                 $"Type '{typeExpr.Name}' expects {genericDef.GenericParameters.Count} type arguments, got {typeArgs.Count}.",
                 location: typeExpr.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         // Reject None as a type argument except Result<None>.
@@ -741,7 +739,7 @@ internal sealed class TypeResolver
                 message: "'None' cannot be used as a type argument. " +
                          "'None' is a unit type with no value.",
                 location: typeExpr.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         // Reject nested Maybe types (#83): Maybe[Maybe[T]] / T??
@@ -813,7 +811,7 @@ internal sealed class TypeResolver
             }
 
             // Skip validation if type arg is a generic parameter itself
-            if (typeArg is GenericParameterTypeInfo)
+            if (typeArg is GenericParameterTypeSymbol)
             {
                 continue;
             }
@@ -945,7 +943,7 @@ internal sealed class TypeResolver
         // that point). Without this, `Accessing[Iterable[T]]` and similar
         // protocol-as-type-argument shapes can't satisfy the entity constraint
         // even though every value they accept is structurally an entity.
-        if (typeArg is ProtocolTypeInfo)
+        if (typeArg is ProtocolTypeSymbol)
         {
             return;
         }
@@ -968,7 +966,7 @@ internal sealed class TypeResolver
     /// <param name="result">On success, the resolved concrete type for the projection.</param>
     private bool TryResolveAssociatedProjection(TypeExpression typeExpr, out TypeSymbol result)
     {
-        result = ErrorTypeInfo.Instance;
+        result = ErrorTypeSymbol.Instance;
         string[] segments = typeExpr.Name.Split(separator: '/');
         if (segments.Length < 2)
         {
@@ -983,7 +981,7 @@ internal sealed class TypeResolver
         if (root == "Me")
         {
             if (_sa._currentRoutine?.OwnerType is not { } owner ||
-                owner is GenericParameterTypeInfo)
+                owner is GenericParameterTypeSymbol)
             {
                 return false;
             }
@@ -992,7 +990,7 @@ internal sealed class TypeResolver
         }
         else if (IsGenericParameter(name: root))
         {
-            baseType = new GenericParameterTypeInfo(name: root);
+            baseType = new GenericParameterTypeSymbol(name: root);
         }
         else
         {
@@ -1024,23 +1022,23 @@ internal sealed class TypeResolver
     /// <summary>
     /// Projects one associated-type slot from a base type. When the base is concrete and has a
     /// binding for the slot, returns the bound concrete type; otherwise (generic param, protocol
-    /// self, or not-yet-bound) returns a deferred <see cref="AssociatedProjectionTypeInfo"/> that
+    /// self, or not-yet-bound) returns a deferred <see cref="AssociatedProjectionTypeSymbol"/> that
     /// monomorphization resolves once the base becomes concrete.
     /// </summary>
     private static TypeSymbol ProjectAssociatedType(TypeSymbol baseType, string slotName)
     {
-        Dictionary<string, TypeInfo>? bindings = baseType switch
+        Dictionary<string, TypeSymbol>? bindings = baseType switch
         {
-            EntityTypeInfo e => e.AssociatedTypeBindings,
-            RecordTypeInfo r => r.AssociatedTypeBindings,
+            EntityTypeSymbol e => e.AssociatedTypeBindings,
+            RecordTypeSymbol r => r.AssociatedTypeBindings,
             _ => null
         };
-        if (bindings != null && bindings.TryGetValue(key: slotName, value: out TypeInfo? bound))
+        if (bindings != null && bindings.TryGetValue(key: slotName, value: out TypeSymbol? bound))
         {
             return bound;
         }
 
-        return new AssociatedProjectionTypeInfo(baseType: baseType, slotName: slotName);
+        return new AssociatedProjectionTypeSymbol(baseType: baseType, slotName: slotName);
     }
 
     /// <summary>
@@ -1051,15 +1049,15 @@ internal sealed class TypeResolver
     private TypeSymbol SelfApplyOwner(TypeSymbol owner)
     {
         // Protocol owner: `Me` is the abstract self (deferred), not the protocol applied to itself.
-        if (owner is ProtocolTypeInfo)
+        if (owner is ProtocolTypeSymbol)
         {
-            return ProtocolSelfTypeInfo.Instance;
+            return ProtocolSelfTypeSymbol.Instance;
         }
 
         if (owner is { IsGenericDefinition: true, GenericParameters: { } ownerParams })
         {
             var selfArgs = ownerParams
-                          .Select(selector: p => (TypeInfo)new GenericParameterTypeInfo(name: p))
+                          .Select(selector: p => (TypeSymbol)new GenericParameterTypeSymbol(name: p))
                           .ToList();
             return _sa._registry.GetOrCreateResolution(genericDef: owner, typeArguments: selfArgs);
         }
@@ -1087,7 +1085,7 @@ internal sealed class TypeResolver
         }
 
         // Universal memberRoutines (routine T.bar()) — owner IS the generic parameter itself.
-        if (_sa._currentRoutine?.OwnerType is GenericParameterTypeInfo gp && gp.Name == name)
+        if (_sa._currentRoutine?.OwnerType is GenericParameterTypeSymbol gp && gp.Name == name)
         {
             return true;
         }
@@ -1095,9 +1093,9 @@ internal sealed class TypeResolver
         // Wrapper types (Hijacked[T].foo) carry the inner-type binding via
         // InnerType rather than GenericParameters. If the inner type is
         // itself a generic-parameter placeholder, accept that name.
-        if (_sa._currentRoutine?.OwnerType is WrapperTypeInfo
+        if (_sa._currentRoutine?.OwnerType is WrapperTypeSymbol
             {
-                InnerType: GenericParameterTypeInfo wgp
+                InnerType: GenericParameterTypeSymbol wgp
             } && wgp.Name == name)
         {
             return true;
@@ -1164,7 +1162,7 @@ internal sealed class TypeResolver
     /// <c>-1</c> when it is not a parameter in the current scope. Mirrors the scope-lookup ORDER of
     /// <see cref="IsGenericParameter"/> (routine params, then the owning type's, then the extension
     /// receiver's) so the slot is the index within whichever scope binds the name. This is the
-    /// parameter's identity signal — see <see cref="GenericParameterTypeInfo.Slot"/>.
+    /// parameter's identity signal — see <see cref="GenericParameterTypeSymbol.Slot"/>.
     /// </summary>
     internal int GenericParameterSlot(string name)
     {
@@ -1186,9 +1184,9 @@ internal sealed class TypeResolver
         }
 
         // Universal memberRoutine (`routine T.bar()`): the owner IS the parameter — a single-slot scope.
-        if (_sa._currentRoutine?.OwnerType is GenericParameterTypeInfo or WrapperTypeInfo
+        if (_sa._currentRoutine?.OwnerType is GenericParameterTypeSymbol or WrapperTypeSymbol
             {
-                InnerType: GenericParameterTypeInfo
+                InnerType: GenericParameterTypeSymbol
             })
         {
             return 0;
@@ -1236,14 +1234,14 @@ internal sealed class TypeResolver
         }
 
         // Universal / wrapper-inner owner: the owner IS the parameter (a single-hole template scope).
-        if (_sa._currentRoutine?.OwnerType is GenericParameterTypeInfo gp && gp.Name == name)
+        if (_sa._currentRoutine?.OwnerType is GenericParameterTypeSymbol gp && gp.Name == name)
         {
             return true;
         }
 
-        return _sa._currentRoutine?.OwnerType is WrapperTypeInfo
+        return _sa._currentRoutine?.OwnerType is WrapperTypeSymbol
         {
-            InnerType: GenericParameterTypeInfo wgp
+            InnerType: GenericParameterTypeSymbol wgp
         } && wgp.Name == name;
     }
 
@@ -1362,7 +1360,7 @@ internal sealed class TypeResolver
         }
 
         // Const generic literal values (e.g., 4, 8u64) — validate typed literals match
-        if (typeArg is ConstGenericValueTypeInfo constVal)
+        if (typeArg is ConstGenericValueTypeSymbol constVal)
         {
             if (constVal.ExplicitTypeName != null && constVal.ExplicitTypeName != requiredTypeName)
             {
@@ -1569,14 +1567,14 @@ internal sealed class TypeResolver
                 message:
                 $"Preset '{preset.QualifiedName}' cannot be used as a const generic because it forms a cycle.",
                 location: useLocation);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         switch (preset.PresetValue)
         {
             case LiteralExpression literal when TryBuildConstGenericFromLiteral(literal: literal,
                 declaredType: preset.Type,
-                value: out ConstGenericValueTypeInfo? constValue):
+                value: out ConstGenericValueTypeSymbol? constValue):
                 return constValue!;
 
             case IdentifierExpression id:
@@ -1597,24 +1595,24 @@ internal sealed class TypeResolver
             message:
             $"Preset '{preset.QualifiedName}' cannot be used as a const generic because its initializer is not a supported build-time literal.",
             location: useLocation);
-        return ErrorTypeInfo.Instance;
+        return ErrorTypeSymbol.Instance;
     }
 
     private static bool TryBuildConstGenericFromLiteral(LiteralExpression literal,
-        TypeInfo declaredType, out ConstGenericValueTypeInfo? value)
+        TypeSymbol declaredType, out ConstGenericValueTypeSymbol? value)
     {
         value = null;
 
         switch (literal.LiteralType)
         {
             case TokenType.True:
-                value = new ConstGenericValueTypeInfo(literalText: "true",
+                value = new ConstGenericValueTypeSymbol(literalText: "true",
                     value: 1,
                     explicitTypeName: "Bool");
                 return true;
 
             case TokenType.False:
-                value = new ConstGenericValueTypeInfo(literalText: "false",
+                value = new ConstGenericValueTypeSymbol(literalText: "false",
                     value: 0,
                     explicitTypeName: "Bool");
                 return true;
@@ -1638,7 +1636,7 @@ internal sealed class TypeResolver
                         value: out long parsed,
                         explicitType: out string? explicitType))
                 {
-                    value = new ConstGenericValueTypeInfo(literalText: rawNumeric,
+                    value = new ConstGenericValueTypeSymbol(literalText: rawNumeric,
                         value: parsed,
                         explicitTypeName: explicitType ??
                                           GetConstGenericExplicitTypeName(
@@ -1652,7 +1650,7 @@ internal sealed class TypeResolver
         return false;
     }
 
-    private static string? GetConstGenericExplicitTypeName(TypeInfo declaredType)
+    private static string? GetConstGenericExplicitTypeName(TypeSymbol declaredType)
     {
         return declaredType.Name switch
         {
@@ -1666,7 +1664,7 @@ internal sealed class TypeResolver
 
     private static string? GetCarrierBaseName(TypeSymbol type)
     {
-        if (type is not RecordTypeInfo r)
+        if (type is not RecordTypeSymbol r)
         {
             return null;
         }

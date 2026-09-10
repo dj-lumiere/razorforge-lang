@@ -1,8 +1,8 @@
 using TypeModel.Types;
-using Compiler.Instantiation;
+using Builder.Instantiation;
 using TypeModel.Symbols;
 
-namespace Compiler.Collection.Passes;
+namespace Builder.Collection.Passes;
 
 /// <summary>
 /// Phase 7 collection pass: snapshot the concrete generic instances already discovered by
@@ -12,14 +12,14 @@ internal sealed class ReachableGenericCollectionPass(InstantiationContext ctx)
 {
     public void Run()
     {
-        foreach (TypeInfo concreteType in ctx.Registry.AllConcreteGenericInstances)
+        foreach (TypeSymbol concreteType in ctx.Registry.AllConcreteGenericInstances)
         {
             ctx.ReachableGenericTypes.Add(item: concreteType.FullName);
 
-            TypeInfo genericDefinition = concreteType switch
+            TypeSymbol genericDefinition = concreteType switch
             {
-                RecordTypeInfo { GenericDefinition: { } definition } => definition,
-                EntityTypeInfo { GenericDefinition: { } definition } => definition,
+                RecordTypeSymbol { GenericDefinition: { } definition } => definition,
+                EntityTypeSymbol { GenericDefinition: { } definition } => definition,
                 _ => concreteType
             };
 

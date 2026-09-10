@@ -1,14 +1,12 @@
 using System.Text.RegularExpressions;
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {
@@ -16,7 +14,7 @@ public sealed partial class SemanticVerifier
 
     private static bool TryGetTransparentProtocolTarget(TypeSymbol type, out TypeSymbol targetType)
     {
-        if (type is ProtocolTypeInfo { TypeArguments: { Count: > 0 } } proto &&
+        if (type is ProtocolTypeSymbol { TypeArguments: { Count: > 0 } } proto &&
             HasOnlyMarkerCoercionMemberRoutines(proto: proto))
         {
             targetType = proto.TypeArguments![index: 0];
@@ -32,14 +30,14 @@ public sealed partial class SemanticVerifier
     /// refer/control. Such protocols (Accessing[T], Controlling[T]) are transparent for
     /// member access — `param.member` falls through to the inner T.
     /// </summary>
-    private static bool HasOnlyMarkerCoercionMemberRoutines(ProtocolTypeInfo proto)
+    private static bool HasOnlyMarkerCoercionMemberRoutines(ProtocolTypeSymbol proto)
     {
         return proto.MemberRoutines.All(predicate: m => m.Name == "access" || m.Name == "control");
     }
 
     private static bool IsReadOnlyTransparentProtocol(TypeSymbol type)
     {
-        return type is ProtocolTypeInfo proto && (proto.GenericDefinition ?? proto).BareName ==
+        return type is ProtocolTypeSymbol proto && (proto.GenericDefinition ?? proto).BareName ==
             Declaration.RuntimeContract.Accessing;
     }
 
@@ -50,7 +48,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private bool IsReadOnlyMarkerBoundParam(TypeSymbol type)
     {
-        if (type is not GenericParameterTypeInfo gp)
+        if (type is not GenericParameterTypeSymbol gp)
         {
             return false;
         }
@@ -98,7 +96,7 @@ public sealed partial class SemanticVerifier
             return true;
         }
 
-        if (type is GenericParameterTypeInfo gp &&
+        if (type is GenericParameterTypeSymbol gp &&
             TryUnwrapMarkerBoundParam(gp: gp, innerType: out innerType))
         {
             return true;
@@ -113,7 +111,7 @@ public sealed partial class SemanticVerifier
     /// (<c>Accessing[X]</c> or <c>Controlling[X]</c>) and resolves the inner type <c>X</c>.
     /// Returns true and sets <paramref name="innerType"/> when a bound is found; false otherwise.
     /// </summary>
-    private bool TryUnwrapMarkerBoundParam(GenericParameterTypeInfo gp, out TypeSymbol innerType)
+    private bool TryUnwrapMarkerBoundParam(GenericParameterTypeSymbol gp, out TypeSymbol innerType)
     {
         foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: gp.Name))
         {
@@ -128,7 +126,7 @@ public sealed partial class SemanticVerifier
             }
         }
 
-        innerType = ErrorTypeInfo.Instance;
+        innerType = ErrorTypeSymbol.Instance;
         return false;
     }
 
@@ -155,41 +153,41 @@ public sealed partial class SemanticVerifier
 
             TypeSymbol resolved =
                 _typeResolver.ResolveType(typeExpr: protoExpr.GenericArguments[index: 0]);
-            if (resolved is not (null or ErrorTypeInfo))
+            if (resolved is not (null or ErrorTypeSymbol))
             {
                 innerType = resolved;
                 return true;
             }
         }
 
-        innerType = ErrorTypeInfo.Instance;
+        innerType = ErrorTypeSymbol.Instance;
         return false;
     }
 
     /// <summary>
-    /// Analyzes a comptime splice-selector member access (<c>x.${m.name}</c>). The receiver and
+    /// Analyzes a buildtime splice-selector member access (<c>x.${m.name}</c>). The receiver and
     /// the selector splice are analyzed for real (surfacing mistakes in either), but the selected
     /// field's concrete type is unknown until monomorphization, so this defers to
-    /// <see cref="ErrorTypeInfo"/> — the same cascade-suppressing deferral used for unresolved
+    /// <see cref="ErrorTypeSymbol"/> — the same cascade-suppressing deferral used for unresolved
     /// generic-body expressions. The real "does this field have that member?" check runs on the
     /// unrolled member access at instantiation.
     /// </summary>
-    private ErrorTypeInfo AnalyzeSpliceMemberExpression(SpliceMemberExpression spliceMember)
+    private ErrorTypeSymbol AnalyzeSpliceMemberExpression(SpliceMemberExpression spliceMember)
     {
         AnalyzeExpression(expression: spliceMember.Object);
         AnalyzeExpression(expression: spliceMember.Selector);
-        return ErrorTypeInfo.Instance;
+        return ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
-    /// Analyzes a comptime splice (<c>${expr}</c>). The inner projection is analyzed for real; a
+    /// Analyzes a buildtime splice (<c>${expr}</c>). The inner projection is analyzed for real; a
     /// selector-position splice must name a field (fold to <c>Text</c>). The splice's own value is
-    /// comptime-only, so it types as <see cref="ErrorTypeInfo"/> (deferred to monomorphization).
+    /// buildtime-only, so it types as <see cref="ErrorTypeSymbol"/> (deferred to monomorphization).
     /// </summary>
-    private ErrorTypeInfo AnalyzeSpliceExpression(SpliceExpression splice)
+    private ErrorTypeSymbol AnalyzeSpliceExpression(SpliceExpression splice)
     {
         TypeSymbol innerType = AnalyzeExpression(expression: splice.Inner);
-        if (splice.RequiredKind == SpliceKind.Selector && innerType is not ErrorTypeInfo &&
+        if (splice.RequiredKind == SpliceKind.Selector && innerType is not ErrorTypeSymbol &&
             innerType.Name != "Text")
         {
             ReportError(code: SemanticDiagnosticCode.MemberNotFound,
@@ -198,46 +196,46 @@ public sealed partial class SemanticVerifier
                 location: splice.Location);
         }
 
-        return ErrorTypeInfo.Instance;
+        return ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
-    /// Types a projection off a comptime <c>expand</c> handle (<c>m.name</c>/<c>m.id</c>/…). The handle
+    /// Types a projection off a buildtime <c>expand</c> handle (<c>m.name</c>/<c>m.id</c>/…). The handle
     /// is a sentinel; projections type leniently so the expand body typechecks before monomorphization.
     /// Any other projection on the handle is a clear mistake.
     /// </summary>
-    private TypeSymbol AnalyzeComptimeHandleProjection(MemberExpression member)
+    private TypeSymbol AnalyzeBuildtimeHandleProjection(MemberExpression member)
     {
         switch (member.MemberName)
         {
             case "name":
-                return _registry.LookupType(name: "Text") ?? ErrorTypeInfo.Instance;
+                return _registry.LookupType(name: "Text") ?? ErrorTypeSymbol.Instance;
             case "id":
-                return _registry.LookupType(name: "U64") ?? ErrorTypeInfo.Instance;
+                return _registry.LookupType(name: "U64") ?? ErrorTypeSymbol.Instance;
             case "is_secret":
             case "is_routine":
             case "is_inert":
-                return _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
+                return _registry.LookupType(name: "Bool") ?? ErrorTypeSymbol.Instance;
             case "value":
                 // caseof `c.value` — a choice's S32 discriminant / a flags member's U64 bit. Only
                 // ever spliced (`${c.value}`, deferred); type leniently as S32 for a bare reference.
-                return _registry.LookupType(name: "S32") ?? ErrorTypeInfo.Instance;
+                return _registry.LookupType(name: "S32") ?? ErrorTypeSymbol.Instance;
             case "type_id":
                 // branchof `m.type_id` — the arm type's stable id (U64), used by variant diagnose.
-                return _registry.LookupType(name: "U64") ?? ErrorTypeInfo.Instance;
+                return _registry.LookupType(name: "U64") ?? ErrorTypeSymbol.Instance;
             case "type":
-                // `${m.type}` in EXPRESSION position — the member/arm type as a comptime typewise
+                // `${m.type}` in EXPRESSION position — the member/arm type as a buildtime typewise
                 // receiver (e.g. `${m.type}.data_size()` / `.type_id()`, or a column-buffer size in a
                 // SoA memberRoutine). Deferred like the type/pattern-position splice: the real type only
                 // exists at monomorphization, so a bare projection types leniently and the static
                 // call on it is re-resolved on the folded concrete type post-monomorph.
-                return ErrorTypeInfo.Instance;
+                return ErrorTypeSymbol.Instance;
             default:
                 ReportError(code: SemanticDiagnosticCode.MemberNotFound,
                     message:
-                    $"Comptime expand handle has no projection '{member.MemberName}'. Available: 'name' (Text), 'id' (U64), 'is_secret'/'is_routine' (Bool), 'value' (caseof).",
+                    $"Buildtime expand handle has no projection '{member.MemberName}'. Available: 'name' (Text), 'id' (U64), 'is_secret'/'is_routine' (Bool), 'value' (caseof).",
                     location: member.Location);
-                return ErrorTypeInfo.Instance;
+                return ErrorTypeSymbol.Instance;
         }
     }
 
@@ -266,19 +264,19 @@ public sealed partial class SemanticVerifier
     {
         TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
 
-        // Comptime `expand` handle projection: `m.name` (field name, Text), `m.id` (ordinal, U64).
+        // Buildtime `expand` handle projection: `m.name` (field name, Text), `m.id` (ordinal, U64).
         // The handle is a sentinel; its projections type leniently so the expand body typechecks
         // before monomorphization. Any other projection on the handle is a clear mistake.
-        if (objectType is ComptimeHandleTypeInfo)
+        if (objectType is BuildtimeHandleTypeSymbol)
         {
-            return AnalyzeComptimeHandleProjection(member: member);
+            return AnalyzeBuildtimeHandleProjection(member: member);
         }
 
         // The receiver already failed to resolve (its own error was reported). A follow-on
         // "Type '<error>' does not have a member ..." is pure cascade noise — bail quietly.
-        if (objectType is ErrorTypeInfo)
+        if (objectType is ErrorTypeSymbol)
         {
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         // Suflae flow typing: dereferencing (member access / memberRoutine call) a possibly-none entity
@@ -299,8 +297,8 @@ public sealed partial class SemanticVerifier
             return resolved;
         }
 
-        // Choice case member access: Color.RED -> ChoiceTypeInfo
-        if (lookupType is ChoiceTypeInfo choice)
+        // Choice case member access: Color.RED -> ChoiceTypeSymbol
+        if (lookupType is ChoiceTypeSymbol choice)
         {
             ChoiceCaseInfo? caseInfo =
                 choice.Cases.FirstOrDefault(predicate: c => c.Name == member.MemberName);
@@ -312,8 +310,8 @@ public sealed partial class SemanticVerifier
             // Fall through to memberRoutine lookup — choice types can have memberRoutines
         }
 
-        // Flags member access: Permissions.READ -> FlagsTypeInfo
-        if (lookupType is FlagsTypeInfo flags)
+        // Flags member access: Permissions.READ -> FlagsTypeSymbol
+        if (lookupType is FlagsTypeSymbol flags)
         {
             FlagsMemberInfo? memberInfo =
                 flags.Members.FirstOrDefault(predicate: m => m.Name == member.MemberName);
@@ -343,13 +341,13 @@ public sealed partial class SemanticVerifier
                 $"'{lookupName}' is a member routine on '{objectType.Name}', not a member variable. " +
                 $"Bare `.{lookupName}` reads a member variable; call the member routine as `{member.MemberName}()`.",
                 location: member.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         // For-loop destructuring lowering produces item0, item1, ... accesses on the element type.
         // Currently only Tuple[...] supports destructuring. Record breakdown is planned for the future.
         // When the element type is not a tuple, this means the user wrote `for (a, b) in non_tuple`.
-        if (lookupType is not TupleTypeInfo && TupleDestructureFieldRegex()
+        if (lookupType is not TupleTypeSymbol && TupleDestructureFieldRegex()
                .IsMatch(input: member.MemberName))
         {
             ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
@@ -365,7 +363,7 @@ public sealed partial class SemanticVerifier
                 location: member.Location);
         }
 
-        return ErrorTypeInfo.Instance;
+        return ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
@@ -376,7 +374,7 @@ public sealed partial class SemanticVerifier
     private TypeSymbol? TryResolveMemberVariableAccess(TypeSymbol lookupType,
         MemberExpression member)
     {
-        if (lookupType is RecordTypeInfo record)
+        if (lookupType is RecordTypeSymbol record)
         {
             MemberVariableInfo? memberVariable =
                 record.LookupMemberVariable(memberVariableName: member.MemberName);
@@ -394,12 +392,12 @@ public sealed partial class SemanticVerifier
                 return fwd;
             }
         }
-        else if (lookupType is TupleTypeInfo tupleType)
+        else if (lookupType is TupleTypeSymbol tupleType)
         {
             return tupleType.GetField(memberVariableName: member.MemberName)
                            ?.Type;
         }
-        else if (lookupType is EntityTypeInfo entity)
+        else if (lookupType is EntityTypeSymbol entity)
         {
             MemberVariableInfo? memberVariable =
                 entity.LookupMemberVariable(memberVariableName: member.MemberName);
@@ -411,7 +409,7 @@ public sealed partial class SemanticVerifier
                 return memberVariable.Type;
             }
         }
-        else if (lookupType is CrashableTypeInfo crashable)
+        else if (lookupType is CrashableTypeSymbol crashable)
         {
             MemberVariableInfo? memberVariable =
                 crashable.LookupMemberVariable(memberVariableName: member.MemberName);
@@ -471,7 +469,7 @@ public sealed partial class SemanticVerifier
             ValidateRoutineAccess(routine: innerMemberRoutine, accessLocation: member.Location);
             // Return type is None if not specified
             return innerMemberRoutine.ReturnType ??
-                   _registry.LookupType(name: "None") ?? ErrorTypeInfo.Instance;
+                   _registry.LookupType(name: "None") ?? ErrorTypeSymbol.Instance;
         }
 
         return null;
@@ -559,8 +557,8 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private TypeSymbol? MakeRangeU64Type()
     {
-        TypeInfo? rangeDef = _registry.LookupType(name: "Range");
-        TypeInfo? u64 = _registry.LookupType(name: "U64");
+        TypeSymbol? rangeDef = _registry.LookupType(name: "Range");
+        TypeSymbol? u64 = _registry.LookupType(name: "U64");
         return rangeDef != null && u64 != null
             ? _registry.GetOrCreateResolution(genericDef: rangeDef, typeArguments: [u64])
             : null;
@@ -591,7 +589,7 @@ public sealed partial class SemanticVerifier
             TypeSymbol argType = argExpr switch
             {
                 IdentifierExpression argId when IsGenericParameter(name: argId.Name) =>
-                    new GenericParameterTypeInfo(name: argId.Name),
+                    new GenericParameterTypeSymbol(name: argId.Name),
                 IdentifierExpression argId when LookupTypeWithImports(name: argId.Name) is { } t
                     => t,
                 _ => AnalyzeExpression(expression: argExpr)
@@ -763,7 +761,7 @@ public sealed partial class SemanticVerifier
                 message:
                 $"Type '{lookupType.Name}' does not support indexing with '[]' (no 'getitem' routine).",
                 location: index.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         // For generic types like List<T> whose `getitem` resolves only after monomorphization,
@@ -773,7 +771,7 @@ public sealed partial class SemanticVerifier
             return lookupType.TypeArguments[index: 0];
         }
 
-        return ErrorTypeInfo.Instance;
+        return ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
@@ -783,7 +781,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private static bool ContainsUnresolvedTypeParameter(TypeSymbol type)
     {
-        if (type is GenericParameterTypeInfo or ProtocolSelfTypeInfo or ErrorTypeInfo)
+        if (type is GenericParameterTypeSymbol or ProtocolSelfTypeSymbol or ErrorTypeSymbol)
         {
             return true;
         }
@@ -833,7 +831,7 @@ public sealed partial class SemanticVerifier
         return trueType;
     }
 
-    private RoutineTypeInfo AnalyzeLambdaExpression(LambdaExpression lambda,
+    private RoutineTypeSymbol AnalyzeLambdaExpression(LambdaExpression lambda,
         TypeSymbol? expectedType = null)
     {
         // Collect variables from enclosing scope that might be captured
@@ -846,7 +844,7 @@ public sealed partial class SemanticVerifier
         _registry.EnterScope(kind: ScopeKind.Function, name: "lambda");
 
         // Extract expected parameter types from context (e.g., Routine[(S64, S64), Bool])
-        List<TypeSymbol>? expectedParamTypes = expectedType is RoutineTypeInfo rt
+        List<TypeSymbol>? expectedParamTypes = expectedType is RoutineTypeSymbol rt
             ? rt.ParameterTypes
             : null;
 
@@ -869,7 +867,7 @@ public sealed partial class SemanticVerifier
             {
                 // No annotation AND no typed context to infer from. RazorForge is statically typed with
                 // no runtime routine lookup, so this parameter has no resolvable type — report it (else
-                // it silently becomes ErrorTypeInfo, lifts to an `@[lambda]…(<error>,…)` symbol whose
+                // it silently becomes ErrorTypeSymbol, lifts to an `@[lambda]…(<error>,…)` symbol whose
                 // body is never emitted, and blows up at the linker). Suflae is left as-is: its
                 // open-world `Unknown` top + runtime dispatch will default un-inferable params to Unknown
                 // (gated on that machinery being real — see [[cabi-callback-ffi]]/[[object-top-type]]).
@@ -884,7 +882,7 @@ public sealed partial class SemanticVerifier
                         location: param.Location);
                 }
 
-                paramType = ErrorTypeInfo.Instance;
+                paramType = ErrorTypeSymbol.Instance;
             }
 
             _registry.DeclareVariable(name: param.Name, type: paramType, location: param.Location);
@@ -1281,14 +1279,14 @@ public sealed partial class SemanticVerifier
         TypeSymbol elementType = endpointExpected ?? (startIsBack
             ? endType
             : startType);
-        TypeInfo? rangeGenericDef = _registry.LookupType(name: "Range");
-        if (rangeGenericDef != null && elementType is not ErrorTypeInfo)
+        TypeSymbol? rangeGenericDef = _registry.LookupType(name: "Range");
+        if (rangeGenericDef != null && elementType is not ErrorTypeSymbol)
         {
             return _registry.GetOrCreateResolution(genericDef: rangeGenericDef,
-                typeArguments: new List<TypeInfo> { elementType });
+                typeArguments: new List<TypeSymbol> { elementType });
         }
 
-        return rangeGenericDef ?? ErrorTypeInfo.Instance;
+        return rangeGenericDef ?? ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
@@ -1368,7 +1366,7 @@ public sealed partial class SemanticVerifier
                 message:
                 $"Unknown type '{creator.TypeName}'. Check the spelling, and make sure the module that defines it is imported.{DidYouMean(target: creator.TypeName, candidates: TypeSuggestionCandidates())}",
                 location: creator.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         // Handle generic type arguments
@@ -1382,7 +1380,7 @@ public sealed partial class SemanticVerifier
 
             // Arity guard: a wrong count of explicit type args (e.g. `Guarded[ReadOnly](from: n)` — one arg
             // for a two-param `Guarded[T, P]`) must be a clean diagnostic. Without the early return,
-            // GetOrCreateResolution → RecordTypeInfo.CreateInstance zips params↔args and crashes.
+            // GetOrCreateResolution → RecordTypeSymbol.CreateInstance zips params↔args and crashes.
             if (type.GenericParameters is { } creatorParams &&
                 creatorParams.Count != typeArgs.Count)
             {
@@ -1390,7 +1388,7 @@ public sealed partial class SemanticVerifier
                     message:
                     $"Type '{type.Name}' expects {creatorParams.Count} type arguments, got {typeArgs.Count}.",
                     location: creator.Location);
-                return ErrorTypeInfo.Instance;
+                return ErrorTypeSymbol.Instance;
             }
 
             ValidateGenericConstraints(genericDef: type,
@@ -1514,7 +1512,7 @@ public sealed partial class SemanticVerifier
         foreach ((string argName, Expression val) in creator.MemberVariables)
         {
             TypeSymbol? expected = paramByName.TryGetValue(key: argName,
-                value: out ParameterInfo? p)
+                value: out ParamInfo? p)
                 ? p.Type
                 : null;
             AnalyzeExpression(expression: val, expectedType: expected);
@@ -1546,8 +1544,8 @@ public sealed partial class SemanticVerifier
         // Get the type's member variables
         List<MemberVariableInfo>? typeMemberVariables = type switch
         {
-            RecordTypeInfo record => record.MemberVariables,
-            EntityTypeInfo entity => entity.MemberVariables,
+            RecordTypeSymbol record => record.MemberVariables,
+            EntityTypeSymbol entity => entity.MemberVariables,
             _ => null
         };
 

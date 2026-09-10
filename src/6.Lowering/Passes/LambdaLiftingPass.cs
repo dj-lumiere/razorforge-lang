@@ -3,7 +3,7 @@ using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Phase 8 pass: lift lambdas into synthesized top-level routines after verification is complete.
@@ -885,7 +885,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             collection: localCaptures.Where(predicate: capName =>
                 !captureNameList.Contains(item: capName)));
 
-        Dictionary<string, TypeInfo> captureTypes =
+        Dictionary<string, TypeSymbol> captureTypes =
             CollectCaptureTypesFromBody(body: lambda.Body, captureNames: captureNameList);
         var closureCaptures = captureNameList.Where(predicate: captureTypes.ContainsKey)
                                              .Select(selector: n =>
@@ -898,11 +898,11 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 message: "Lambda captures 'me' and requires closure lowering before codegen.");
         }
 
-        if (lambda.ResolvedType is not RoutineTypeInfo routineType)
+        if (lambda.ResolvedType is not RoutineTypeSymbol routineType)
         {
             throw new InvalidOperationException(
                 message:
-                "Lambda expression reached postprocessing without a resolved RoutineTypeInfo.");
+                "Lambda expression reached postprocessing without a resolved RoutineTypeSymbol.");
         }
 
         string liftedName =
@@ -974,15 +974,15 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         HashSet<string> scope, List<string>? inheritedGenericParameters,
         List<GenericConstraintDeclaration>? inheritedGenericConstraints, bool includeMe)
     {
-        if (lambda.ResolvedType is not RoutineTypeInfo routineType)
+        if (lambda.ResolvedType is not RoutineTypeSymbol routineType)
         {
             throw new InvalidOperationException(
                 message:
-                "Capturing lambda expression reached postprocessing without a resolved RoutineTypeInfo.");
+                "Capturing lambda expression reached postprocessing without a resolved RoutineTypeSymbol.");
         }
 
         List<string> captureNames = lambda.Captures!;
-        Dictionary<string, TypeInfo> captureTypes =
+        Dictionary<string, TypeSymbol> captureTypes =
             CollectCaptureTypesFromBody(body: lambda.Body, captureNames: captureNames);
 
         string liftedName =
@@ -992,16 +992,16 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
         // Capture params use the original capture names so the body needs no renaming.
         var captureParams = new List<Parameter>(capacity: captureNames.Count);
-        var captureParamInfos = new List<ParameterInfo>(capacity: captureNames.Count);
+        var captureParamInfos = new List<ParamInfo>(capacity: captureNames.Count);
         foreach (string captureName in captureNames)
         {
-            TypeInfo captureType = captureTypes.GetValueOrDefault(key: captureName,
-                defaultValue: ErrorTypeInfo.Instance);
+            TypeSymbol captureType = captureTypes.GetValueOrDefault(key: captureName,
+                defaultValue: ErrorTypeSymbol.Instance);
             captureParams.Add(item: new Parameter(Name: captureName,
                 Type: TypeInfoToTypeExpression(type: captureType, location: lambda.Location),
                 DefaultValue: null,
                 Location: lambda.Location));
-            captureParamInfos.Add(item: new ParameterInfo(name: captureName, type: captureType));
+            captureParamInfos.Add(item: new ParamInfo(name: captureName, type: captureType));
         }
 
         // Lifted body scope: capture params + lambda params.
@@ -1024,7 +1024,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
 
         List<Parameter> lambdaParams =
             BuildLiftedParameters(lambda: lambda, routineType: routineType);
-        List<ParameterInfo> lambdaParamInfos =
+        List<ParamInfo> lambdaParamInfos =
             BuildLiftedParameterInfos(lambda: lambda, routineType: routineType);
 
         var allParams = new List<Parameter>(capacity: captureParams.Count + lambdaParams.Count);
@@ -1032,7 +1032,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         allParams.AddRange(collection: lambdaParams);
 
         var allParamInfos =
-            new List<ParameterInfo>(capacity: captureParamInfos.Count + lambdaParamInfos.Count);
+            new List<ParamInfo>(capacity: captureParamInfos.Count + lambdaParamInfos.Count);
         allParamInfos.AddRange(collection: captureParamInfos);
         allParamInfos.AddRange(collection: lambdaParamInfos);
 
@@ -1076,7 +1076,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         var callArgs = new List<Expression>(capacity: captureNames.Count + call.Arguments.Count);
         foreach (string captureName in captureNames)
         {
-            captureTypes.TryGetValue(key: captureName, value: out TypeInfo? capType);
+            captureTypes.TryGetValue(key: captureName, value: out TypeSymbol? capType);
             callArgs.Add(item: new NamedArgumentExpression(Name: captureName,
                 Value: new IdentifierExpression(Name: captureName, Location: lambda.Location)
                 {
@@ -1102,18 +1102,18 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             original: call);
     }
 
-    private static Dictionary<string, TypeInfo> CollectCaptureTypesFromBody(Expression body,
+    private static Dictionary<string, TypeSymbol> CollectCaptureTypesFromBody(Expression body,
         List<string> captureNames)
     {
         var targets =
             new HashSet<string>(collection: captureNames, comparer: StringComparer.Ordinal);
-        var result = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
+        var result = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal);
         ScanExprForIdentifierTypes(expr: body, targets: targets, result: result);
         return result;
     }
 
     private static void ScanExprForIdentifierTypes(Expression expr, HashSet<string> targets,
-        Dictionary<string, TypeInfo> result)
+        Dictionary<string, TypeSymbol> result)
     {
         if (result.Count == targets.Count)
         {
@@ -1412,15 +1412,15 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
     }
 
     private static List<Parameter> BuildLiftedParameters(LambdaExpression lambda,
-        RoutineTypeInfo routineType)
+        RoutineTypeSymbol routineType)
     {
         var parameters = new List<Parameter>(capacity: lambda.Parameters.Count);
         for (int i = 0; i < lambda.Parameters.Count; i++)
         {
             Parameter sourceParam = lambda.Parameters[index: i];
-            TypeInfo paramType = i < routineType.ParameterTypes.Count
+            TypeSymbol paramType = i < routineType.ParameterTypes.Count
                 ? routineType.ParameterTypes[index: i]
-                : ErrorTypeInfo.Instance;
+                : ErrorTypeSymbol.Instance;
             parameters.Add(item: sourceParam with
             {
                 Type = TypeInfoToTypeExpression(type: paramType,
@@ -1432,29 +1432,29 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
         return parameters;
     }
 
-    private static List<ParameterInfo> BuildLiftedParameterInfos(LambdaExpression lambda,
-        RoutineTypeInfo routineType)
+    private static List<ParamInfo> BuildLiftedParameterInfos(LambdaExpression lambda,
+        RoutineTypeSymbol routineType)
     {
-        var parameters = new List<ParameterInfo>(capacity: lambda.Parameters.Count);
+        var parameters = new List<ParamInfo>(capacity: lambda.Parameters.Count);
         for (int i = 0; i < lambda.Parameters.Count; i++)
         {
-            TypeInfo paramType = i < routineType.ParameterTypes.Count
+            TypeSymbol paramType = i < routineType.ParameterTypes.Count
                 ? routineType.ParameterTypes[index: i]
-                : ErrorTypeInfo.Instance;
-            parameters.Add(item: new ParameterInfo(name: lambda.Parameters[index: i].Name,
+                : ErrorTypeSymbol.Instance;
+            parameters.Add(item: new ParamInfo(name: lambda.Parameters[index: i].Name,
                 type: paramType));
         }
 
         return parameters;
     }
 
-    private static TypeExpression TypeInfoToTypeExpression(TypeInfo type, SourceLocation location)
+    private static TypeExpression TypeInfoToTypeExpression(TypeSymbol type, SourceLocation location)
     {
         string baseName = type switch
         {
-            RecordTypeInfo { GenericDefinition: not null } record => record.GenericDefinition.Name,
-            EntityTypeInfo { GenericDefinition: not null } entity => entity.GenericDefinition.Name,
-            ProtocolTypeInfo { GenericDefinition: not null } protocol => protocol.GenericDefinition
+            RecordTypeSymbol { GenericDefinition: not null } record => record.GenericDefinition.Name,
+            EntityTypeSymbol { GenericDefinition: not null } entity => entity.GenericDefinition.Name,
+            ProtocolTypeSymbol { GenericDefinition: not null } protocol => protocol.GenericDefinition
                .Name,
             _ => type.IsGenericResolution
                 ? type.BareName

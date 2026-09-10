@@ -1,14 +1,12 @@
-using Compiler.Diagnostics;
-using Compiler.Verification;
-using Compiler.Verification.Enums;
+using Builder.Diagnostics;
+using Builder.Verification;
+using Builder.Verification.Enums;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Declaration;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Handles resolution of type bodies (member variables, protocols, variants, etc.)
@@ -33,12 +31,12 @@ internal sealed class TypeBodyResolver
     /// user types with their full name (e.g., "Module.Point"), but Phase 4 resolvers
     /// only have the bare name from the AST node.
     /// </summary>
-    private TypeInfo? LookupTypeInCurrentModule(string name)
+    private TypeSymbol? LookupTypeInCurrentModule(string name)
     {
         string? moduleName = _sa.GetCurrentModuleName();
         if (moduleName != null)
         {
-            TypeInfo? qualified = _sa._registry.LookupType(name: $"{moduleName}.{name}");
+            TypeSymbol? qualified = _sa._registry.LookupType(name: $"{moduleName}.{name}");
             if (qualified != null)
             {
                 return qualified;
@@ -110,7 +108,7 @@ internal sealed class TypeBodyResolver
         _sa._currentTypeMemberVariableNames = [];
 
         // Resolve implemented protocols
-        if (_sa._currentType is RecordTypeInfo && record.Protocols.Count > 0)
+        if (_sa._currentType is RecordTypeSymbol && record.Protocols.Count > 0)
         {
             ResolveRecordProtocols(record: record);
         }
@@ -154,7 +152,7 @@ internal sealed class TypeBodyResolver
 
         // Stash decl-position expand column templates on the generic definition; the registry
         // materializes them into concrete columns per source-type field at instantiation.
-        if (expandTemplates.Count > 0 && _sa._currentType is RecordTypeInfo recordDef)
+        if (expandTemplates.Count > 0 && _sa._currentType is RecordTypeSymbol recordDef)
         {
             recordDef.ExpandTemplates = expandTemplates;
         }
@@ -169,15 +167,15 @@ internal sealed class TypeBodyResolver
     /// </summary>
     private void ResolveRecordProtocols(RecordDeclaration record)
     {
-        var resolvedProtocols = new List<TypeInfo>();
+        var resolvedProtocols = new List<TypeSymbol>();
         foreach (TypeExpression protoExpr in record.Protocols)
         {
             TypeSymbol protoType = _typeResolver.ResolveType(typeExpr: protoExpr);
-            if (protoType is ProtocolTypeInfo proto)
+            if (protoType is ProtocolTypeSymbol proto)
             {
                 resolvedProtocols.Add(item: proto);
             }
-            else if (protoType is not ErrorTypeInfo)
+            else if (protoType is not ErrorTypeSymbol)
             {
                 _sa.ReportError(code: SemanticDiagnosticCode.NotAProtocol,
                     message:
@@ -189,7 +187,7 @@ internal sealed class TypeBodyResolver
         // Update the type with resolved protocols
         _sa._registry.UpdateRecordProtocols(recordName: _sa._currentType!.FullName,
             protocols: resolvedProtocols);
-        if (_sa._currentType is RecordTypeInfo recTi)
+        if (_sa._currentType is RecordTypeSymbol recTi)
         {
             recTi.ConditionalObeys =
                 StdlibLoader.BuildConditionalObeys(protoExprs: record.Protocols);
@@ -207,7 +205,7 @@ internal sealed class TypeBodyResolver
         // Resolve member variable type
         TypeSymbol memberVariableType = memberVariable.Type != null
             ? _typeResolver.ResolveType(typeExpr: memberVariable.Type)
-            : ErrorTypeInfo.Instance;
+            : ErrorTypeSymbol.Instance;
 
         // Records can contain: value types, entity/crashable REFERENCE fields (entities are
         // pointer-shaped reference types, so the field stores a reference), generic parameters,
@@ -219,11 +217,11 @@ internal sealed class TypeBodyResolver
         // (a `ptr` to a closure blob = C's `(fnptr[, userdata])`), stored NON-OWNING like a
         // bare C function pointer. So a record may hold one, mirroring how a C struct stores a
         // `(callback, userdata)` pair.
-        bool isRoutineTyped = memberVariableType is RoutineTypeInfo;
-        if (memberVariableType != null && memberVariableType is not ErrorTypeInfo &&
-            memberVariableType is not GenericParameterTypeInfo &&
+        bool isRoutineTyped = memberVariableType is RoutineTypeSymbol;
+        if (memberVariableType != null && memberVariableType is not ErrorTypeSymbol &&
+            memberVariableType is not GenericParameterTypeSymbol &&
             !TypeRegistry.IsValueType(type: memberVariableType) && !isReferenceTyped &&
-            !isRoutineTyped && !(memberVariableType is WrapperTypeInfo wrapper &&
+            !isRoutineTyped && !(memberVariableType is WrapperTypeSymbol wrapper &&
                                  AssignableWrapperTypes.Contains(item: wrapper.BareName)))
         {
             _sa.ReportError(code: SemanticDiagnosticCode.RecordContainsNonValueType,
@@ -236,7 +234,7 @@ internal sealed class TypeBodyResolver
         // Create member variable info
         return new
             MemberVariableInfo(name: memberVariable.Name,
-                type: memberVariableType ?? ErrorTypeInfo.Instance)
+                type: memberVariableType ?? ErrorTypeSymbol.Instance)
             {
                 Visibility = memberVariable.Visibility,
                 Index = memberVariableIndex,
@@ -284,7 +282,7 @@ internal sealed class TypeBodyResolver
         _sa._currentTypeMemberVariableNames = [];
 
         // Resolve implemented protocols
-        if (_sa._currentType is EntityTypeInfo && entity.Protocols.Count > 0)
+        if (_sa._currentType is EntityTypeSymbol && entity.Protocols.Count > 0)
         {
             ResolveEntityProtocols(entity: entity);
         }
@@ -319,7 +317,7 @@ internal sealed class TypeBodyResolver
                 memberVariables: memberVariables);
         }
 
-        if (expandTemplates.Count > 0 && _sa._currentType is EntityTypeInfo entityDef)
+        if (expandTemplates.Count > 0 && _sa._currentType is EntityTypeSymbol entityDef)
         {
             entityDef.ExpandTemplates = expandTemplates;
         }
@@ -334,15 +332,15 @@ internal sealed class TypeBodyResolver
     /// </summary>
     private void ResolveEntityProtocols(EntityDeclaration entity)
     {
-        var resolvedProtocols = new List<TypeInfo>();
+        var resolvedProtocols = new List<TypeSymbol>();
         foreach (TypeExpression protoExpr in entity.Protocols)
         {
             TypeSymbol protoType = _typeResolver.ResolveType(typeExpr: protoExpr);
-            if (protoType is ProtocolTypeInfo proto)
+            if (protoType is ProtocolTypeSymbol proto)
             {
                 resolvedProtocols.Add(item: proto);
             }
-            else if (protoType is not ErrorTypeInfo)
+            else if (protoType is not ErrorTypeSymbol)
             {
                 _sa.ReportError(code: SemanticDiagnosticCode.NotAProtocol,
                     message:
@@ -353,7 +351,7 @@ internal sealed class TypeBodyResolver
 
         _sa._registry.UpdateEntityProtocols(entityName: _sa._currentType!.FullName,
             protocols: resolvedProtocols);
-        if (_sa._currentType is EntityTypeInfo entTi)
+        if (_sa._currentType is EntityTypeSymbol entTi)
         {
             entTi.ConditionalObeys =
                 StdlibLoader.BuildConditionalObeys(protoExprs: entity.Protocols);
@@ -369,7 +367,7 @@ internal sealed class TypeBodyResolver
     {
         TypeSymbol memberVariableType = memberVariable.Type != null
             ? _typeResolver.ResolveType(typeExpr: memberVariable.Type)
-            : ErrorTypeInfo.Instance;
+            : ErrorTypeSymbol.Instance;
 
         // Suflae: an entity-typed field is a `Roamed[E]` biased-RC handle. The substitution now
         // happens at the single ResolveType choke point (TypeResolver.RoamSuflaeEntitySlot), so
@@ -380,7 +378,7 @@ internal sealed class TypeBodyResolver
         // from the AST — the field was written `E?`, which desugars to a `Maybe[...]` type expr.
         bool fieldNullable = _sa._registry.Language == Language.Suflae &&
                              memberVariable.Type is { Name: "Maybe" } &&
-                             memberVariableType is RecordTypeInfo
+                             memberVariableType is RecordTypeSymbol
                              {
                                  GenericDefinition.Name: RuntimeContract.Roamed
                              };
@@ -413,7 +411,7 @@ internal sealed class TypeBodyResolver
             {
                 TypeSymbol memberVariableType = memberVariable.Type != null
                     ? _typeResolver.ResolveType(typeExpr: memberVariable.Type)
-                    : ErrorTypeInfo.Instance;
+                    : ErrorTypeSymbol.Instance;
 
                 var memberVariableInfo =
                     new MemberVariableInfo(name: memberVariable.Name, type: memberVariableType)
@@ -444,7 +442,7 @@ internal sealed class TypeBodyResolver
     {
         // Look up the registered protocol type
         TypeSymbol? protoType = LookupTypeInCurrentModule(name: protocol.Name);
-        if (protoType is not ProtocolTypeInfo protocolInfo)
+        if (protoType is not ProtocolTypeSymbol protocolInfo)
         {
             return;
         }
@@ -454,7 +452,7 @@ internal sealed class TypeBodyResolver
         _sa._currentType = protocolInfo;
 
         // Resolve parent protocols (protocol X obeys Y, Z)
-        List<ProtocolTypeInfo> parentProtocols = ResolveParentProtocols(protocol: protocol);
+        List<ProtocolTypeSymbol> parentProtocols = ResolveParentProtocols(protocol: protocol);
 
         // Convert memberRoutine signatures to ProtocolMemberRoutineInfo
         var memberRoutines = new List<ProtocolMemberRoutineInfo>();
@@ -464,7 +462,7 @@ internal sealed class TypeBodyResolver
         }
 
         // Update the protocol with resolved memberRoutines and parent protocols
-        var updatedProtocol = new ProtocolTypeInfo(name: protocol.Name)
+        var updatedProtocol = new ProtocolTypeSymbol(name: protocol.Name)
         {
             MemberRoutines = memberRoutines,
             ParentProtocols = parentProtocols,
@@ -484,17 +482,17 @@ internal sealed class TypeBodyResolver
     /// <summary>
     /// Resolves a protocol's parent protocols (<c>protocol X obeys Y, Z</c>), reporting non-protocols.
     /// </summary>
-    private List<ProtocolTypeInfo> ResolveParentProtocols(ProtocolDeclaration protocol)
+    private List<ProtocolTypeSymbol> ResolveParentProtocols(ProtocolDeclaration protocol)
     {
-        var parentProtocols = new List<ProtocolTypeInfo>();
+        var parentProtocols = new List<ProtocolTypeSymbol>();
         foreach (TypeExpression parentExpr in protocol.ParentProtocols)
         {
             TypeSymbol parentType = _typeResolver.ResolveType(typeExpr: parentExpr);
-            if (parentType is ProtocolTypeInfo parentProtocol)
+            if (parentType is ProtocolTypeSymbol parentProtocol)
             {
                 parentProtocols.Add(item: parentProtocol);
             }
-            else if (parentType is not ErrorTypeInfo)
+            else if (parentType is not ErrorTypeSymbol)
             {
                 _sa.ReportError(code: SemanticDiagnosticCode.NotAProtocol,
                     message:
@@ -633,9 +631,9 @@ internal sealed class TypeBodyResolver
         }
 
         // Update the registered type with resolved members
-        if (LookupTypeInCurrentModule(name: variant.Name) is VariantTypeInfo variantType)
+        if (LookupTypeInCurrentModule(name: variant.Name) is VariantTypeSymbol variantType)
         {
-            var updated = new VariantTypeInfo(name: variant.Name)
+            var updated = new VariantTypeSymbol(name: variant.Name)
             {
                 Members = finalMembers,
                 GenericParameters = variant.GenericParameters,
@@ -723,7 +721,7 @@ internal sealed class TypeBodyResolver
         }
 
         TypeSymbol? choiceType = LookupTypeInCurrentModule(name: choice.Name);
-        if (choiceType is not ChoiceTypeInfo choiceInfo)
+        if (choiceType is not ChoiceTypeSymbol choiceInfo)
         {
             return;
         }
@@ -876,7 +874,7 @@ internal sealed class TypeBodyResolver
         }
 
         TypeSymbol? flagsType = LookupTypeInCurrentModule(name: flags.Name);
-        if (flagsType is not FlagsTypeInfo flagsInfo)
+        if (flagsType is not FlagsTypeSymbol flagsInfo)
         {
             return;
         }
@@ -990,7 +988,7 @@ internal sealed class TypeBodyResolver
 
     private static string? GetCarrierBaseName(TypeSymbol type)
     {
-        if (type is not RecordTypeInfo r)
+        if (type is not RecordTypeSymbol r)
         {
             return null;
         }

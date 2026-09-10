@@ -2,7 +2,7 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// A pre-computed monomorphization result produced at synthesis time (Phase 7).
@@ -20,7 +20,7 @@ namespace Compiler.Instantiation;
 public sealed record MonomorphizedBody(
     RoutineDeclaration Ast,
     RoutineInfo Info,
-    Dictionary<string, TypeInfo> TypeSubs,
+    Dictionary<string, TypeSymbol> TypeSubs,
     FailableVariant? VariantStatus,
-    TypeInfo? VariantInnerType,
+    TypeSymbol? VariantInnerType,
     bool IsSynthesized);

@@ -1,14 +1,14 @@
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Lowers <see cref="WhenStatement"/>s whose clauses all use simple or carrier-type patterns
 /// into plain <see cref="IfStatement"/> chains. Runs last in the per-file pipeline
-/// (after <see cref="Compiler.Desugaring.Passes.ControlFlowLoweringPass"/> and <see cref="ExpressionLoweringPass"/>).
+/// (after <see cref="Builder.Desugaring.Passes.ControlFlowLoweringPass"/> and <see cref="ExpressionLoweringPass"/>).
 ///
 /// <para>Lowerable patterns (all subject types):</para>
 /// <list type="bullet">
@@ -168,7 +168,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             return LowerSubjectlessWhen(loweredClauses: loweredClauses, loc: s.Location);
         }
 
-        TypeInfo? subjectType = s.Expression.ResolvedType;
+        TypeSymbol? subjectType = s.Expression.ResolvedType;
 
         if (!IsLowerable(when: s, subjectType: subjectType))
         {
@@ -194,7 +194,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// then assembles the if/else chain. Extracted from <see cref="VisitWhen"/> to reduce its
     /// cognitive complexity.
     /// </summary>
-    private Statement BuildLowerableWhen(Expression expression, TypeInfo? subjectType,
+    private Statement BuildLowerableWhen(Expression expression, TypeSymbol? subjectType,
         List<WhenClause> loweredClauses, SourceLocation loc)
     {
         var hoisted = new List<Statement>();
@@ -255,16 +255,16 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// alternatives are covered by prior clauses. CrashableExpansionPass has already fanned
     /// <c>is Crashable</c> into one TypePattern per concrete crashable type, so coverage is counted.
     /// </summary>
-    private bool DetermineElseNarrowed(List<WhenClause> loweredClauses, TypeInfo? subjectType)
+    private bool DetermineElseNarrowed(List<WhenClause> loweredClauses, TypeSymbol? subjectType)
     {
         if (IsResultOrLookup(type: subjectType) && subjectType!.TypeArguments?.Count > 0)
         {
             int totalCrashable = ctx.Registry
                                     .GetAllTypes()
-                                    .OfType<CrashableTypeInfo>()
+                                    .OfType<CrashableTypeSymbol>()
                                     .Count();
             int seenCrashablePatterns = loweredClauses.Count(predicate: c =>
-                c.Pattern is TypePattern { Type.ResolvedType: CrashableTypeInfo });
+                c.Pattern is TypePattern { Type.ResolvedType: CrashableTypeSymbol });
             // A single un-fanned `is Crashable` arm (CrashablePattern) covers EVERY crashable at once.
             bool crashableCovered =
                 loweredClauses.Any(predicate: c => c.Pattern is CrashablePattern) ||
@@ -298,7 +298,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// built from subsequent unreachable clauses.
     /// </summary>
     private Statement? BuildWhenIfChain(List<WhenClause> loweredClauses, Expression subject,
-        TypeInfo? subjectType, bool isElseNarrowed, SourceLocation loc)
+        TypeSymbol? subjectType, bool isElseNarrowed, SourceLocation loc)
     {
         Statement? chain = null;
         for (int i = loweredClauses.Count - 1; i >= 0; i--)
@@ -417,7 +417,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <summary>
     /// Returns whether is lowerable applies in the current compiler context.
     /// </summary>
-    private static bool IsLowerable(WhenStatement when, TypeInfo? subjectType)
+    private static bool IsLowerable(WhenStatement when, TypeSymbol? subjectType)
     {
         return when.Clauses.All(predicate: c => IsLowerablePattern(pattern: c.Pattern,
             subjectType: subjectType));
@@ -426,7 +426,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <summary>
     /// Returns whether is lowerable pattern applies in the current compiler context.
     /// </summary>
-    private static bool IsLowerablePattern(Pattern pattern, TypeInfo? subjectType)
+    private static bool IsLowerablePattern(Pattern pattern, TypeSymbol? subjectType)
     {
         return pattern switch
         {
@@ -435,7 +435,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             IdentifierPattern => true,
             ExpressionPattern => true,
             ComparisonPattern => true,
-            FlagsPattern => subjectType is FlagsTypeInfo,
+            FlagsPattern => subjectType is FlagsTypeSymbol,
 
             // ElsePattern with binding on Result/Lookup, Maybe[T entity], or Maybe[T record]: lowerable.
             ElsePattern ep => !ep.VariableName.HasValue() || IsResultOrLookup(type: subjectType) ||
@@ -450,18 +450,18 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             TypePattern when IsMaybeEntity(type: subjectType) => true,
 
             // Result/Lookup and user variant TypePatterns: lowerable -> condition is type_id == constant.
-            TypePattern when IsResultOrLookup(type: subjectType) || subjectType is VariantTypeInfo
+            TypePattern when IsResultOrLookup(type: subjectType) || subjectType is VariantTypeSymbol
                 => true,
 
             // User choice `is CASE`: lowerable to a discriminant identity compare (subject `is` case value),
             // but only when the case name resolves — an unknown case is left for codegen (br failLabel).
-            TypePattern choiceTp when subjectType is ChoiceTypeInfo choiceCti =>
+            TypePattern choiceTp when subjectType is ChoiceTypeSymbol choiceCti =>
                 choiceCti.Cases.Any(predicate: c =>
                     c.Name == LastNameSegment(name: choiceTp.Type.Name)),
 
             // Entity `is T`: RF entities have no subtyping, so it is BUILDTIME-decidable (same concrete
             // type = always match, different = never) — lowerable to a constant condition + optional binding.
-            TypePattern when subjectType is EntityTypeInfo => true,
+            TypePattern when subjectType is EntityTypeSymbol => true,
 
             // The single un-fanned `is Crashable` arm on a carrier (CrashableExpansionPass no longer fans it
             // per-type; it rewrites the arm body to CrashableDispatchExpression and keeps ONE CrashablePattern).
@@ -469,13 +469,13 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             CrashablePattern when IsResultOrLookup(type: subjectType) => true,
 
             // NegatedTypePattern on user variant: lowerable -> condition is type_id != constant.
-            NegatedTypePattern when subjectType is VariantTypeInfo => true,
+            NegatedTypePattern when subjectType is VariantTypeSymbol => true,
 
-            DestructuringPattern dp when subjectType is RecordTypeInfo or EntityTypeInfo &&
+            DestructuringPattern dp when subjectType is RecordTypeSymbol or EntityTypeSymbol &&
                                          AreDestructuringBindingsLowerable(bindings: dp.Bindings,
                                              subjectType: subjectType) => true,
 
-            TypeDestructuringPattern tdp when subjectType is RecordTypeInfo or EntityTypeInfo &&
+            TypeDestructuringPattern tdp when subjectType is RecordTypeSymbol or EntityTypeSymbol &&
                                               AreDestructuringBindingsLowerable(
                                                   bindings: tdp.Bindings,
                                                   subjectType: subjectType) => true,
@@ -494,10 +494,10 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// A <c>null</c> condition means the pattern always matches (becomes the final <c>else</c>).
     /// </summary>
     private (Expression? Cond, Statement? Binding) GetPatternCondition(Pattern pattern,
-        Expression subject, TypeInfo? subjectType, bool isElseNarrowed = false)
+        Expression subject, TypeSymbol? subjectType, bool isElseNarrowed = false)
     {
         SourceLocation loc = pattern.Location;
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
 
         switch (pattern)
         {
@@ -574,7 +574,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
                     loc: loc,
                     boolType: boolType);
 
-            case NegatedTypePattern negType when subjectType is VariantTypeInfo:
+            case NegatedTypePattern negType when subjectType is VariantTypeSymbol:
                 return GetNegatedTypePatternCondition(negType: negType,
                     subject: subject,
                     loc: loc,
@@ -599,20 +599,20 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
                     "Result/Lookup carrier's `is Crashable` arm is expected here.");
 
             case TypePattern tp
-                when IsResultOrLookup(type: subjectType) || subjectType is VariantTypeInfo:
+                when IsResultOrLookup(type: subjectType) || subjectType is VariantTypeSymbol:
                 return GetResultLookupTypePatternCondition(tp: tp,
                     subject: subject,
                     loc: loc,
                     boolType: boolType);
 
-            case TypePattern tp when subjectType is ChoiceTypeInfo choiceSubj:
+            case TypePattern tp when subjectType is ChoiceTypeSymbol choiceSubj:
                 return GetChoiceTypePatternCondition(tp: tp,
                     subject: subject,
                     choiceSubj: choiceSubj,
                     loc: loc,
                     boolType: boolType);
 
-            case TypePattern tp when subjectType is EntityTypeInfo:
+            case TypePattern tp when subjectType is EntityTypeSymbol:
                 return GetEntityTypePatternCondition(tp: tp,
                     subject: subject,
                     subjectType: subjectType,
@@ -634,25 +634,25 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
 
             // -----------------------------------------------------------------------------
 
-            case DestructuringPattern dp when subjectType is RecordTypeInfo rec:
+            case DestructuringPattern dp when subjectType is RecordTypeSymbol rec:
                 return GetDestructuringCondition(bindings: dp.Bindings,
                     subject: subject,
                     memberVars: rec.MemberVariables,
                     loc: loc);
 
-            case DestructuringPattern dp when subjectType is EntityTypeInfo ent:
+            case DestructuringPattern dp when subjectType is EntityTypeSymbol ent:
                 return GetDestructuringCondition(bindings: dp.Bindings,
                     subject: subject,
                     memberVars: ent.MemberVariables,
                     loc: loc);
 
-            case TypeDestructuringPattern tdp when subjectType is RecordTypeInfo rec:
+            case TypeDestructuringPattern tdp when subjectType is RecordTypeSymbol rec:
                 return GetDestructuringCondition(bindings: tdp.Bindings,
                     subject: subject,
                     memberVars: rec.MemberVariables,
                     loc: loc);
 
-            case TypeDestructuringPattern tdp when subjectType is EntityTypeInfo ent:
+            case TypeDestructuringPattern tdp when subjectType is EntityTypeSymbol ent:
                 return GetDestructuringCondition(bindings: tdp.Bindings,
                     subject: subject,
                     memberVars: ent.MemberVariables,
@@ -671,7 +671,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// Extracted from <see cref="GetPatternCondition"/>.
     /// </summary>
     private static (Expression? Cond, Statement? Binding) GetElsePatternCondition(ElsePattern ep,
-        Expression subject, TypeInfo? subjectType, bool isElseNarrowed,
+        Expression subject, TypeSymbol? subjectType, bool isElseNarrowed,
         SourceLocation loc)
     {
         Statement? binding = null;
@@ -692,7 +692,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             {
                 // Result/Lookup: truly narrowed-to-T else arm -> extract payload.
                 // Only when all non-T arms (None + all Crashable types) are handled.
-                TypeInfo innerType = subjectType.TypeArguments[index: 0];
+                TypeSymbol innerType = subjectType.TypeArguments[index: 0];
                 bindValue = MakeCarrierPayload(subject: subject, innerType: innerType, loc: loc);
             }
             else
@@ -712,12 +712,12 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <see cref="GetPatternCondition"/>.
     /// </summary>
     private (Expression? Cond, Statement? Binding) GetMaybeTypePatternCondition(TypePattern tp,
-        Expression subject, TypeInfo? subjectType, SourceLocation loc,
-        TypeInfo? boolType)
+        Expression subject, TypeSymbol? subjectType, SourceLocation loc,
+        TypeSymbol? boolType)
     {
         // `is None` on Maybe[T record] tests absence (`not present`); other TypePatterns
         // test presence. Parser emits `is None` as TypePattern with Type.Name == "None".
-        TypeInfo? innerType = subjectType!.TypeArguments![index: 0];
+        TypeSymbol? innerType = subjectType!.TypeArguments![index: 0];
         Expression cond = tp.Type.Name == "None"
             ? MakeNotPresent(subject: subject, loc: loc, boolType: boolType)
             : MakePresentAccess(subject: subject, loc: loc);
@@ -738,10 +738,10 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// </summary>
     private (Expression? Cond, Statement? Binding) GetNegatedTypePatternCondition(
         NegatedTypePattern negType, Expression subject, SourceLocation loc,
-        TypeInfo? boolType)
+        TypeSymbol? boolType)
     {
-        TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-        TypeInfo? targetType = negType.Type.ResolvedType ??
+        TypeSymbol? u64Type = ctx.Registry.LookupType(name: "U64");
+        TypeSymbol? targetType = negType.Type.ResolvedType ??
                                ctx.Registry.LookupType(name: negType.Type.Name);
 
         if (targetType == null)
@@ -783,14 +783,14 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// codegen. No binding (a choice case carries no payload).
     /// </summary>
     private (Expression? Cond, Statement? Binding) GetChoiceTypePatternCondition(TypePattern tp,
-        Expression subject, ChoiceTypeInfo choiceSubj, SourceLocation loc,
-        TypeInfo? boolType)
+        Expression subject, ChoiceTypeSymbol choiceSubj, SourceLocation loc,
+        TypeSymbol? boolType)
     {
         string caseName = LastNameSegment(name: tp.Type.Name);
         ChoiceCaseInfo? matched =
             choiceSubj.Cases.FirstOrDefault(predicate: c => c.Name == caseName);
         // IsLowerablePattern only returns true when the case exists, so `matched` is non-null here.
-        TypeInfo? underlying = choiceSubj.UnderlyingType ?? ctx.Registry.LookupType(name: "S32");
+        TypeSymbol? underlying = choiceSubj.UnderlyingType ?? ctx.Registry.LookupType(name: "S32");
         var reinterpret =
             new CreatorExpression(TypeName: underlying?.Name ?? "S32",
                 TypeArguments: null,
@@ -818,10 +818,10 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// a different type never matches (a `false` literal). No runtime type test reaches codegen.
     /// </summary>
     private (Expression? Cond, Statement? Binding) GetEntityTypePatternCondition(TypePattern tp,
-        Expression subject, TypeInfo? subjectType, SourceLocation loc,
-        TypeInfo? boolType)
+        Expression subject, TypeSymbol? subjectType, SourceLocation loc,
+        TypeSymbol? boolType)
     {
-        TypeInfo? target = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
+        TypeSymbol? target = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
         bool same = target != null && subjectType?.FullName == target.FullName;
         if (same)
         {
@@ -847,10 +847,10 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// </summary>
     private (Expression? Cond, Statement? Binding) GetResultLookupTypePatternCondition(
         TypePattern tp, Expression subject, SourceLocation loc,
-        TypeInfo? boolType)
+        TypeSymbol? boolType)
     {
-        TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-        TypeInfo? targetType = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
+        TypeSymbol? u64Type = ctx.Registry.LookupType(name: "U64");
+        TypeSymbol? targetType = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
 
         // `is None`  on Lookup/Variant carriers tests type_id == 0.
         if (tp.Type.Name is "None")
@@ -870,7 +870,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
         // (TryFoldBsCallViaStringSubs) to ComputeTypeId(concrete.FullName), so the condition
         // matches the success state once instantiated.
         Expression typeIdRhs;
-        if (targetType is GenericParameterTypeInfo)
+        if (targetType is GenericParameterTypeSymbol)
         {
             typeIdRhs = new CallExpression(
                 Callee: new MemberExpression(
@@ -911,7 +911,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
 
     /// <summary>Builds <c>not subject.present</c> for Maybe absence check.</summary>
     private UnaryExpression MakeNotPresent(Expression subject, SourceLocation loc,
-        TypeInfo? boolType)
+        TypeSymbol? boolType)
     {
         return new UnaryExpression(Operator: UnaryOperator.Not,
             Operand: MakePresentAccess(subject: subject, loc: loc),
@@ -921,7 +921,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <summary>Builds <c>subject.present</c> member access (Bool).</summary>
     private MemberExpression MakePresentAccess(Expression subject, SourceLocation loc)
     {
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
         return new MemberExpression(Object: subject,
             MemberName: Declaration.RuntimeContract.Carrier.PresentField,
             Location: loc) { ResolvedType = boolType };
@@ -929,7 +929,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
 
     /// <summary>Builds a member-access expression with a known field type.</summary>
     private static MemberExpression MakeMemberAccess(Expression subject, string field,
-        TypeInfo? fieldType, SourceLocation loc)
+        TypeSymbol? fieldType, SourceLocation loc)
     {
         return new MemberExpression(Object: subject, MemberName: field, Location: loc)
         {
@@ -947,9 +947,9 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// carrier body crashable-set-independent and therefore snapshot-freeze-safe.
     /// </summary>
     private (Expression? Cond, Statement? Binding) GetCrashableArmCondition(Expression subject,
-        TypeInfo? subjectType, SourceLocation loc, TypeInfo? boolType)
+        TypeSymbol? subjectType, SourceLocation loc, TypeSymbol? boolType)
     {
-        TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
+        TypeSymbol? u64Type = ctx.Registry.LookupType(name: "U64");
 
         // The success arm's type is the carrier's element type. On a CONCRETE carrier it is
         // TypeArguments[0]; on the generic-DEF (this pass runs on the stdlib Result[T].represent before
@@ -958,10 +958,10 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
         // after GenericAstRewriter substitutes the identifier — matching exactly how the sibling `is T`
         // arm derives its type_id, and keeping this generic-def body crashable-set-independent.
         string? successParamName = null;
-        TypeInfo? successConcrete = null;
+        TypeSymbol? successConcrete = null;
         if (subjectType?.TypeArguments is { Count: > 0 } args)
         {
-            if (args[index: 0] is GenericParameterTypeInfo gp0)
+            if (args[index: 0] is GenericParameterTypeSymbol gp0)
             {
                 successParamName = gp0.Name;
             }
@@ -1019,7 +1019,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
 
     /// <summary>Builds <c>subject.type_id == 0_u64</c> for a None/absent check on Result/Lookup.</summary>
     private static BinaryExpression MakeTypeIdIsZero(Expression subject, SourceLocation loc,
-        TypeInfo? boolType, TypeInfo? u64Type)
+        TypeSymbol? boolType, TypeSymbol? u64Type)
     {
         MemberExpression typeIdAccess = MakeMemberAccess(subject: subject,
             field: TypeIdFieldName,
@@ -1041,7 +1041,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// from the carrier's <c>data_address</c> field cast to <paramref name="innerType"/>.
     /// </summary>
     private static CarrierPayloadExpression MakeCarrierPayload(Expression subject,
-        TypeInfo innerType, SourceLocation loc)
+        TypeSymbol innerType, SourceLocation loc)
     {
         return new CarrierPayloadExpression(Carrier: subject,
             ConcreteType: TypeInfoToExpr(type: innerType, loc: loc),
@@ -1059,7 +1059,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
         List<DestructuringBinding> bindings, Expression subject,
         List<MemberVariableInfo> memberVars, SourceLocation loc)
     {
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
         Expression? cond = null;
         var stmts = new List<Statement>(capacity: bindings.Count);
         foreach (DestructuringBinding b in bindings)
@@ -1115,7 +1115,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <paramref name="right"/> unchanged; otherwise wraps both in a <see cref="BinaryExpression"/>.
     /// </summary>
     private static Expression? CombineConditions(Expression? left, Expression? right,
-        SourceLocation loc, TypeInfo? boolType)
+        SourceLocation loc, TypeSymbol? boolType)
     {
         if (right == null)
         {
@@ -1139,14 +1139,14 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// Returns the generic base name of a type (e.g., "Maybe" for <c>Maybe[S64]</c>).
     /// Returns the type's own name if it is not a resolved generic.
     /// </summary>
-    private static string GetCarrierBaseName(TypeInfo type)
+    private static string GetCarrierBaseName(TypeSymbol type)
     {
-        if (type is RecordTypeInfo { GenericDefinition: not null } r)
+        if (type is RecordTypeSymbol { GenericDefinition: not null } r)
         {
             return r.GenericDefinition.Name;
         }
 
-        if (type is EntityTypeInfo { GenericDefinition: not null } e)
+        if (type is EntityTypeSymbol { GenericDefinition: not null } e)
         {
             return e.GenericDefinition.Name;
         }
@@ -1159,7 +1159,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// (the two-field variant with an accessible <c>present</c> and <c>value</c> field).
     /// Entity-T Maybe has no <c>present</c> field and is not lowerable here.
     /// </summary>
-    private static bool IsMaybeRecord(TypeInfo? type)
+    private static bool IsMaybeRecord(TypeSymbol? type)
     {
         if (type == null)
         {
@@ -1177,14 +1177,14 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
         }
 
         // Entity-T Maybe only has `value: Hijacked[T]`, no `present` field.
-        return type.TypeArguments[index: 0] is not EntityTypeInfo;
+        return type.TypeArguments[index: 0] is not EntityTypeSymbol;
     }
 
     /// <summary>
     /// Returns true if <paramref name="type"/> is <c>Maybe[T]</c> where T is an entity type
     /// (the single-field variant with only a <c>Hijacked[T]</c> value field -> no <c>present</c>).
     /// </summary>
-    private static bool IsMaybeEntity(TypeInfo? type)
+    private static bool IsMaybeEntity(TypeSymbol? type)
     {
         if (type == null)
         {
@@ -1201,11 +1201,11 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             return false;
         }
 
-        return type.TypeArguments[index: 0] is EntityTypeInfo;
+        return type.TypeArguments[index: 0] is EntityTypeSymbol;
     }
 
     /// <summary>Returns true if the type is <c>Result[T]</c> or <c>Lookup[T]</c>.</summary>
-    private static bool IsResultOrLookup(TypeInfo? type)
+    private static bool IsResultOrLookup(TypeSymbol? type)
     {
         if (type == null)
         {
@@ -1219,7 +1219,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <summary>
     /// Returns whether is result type applies in the current compiler context.
     /// </summary>
-    private static bool IsResultType(TypeInfo? type)
+    private static bool IsResultType(TypeSymbol? type)
     {
         if (type == null)
         {
@@ -1235,12 +1235,12 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// type (recursively). Positional bindings (no member name) are left for codegen.
     /// </summary>
     private static bool AreDestructuringBindingsLowerable(List<DestructuringBinding> bindings,
-        TypeInfo? subjectType)
+        TypeSymbol? subjectType)
     {
         List<MemberVariableInfo>? memberVars = subjectType switch
         {
-            RecordTypeInfo r => r.MemberVariables,
-            EntityTypeInfo e => e.MemberVariables,
+            RecordTypeSymbol r => r.MemberVariables,
+            EntityTypeSymbol e => e.MemberVariables,
             _ => null
         };
         if (memberVars == null)
@@ -1275,7 +1275,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     private static DeclarationStatement MakeBinding(string name, Expression value,
         SourceLocation loc)
     {
-        TypeInfo? type = value.ResolvedType;
+        TypeSymbol? type = value.ResolvedType;
         var decl = new VariableDeclaration(Name: name,
             Type: type != null
                 ? TypeInfoToExpr(type: type, loc: loc)
@@ -1289,7 +1289,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <summary>
     /// Performs the add temp var step for this compiler phase.
     /// </summary>
-    private static void AddTempVar(List<Statement> hoisted, string name, TypeInfo? typeHint,
+    private static void AddTempVar(List<Statement> hoisted, string name, TypeSymbol? typeHint,
         Expression initializer, SourceLocation loc)
     {
         var decl = new VariableDeclaration(Name: name,
@@ -1303,15 +1303,15 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     }
 
     /// <summary>
-    /// Converts a <see cref="TypeInfo"/> back to a <see cref="TypeExpression"/> for use
+    /// Converts a <see cref="TypeSymbol"/> back to a <see cref="TypeExpression"/> for use
     /// in synthetic variable type annotations.
     /// </summary>
-    private static TypeExpression TypeInfoToExpr(TypeInfo type, SourceLocation loc)
+    private static TypeExpression TypeInfoToExpr(TypeSymbol type, SourceLocation loc)
     {
         string baseName = type switch
         {
-            RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
-            EntityTypeInfo { GenericDefinition: not null } e => e.GenericDefinition.Name,
+            RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition.Name,
+            EntityTypeSymbol { GenericDefinition: not null } e => e.GenericDefinition.Name,
             _ => type.IsGenericResolution
                 ? type.BareName
                 : type.Name
@@ -1323,7 +1323,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
                   .ToList()
             : null;
 
-        // Carry the already-resolved TypeInfo so codegen uses it directly instead of re-resolving the
+        // Carry the already-resolved TypeSymbol so codegen uses it directly instead of re-resolving the
         // bare name (which depended on the cross-module short-name scan — e.g. a synthesized
         // `var v: IOError = <payload>` for a `when e is IOError v` arm, IOError living in another module).
         // ONLY for a fully-concrete type: annotating an unsubstituted generic parameter would trip the
@@ -1339,10 +1339,10 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <summary>True when <paramref name="type"/> is (or transitively contains) an unsubstituted
     /// generic parameter / protocol-self — such a type must NOT be frozen onto a synthesized
     /// TypeExpression's ResolvedType (the monomorphizer would fail its completeness check).</summary>
-    private static bool TypeContainsGenericParameter(TypeInfo type)
+    private static bool TypeContainsGenericParameter(TypeSymbol type)
     {
-        return type is GenericParameterTypeInfo or ProtocolSelfTypeInfo
-                   or ComptimeConstGenericTypeInfo ||
+        return type is GenericParameterTypeSymbol or ProtocolSelfTypeSymbol
+                   or BuildtimeConstGenericTypeSymbol ||
                (type.TypeArguments?.Any(predicate: TypeContainsGenericParameter) ?? false);
     }
 

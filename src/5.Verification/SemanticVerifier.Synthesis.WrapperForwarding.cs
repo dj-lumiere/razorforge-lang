@@ -1,10 +1,8 @@
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Instantiation;
+using Builder.Instantiation;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 /// <summary>
 /// Phase D synthesizer: delegates to <see cref="WrapperForwardingPass"/> for

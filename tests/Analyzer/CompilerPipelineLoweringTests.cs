@@ -1,8 +1,8 @@
-using Compiler.LlvmEmit;
-using Compiler.Diagnostics;
-using Compiler.Instantiation;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.LlvmEmit;
+using Builder.Diagnostics;
+using Builder.Instantiation;
+using Builder.Verification;
+using Builder.Verification.Results;
 using System.Collections;
 using System.Reflection;
 using SyntaxTree;
@@ -10,8 +10,6 @@ using TypeModel.Enums;
 using TypeModel.Reprs;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using ParameterInfo = TypeModel.Symbols.ParameterInfo;
-using TypeInfo = TypeModel.Types.TypeInfo;
 
 namespace RazorForge.Tests.Analyzer;
 
@@ -782,22 +780,22 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        TypeInfo? s64Type = result.Registry.LookupType(name: "S64");
-        TypeInfo? s8Type = result.Registry.LookupType(name: "S8");
-        TypeInfo? textType = result.Registry.LookupType(name: "Text");
-        TypeInfo? maybeDef = result.Registry.LookupType(name: "Maybe");
+        TypeSymbol? s64Type = result.Registry.LookupType(name: "S64");
+        TypeSymbol? s8Type = result.Registry.LookupType(name: "S8");
+        TypeSymbol? textType = result.Registry.LookupType(name: "Text");
+        TypeSymbol? maybeDef = result.Registry.LookupType(name: "Maybe");
         Assert.NotNull(@object: s64Type);
         Assert.NotNull(@object: s8Type);
         Assert.NotNull(@object: textType);
         Assert.NotNull(@object: maybeDef);
-        TypeInfo maybeS64 = result.Registry.GetOrCreateResolution(genericDef: maybeDef,
+        TypeSymbol maybeS64 = result.Registry.GetOrCreateResolution(genericDef: maybeDef,
             typeArguments: [s64Type]);
 
         string fromS8 = LlvmEmitter.MangleRoutineName(
             routine: new RoutineInfo(name: "try_create")
             {
                 OwnerType = s64Type,
-                Parameters = [new ParameterInfo(name: "from", type: s8Type)],
+                Parameters = [new ParamInfo(name: "from", type: s8Type)],
                 ReturnType = maybeS64,
                 OriginalName = "$create",
                 IsSynthesized = true
@@ -807,7 +805,7 @@ public class CompilerPipelineLoweringTests
             routine: new RoutineInfo(name: "try_create")
             {
                 OwnerType = s64Type,
-                Parameters = [new ParameterInfo(name: "from_text", type: textType)],
+                Parameters = [new ParamInfo(name: "from_text", type: textType)],
                 ReturnType = maybeS64,
                 OriginalName = "$create",
                 IsSynthesized = true
@@ -1167,14 +1165,14 @@ public class CompilerPipelineLoweringTests
 
         Assert.Empty(collection: result.Errors);
 
-        TypeInfo characterType = Assert.IsType<RecordTypeInfo>(
+        TypeSymbol characterType = Assert.IsType<RecordTypeSymbol>(
             @object: result.Registry.LookupType(name: "Character"));
         var leakedCall = new CallExpression(
             Callee: new IdentifierExpression(Name: "Character", Location: program.Location),
             Arguments:
             [
                 new LiteralExpression(Value: "65_u32",
-                    LiteralType: Compiler.Tokenizer.TokenType.U32Literal,
+                    LiteralType: Builder.Tokenizer.TokenType.U32Literal,
                     Location: program.Location)
             ],
             Location: program.Location) { ResolvedType = characterType };
@@ -1206,9 +1204,9 @@ public class CompilerPipelineLoweringTests
         var leakedIndex = new IndexExpression(
             Object: new IdentifierExpression(Name: "items", Location: program.Location),
             Index: new LiteralExpression(Value: "0_s64",
-                LiteralType: Compiler.Tokenizer.TokenType.S64Literal,
+                LiteralType: Builder.Tokenizer.TokenType.S64Literal,
                 Location: program.Location),
-            Location: program.Location) { ResolvedType = new GenericParameterTypeInfo(name: "T") };
+            Location: program.Location) { ResolvedType = new GenericParameterTypeSymbol(name: "T") };
 
         var leakedReturn = new ReturnStatement(Value: leakedIndex, Location: program.Location);
         var validator = new BackendEntryValidator(registry: result.Registry);
@@ -1245,7 +1243,7 @@ public class CompilerPipelineLoweringTests
         ReturnStatement returnStatement =
             Assert.IsType<ReturnStatement>(@object: body.Statements.Single());
         IndexExpression index = Assert.IsType<IndexExpression>(@object: returnStatement.Value);
-        TypeInfo resolvedType = index.ResolvedType!;
+        TypeSymbol resolvedType = index.ResolvedType!;
         Assert.NotNull(@object: resolvedType);
         Assert.Equal(expected: "S64", actual: resolvedType.Name);
         Assert.False(condition: ContainsGenericPlaceholder(type: resolvedType));
@@ -1276,7 +1274,7 @@ public class CompilerPipelineLoweringTests
             Arguments:
             [
                 new LiteralExpression(Value: "1_s32",
-                    LiteralType: Compiler.Tokenizer.TokenType.S32Literal,
+                    LiteralType: Builder.Tokenizer.TokenType.S32Literal,
                     Location: program.Location)
             ],
             Location: program.Location);
@@ -1322,8 +1320,8 @@ public class CompilerPipelineLoweringTests
             Assert.IsType<TypeExpression>(@object: testRoutine.Parameters[index: 0].Type);
         TypeExpression widthArg =
             Assert.IsType<TypeExpression>(@object: parameterType.GenericArguments![index: 1]);
-        ConstGenericValueTypeInfo resolvedWidth =
-            Assert.IsType<ConstGenericValueTypeInfo>(@object: widthArg.ResolvedType);
+        ConstGenericValueTypeSymbol resolvedWidth =
+            Assert.IsType<ConstGenericValueTypeSymbol>(@object: widthArg.ResolvedType);
         Assert.Equal(expected: 16, actual: resolvedWidth.Value);
         Assert.Equal(expected: "Address", actual: resolvedWidth.ExplicitTypeName);
 
@@ -2098,14 +2096,14 @@ public class CompilerPipelineLoweringTests
         }
     }
 
-    private static bool ContainsGenericPlaceholder(TypeInfo? type)
+    private static bool ContainsGenericPlaceholder(TypeSymbol? type)
     {
         if (type == null)
         {
             return false;
         }
 
-        if (type is GenericParameterTypeInfo or ProtocolSelfTypeInfo)
+        if (type is GenericParameterTypeSymbol or ProtocolSelfTypeSymbol)
         {
             return true;
         }
@@ -2123,9 +2121,9 @@ public class CompilerPipelineLoweringTests
 
         return type switch
         {
-            WrapperTypeInfo wrapper => ContainsGenericPlaceholder(type: wrapper.InnerType),
-            TupleTypeInfo tuple => tuple.ElementTypes.Any(predicate: ContainsGenericPlaceholder),
-            VariantTypeInfo variant => variant.Members.Any(predicate: member =>
+            WrapperTypeSymbol wrapper => ContainsGenericPlaceholder(type: wrapper.InnerType),
+            TupleTypeSymbol tuple => tuple.ElementTypes.Any(predicate: ContainsGenericPlaceholder),
+            VariantTypeSymbol variant => variant.Members.Any(predicate: member =>
                 member.Type != null && ContainsGenericPlaceholder(type: member.Type)),
             _ => false
         };

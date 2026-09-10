@@ -1,6 +1,6 @@
 using SyntaxTree;
 
-namespace Compiler.Desugaring.Passes;
+namespace Builder.Desugaring.Passes;
 
 /// <summary>
 /// D-AST-0: Normalizes null return types and bare return statements.

@@ -1,6 +1,6 @@
-using Compiler.Diagnostics;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.Diagnostics;
+using Builder.Verification;
+using Builder.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Types;
@@ -317,7 +317,7 @@ public class CollectionLiteralTests
                                            .Single(predicate: declaration =>
                                                 declaration.Name == "items");
 
-        TypeInfo? resolvedType = variable.Initializer?.ResolvedType;
+        TypeSymbol? resolvedType = variable.Initializer?.ResolvedType;
         Assert.NotNull(@object: resolvedType);
         Assert.Equal(expected: "Core.List[Core.List[Core.S64]]", actual: resolvedType!.FullName);
     }
@@ -352,7 +352,7 @@ public class CollectionLiteralTests
                                            .Single(predicate: declaration =>
                                                 declaration.Name == "items");
 
-        TypeInfo? resolvedType = variable.Initializer?.ResolvedType;
+        TypeSymbol? resolvedType = variable.Initializer?.ResolvedType;
         Assert.NotNull(@object: resolvedType);
         Assert.Equal(expected: "Core.List[Core.S64]", actual: resolvedType!.FullName);
     }
@@ -391,7 +391,7 @@ public class CollectionLiteralTests
                                            .Single(predicate: declaration =>
                                                 declaration.Name == "items");
 
-        TypeInfo? resolvedType = variable.Initializer?.ResolvedType;
+        TypeSymbol? resolvedType = variable.Initializer?.ResolvedType;
         Assert.NotNull(@object: resolvedType);
         Assert.Equal(expected: "Core.List[Core.S64]", actual: resolvedType!.FullName);
     }

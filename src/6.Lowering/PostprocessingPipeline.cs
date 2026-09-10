@@ -1,9 +1,9 @@
-using Compiler.Desugaring.Passes;
-using Compiler.Lowering.Passes;
+using Builder.Desugaring.Passes;
+using Builder.Lowering.Passes;
 using SyntaxTree;
-using Compiler.Declaration;
+using Builder.Declaration;
 
-namespace Compiler.Lowering;
+namespace Builder.Lowering;
 
 /// <summary>
 /// Phase 8 pipeline: type-aware lowering on already-verified AST.

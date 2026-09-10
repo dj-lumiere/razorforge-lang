@@ -5,7 +5,7 @@ namespace TypeModel.Types;
 /// <summary>
 /// Placeholder type used for unbound generic type parameters.
 /// </summary>
-public sealed class TypeParameterPlaceholder : TypeInfo
+public sealed class TypeParameterPlaceholder : TypeSymbol
 {
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">Always thrown as type parameters are not concrete types.</exception>
@@ -22,7 +22,7 @@ public sealed class TypeParameterPlaceholder : TypeInfo
 
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">Always thrown as type parameters cannot be resolved.</exception>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         throw new InvalidOperationException(
             message: $"Type parameter '{Name}' cannot be resolved.");

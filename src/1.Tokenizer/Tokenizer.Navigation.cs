@@ -1,4 +1,4 @@
-namespace Compiler.Tokenizer;
+namespace Builder.Tokenizer;
 
 /// <summary>
 /// Partial class containing character navigation and token management memberRoutines for the unified tokenizer.

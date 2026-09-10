@@ -1,10 +1,8 @@
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 
-namespace Compiler.Verification.Scopes;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification.Scopes;
 
 /// <summary>
 /// Represents a scope in the program for variable and symbol lookup.

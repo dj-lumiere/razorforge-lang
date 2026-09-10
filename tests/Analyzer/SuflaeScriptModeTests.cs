@@ -85,7 +85,7 @@ public sealed class SuflaeScriptModeTests
     [Fact]
     public void Parse_LooseStatementWithExplicitStart_ReportsError()
     {
-        (Program _, Compiler.Parser.Parser parser) = ParseSuflaeWithErrors(source: """
+        (Program _, Builder.Parser.Parser parser) = ParseSuflaeWithErrors(source: """
             show("loose")
             routine start()
               return

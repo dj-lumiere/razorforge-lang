@@ -1,7 +1,7 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 /// <summary>
 /// P/Invoke bindings for native numeric literal parsing functions.

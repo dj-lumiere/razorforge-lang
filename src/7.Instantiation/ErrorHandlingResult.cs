@@ -1,6 +1,6 @@
 using TypeModel.Types;
 
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// Result of error handling variant generation.
@@ -26,7 +26,7 @@ public sealed class ErrorHandlingResult
     /// Concrete crashable types directly thrown by this routine (from <c>throw</c> statements).
     /// Populated from <see cref="ErrorHandlingAnalysis.ThrownTypes"/>.
     /// </summary>
-    public List<TypeInfo> ThrownTypes { get; init; } = [];
+    public List<TypeSymbol> ThrownTypes { get; init; } = [];
 
     /// <summary>Whether generation was successful.</summary>
     public bool Success => Error == null;

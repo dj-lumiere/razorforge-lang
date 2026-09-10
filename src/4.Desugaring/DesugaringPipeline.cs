@@ -1,8 +1,8 @@
-using Compiler.Desugaring.Passes;
+using Builder.Desugaring.Passes;
 using SyntaxTree;
-using Compiler.Instantiation;
+using Builder.Instantiation;
 
-namespace Compiler.Desugaring;
+namespace Builder.Desugaring;
 
 /// <summary>
 /// Phase 3 pipeline: syntax-only lowering that requires no type information.
@@ -32,7 +32,7 @@ public sealed class DesugaringPipeline(DesugaringContext ctx)
     /// Generates error-handling variants, wired routine bodies, prunes unused generics,
     /// then applies Phase 3 passes to the generated variant bodies and stdlib programs.
     /// Phase 8 variant-body and stdlib lowering is handled by
-    /// <see cref="Compiler.Lowering.PostprocessingPipeline.RunGlobal"/>.
+    /// <see cref="Builder.Lowering.PostprocessingPipeline.RunGlobal"/>.
     /// </summary>
     public void RunGlobal()
     {

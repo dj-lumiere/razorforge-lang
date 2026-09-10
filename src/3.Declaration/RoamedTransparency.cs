@@ -1,8 +1,7 @@
 using TypeModel.Symbols;
 using TypeModel.Types;
-using TypeInfo = TypeModel.Types.TypeInfo;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// The single decision point for Suflae <c>Roamed[T]</c> display/receiver transparency at codegen.
@@ -23,7 +22,7 @@ internal static class RoamedTransparency
     public readonly record struct Projection(
         RoutineInfo MemberRoutine,
         bool ProjectToInner,
-        TypeInfo InnerType);
+        TypeSymbol InnerType);
 
     /// <summary>
     /// Decide the transparency projection for calling <paramref name="memberRoutine"/> (named
@@ -31,7 +30,7 @@ internal static class RoamedTransparency
     /// <c>null</c> when the receiver is not <c>Roamed[T]</c>, or when the call targets a genuine
     /// Roamed-own memberRoutine (no transparency applies — call it as-is).
     /// </summary>
-    public static Projection? Project(TypeInfo receiverType, RoutineInfo? memberRoutine,
+    public static Projection? Project(TypeSymbol receiverType, RoutineInfo? memberRoutine,
         string memberName, TypeRegistry registry)
     {
         if (TypeRegistry.GetRcWrapperBaseName(type: receiverType) != RuntimeContract.Roamed)
@@ -39,10 +38,10 @@ internal static class RoamedTransparency
             return null;
         }
 
-        TypeInfo? inner = receiverType switch
+        TypeSymbol? inner = receiverType switch
         {
-            RecordTypeInfo { TypeArguments: { Count: >= 1 } ta } => ta[index: 0],
-            WrapperTypeInfo w => w.InnerType,
+            RecordTypeSymbol { TypeArguments: { Count: >= 1 } ta } => ta[index: 0],
+            WrapperTypeSymbol w => w.InnerType,
             _ => null
         };
         if (inner == null)
@@ -73,7 +72,7 @@ internal static class RoamedTransparency
             return null;
         }
 
-        bool projectToInner = effective.MeType is not RecordTypeInfo
+        bool projectToInner = effective.MeType is not RecordTypeSymbol
         {
             GenericDefinition.Name: RuntimeContract.Roamed
         };

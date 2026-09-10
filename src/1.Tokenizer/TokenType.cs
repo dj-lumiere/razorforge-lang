@@ -1,4 +1,4 @@
-namespace Compiler.Tokenizer;
+namespace Builder.Tokenizer;
 
 #region Token Type Enumeration
 
@@ -402,21 +402,21 @@ public enum TokenType
     /// <summary>Each loop keyword</summary>
     Each,
 
-    /// <summary>Comptime member-expansion loop keyword (`expand m in allmemvarof(T)`)</summary>
+    /// <summary>Buildtime member-expansion loop keyword (`expand m in allmemvarof(T)`)</summary>
     Expand,
 
-    /// <summary>Comptime member-variable reflection source keyword (`openmemvarof(T)`) — OPEN ∪ POSTED
+    /// <summary>Buildtime member-variable reflection source keyword (`openmemvarof(T)`) — OPEN ∪ POSTED
     /// (publicly-readable) members only.</summary>
     OpenMemVarOf,
 
-    /// <summary>Comptime member-variable reflection source keyword (`allmemvarof(T)`) — ALL members
+    /// <summary>Buildtime member-variable reflection source keyword (`allmemvarof(T)`) — ALL members
     /// incl `secret`.</summary>
     AllMemVarOf,
 
-    /// <summary>Comptime variant-arm reflection source keyword (`branchof(T)`)</summary>
+    /// <summary>Buildtime variant-arm reflection source keyword (`branchof(T)`)</summary>
     BranchOf,
 
-    /// <summary>Comptime choice/flags-case reflection source keyword (`caseof(T)`)</summary>
+    /// <summary>Buildtime choice/flags-case reflection source keyword (`caseof(T)`)</summary>
     CaseOf,
 
     /// <summary>Standard-impl eligibility quantifier keyword (`needs P everywhere`)</summary>
@@ -783,8 +783,8 @@ public enum TokenType
     /// parser records it as RoutineInfo.IsWiredMemberRoutine and keeps the name bare.</summary>
     Dollar,
 
-    /// <summary>Comptime splice open marker (`${`) — the balanced `}` is an ordinary RightBrace.
-    /// Distinct from a bare `$` (wired marker) and a bare `{`. Opens a `${expr}` comptime splice.</summary>
+    /// <summary>Buildtime splice open marker (`${`) — the balanced `}` is an ordinary RightBrace.
+    /// Distinct from a bare `$` (wired marker) and a bare `{`. Opens a `${expr}` buildtime splice.</summary>
     SpliceOpen,
 
     /// <summary>Force unwrap operator (!!)</summary>

@@ -1,7 +1,7 @@
 using SyntaxTree;
 using TypeModel.Enums;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 internal static class RoutineGenericParameters
 {

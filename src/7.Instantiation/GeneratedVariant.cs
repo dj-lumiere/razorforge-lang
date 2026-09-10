@@ -1,6 +1,6 @@
 using TypeModel.Symbols;
 
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// A generated error handling variant.

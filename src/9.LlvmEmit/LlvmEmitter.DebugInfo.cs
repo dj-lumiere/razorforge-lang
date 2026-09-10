@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using SyntaxTree;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Line-tables-only DWARF debug info emission, so tools (Compiler Explorer, debuggers) can map

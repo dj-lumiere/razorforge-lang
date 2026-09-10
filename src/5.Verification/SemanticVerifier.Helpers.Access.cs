@@ -1,12 +1,10 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {
@@ -103,7 +101,7 @@ public sealed partial class SemanticVerifier
                 continue;
             }
 
-            // Convert AST TypeInfo back to get the type name
+            // Convert AST TypeSymbol back to get the type name
             string baseName = arg.ResolvedType.BareName;
 
             if (!ExclusiveTokenTypes.Contains(value: baseName))
@@ -160,7 +158,7 @@ public sealed partial class SemanticVerifier
         HashSet<string> stolenParams = CollectStolenParameters(routine: routine,
             arguments: arguments);
 
-        foreach (ParameterInfo param in routine.Parameters)
+        foreach (ParamInfo param in routine.Parameters)
         {
             ValidateAsyncRoutineParameter(param: param,
                 stolenParams: stolenParams,
@@ -174,11 +172,11 @@ public sealed partial class SemanticVerifier
     /// RF-S632 when the parameter can neither be trivially copied, steal-moved, nor carries its own
     /// synchronization. Extracted from <see cref="ValidateAsyncRoutineArguments"/>.
     /// </summary>
-    private void ValidateAsyncRoutineParameter(ParameterInfo param, HashSet<string> stolenParams,
+    private void ValidateAsyncRoutineParameter(ParamInfo param, HashSet<string> stolenParams,
         string boundaryKind, SourceLocation location)
     {
         TypeSymbol type = param.Type;
-        if (type is ErrorTypeInfo || IsThreadShareable(type: type))
+        if (type is ErrorTypeSymbol || IsThreadShareable(type: type))
         {
             return;
         }
@@ -198,7 +196,7 @@ public sealed partial class SemanticVerifier
         // would alias its interior the same way. Pure value data has neither and is copied
         // safely. (Structural walk — does NOT depend on `Assignable` protocol population, which
         // is not attached to the resolved parameter-type instances reached here.)
-        bool isEntity = type is EntityTypeInfo;
+        bool isEntity = type is EntityTypeSymbol;
 
         // `steal` credits ONLY a bare entity: it is single-owner, so a move leaves exactly one
         // live handle (provably exclusive — the caller loses access). It does NOT credit a type
@@ -488,9 +486,9 @@ public sealed partial class SemanticVerifier
 
         MemberVariableInfo? memberVariable = objectType switch
         {
-            RecordTypeInfo record => record.LookupMemberVariable(
+            RecordTypeSymbol record => record.LookupMemberVariable(
                 memberVariableName: memberVariableName),
-            EntityTypeInfo entity => entity.LookupMemberVariable(
+            EntityTypeSymbol entity => entity.LookupMemberVariable(
                 memberVariableName: memberVariableName),
             _ => null
         };

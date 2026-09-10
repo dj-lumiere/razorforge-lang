@@ -1,4 +1,4 @@
-using Compiler.Targeting;
+using Builder.Targeting;
 
 namespace RazorForge.Tests.BuildSystem;
 

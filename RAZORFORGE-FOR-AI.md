@@ -81,7 +81,7 @@ RazorForge has its own idiom — do not import Rust/serde/C# vocabulary.
   `diagnose`, `serialize`, `create`, `eq`, `cmp`, `hash`, …) — named with **NO
   sigil**; wired-ness is INFERRED from protocol conformance. Not
   "derives"/"macros"/"trait impls". (The `$` sigil is a separate, unrelated
-  feature — a comptime SPLICE, e.g. `$nameof(m)`.)
+  feature — a buildtime SPLICE, e.g. `$nameof(m)`.)
 - **user prefers methods over free routines.** Prefer `routine Type.name(...)`
   (implicit `me`) over a free routine; putting capability-generic dispatch on a
   free routine is an anti-pattern (make it a method whose bound type is `Me`).
@@ -663,17 +663,17 @@ you are writing another language.
 - **Literals**: `true` `false` `None` `none`
 - **Concurrency**: `suspended` `threaded`†
 - **Danger**†: `danger` (block) `dangerous` (modifier)
-- **Comptime reflection**†: `expand` (loop) — the ONLY reflection keyword.
+- **Buildtime reflection**†: `expand` (loop) — the ONLY reflection keyword.
 
 The reflection **sources** `openmemvarof` `allmemvarof` `branchof` `caseof` (there is no
 `memvarof`) and the metadata **accessors** `nameof` `orderof` `placeof` `sizeof` `typeof`
-`typeidof` `valueof` `visibilityof` are **comptime builtin intrinsics, NOT reserved
+`typeidof` `valueof` `visibilityof` are **buildtime builtin intrinsics, NOT reserved
 keywords** — they tokenize as ordinary identifiers and are recognized in SA only when
 `import BuilderExpansion` is in effect (bare `nameof(m)` or `$`-spliced `me.$nameof(m)`),
-each reading a comptime property off the active `expand` handle or a type. Without that
+each reading a buildtime property off the active `expand` handle or a type. Without that
 import, using `expand` or any source/accessor is a compile error (RF-S952).
 
-`$` (wired-routine marker / `${…}` comptime splice) and `!` (failable marker) are
+`$` (wired-routine marker / `${…}` buildtime splice) and `!` (failable marker) are
 **structural sigils on a name, not keywords** — the name stays bare (RoutineInfo
 carries the flags). See §1b.
 

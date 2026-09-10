@@ -1,9 +1,9 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Moves the <c>Roamed[E]</c> access-lock bracket out of codegen and into a real AST call. A direct
@@ -267,17 +267,17 @@ internal sealed class RoamedLockBracketLoweringPass(PostprocessingContext ctx)
     }
 
     // The bare entity `E` inside a `Roamed[E]` handle, in either representation the pipeline produces
-    // (WrapperTypeInfo from SuflaeEntityLoweringPass.WrapInRoam, RecordTypeInfo from a resolver-built
+    // (WrapperTypeSymbol from SuflaeEntityLoweringPass.WrapInRoam, RecordTypeSymbol from a resolver-built
     // handle). Null when the type is not a Roamed handle over an entity.
-    private static EntityTypeInfo? RoamedInnerEntity(TypeInfo? t)
+    private static EntityTypeSymbol? RoamedInnerEntity(TypeSymbol? t)
     {
         return t switch
         {
-            WrapperTypeInfo { Name: RuntimeContract.Roamed, InnerType: EntityTypeInfo e } => e,
-            RecordTypeInfo
+            WrapperTypeSymbol { Name: RuntimeContract.Roamed, InnerType: EntityTypeSymbol e } => e,
+            RecordTypeSymbol
             {
                 GenericDefinition.Name: RuntimeContract.Roamed,
-                TypeArguments: [EntityTypeInfo e]
+                TypeArguments: [EntityTypeSymbol e]
             } => e,
             _ => null
         };

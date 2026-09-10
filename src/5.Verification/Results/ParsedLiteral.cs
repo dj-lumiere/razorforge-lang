@@ -1,7 +1,7 @@
 using System.Numerics;
 using SyntaxTree;
 
-namespace Compiler.Verification.Results;
+namespace Builder.Verification.Results;
 
 /// <summary>
 /// Represents a parsed numeric literal value ready for code generation.

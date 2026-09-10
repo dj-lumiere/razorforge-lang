@@ -1,4 +1,4 @@
-using Compiler.Verification;
+using Builder.Verification;
 
 namespace RazorForge.Tests.Meta;
 

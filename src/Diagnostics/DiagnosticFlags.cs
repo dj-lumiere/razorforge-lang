@@ -1,4 +1,4 @@
-namespace Compiler.Diagnostics;
+namespace Builder.Diagnostics;
 
 /// <summary>
 /// Process-wide compiler diagnostic / dev-loop flags, populated from <c>config.toml</c> at the start

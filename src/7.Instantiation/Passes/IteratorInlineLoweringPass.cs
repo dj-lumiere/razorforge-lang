@@ -1,13 +1,13 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Instantiation.Passes;
+namespace Builder.Instantiation.Passes;
 
 /// <summary>
 /// STEP 1 iterator-advance inlining. Rewrites the loop that
-/// <see cref="Compiler.Desugaring.Passes.ControlFlowLoweringPass"/> emits for a <c>for x in coll</c>
+/// <see cref="Builder.Desugaring.Passes.ControlFlowLoweringPass"/> emits for a <c>for x in coll</c>
 /// so that the concrete emitter's monomorphized <c>emit!</c> body is spliced directly into the loop
 /// in place of a call to the compiler-generated <c>try_emit</c> variant — but ONLY for "simple"
 /// iterators (see <see cref="IsSimpleNextBody"/>). Composed / filtering iterators (nested loop or a
@@ -282,7 +282,7 @@ internal sealed class IteratorInlineLoweringPass
             return null;
         }
 
-        if (emitterType is ErrorTypeInfo)
+        if (emitterType is ErrorTypeSymbol)
         {
             return null;
         }
@@ -431,14 +431,14 @@ internal sealed class IteratorInlineLoweringPass
         return found;
     }
 
-    private static bool TypeIsUnresolvedGeneric(TypeInfo? type)
+    private static bool TypeIsUnresolvedGeneric(TypeSymbol? type)
     {
         if (type == null)
         {
             return false;
         }
 
-        if (type is GenericParameterTypeInfo or ConstGenericValueTypeInfo)
+        if (type is GenericParameterTypeSymbol or ConstGenericValueTypeSymbol)
         {
             return true;
         }

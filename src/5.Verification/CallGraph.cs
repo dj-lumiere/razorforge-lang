@@ -1,6 +1,6 @@
 using TypeModel.Symbols;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 /// <summary>
 /// Represents a call graph for analyzing memberRoutine dependencies.

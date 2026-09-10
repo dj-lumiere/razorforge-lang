@@ -1,5 +1,5 @@
 using System.Runtime.CompilerServices;
-using Compiler.Serialization;
+using Builder.Serialization;
 
 namespace RazorForge.Tests.Perf;
 

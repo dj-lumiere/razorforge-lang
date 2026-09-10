@@ -27,7 +27,7 @@ public class ParserErrorTests
 
         // Parser either throws on the malformed member or recovers and reports errors — both are acceptable.
         Exception? thrownEx = null;
-        Compiler.Parser.Parser? recoveredParser = null;
+        Builder.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
 
@@ -49,7 +49,7 @@ public class ParserErrorTests
 
         // Should not parse cleanly - missing type after colon: either throw or recover with errors.
         Exception? thrownEx = null;
-        Compiler.Parser.Parser? recoveredParser = null;
+        Builder.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
 
@@ -230,7 +230,7 @@ public class ParserErrorTests
 
         // Empty variant should either throw or produce a parse error.
         Exception? thrownEx = null;
-        Compiler.Parser.Parser? recoveredParser = null;
+        Builder.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
 
@@ -251,7 +251,7 @@ public class ParserErrorTests
 
         // Variants cannot obey protocols — parser does not support 'obeys' on variants: expect throw or parse error.
         Exception? thrownEx = null;
-        Compiler.Parser.Parser? recoveredParser = null;
+        Builder.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
 
@@ -408,7 +408,7 @@ public class ParserErrorTests
 
         // `if true` has no indented body: parser should throw or recover with errors.
         Exception? thrownEx = null;
-        Compiler.Parser.Parser? recoveredParser = null;
+        Builder.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
 
@@ -428,7 +428,7 @@ public class ParserErrorTests
 
         // Missing closing paren for call: parser should throw or recover with errors.
         Exception? thrownEx = null;
-        Compiler.Parser.Parser? recoveredParser = null;
+        Builder.Parser.Parser? recoveredParser = null;
         try { (Program _, recoveredParser) = ParseWithErrors(source: source); }
         catch (Exception e) { thrownEx = e; }
 

@@ -1,11 +1,11 @@
 using System.Text;
-using Compiler.Targeting;
+using Builder.Targeting;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 public partial class LlvmEmitter
 {
@@ -88,7 +88,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Formats a single parameter for a routine declaration (no name, just ABI type string).
     /// </summary>
-    private string FormatDeclarationParameter(RoutineInfo routine, ParameterInfo param,
+    private string FormatDeclarationParameter(RoutineInfo routine, ParamInfo param,
         bool isCExtern)
     {
         // By-ref struct-record thread arg: the worker receives a pointer to the spawner's cell.
@@ -127,9 +127,9 @@ public partial class LlvmEmitter
     /// </summary>
     private void EnsureRecordTypesDeclared(RoutineInfo routine)
     {
-        foreach (ParameterInfo param in routine.Parameters)
+        foreach (ParamInfo param in routine.Parameters)
         {
-            if (param.Type is RecordTypeInfo
+            if (param.Type is RecordTypeSymbol
                 {
                     BackendType: null, IsGenericDefinition: false
                 } paramRecord)
@@ -138,7 +138,7 @@ public partial class LlvmEmitter
             }
         }
 
-        if (routine.ReturnType is RecordTypeInfo
+        if (routine.ReturnType is RecordTypeSymbol
             {
                 BackendType: null, IsGenericDefinition: false
             } returnRecord)
@@ -249,7 +249,7 @@ public partial class LlvmEmitter
         var fields = new List<string>();
         if (lambda.ClosureCaptures != null)
         {
-            foreach ((string _, TypeInfo capType) in lambda.ClosureCaptures)
+            foreach ((string _, TypeSymbol capType) in lambda.ClosureCaptures)
             {
                 fields.Add(item: GetLlvmType(type: capType));
             }
@@ -358,15 +358,15 @@ public partial class LlvmEmitter
         // Signature-only: a routine is looked up by (name, arg-type set) ONLY — never a name-only
         // first-wins lookup. The declaration's STRUCTURED owner/member/name fields + its parameter
         // types uniquely identify it. A bare generic param (`value: T`) resolves to a
-        // GenericParameterTypeInfo (see ResolveAstParameterTypes) so the arg-type list stays
+        // GenericParameterTypeSymbol (see ResolveAstParameterTypes) so the arg-type list stays
         // arity-complete and the overload matcher's Tier-1 name match binds the generic-def routine.
-        List<TypeInfo> astParamTypes = ResolveAstParameterTypes(routine: routine);
+        List<TypeSymbol> astParamTypes = ResolveAstParameterTypes(routine: routine);
 
         // Member declaration (`Owner.member`) — resolve owner-scoped by (owner, member, argTypes),
         // module-qualified owner first so a same-named type in another module is not mis-bound.
         if (routine.OwnerName is { } ownerPart && routine.MemberRoutineName is { } shortName)
         {
-            TypeInfo? ownerType = (!string.IsNullOrEmpty(value: moduleContext)
+            TypeSymbol? ownerType = (!string.IsNullOrEmpty(value: moduleContext)
                 ? _registry.LookupType(name: $"{moduleContext}.{ownerPart}")
                 : null) ?? _registry.LookupType(name: ownerPart);
             return ownerType == null
@@ -391,22 +391,22 @@ public partial class LlvmEmitter
     }
 
     /// <summary>
-    /// Resolves each AST parameter's declared type to a registered <see cref="TypeInfo"/>.
+    /// Resolves each AST parameter's declared type to a registered <see cref="TypeSymbol"/>.
     /// </summary>
-    private List<TypeInfo> ResolveAstParameterTypes(RoutineDeclaration routine)
+    private List<TypeSymbol> ResolveAstParameterTypes(RoutineDeclaration routine)
     {
         return routine.Parameters
                       .Where(predicate: param => param.Type != null)
                       .Select(selector: param => ResolveAstParameterType(param: param))
-                      .OfType<TypeInfo>()
+                      .OfType<TypeSymbol>()
                       .ToList();
     }
 
     /// <summary>
-    /// Resolves a single AST parameter's declared type annotation to a registered <see cref="TypeInfo"/>.
+    /// Resolves a single AST parameter's declared type annotation to a registered <see cref="TypeSymbol"/>.
     /// Returns null for parameters whose type cannot be resolved and is not a recognizable generic parameter name.
     /// </summary>
-    private TypeInfo? ResolveAstParameterType(Parameter param)
+    private TypeSymbol? ResolveAstParameterType(Parameter param)
     {
         string typeName = param.Type!.Name;
         if (param.Type.GenericArguments is { Count: > 0 } genArgs)
@@ -415,13 +415,13 @@ public partial class LlvmEmitter
                 $"{typeName}[{string.Join(separator: ", ", values: genArgs.Select(selector: a => a.Name))}]";
         }
 
-        TypeInfo? t = _registry.LookupType(name: typeName);
+        TypeSymbol? t = _registry.LookupType(name: typeName);
         // A bare unresolvable name is a generic PARAMETER (e.g. value: T in List[T].add_last).
-        // Keep it as a GenericParameterTypeInfo so the arg-type list stays arity-complete and the
+        // Keep it as a GenericParameterTypeSymbol so the arg-type list stays arity-complete and the
         // overload matcher's Tier-1 name match (param.Name == arg.Name) can bind the generic-def routine.
         return t ?? (param.Type.GenericArguments is not { Count: > 0 } &&
                      !typeName.Contains(value: '.')
-            ? new GenericParameterTypeInfo(name: typeName)
+            ? new GenericParameterTypeSymbol(name: typeName)
             : null);
     }
 
@@ -433,14 +433,14 @@ public partial class LlvmEmitter
     private bool ShouldSkipRoutineDefinition(RoutineInfo? routineInfo)
     {
         if (routineInfo == null || routineInfo.IsGenericDefinition ||
-            routineInfo.OwnerType is GenericParameterTypeInfo)
+            routineInfo.OwnerType is GenericParameterTypeSymbol)
         {
             return true; // generic definitions, unresolved routines, generic-param-owner routines
         }
 
         // A protocol-extension routine's own template body is never emitted directly —
         // ProtocolDefaultImplLoweringPass clones a concrete copy per implementer.
-        if (routineInfo.OwnerType is ProtocolTypeInfo)
+        if (routineInfo.OwnerType is ProtocolTypeSymbol)
         {
             return true;
         }
@@ -509,7 +509,7 @@ public partial class LlvmEmitter
     /// Formats a single explicit parameter into its LLVM declaration form, resolving the ABI
     /// passing mode (by-ref thread arg, ABI-Indirect byval, ABI-Coerce integer, or plain value).
     /// </summary>
-    private string FormatDefinitionParameter(RoutineInfo info, ParameterInfo param)
+    private string FormatDefinitionParameter(RoutineInfo info, ParamInfo param)
     {
         bool byRefThreadArg = IsByRefThreadArg(routine: info, param: param);
         // ABI-Indirect struct value arg: arrives as `ptr byval(%T)` — a pointer to the callee's
@@ -731,7 +731,7 @@ public partial class LlvmEmitter
         // Entity create that references `me`: allocate the entity at routine entry, bind `me` to the
         // fresh pointer, and let the body mutate via `me.field = …` / `return me`. Canonical
         // `return Type(field: …)` creates that never touch `me` skip this.
-        if (routine.OwnerType is EntityTypeInfo creatorEntity &&
+        if (routine.OwnerType is EntityTypeSymbol creatorEntity &&
             IsCreatorRoutine(routine: routine) && MeReferenceScanner.Scan(body: body))
         {
             string mePtr = EmitEntityAllocation(sb: sb, entity: creatorEntity);
@@ -749,7 +749,7 @@ public partial class LlvmEmitter
         // bare entity and reads the RC controller's refcount instead of dereferencing the handle.
         // Gated to a Roamed MeType so the specialized-receiver MeType path (List[Agent[V]]) is
         // untouched. The LLVM param type is a `ptr` for both, so only the tracked type changes.
-        TypeInfo meLocalType = routine.MeType is RecordTypeInfo
+        TypeSymbol meLocalType = routine.MeType is RecordTypeSymbol
         {
             GenericDefinition.Name: Declaration.RuntimeContract.Roamed
         }
@@ -778,7 +778,7 @@ public partial class LlvmEmitter
     /// <summary>Registers each parameter as a local variable, emitting its entry alloca/store.</summary>
     private void RegisterParametersAsLocals(StringBuilder sb, RoutineInfo routine)
     {
-        foreach (ParameterInfo param in routine.Parameters)
+        foreach (ParamInfo param in routine.Parameters)
         {
             RegisterParameterAsLocal(sb: sb, routine: routine, param: param);
         }
@@ -786,7 +786,7 @@ public partial class LlvmEmitter
 
     /// <summary>Registers a single parameter as a local variable per its ABI passing mode.</summary>
     private void RegisterParameterAsLocal(StringBuilder sb, RoutineInfo routine,
-        ParameterInfo param)
+        ParamInfo param)
     {
         // By-ref struct-record thread arg / ABI-Indirect byval param: `%<name>.addr` IS the
         // parameter (a pointer to the caller's / callee's copy). No alloca/store — field/memberRoutine
@@ -815,10 +815,10 @@ public partial class LlvmEmitter
 
         // A bound-entity parameter is a consuming parameter: ownership was transferred in via
         // `steal` at the call site, so this routine is the new sole owner and must tear it down at
-        // scope exit, exactly like a local entity `var`. Borrows arrive as wrappers (RecordTypeInfo),
-        // never bare EntityTypeInfo, so they are correctly excluded. (ABI-Coerce is records only, so
+        // scope exit, exactly like a local entity `var`. Borrows arrive as wrappers (RecordTypeSymbol),
+        // never bare EntityTypeSymbol, so they are correctly excluded. (ABI-Coerce is records only, so
         // never an entity — the coerce branch never reaches here.)
-        if (coerceType == null && param.Type is EntityTypeInfo)
+        if (coerceType == null && param.Type is EntityTypeSymbol)
         {
             _localEntityVars.Add(item: (param.Name, paramPtr));
         }
@@ -839,7 +839,7 @@ public partial class LlvmEmitter
         string boundStruct = ClosureStructName(lambda: routine);
         for (int i = 0; i < closureCaptures.Count; i++)
         {
-            (string capName, TypeInfo capType) = closureCaptures[index: i];
+            (string capName, TypeSymbol capType) = closureCaptures[index: i];
             string capLlvm = GetLlvmType(type: capType);
             string capPtr = NextTemp();
             EmitLine(sb: sb,
@@ -1120,7 +1120,7 @@ public partial class LlvmEmitter
 
     /// <summary>
     /// Appends the memberRoutine-level type-argument bracket to a mangled member base name, dropping
-    /// entries already present in the owner's type args, bare <see cref="GenericParameterTypeInfo"/>
+    /// entries already present in the owner's type args, bare <see cref="GenericParameterTypeSymbol"/>
     /// entries, and entries whose name matches an owner gen-def generic parameter. Returns the base
     /// name unchanged when there are no distinct memberRoutine-only type args.
     /// </summary>
@@ -1130,28 +1130,28 @@ public partial class LlvmEmitter
         {
             // Only include type args that aren't already in the owner's type arg list to
             // avoid duplicating owner generics (memberRoutine.TypeArguments may be a superset).
-            // Also drop bare GenericParameterTypeInfo entries: when SignatureResolver leaves
+            // Also drop bare GenericParameterTypeSymbol entries: when SignatureResolver leaves
             // an owner-level param (e.g. T) in routine.TypeArguments and the owner is already
             // monomorphized to a concrete type, the bare T would survive the name-based
             // dedup and mangle as `Type[Concrete].MemberRoutine[T]` — producing an undefined symbol.
             //
             // Additionally drop entries whose Name matches one of the owner gen-def's
             // GenericParameters (e.g. "T" for SortedSet[T]). When TransferSubstitutedTypeArguments
-            // or SubstituteMemberRoutineForOwner forwards a stale leftover TypeInfo named "T" that is
-            // *not* a GenericParameterTypeInfo (some passes wrap the owner-leak in a non-GPTI),
+            // or SubstituteMemberRoutineForOwner forwards a stale leftover TypeSymbol named "T" that is
+            // *not* a GenericParameterTypeSymbol (some passes wrap the owner-leak in a non-GPTI),
             // the GPTI check above doesn't catch it. Matching by name closes that hole.
-            List<TypeInfo> ownerArgs = routine.OwnerType!.TypeArguments ?? [];
-            TypeInfo? ownerGenDef = routine.OwnerType switch
+            List<TypeSymbol> ownerArgs = routine.OwnerType!.TypeArguments ?? [];
+            TypeSymbol? ownerGenDef = routine.OwnerType switch
             {
-                RecordTypeInfo r => r.GenericDefinition ?? r,
-                EntityTypeInfo e => e.GenericDefinition ?? e,
-                ProtocolTypeInfo p => p.GenericDefinition ?? p,
+                RecordTypeSymbol r => r.GenericDefinition ?? r,
+                EntityTypeSymbol e => e.GenericDefinition ?? e,
+                ProtocolTypeSymbol p => p.GenericDefinition ?? p,
                 _ => routine.OwnerType
             };
             List<string> ownerGenDefParamNames = ownerGenDef?.GenericParameters ?? [];
             var memberRoutineOnlyArgs = memberRoutineTypeArgs.Where(predicate: a =>
                                                                   a is not
-                                                                      GenericParameterTypeInfo &&
+                                                                      GenericParameterTypeSymbol &&
                                                                   !ownerArgs.Any(predicate: o =>
                                                                       o.FullName == a.FullName) &&
                                                                   !ownerGenDefParamNames.Contains(
@@ -1175,7 +1175,7 @@ public partial class LlvmEmitter
     /// `Retained[ListNode[S64]].chain_contains(T)` emits as `chain_contains(__rfwd_T__)`
     /// while the rewritten call site emits `chain_contains(Core.S64)` — linker miss.
     /// </summary>
-    private static string MangleParamTypeName(RoutineInfo routine, TypeInfo paramType)
+    private static string MangleParamTypeName(RoutineInfo routine, TypeSymbol paramType)
     {
         if (routine.WrapperForwarderInnerGenericDef?.GenericParameters is
                 { Count: > 0 } innerParamNames &&
@@ -1191,10 +1191,10 @@ public partial class LlvmEmitter
         return paramType.FullName;
     }
 
-    private static string MangleParamTypeFullName(TypeInfo type, List<string> innerParamNames,
-        List<TypeInfo> innerArgs)
+    private static string MangleParamTypeFullName(TypeSymbol type, List<string> innerParamNames,
+        List<TypeSymbol> innerArgs)
     {
-        if (type is GenericParameterTypeInfo gp)
+        if (type is GenericParameterTypeSymbol gp)
         {
             string lookup = gp.ForwarderOriginalName ?? gp.Name;
             int idx = innerParamNames.IndexOf(item: lookup);
@@ -1292,8 +1292,8 @@ public partial class LlvmEmitter
         //   - bare entity (bound T can't be duplicated, so the me pointer is exclusive
         //     at the call boundary by the entity-ownership rule),
         //   - `Modifying[T]` (scope-bound exclusive borrow — its definition).
-        bool isExclusive = routine.OwnerType is EntityTypeInfo ||
-                           routine.OwnerType is WrapperTypeInfo
+        bool isExclusive = routine.OwnerType is EntityTypeSymbol ||
+                           routine.OwnerType is WrapperTypeSymbol
                            {
                                Name: Declaration.RuntimeContract.Modifying
                            };
@@ -1310,12 +1310,12 @@ public partial class LlvmEmitter
         }
 
         // A @readonly method on a wrapper has a pointer `me` it does not write — mark it `readonly`.
-        // Recognise BOTH representations of a wrapper owner: the generic is a WrapperTypeInfo, but a
-        // MONOMORPHIZED wrapper is a RecordTypeInfo (e.g. Hijacked[Byte]) matched by its base name in
+        // Recognise BOTH representations of a wrapper owner: the generic is a WrapperTypeSymbol, but a
+        // MONOMORPHIZED wrapper is a RecordTypeSymbol (e.g. Hijacked[Byte]) matched by its base name in
         // RuntimeContract.WrapperTypes. The two must emit the SAME attr or the cold vs warm/snapshot
         // codegen paths diverge (the monomorph reaches codegen in one path, the generic in the other) —
         // WarmCodegenAst_MatchesCold.
-        bool isWrapperOwner = routine.OwnerType is WrapperTypeInfo || routine.OwnerType != null &&
+        bool isWrapperOwner = routine.OwnerType is WrapperTypeSymbol || routine.OwnerType != null &&
             GetGenericBaseNameStatic(type: routine.OwnerType) is { } ownerBase &&
             Declaration.RuntimeContract.WrapperTypes.Contains(item: ownerBase);
         return isWrapperOwner
@@ -1323,9 +1323,9 @@ public partial class LlvmEmitter
             : string.Empty;
     }
 
-    private static string GetExplicitParameterAttributes(TypeInfo? type)
+    private static string GetExplicitParameterAttributes(TypeSymbol? type)
     {
-        return type is EntityTypeInfo || type is WrapperTypeInfo
+        return type is EntityTypeSymbol || type is WrapperTypeSymbol
         {
             Name: Declaration.RuntimeContract.Modifying
         }
@@ -1351,8 +1351,8 @@ public partial class LlvmEmitter
 
         // Aggregate return (named record — NOT a variant, which returns its own struct — or a tuple).
         // Structural type check, NOT a parse of the emitted LLVM type string.
-        bool isAggregate = routine.ReturnType is TupleTypeInfo ||
-                           routine.ReturnType is RecordTypeInfo and not VariantTypeInfo;
+        bool isAggregate = routine.ReturnType is TupleTypeSymbol ||
+                           routine.ReturnType is RecordTypeSymbol and not VariantTypeSymbol;
         if (!isAggregate)
         {
             return false;
@@ -1383,17 +1383,17 @@ public partial class LlvmEmitter
     /// name-check: <c>Array.setitem</c> is by-ref because Array is aggregate-backed, like every
     /// other Array memberRoutine — not because of its name.
     /// </summary>
-    internal static bool IsByRefMeRecord(TypeInfo? ownerType)
+    internal static bool IsByRefMeRecord(TypeSymbol? ownerType)
     {
         return ownerType switch
         {
             // Struct record: no @llvm backend -> storage-backed -> by-ref.
-            RecordTypeInfo { BackendType: null } => true,
+            RecordTypeSymbol { BackendType: null } => true,
             // @llvm record: by-ref iff the backend is an aggregate — an array `[N x T]` or a SIMD
             // vector `<N x E>`. Both are always accessed through a load/store (never fed to an
             // intrinsic as a bare SSA value like a scalar `i64`), and both need in-place `setitem!`
             // to reach the caller's storage. Scalar backends (`i64`, `i1`, `ptr`, ...) stay by-value.
-            RecordTypeInfo { BackendType: not null, BackendType: { } bt } =>
+            RecordTypeSymbol { BackendType: not null, BackendType: { } bt } =>
                 bt.StartsWith(value: '[') || bt.StartsWith(value: '<'),
             _ => false
         };
@@ -1419,7 +1419,7 @@ public partial class LlvmEmitter
     /// that are neither shareable nor trivially copyable, so they never reach codegen.
     /// </para>
     /// </summary>
-    private static bool IsByRefThreadArg(RoutineInfo routine, ParameterInfo param)
+    private static bool IsByRefThreadArg(RoutineInfo routine, ParamInfo param)
     {
         return routine.AsyncStatus == AsyncStatus.Threaded &&
                IsByRefMeRecord(ownerType: param.Type) && IsThreadShareableType(type: param.Type);
@@ -1431,7 +1431,7 @@ public partial class LlvmEmitter
     /// reference across a thread boundary; everything else is copied. Mirrors the SA-side
     /// <c>IsThreadShareable</c>.
     /// </summary>
-    private static bool IsThreadShareableType(TypeInfo? type)
+    private static bool IsThreadShareableType(TypeSymbol? type)
     {
         return type != null &&
                GetGenericBaseNameStatic(type: type) is Declaration.RuntimeContract.Atomic
@@ -1441,13 +1441,13 @@ public partial class LlvmEmitter
     /// <summary>
     /// Gets the zero/default value for a type.
     /// </summary>
-    private static string GetZeroValue(TypeInfo type)
+    private static string GetZeroValue(TypeSymbol type)
     {
         return type switch
         {
-            RecordTypeInfo { BackendType: not null } record => GetZeroValueForLlvmType(
+            RecordTypeSymbol { BackendType: not null } record => GetZeroValueForLlvmType(
                 llvmType: record.BackendType),
-            EntityTypeInfo or WrapperTypeInfo => "null",
+            EntityTypeSymbol or WrapperTypeSymbol => "null",
             _ => "zeroinitializer"
         };
     }

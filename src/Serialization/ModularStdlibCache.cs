@@ -1,16 +1,15 @@
 using System.Collections;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using Compiler.Instantiation;
-using Compiler.Declaration;
+using Builder.Instantiation;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification;
-using TypeInfo = TypeModel.Types.TypeInfo;
+using Builder.Verification;
 
-namespace Compiler.Serialization;
+namespace Builder.Serialization;
 
 /// <summary>
 /// Modular (per-module) compiled-stdlib artifacts — the separate-compilation layer. Partitions one
@@ -18,10 +17,10 @@ namespace Compiler.Serialization;
 /// index, and reassembles them via the shell two-phase loader so that editing one stdlib module only
 /// rewrites that module's artifact.
 ///
-/// <para>Ownership: a symbol (TypeInfo/RoutineInfo/VariableInfo) is owned by its <see cref="TypeInfo.Module"/>
+/// <para>Ownership: a symbol (TypeSymbol/RoutineInfo/VariableInfo) is owned by its <see cref="TypeSymbol.Module"/>
 /// (routine → owner's or its own module); monomorphized instances go to the <c>«inst»</c> pseudo-module and
 /// structural types to <c>«builtin»</c>. Cross-module references are extern (resolved to shells); interior
-/// objects (dicts, AST bodies, ParameterInfo, SourceLocation) stay local to an artifact and may duplicate —
+/// objects (dicts, AST bodies, ParamInfo, SourceLocation) stay local to an artifact and may duplicate —
 /// proven safe by the partition de-risk (the only shared interiors are identity-insensitive leaves).</para>
 /// </summary>
 public static class ModularStdlibCache
@@ -44,15 +43,15 @@ public static class ModularStdlibCache
     {
         switch (o)
         {
-            case TypeInfo t:
+            case TypeSymbol t:
                 if (t.TypeArguments is { Count: > 0 })
                 {
                     return Inst;
                 }
 
-                if (t is RoutineTypeInfo or TupleTypeInfo or GenericParameterTypeInfo
-                    or ProtocolSelfTypeInfo or ConstGenericValueTypeInfo
-                    or ComptimeConstGenericTypeInfo or AssociatedProjectionTypeInfo)
+                if (t is RoutineTypeSymbol or TupleTypeSymbol or GenericParameterTypeSymbol
+                    or ProtocolSelfTypeSymbol or ConstGenericValueTypeSymbol
+                    or BuildtimeConstGenericTypeSymbol or AssociatedProjectionTypeSymbol)
                 {
                     return Builtin;
                 }
@@ -66,7 +65,7 @@ public static class ModularStdlibCache
                     return Inst;
                 }
 
-                TypeInfo? owner = r.OwnerType;
+                TypeSymbol? owner = r.OwnerType;
                 if (owner is { TypeArguments: { Count: > 0 } })
                 {
                     return Inst;
@@ -85,7 +84,7 @@ public static class ModularStdlibCache
 
     private static bool IsSymbol(object o)
     {
-        return o is TypeInfo or RoutineInfo or VariableInfo;
+        return o is TypeSymbol or RoutineInfo or VariableInfo;
     }
 
     // ---- per-module container (a slice of every sliceable CompiledStdlibState/Snapshot dict) ---------
@@ -100,19 +99,19 @@ public static class ModularStdlibCache
     public sealed class ModuleSlice
     {
         /// <summary>All types owned by this module, keyed by their full name.</summary>
-        public Dictionary<string, TypeInfo> Types { get; set; } = new();
+        public Dictionary<string, TypeSymbol> Types { get; set; } = new();
 
-        /// <summary>Type resolution table (alias/short-name → canonical TypeInfo) for this module's types.</summary>
-        public Dictionary<string, TypeInfo> Resolutions { get; set; } = new();
+        /// <summary>Type resolution table (alias/short-name → canonical TypeSymbol) for this module's types.</summary>
+        public Dictionary<string, TypeSymbol> Resolutions { get; set; } = new();
 
-        /// <summary>RC wrapper type resolutions (name → WrapperTypeInfo) for this module.</summary>
-        public Dictionary<string, WrapperTypeInfo> WrapperResolutions { get; set; } = new();
+        /// <summary>RC wrapper type resolutions (name → WrapperTypeSymbol) for this module.</summary>
+        public Dictionary<string, WrapperTypeSymbol> WrapperResolutions { get; set; } = new();
 
-        /// <summary>Entity specialization overrides (key → TypeInfo) belonging to this module.</summary>
-        public Dictionary<string, TypeInfo> EntitySpecializations { get; set; } = new();
+        /// <summary>Entity specialization overrides (key → TypeSymbol) belonging to this module.</summary>
+        public Dictionary<string, TypeSymbol> EntitySpecializations { get; set; } = new();
 
-        /// <summary>Short-name → TypeInfo lookup table for this module's types.</summary>
-        public Dictionary<string, TypeInfo> TypesByShortName { get; set; } = new();
+        /// <summary>Short-name → TypeSymbol lookup table for this module's types.</summary>
+        public Dictionary<string, TypeSymbol> TypesByShortName { get; set; } = new();
 
         /// <summary>All routines owned by this module, keyed by their full qualified name.</summary>
         public Dictionary<string, RoutineInfo> Routines { get; set; } = new();
@@ -320,31 +319,31 @@ public static class ModularStdlibCache
     private static void SliceRegistryDictionaries(TypeRegistry.StdlibSnapshot reg,
         Func<string, ModuleSlice> getSlice)
     {
-        foreach (KeyValuePair<string, TypeInfo> kv in reg.Types)
+        foreach (KeyValuePair<string, TypeSymbol> kv in reg.Types)
         {
             getSlice(arg: ModuleOf(o: kv.Value))
                .Types[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, TypeInfo> kv in reg.Resolutions)
+        foreach (KeyValuePair<string, TypeSymbol> kv in reg.Resolutions)
         {
             getSlice(arg: ModuleOf(o: kv.Value))
                .Resolutions[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, WrapperTypeInfo> kv in reg.WrapperResolutions)
+        foreach (KeyValuePair<string, WrapperTypeSymbol> kv in reg.WrapperResolutions)
         {
             getSlice(arg: ModuleOf(o: kv.Value))
                .WrapperResolutions[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, TypeInfo> kv in reg.EntitySpecializations)
+        foreach (KeyValuePair<string, TypeSymbol> kv in reg.EntitySpecializations)
         {
             getSlice(arg: ModuleOf(o: kv.Value))
                .EntitySpecializations[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, TypeInfo> kv in reg.TypesByShortName)
+        foreach (KeyValuePair<string, TypeSymbol> kv in reg.TypesByShortName)
         {
             getSlice(arg: ModuleOf(o: kv.Value))
                .TypesByShortName[key: kv.Key] = kv.Value;
@@ -577,27 +576,27 @@ public static class ModularStdlibCache
     /// <summary>Merges type-related dictionary slices from <paramref name="src"/> into <paramref name="dst"/>.</summary>
     private static void MergeTypeDictionaries(ModuleSlice dst, ModuleSlice src)
     {
-        foreach (KeyValuePair<string, TypeInfo> kv in src.Types)
+        foreach (KeyValuePair<string, TypeSymbol> kv in src.Types)
         {
             dst.Types[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, TypeInfo> kv in src.Resolutions)
+        foreach (KeyValuePair<string, TypeSymbol> kv in src.Resolutions)
         {
             dst.Resolutions[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, WrapperTypeInfo> kv in src.WrapperResolutions)
+        foreach (KeyValuePair<string, WrapperTypeSymbol> kv in src.WrapperResolutions)
         {
             dst.WrapperResolutions[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, TypeInfo> kv in src.EntitySpecializations)
+        foreach (KeyValuePair<string, TypeSymbol> kv in src.EntitySpecializations)
         {
             dst.EntitySpecializations[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, TypeInfo> kv in src.TypesByShortName)
+        foreach (KeyValuePair<string, TypeSymbol> kv in src.TypesByShortName)
         {
             dst.TypesByShortName[key: kv.Key] = kv.Value;
         }

@@ -7,7 +7,7 @@ namespace TypeModel.Types;
 /// Backed by <c>i64</c> at the LLVM level. Max 64 members, auto-assigned power-of-two bit positions.
 /// Only builder-generated operators allowed.
 /// </summary>
-public sealed class FlagsTypeInfo : RecordTypeInfo
+public sealed class FlagsTypeSymbol : RecordTypeSymbol
 {
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.Flags;
@@ -15,17 +15,17 @@ public sealed class FlagsTypeInfo : RecordTypeInfo
     /// <summary>The members of this flags type.</summary>
     public List<FlagsMemberInfo> Members { get; init; } = [];
 
-    // ImplementedProtocols is inherited from RecordTypeInfo (no shadowing).
+    // ImplementedProtocols is inherited from RecordTypeSymbol (no shadowing).
 
     /// <summary>Creates a new flags type with the given name and default i64 backend type.</summary>
-    public FlagsTypeInfo(string name) : base(name: name)
+    public FlagsTypeSymbol(string name) : base(name: name)
     {
         BackendType = "i64";
     }
 
 
     /// <inheritdoc/>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         throw new InvalidOperationException(
             message: $"Flags type '{Name}' cannot be resolved with type arguments.");

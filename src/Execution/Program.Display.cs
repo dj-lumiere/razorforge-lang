@@ -1,6 +1,6 @@
 using SyntaxTree;
 
-namespace Builder;
+namespace Builder.Execution;
 
 internal partial class Program
 {

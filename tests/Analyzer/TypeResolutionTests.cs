@@ -1,5 +1,5 @@
-using Compiler.Diagnostics;
-using Compiler.Verification.Results;
+using Builder.Diagnostics;
+using Builder.Verification.Results;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
@@ -28,7 +28,7 @@ public class TypeResolutionTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        TypeInfo? type = result.Registry.GetType(name: "Point");
+        TypeSymbol? type = result.Registry.GetType(name: "Point");
 
         Assert.NotNull(@object: type);
         Assert.Equal(expected: TypeCategory.Record, actual: type.Category);
@@ -45,7 +45,7 @@ public class TypeResolutionTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        TypeInfo? type = result.Registry.GetType(name: "User");
+        TypeSymbol? type = result.Registry.GetType(name: "User");
 
         Assert.NotNull(@object: type);
         Assert.Equal(expected: TypeCategory.Entity, actual: type.Category);
@@ -65,7 +65,7 @@ public class TypeResolutionTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        TypeInfo? type = result.Registry.GetType(name: "Direction");
+        TypeSymbol? type = result.Registry.GetType(name: "Direction");
 
         Assert.NotNull(@object: type);
         Assert.Equal(expected: TypeCategory.Choice, actual: type.Category);
@@ -84,7 +84,7 @@ public class TypeResolutionTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        TypeInfo? type = result.Registry.GetType(name: "MyVariant");
+        TypeSymbol? type = result.Registry.GetType(name: "MyVariant");
 
         Assert.NotNull(@object: type);
         Assert.Equal(expected: TypeCategory.Variant, actual: type.Category);
@@ -102,7 +102,7 @@ public class TypeResolutionTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        TypeInfo? type = result.Registry.GetType(name: "Displayable");
+        TypeSymbol? type = result.Registry.GetType(name: "Displayable");
 
         Assert.NotNull(@object: type);
         Assert.Equal(expected: TypeCategory.Protocol, actual: type.Category);
@@ -124,7 +124,7 @@ public class TypeResolutionTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        TypeInfo? type = result.Registry.GetType(name: "Container");
+        TypeSymbol? type = result.Registry.GetType(name: "Container");
 
         Assert.NotNull(@object: type);
         Assert.True(condition: type.IsGenericDefinition);
@@ -142,7 +142,7 @@ public class TypeResolutionTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        TypeInfo? type = result.Registry.GetType(name: "Pair");
+        TypeSymbol? type = result.Registry.GetType(name: "Pair");
 
         Assert.NotNull(@object: type);
         Assert.True(condition: type.IsGenericDefinition);
@@ -227,7 +227,7 @@ public class TypeResolutionTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        TypeInfo? type = result.Registry.GetType(name: "Color");
+        TypeSymbol? type = result.Registry.GetType(name: "Color");
 
         Assert.NotNull(@object: type);
         // Check fields are resolved
@@ -245,7 +245,7 @@ public class TypeResolutionTests
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
-        TypeInfo? type = result.Registry.GetType(name: "Document");
+        TypeSymbol? type = result.Registry.GetType(name: "Document");
 
         Assert.NotNull(@object: type);
     }

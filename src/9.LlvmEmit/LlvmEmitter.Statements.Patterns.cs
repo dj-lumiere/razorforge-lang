@@ -1,10 +1,10 @@
 using System.Text;
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Coordinates LLVM code generator behavior for this compiler phase.
@@ -16,7 +16,7 @@ public partial class LlvmEmitter
 
     private readonly record struct WhenClauseTarget(
         string Subject,
-        TypeInfo? SubjectType,
+        TypeSymbol? SubjectType,
         int ClauseIndex);
 
     private readonly record struct WhenJumpTargets(string NextLabel, string EndLabel);
@@ -30,15 +30,15 @@ public partial class LlvmEmitter
     {
         // Evaluate the subject expression once
         string subject = EmitExpression(sb: sb, expr: whenStmt.Expression);
-        TypeInfo? subjectType = GetExpressionType(expr: whenStmt.Expression);
+        TypeSymbol? subjectType = GetExpressionType(expr: whenStmt.Expression);
 
         // Variant types and carrier records (Maybe/Result/Lookup) are struct values
         // (`%Record.Maybe[...] = type { i1, ptr }` etc.); GEP needs a pointer base.
         // Spill the loaded struct value into a temp alloca so the pattern-match code
         // (EmitPatternMatch / EmitCarrierElsePatternExtract / EmitLoadVariantOrCarrierTag)
         // can `getelementptr` field 0 / field 1 against a real ptr.
-        bool needsSpill = subjectType is VariantTypeInfo ||
-                          subjectType is RecordTypeInfo carrierRec &&
+        bool needsSpill = subjectType is VariantTypeSymbol ||
+                          subjectType is RecordTypeSymbol carrierRec &&
                           GetCarrierBaseName(type: carrierRec) is "Maybe" or "Result" or "Lookup";
         if (needsSpill)
         {
@@ -54,7 +54,7 @@ public partial class LlvmEmitter
 
         // User variant subjects: use a single switch i64 %type_id dispatch.
         // All carrier subjects (Maybe/Result/Lookup) use the chain path.
-        if (subjectType is VariantTypeInfo)
+        if (subjectType is VariantTypeSymbol)
         {
             allTerminated = EmitWhenSwitch(sb: sb,
                 whenStmt: whenStmt,
@@ -98,7 +98,7 @@ public partial class LlvmEmitter
     /// </para>
     /// </summary>
     private bool EmitWhenSwitch(StringBuilder sb, WhenStatement whenStmt, string subject,
-        TypeInfo subjectType, string endLabel)
+        TypeSymbol subjectType, string endLabel)
     {
         // -----------------------------------------------------------------------------
         // If any clause can't be expressed as a switch arm or default, bail.
@@ -180,7 +180,7 @@ public partial class LlvmEmitter
     /// Used for Maybe subjects and any fallback from <see cref="EmitWhenSwitch"/>.
     /// </summary>
     private bool EmitWhenChain(StringBuilder sb, WhenStatement whenStmt, string subject,
-        TypeInfo? subjectType, string endLabel)
+        TypeSymbol? subjectType, string endLabel)
     {
         // Generate labels for each clause
         var clauseLabels = new List<string>();
@@ -235,7 +235,7 @@ public partial class LlvmEmitter
         WhenJumpTargets labels, ref bool handledAbsent, ref bool handledCrashable,
         ref bool allTerminated)
     {
-        (string subject, TypeInfo? subjectType, int clauseIndex) = target;
+        (string subject, TypeSymbol? subjectType, int clauseIndex) = target;
         (string nextLabel, string endLabel) = labels;
 
         // For carrier ElsePattern with a variable: extract the inner T value, mirroring SA narrowing.
@@ -295,7 +295,7 @@ public partial class LlvmEmitter
     /// whose absent arm was already handled, a Result whose crashable arm was already handled, or a
     /// Lookup whose absent AND crashable arms were both already handled.
     /// </summary>
-    private static bool IsNarrowedCarrierElseArm(TypeInfo subjectType, bool handledAbsent,
+    private static bool IsNarrowedCarrierElseArm(TypeSymbol subjectType, bool handledAbsent,
         bool handledCrashable)
     {
         return GetCarrierBaseName(type: subjectType) == "Maybe" && handledAbsent ||
@@ -310,12 +310,12 @@ public partial class LlvmEmitter
     /// clearing <paramref name="allTerminated"/>.
     /// </summary>
     private void EmitNarrowedCarrierElseArm(StringBuilder sb, Statement clauseBody, string subject,
-        TypeInfo subjectType, string variableName, WhenJumpTargets jumpTargets,
+        TypeSymbol subjectType, string variableName, WhenJumpTargets jumpTargets,
         ref bool allTerminated)
     {
         string bodyLabel = jumpTargets.NextLabel;
         string endLabel = jumpTargets.EndLabel;
-        TypeInfo innerType = subjectType.TypeArguments![index: 0];
+        TypeSymbol innerType = subjectType.TypeArguments![index: 0];
         EmitCarrierElsePatternExtract(sb: sb,
             subject: subject,
             subjectType: subjectType,
@@ -335,9 +335,9 @@ public partial class LlvmEmitter
 
     /// <summary>Loads the i64 type_id tag from a user variant pointer (GEP field 0).</summary>
     private string EmitLoadVariantOrCarrierTag(StringBuilder sb, string subject,
-        TypeInfo subjectType)
+        TypeSymbol subjectType)
     {
-        string variantTypeName = GetVariantTypeName(variant: (VariantTypeInfo)subjectType);
+        string variantTypeName = GetVariantTypeName(variant: (VariantTypeSymbol)subjectType);
         string tagPtr = NextTemp();
         EmitLine(sb: sb,
             line: $"  {tagPtr} = getelementptr {variantTypeName}, ptr {subject}, i32 0, i32 0");
@@ -361,7 +361,7 @@ public partial class LlvmEmitter
     /// <c>when … is Arm</c> into a <c>subject.type_id == FNV-1a(Arm.FullName)</c> if-chain before
     /// codegen, so a raw variant TypePattern never reaches this switch builder.</para>
     /// </summary>
-    private bool TryGetSwitchTagValue(Pattern pattern, TypeInfo subjectType, out string tagLiteral)
+    private bool TryGetSwitchTagValue(Pattern pattern, TypeSymbol subjectType, out string tagLiteral)
     {
         tagLiteral = "0";
 
@@ -384,7 +384,7 @@ public partial class LlvmEmitter
                 return true;
 
             case TypePattern tp:
-                TypeInfo? targetType =
+                TypeSymbol? targetType =
                     tp.Type.ResolvedType ?? _registry.LookupType(name: tp.Type.Name);
                 if (targetType == null)
                 {
@@ -408,14 +408,14 @@ public partial class LlvmEmitter
     /// No-op for patterns without bindings.
     /// </summary>
     private void EmitSwitchArmBinding(StringBuilder sb, Pattern pattern, string subject,
-        TypeInfo subjectType)
+        TypeSymbol subjectType)
     {
         switch (pattern)
         {
             // -----------------------------------------------------------------------------
             case TypePattern { VariableName: not null } tp:
             {
-                TypeInfo? targetType =
+                TypeSymbol? targetType =
                     tp.Type.ResolvedType ?? _registry.LookupType(name: tp.Type.Name);
                 if (targetType == null)
                 {
@@ -424,7 +424,7 @@ public partial class LlvmEmitter
 
                 string varAddr = $"%{tp.VariableName}.addr";
 
-                if (subjectType is VariantTypeInfo variant)
+                if (subjectType is VariantTypeSymbol variant)
                 {
                     VariantMemberInfo? member = variant.FindMember(type: targetType);
                     if (member?.Type == null)
@@ -468,7 +468,7 @@ public partial class LlvmEmitter
                 if (IsCarrierType(type: subjectType) && !IsMaybeType(type: subjectType) &&
                     subjectType.TypeArguments?.Count > 0)
                 {
-                    TypeInfo innerType = subjectType.TypeArguments[index: 0];
+                    TypeSymbol innerType = subjectType.TypeArguments[index: 0];
                     EmitCarrierElsePatternExtract(sb: sb,
                         subject: subject,
                         subjectType: subjectType,
@@ -505,7 +505,7 @@ public partial class LlvmEmitter
     /// Branches to matchLabel if pattern matches, failLabel otherwise.
     /// </summary>
     private void EmitPatternMatch(StringBuilder sb, string subject, Pattern pattern,
-        string matchLabel, string failLabel, TypeInfo? subjectType = null)
+        string matchLabel, string failLabel, TypeSymbol? subjectType = null)
     {
         switch (pattern)
         {
@@ -628,7 +628,7 @@ public partial class LlvmEmitter
     /// Emits code for literal pattern matching with correct type comparison.
     /// </summary>
     private void EmitLiteralPatternMatch(StringBuilder sb, string subject, LiteralPattern lit,
-        string matchLabel, string failLabel, TypeInfo? subjectType)
+        string matchLabel, string failLabel, TypeSymbol? subjectType)
     {
         string litValue = lit.Value?.ToString() ?? "0";
         string result = NextTemp();
@@ -668,7 +668,7 @@ public partial class LlvmEmitter
     }
 
     /// <summary>Maps a literal pattern's token type to its LLVM comparison type.</summary>
-    private string LiteralPatternLlvmType(LiteralPattern lit, TypeInfo? subjectType)
+    private string LiteralPatternLlvmType(LiteralPattern lit, TypeSymbol? subjectType)
     {
         return lit.LiteralType switch
         {
@@ -695,7 +695,7 @@ public partial class LlvmEmitter
     private void EmitTextEqCompare(StringBuilder sb, string result, string subject,
         string litValue)
     {
-        TypeInfo? textType = _registry.LookupType(name: "Text");
+        TypeSymbol? textType = _registry.LookupType(name: "Text");
         RoutineInfo? textEq = textType != null
             ? _registry.LookupMemberRoutineOverload(type: textType,
                 memberRoutineName: "eq",
@@ -712,7 +712,7 @@ public partial class LlvmEmitter
     /// Emits code for identifier pattern: bind value to variable and always match.
     /// </summary>
     private void EmitIdentifierPatternMatch(StringBuilder sb, string subject, IdentifierPattern id,
-        string matchLabel, TypeInfo? subjectType)
+        string matchLabel, TypeSymbol? subjectType)
     {
         string llvmType = subjectType != null
             ? GetLlvmType(type: subjectType)
@@ -734,10 +734,10 @@ public partial class LlvmEmitter
     /// Emits code for type pattern matching.
     /// </summary>
     private void EmitTypePatternMatch(StringBuilder sb, string subject, TypePattern typePattern,
-        string matchLabel, string failLabel, TypeInfo? subjectType)
+        string matchLabel, string failLabel, TypeSymbol? subjectType)
     {
         // Resolve the target type
-        TypeInfo? targetType = _registry.LookupType(name: typePattern.Type.Name);
+        TypeSymbol? targetType = _registry.LookupType(name: typePattern.Type.Name);
 
         // "is Crashable [varName]" on a Result/Lookup carrier -> delegate to crashable matching:
         // the generic carrier tag check never matches real error types, so it needs the
@@ -750,9 +750,9 @@ public partial class LlvmEmitter
         }
 
         // Choice subjects: `is Color.RED` compares the i32 value against the case's computed
-        // integer. ChoiceTypeInfo is a RecordTypeInfo subclass, so this must run before the generic
+        // integer. ChoiceTypeSymbol is a RecordTypeSymbol subclass, so this must run before the generic
         // record/entity handling below (which would otherwise optimistically match).
-        if (subjectType is ChoiceTypeInfo choiceSubject)
+        if (subjectType is ChoiceTypeSymbol choiceSubject)
         {
             EmitChoiceTypePatternMatch(sb: sb,
                 subject: subject,
@@ -773,7 +773,7 @@ public partial class LlvmEmitter
         // `is Arm` into a `subject.type_id == FNV-1a(Arm.FullName)` comparison first. If one arrives
         // here, the lowering was skipped and an optimistic entity-match would silently pick the wrong
         // arm — fail loud instead.
-        if (subjectType is VariantTypeInfo && targetType != null)
+        if (subjectType is VariantTypeSymbol && targetType != null)
         {
             throw new InvalidOperationException(
                 message:
@@ -802,7 +802,7 @@ public partial class LlvmEmitter
 
     /// <summary>Emits a choice-case type pattern (`is Color.RED`) as an integer value comparison.</summary>
     private void EmitChoiceTypePatternMatch(StringBuilder sb, string subject,
-        TypePattern typePattern, ChoiceTypeInfo choiceSubject, string matchLabel,
+        TypePattern typePattern, ChoiceTypeSymbol choiceSubject, string matchLabel,
         string failLabel)
     {
         string caseName = typePattern.Type.Name;
@@ -835,11 +835,11 @@ public partial class LlvmEmitter
     /// silently, and a runtime type test must be lowered to a type_id comparison upstream, never optimistically
     /// matched here.
     /// </summary>
-    private static void EmitEntityTypePatternMatch(StringBuilder sb, TypeInfo? subjectType,
-        TypeInfo? targetType, string branchTarget, string failLabel)
+    private static void EmitEntityTypePatternMatch(StringBuilder sb, TypeSymbol? subjectType,
+        TypeSymbol? targetType, string branchTarget, string failLabel)
     {
-        if (subjectType is EntityTypeInfo or RecordTypeInfo &&
-            targetType is EntityTypeInfo or RecordTypeInfo)
+        if (subjectType is EntityTypeSymbol or RecordTypeSymbol &&
+            targetType is EntityTypeSymbol or RecordTypeSymbol)
         {
             // Different concrete type -> never matches; same concrete type -> always matches.
             EmitLine(sb: sb,
@@ -860,7 +860,7 @@ public partial class LlvmEmitter
     /// Emits code for crashable pattern matching (error case of Result/Lookup/Maybe).
     /// </summary>
     private static void EmitCrashablePatternMatch(StringBuilder sb, string failLabel,
-        TypeInfo? subjectType)
+        TypeSymbol? subjectType)
     {
         // Maybe has no error case -> a CrashablePattern on a Maybe subject never matches.
         if (subjectType != null && IsCarrierType(type: subjectType) &&
@@ -889,7 +889,7 @@ public partial class LlvmEmitter
     /// Emits code for guard pattern matching (pattern if condition).
     /// </summary>
     private void EmitGuardPatternMatch(StringBuilder sb, string subject, GuardPattern guardPattern,
-        string matchLabel, string failLabel, TypeInfo? subjectType = null)
+        string matchLabel, string failLabel, TypeSymbol? subjectType = null)
     {
         // First check inner pattern
         string guardCheck = NextLabel(prefix: "guard_check");
@@ -911,9 +911,9 @@ public partial class LlvmEmitter
     /// Reuses the same bitwise logic as EmitFlagsTest.
     /// </summary>
     private void EmitFlagsPatternMatch(StringBuilder sb, string subject, FlagsPattern flagsPattern,
-        string matchLabel, string failLabel, TypeInfo? subjectType)
+        string matchLabel, string failLabel, TypeSymbol? subjectType)
     {
-        var flagsType = subjectType as FlagsTypeInfo;
+        var flagsType = subjectType as FlagsTypeSymbol;
 
         ulong testMask = CombineFlagBits(flagNames: flagsPattern.FlagNames, flagsType: flagsType);
         ulong excludedMask = CombineFlagBits(flagNames: flagsPattern.ExcludedFlags,
@@ -956,7 +956,7 @@ public partial class LlvmEmitter
     /// ORs together the bit values of a set of flag names (null-safe — a null list yields 0). Shared by
     /// the flags-pattern test and exclusion masks.
     /// </summary>
-    private static ulong CombineFlagBits(IEnumerable<string>? flagNames, FlagsTypeInfo? flagsType)
+    private static ulong CombineFlagBits(IEnumerable<string>? flagNames, FlagsTypeSymbol? flagsType)
     {
         ulong mask = 0;
         if (flagNames != null)
@@ -975,7 +975,7 @@ public partial class LlvmEmitter
     /// </summary>
     private void EmitComparisonPatternMatch(StringBuilder sb, string subject,
         ComparisonPattern cmpPattern, string matchLabel, string failLabel,
-        TypeInfo? subjectType)
+        TypeSymbol? subjectType)
     {
         string rhs = EmitExpression(sb: sb, expr: cmpPattern.Value);
         string llvmType = subjectType != null
@@ -1028,7 +1028,7 @@ public partial class LlvmEmitter
     }
 
     /// <summary>Returns the generic base name of a carrier type (Maybe, Result, or Lookup), or null.</summary>
-    private static string? GetCarrierBaseName(TypeInfo? type)
+    private static string? GetCarrierBaseName(TypeSymbol? type)
     {
         return type == null
             ? null
@@ -1039,7 +1039,7 @@ public partial class LlvmEmitter
     /// Returns true if this pattern represents the "absent" arm for the given carrier type.
     /// Maybe -> NonePattern or TypePattern(None); Result/Lookup -> TypePattern(None).
     /// </summary>
-    private static bool IsAbsentPatternForCarrier(Pattern pattern, TypeInfo? carrierType)
+    private static bool IsAbsentPatternForCarrier(Pattern pattern, TypeSymbol? carrierType)
     {
         return GetCarrierBaseName(type: carrierType) switch
         {
@@ -1064,7 +1064,7 @@ public partial class LlvmEmitter
     /// unconditionally branches to <paramref name="matchLabel"/>.
     /// </summary>
     private void EmitCarrierElsePatternExtract(StringBuilder sb, string subject,
-        TypeInfo subjectType, TypeInfo innerType, string variableName,
+        TypeSymbol subjectType, TypeSymbol innerType, string variableName,
         string? matchLabel = null)
     {
         string carrierLlvmType = GetCarrierLlvmType(type: subjectType);
@@ -1077,7 +1077,7 @@ public partial class LlvmEmitter
             EmitLine(sb: sb,
                 line:
                 $"  {valPtr} = getelementptr {carrierLlvmType}, ptr {subject}, i32 0, i32 1");
-            string innerLlvm = innerType is EntityTypeInfo
+            string innerLlvm = innerType is EntityTypeSymbol
                 ? "ptr"
                 : GetLlvmType(type: innerType);
             string val = NextTemp();
@@ -1108,7 +1108,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Resolves the flag bit from semantic compiler state.
     /// </summary>
-    private static ulong ResolveFlagBit(string flagName, FlagsTypeInfo? flagsType)
+    private static ulong ResolveFlagBit(string flagName, FlagsTypeSymbol? flagsType)
     {
         if (flagsType == null)
         {

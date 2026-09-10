@@ -1,10 +1,10 @@
 using System.Diagnostics;
-using Compiler.Desugaring;
-using Compiler.Desugaring.Passes;
-using Compiler.Lowering;
-using Compiler.Lowering.Passes;
+using Builder.Desugaring;
+using Builder.Desugaring.Passes;
+using Builder.Lowering;
+using Builder.Lowering.Passes;
 
-namespace Compiler.Instantiation.Passes;
+namespace Builder.Instantiation.Passes;
 
 /// <summary>
 /// Phase 7 closure pass: reuse the existing generic monomorphization implementation, but run it

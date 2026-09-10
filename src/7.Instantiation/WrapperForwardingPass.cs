@@ -1,11 +1,10 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using TypeSymbol = TypeModel.Types.TypeInfo;
 
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// Phase D synthesizer: lazily generates transparent-forwarding routines on wrapper
@@ -128,7 +127,7 @@ internal sealed class WrapperForwardingPass
     /// </summary>
     public void RunEager()
     {
-        // Collect from both resolution caches: RecordTypeInfo resolutions AND WrapperTypeInfo resolutions.
+        // Collect from both resolution caches: RecordTypeSymbol resolutions AND WrapperTypeSymbol resolutions.
         var candidates = _registry.AllConcreteGenericInstances
                                   .Where(predicate: IsWrapperType)
                                   .Concat(second: _registry.AllConcreteWrapperInstances)
@@ -138,15 +137,15 @@ internal sealed class WrapperForwardingPass
         foreach (TypeSymbol wrapperType in candidates)
         {
             TypeSymbol? innerType = GetWrapperInnerType(wrapperType: wrapperType);
-            if (innerType is null or GenericParameterTypeInfo)
+            if (innerType is null or GenericParameterTypeSymbol)
             {
                 continue;
             }
 
             TypeSymbol innerLookupType = innerType switch
             {
-                RecordTypeInfo { GenericDefinition: { } d } => d,
-                EntityTypeInfo { GenericDefinition: { } d } => d,
+                RecordTypeSymbol { GenericDefinition: { } d } => d,
+                EntityTypeSymbol { GenericDefinition: { } d } => d,
                 _ => innerType
             };
 
@@ -204,10 +203,10 @@ internal sealed class WrapperForwardingPass
         // Resolve a Roamed[E] receiver call straight to the inner routine (passing the Roamed handle
         // as me), exactly as a receiver that was still bare at SA already does.
         if (wrapperType.BareName == RuntimeContract.Roamed &&
-            ctx.InnerMemberRoutine.MeType is RecordTypeInfo
+            ctx.InnerMemberRoutine.MeType is RecordTypeSymbol
             {
                 GenericDefinition.Name: RuntimeContract.Roamed
-            } or WrapperTypeInfo { Name: RuntimeContract.Roamed })
+            } or WrapperTypeSymbol { Name: RuntimeContract.Roamed })
         {
             return ctx.InnerMemberRoutine;
         }
@@ -249,9 +248,9 @@ internal sealed class WrapperForwardingPass
         ctx = default;
         TypeSymbol? wrapperDef = wrapperType switch
         {
-            RecordTypeInfo { GenericDefinition: { } def } => def,
-            EntityTypeInfo { GenericDefinition: { } def } => def,
-            WrapperTypeInfo => _registry.LookupType(name: wrapperType.Name),
+            RecordTypeSymbol { GenericDefinition: { } def } => def,
+            EntityTypeSymbol { GenericDefinition: { } def } => def,
+            WrapperTypeSymbol => _registry.LookupType(name: wrapperType.Name),
             _ => wrapperType
         };
 
@@ -270,8 +269,8 @@ internal sealed class WrapperForwardingPass
 
         TypeSymbol innerLookupType = innerType switch
         {
-            RecordTypeInfo { GenericDefinition: { } d } => d,
-            EntityTypeInfo { GenericDefinition: { } d } => d,
+            RecordTypeSymbol { GenericDefinition: { } d } => d,
+            EntityTypeSymbol { GenericDefinition: { } d } => d,
             _ => innerType
         };
 
@@ -289,7 +288,7 @@ internal sealed class WrapperForwardingPass
 
         // No concrete inner impl → no forwarder. A resolution to the ABSTRACT protocol member does
         // NOT count — forwarding to it would emit a call to an unimplemented abstract symbol.
-        if (innerMemberRoutine == null || innerMemberRoutine.OwnerType is ProtocolTypeInfo)
+        if (innerMemberRoutine == null || innerMemberRoutine.OwnerType is ProtocolTypeSymbol)
         {
             return false;
         }
@@ -342,10 +341,10 @@ internal sealed class WrapperForwardingPass
         // Resolve name collisions between the wrapper's generic params and the inner routine's
         // owner-level generic params (both commonly use `T`). Renamed params carry a
         // ForwarderOriginalName marker so substitution sites can recover the original inner-param name.
-        Dictionary<string, TypeInfo>? innerRename =
+        Dictionary<string, TypeSymbol>? innerRename =
             BuildInnerRenameMap(innerOwnerParams: innerOwnerParams, wrapperDef: wrapperDef);
 
-        (List<ParameterInfo> forwarderParameters, TypeSymbol? forwarderReturnType) =
+        (List<ParamInfo> forwarderParameters, TypeSymbol? forwarderReturnType) =
             ApplyInnerRename(innerMemberRoutine: innerMemberRoutine, innerRename: innerRename);
 
         var forwarder = new RoutineInfo(name: innerMemberRoutine.Name)
@@ -371,7 +370,7 @@ internal sealed class WrapperForwardingPass
         // RC record wrappers (Retained[T], Tracked[T]) are structs with a `data: Hijacked[T]`
         // field — cannot cast `me` to a pointer. Pointer wrappers use Hijacked[T](me) directly.
         // Detect by checking for an actual `data` member on the record def.
-        string? dataFieldName = wrapperDef is RecordTypeInfo recDef &&
+        string? dataFieldName = wrapperDef is RecordTypeSymbol recDef &&
                                 recDef.LookupMemberVariable(memberVariableName: "data") != null
             ? "data"
             : null;
@@ -381,7 +380,7 @@ internal sealed class WrapperForwardingPass
             innerMemberRoutine: innerMemberRoutine,
             parameters: innerMemberRoutine.Parameters,
             dataFieldName: dataFieldName,
-            innerIsEntity: innerType is EntityTypeInfo);
+            innerIsEntity: innerType is EntityTypeSymbol);
 
         _registry.RegisterRoutine(routine: forwarder);
         _synthesizedBodies[key: forwarder.RegistryKey] = (forwarder, body);
@@ -439,10 +438,10 @@ internal sealed class WrapperForwardingPass
     /// <summary>
     /// Builds a rename map for inner-owner generic parameters that collide with wrapper generic
     /// parameters. Each colliding param name is renamed to <c>__rfwd_{name}__</c> with a
-    /// <see cref="GenericParameterTypeInfo.ForwarderOriginalName"/> marker so substitution sites
+    /// <see cref="GenericParameterTypeSymbol.ForwarderOriginalName"/> marker so substitution sites
     /// can recover the original name without string-parsing the sentinel.
     /// </summary>
-    private static Dictionary<string, TypeInfo>? BuildInnerRenameMap(
+    private static Dictionary<string, TypeSymbol>? BuildInnerRenameMap(
         List<string>? innerOwnerParams, TypeSymbol wrapperDef)
     {
         if (innerOwnerParams is not { Count: > 0 })
@@ -455,7 +454,7 @@ internal sealed class WrapperForwardingPass
             return null;
         }
 
-        Dictionary<string, TypeInfo>? innerRename = null;
+        Dictionary<string, TypeSymbol>? innerRename = null;
         foreach (string ip in innerOwnerParams)
         {
             if (!wrapperParams.Contains(value: ip))
@@ -463,10 +462,10 @@ internal sealed class WrapperForwardingPass
                 continue;
             }
 
-            innerRename ??= new Dictionary<string, TypeInfo>();
+            innerRename ??= new Dictionary<string, TypeSymbol>();
             // The Name still has to be unique vs the wrapper's own param so dict-keyed
             // lookups don't collide; the structural marker is `ForwarderOriginalName`.
-            innerRename[key: ip] = new GenericParameterTypeInfo(name: $"__rfwd_{ip}__")
+            innerRename[key: ip] = new GenericParameterTypeSymbol(name: $"__rfwd_{ip}__")
             {
                 ForwarderOriginalName = ip
             };
@@ -479,10 +478,10 @@ internal sealed class WrapperForwardingPass
     /// Applies <paramref name="innerRename"/> (if non-null) to the inner member routine's
     /// parameters and return type, returning the substituted copies for use in the forwarder.
     /// </summary>
-    private static (List<ParameterInfo> parameters, TypeSymbol? returnType) ApplyInnerRename(
-        RoutineInfo innerMemberRoutine, Dictionary<string, TypeInfo>? innerRename)
+    private static (List<ParamInfo> parameters, TypeSymbol? returnType) ApplyInnerRename(
+        RoutineInfo innerMemberRoutine, Dictionary<string, TypeSymbol>? innerRename)
     {
-        List<ParameterInfo> parameters = innerMemberRoutine.Parameters;
+        List<ParamInfo> parameters = innerMemberRoutine.Parameters;
         TypeSymbol? returnType = innerMemberRoutine.ReturnType;
         if (innerRename is not { Count: > 0 })
         {
@@ -517,14 +516,14 @@ internal sealed class WrapperForwardingPass
     /// where T is the wrapper's generic parameter name.
     /// </summary>
     private DangerStatement BuildWrapperForwarderBody(TypeSymbol wrapperType,
-        string genericParamName, RoutineInfo innerMemberRoutine, List<ParameterInfo> parameters,
+        string genericParamName, RoutineInfo innerMemberRoutine, List<ParamInfo> parameters,
         string? dataFieldName = null, bool innerIsEntity = false)
     {
         // The forwarded call's name is always bare; its failability is carried structurally on the
         // callee MemberExpression (IsFailable), never appended to the name.
         TypeSymbol innerType = wrapperType.TypeArguments is { Count: > 0 }
             ? wrapperType.TypeArguments[index: 0]
-            : new GenericParameterTypeInfo(name: genericParamName);
+            : new GenericParameterTypeSymbol(name: genericParamName);
         var forwardedArgs = parameters.Where(predicate: p => p.Name != "me")
                                       .Select(selector: p =>
                                            (Expression)new NamedArgumentExpression(Name: p.Name,
@@ -575,7 +574,7 @@ internal sealed class WrapperForwardingPass
     private List<Statement> BuildRecordStructForwarderStatements(TypeSymbol wrapperType,
         string dataFieldName, ForwarderCallContext ctx)
     {
-        TypeInfo? wrapperDataType = (wrapperType as RecordTypeInfo)
+        TypeSymbol? wrapperDataType = (wrapperType as RecordTypeSymbol)
                                   ?.LookupMemberVariable(memberVariableName: dataFieldName)
                                   ?.Type;
         var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
@@ -667,10 +666,10 @@ internal sealed class WrapperForwardingPass
                 Visibility: VisibilityModifier.Open,
                 Location: _synthLoc),
             Location: _synthLoc);
-        // Build TypeInfo annotations so codegen's type-resolution gate accepts the
+        // Build TypeSymbol annotations so codegen's type-resolution gate accepts the
         // synthesized AST. Mirror the pointer-wrapper branch below: ResolvedType on
         // each `raw`/`ctrl` identifier and ResolvedRoutine + ResolvedType on each Call.
-        // The inner T may still be a GenericParameterTypeInfo at synth time; codegen's
+        // The inner T may still be a GenericParameterTypeSymbol at synth time; codegen's
         // ApplyTypeSubstitutions substitutes T at monomorphization.
         //
         // Annotate with the OPEN instantiation RetainController[T] (T = the wrapper's
@@ -687,10 +686,10 @@ internal sealed class WrapperForwardingPass
             ? _registry.GetOrCreateResolution(genericDef: retainControllerDef,
                 typeArguments: [innerType])
             : retainControllerDef;
-        TypeSymbol hijackedCtrlType = new WrapperTypeInfo(wrapperName: RuntimeContract.Hijacked,
+        TypeSymbol hijackedCtrlType = new WrapperTypeSymbol(wrapperName: RuntimeContract.Hijacked,
             innerType: retainControllerType ?? innerType,
             isReadOnly: false);
-        TypeSymbol hijackedInnerType = new WrapperTypeInfo(wrapperName: RuntimeContract.Hijacked,
+        TypeSymbol hijackedInnerType = new WrapperTypeSymbol(wrapperName: RuntimeContract.Hijacked,
             innerType: innerType,
             isReadOnly: false);
         RoutineInfo? ctrlRevealMemberRoutine = _registry.LookupMemberRoutine(
@@ -809,8 +808,8 @@ internal sealed class WrapperForwardingPass
             // so the lock is freed on BOTH the failure (throw) and success paths.
             TypeSymbol innerDef = ctx.InnerType switch
             {
-                EntityTypeInfo { GenericDefinition: { } ed } => ed,
-                RecordTypeInfo { GenericDefinition: { } rd } => rd,
+                EntityTypeSymbol { GenericDefinition: { } ed } => ed,
+                RecordTypeSymbol { GenericDefinition: { } rd } => rd,
                 _ => ctx.InnerType
             };
             string checkName = "check_" + ctx.CallPropertyName;
@@ -893,7 +892,7 @@ internal sealed class WrapperForwardingPass
     /// for T where me IS the entity ptr, not a slot holding one. Record inner types: peek()
     /// dereferences the ptr to load the value — correct for Hijacked[RecordType] where the ptr points
     /// to a heap/stack slot. innerIsEntity is determined from the concrete inner type at the call site
-    /// so generic-def forwarder bodies (where innerType is GenericParameterTypeInfo) get the correct
+    /// so generic-def forwarder bodies (where innerType is GenericParameterTypeSymbol) get the correct
     /// access memberRoutine even before T is substituted.
     /// </summary>
     private List<Statement> BuildPointerWrapperForwarderStatements(string genericParamName,
@@ -917,7 +916,7 @@ internal sealed class WrapperForwardingPass
                 Visibility: VisibilityModifier.Open,
                 Location: _synthLoc),
             Location: _synthLoc);
-        TypeSymbol hijackedInnerType = new WrapperTypeInfo(wrapperName: RuntimeContract.Hijacked,
+        TypeSymbol hijackedInnerType = new WrapperTypeSymbol(wrapperName: RuntimeContract.Hijacked,
             innerType: ctx.InnerType,
             isReadOnly: false);
         RoutineInfo? accessMemberRoutine = _registry.LookupMemberRoutine(type: hijackedInnerType,

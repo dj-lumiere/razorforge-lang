@@ -1,14 +1,12 @@
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {
@@ -17,14 +15,14 @@ public sealed partial class SemanticVerifier
         TypeSymbol current = type;
         while (true)
         {
-            if (current is WrapperTypeInfo wrapper)
+            if (current is WrapperTypeSymbol wrapper)
             {
                 current = wrapper.InnerType;
                 continue;
             }
 
             // T / Retained[T] / Tracked[T] / Roamed[T] are declared as `record` in stdlib so they
-            // surface as RecordTypeInfo, not WrapperTypeInfo. Their single TypeArgument is the
+            // surface as RecordTypeSymbol, not WrapperTypeSymbol. Their single TypeArgument is the
             // wrapped collection type — unwrap so the literal can resolve its base name
             // (PriorityQueue, SortedSet, etc.) from the expected type even when LHS is
             // `Owned[SortedSet[S64]]` etc. Use base-name extraction since instantiated record
@@ -34,7 +32,7 @@ public sealed partial class SemanticVerifier
             // to the Suflae `Integer` default — producing `List[Integer]` that won't assign to the
             // `Roamed[List[S64]]` slot (RF-S201). Inferring the element type through the wrapper is
             // exactly the compiler's job.
-            if (current is RecordTypeInfo { TypeArguments: { Count: 1 } recArgs } recRT &&
+            if (current is RecordTypeSymbol { TypeArguments: { Count: 1 } recArgs } recRT &&
                 GetTypeBaseName(type: recRT) is Declaration.RuntimeContract.Owned
                     or Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Tracked
                     or Declaration.RuntimeContract.Roamed)
@@ -89,7 +87,7 @@ public sealed partial class SemanticVerifier
             return type;
         }
 
-        return type is EntityTypeInfo
+        return type is EntityTypeSymbol
             ? _registry.GetOrCreateWrapperType(wrapperName: Declaration.RuntimeContract.Owned,
                 innerType: type,
                 isReadOnly: false)
@@ -98,7 +96,7 @@ public sealed partial class SemanticVerifier
 
     private static long? GetConstGenericLong(TypeSymbol? type)
     {
-        return type is ConstGenericValueTypeInfo constVal
+        return type is ConstGenericValueTypeSymbol constVal
             ? constVal.Value
             : null;
     }
@@ -162,7 +160,7 @@ public sealed partial class SemanticVerifier
 
         if (expectedBaseName is "BitList" or CollectionNameBitArray)
         {
-            return _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
+            return _registry.LookupType(name: "Bool") ?? ErrorTypeSymbol.Instance;
         }
 
         return null;
@@ -214,7 +212,7 @@ public sealed partial class SemanticVerifier
         ReportError(code: SemanticDiagnosticCode.EmptyListNoTypeAnnotation,
             message: "Cannot infer element type from empty list literal without type annotation.",
             location: list.Location);
-        return ErrorTypeInfo.Instance;
+        return ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
@@ -272,7 +270,7 @@ public sealed partial class SemanticVerifier
         TypeSymbol? listDef = _registry.LookupType(name: "List");
         if (listDef == null || elementType == null)
         {
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         TypeSymbol listType = _registry.GetOrCreateResolution(genericDef: listDef,
@@ -295,7 +293,7 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        TypeInfo collectionType = UnwrapCollectionLiteralExpectedType(type: resultType);
+        TypeSymbol collectionType = UnwrapCollectionLiteralExpectedType(type: resultType);
         string? baseName = GetTypeBaseName(type: collectionType);
         if (baseName is CollectionNameArray or CollectionNameBitArray or null)
         {
@@ -326,7 +324,7 @@ public sealed partial class SemanticVerifier
     /// all member-routine candidates and returning the first one with a variadic parameter.
     /// Returns null when no such routine is registered on the type.
     /// </summary>
-    private RoutineInfo? FindVariadicLiteralBuilder(TypeInfo collectionType)
+    private RoutineInfo? FindVariadicLiteralBuilder(TypeSymbol collectionType)
     {
         var candidates = new List<RoutineInfo>();
         _registry.CollectMemberRoutineCandidates(type: collectionType,
@@ -347,7 +345,7 @@ public sealed partial class SemanticVerifier
     private void MonomorphizeLiteralBuilder(Expression literal, RoutineInfo builder,
         TypeSymbol arrayDef, TypeSymbol builderElementType, int elementCount)
     {
-        var arityConst = new ConstGenericValueTypeInfo(literalText: elementCount.ToString(),
+        var arityConst = new ConstGenericValueTypeSymbol(literalText: elementCount.ToString(),
             value: elementCount,
             explicitTypeName: "U64");
         TypeSymbol arrayType = _registry.GetOrCreateResolution(genericDef: arrayDef,
@@ -357,7 +355,7 @@ public sealed partial class SemanticVerifier
             {
                 ResolvedType = arrayType
             };
-        List<TypeInfo>? inferred = InferGenericTypeArguments(genericRoutine: builder,
+        List<TypeSymbol>? inferred = InferGenericTypeArguments(genericRoutine: builder,
             arguments: [probe]);
         literal.ResolvedLiteralBuilder = inferred != null
             ? _registry.GetOrCreateRoutineResolution(genericDef: builder,
@@ -436,7 +434,7 @@ public sealed partial class SemanticVerifier
         ReportError(code: SemanticDiagnosticCode.EmptySetNoTypeAnnotation,
             message: "Cannot infer element type from empty set literal without type annotation.",
             location: set.Location);
-        return ErrorTypeInfo.Instance;
+        return ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
@@ -456,7 +454,7 @@ public sealed partial class SemanticVerifier
         TypeSymbol? setDef = _registry.LookupType(name: "Set");
         if (setDef == null || elementType == null)
         {
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         TypeSymbol setType = _registry.GetOrCreateResolution(genericDef: setDef,
@@ -510,7 +508,7 @@ public sealed partial class SemanticVerifier
             TypeSymbol? dictDef = _registry.LookupType(name: "Dict");
             if (dictDef == null || keyType == null || valueType == null)
             {
-                return ErrorTypeInfo.Instance;
+                return ErrorTypeSymbol.Instance;
             }
 
             TypeSymbol dictType = _registry.GetOrCreateResolution(genericDef: dictDef,
@@ -564,7 +562,7 @@ public sealed partial class SemanticVerifier
         ReportError(code: SemanticDiagnosticCode.EmptyDictNoTypeAnnotation,
             message: "Cannot infer types from empty dict literal without type annotation.",
             location: dict.Location);
-        return (ErrorTypeInfo.Instance, ErrorTypeInfo.Instance);
+        return (ErrorTypeSymbol.Instance, ErrorTypeSymbol.Instance);
     }
 
     private TypeSymbol AnalyzeDictEntryLiteralExpression(DictEntryLiteralExpression dictEntry,
@@ -573,7 +571,7 @@ public sealed partial class SemanticVerifier
         // Extract expected key/value types from tuple expected type (used by collection constructors)
         TypeSymbol? expectedKeyType = null;
         TypeSymbol? expectedValueType = null;
-        if (expectedType is TupleTypeInfo { ElementTypes.Count: 2 } expectedTuple)
+        if (expectedType is TupleTypeSymbol { ElementTypes.Count: 2 } expectedTuple)
         {
             expectedKeyType = expectedTuple.ElementTypes[index: 0];
             expectedValueType = expectedTuple.ElementTypes[index: 1];
@@ -592,15 +590,15 @@ public sealed partial class SemanticVerifier
                 typeArguments: [keyType, valueType]);
         }
 
-        return ErrorTypeInfo.Instance;
+        return ErrorTypeSymbol.Instance;
     }
 
     private TypeSymbol AnalyzeTupleLiteralExpression(TupleLiteralExpression tuple,
         TypeSymbol? expectedType = null)
     {
         // Extract per-element expected types from tuple expected type
-        List<TypeInfo>? expectedElementTypes = null;
-        if (expectedType is TupleTypeInfo expectedTuple &&
+        List<TypeSymbol>? expectedElementTypes = null;
+        if (expectedType is TupleTypeSymbol expectedTuple &&
             expectedTuple.ElementTypes.Count == tuple.Elements.Count)
         {
             expectedElementTypes = expectedTuple.ElementTypes;
@@ -622,7 +620,7 @@ public sealed partial class SemanticVerifier
             ReportError(code: SemanticDiagnosticCode.UnknownType,
                 message: "Empty tuples are not allowed. Use 'None' for the unit type.",
                 location: tuple.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         return _registry.GetOrCreateTupleType(elementTypes: elementTypes);
@@ -638,7 +636,7 @@ public sealed partial class SemanticVerifier
             ReportError(code: SemanticDiagnosticCode.UnknownConversionTargetType,
                 message: $"Unknown conversion target type '{conv.TargetType}'.",
                 location: conv.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         conv.LoweringKind = CallLoweringKind.ValueConversion;
@@ -698,7 +696,7 @@ public sealed partial class SemanticVerifier
         }
 
         // Chained comparisons always return bool
-        return _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
+        return _registry.LookupType(name: "Bool") ?? ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
@@ -755,7 +753,7 @@ public sealed partial class SemanticVerifier
 
             AnalyzeExpression(expression: value);
 
-            if (fieldPath is { Count: > 0 } && baseType is RecordTypeInfo recordType)
+            if (fieldPath is { Count: > 0 } && baseType is RecordTypeSymbol recordType)
             {
                 MemberVariableInfo? memberInfo =
                     recordType.LookupMemberVariable(memberVariableName: fieldPath[index: 0]);
@@ -791,7 +789,7 @@ public sealed partial class SemanticVerifier
         // Analyze the matched expression (Bool for subject-less when — arms are conditions)
         TypeSymbol matchedType = when.Expression != null
             ? AnalyzeExpression(expression: when.Expression)
-            : _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
+            : _registry.LookupType(name: "Bool") ?? ErrorTypeSymbol.Instance;
 
         // #88: Pattern order enforcement — else/wildcard must be last
         ValidateWhenPatternOrder(when: when);
@@ -839,7 +837,7 @@ public sealed partial class SemanticVerifier
             }
         }
 
-        return resultType ?? ErrorTypeInfo.Instance;
+        return resultType ?? ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
@@ -975,7 +973,7 @@ public sealed partial class SemanticVerifier
             }
 
             // Extract the result type from the becomes expression (already analyzed via AnalyzeStatement).
-            TypeSymbol branchType = becomesStmt.Value.ResolvedType ?? ErrorTypeInfo.Instance;
+            TypeSymbol branchType = becomesStmt.Value.ResolvedType ?? ErrorTypeSymbol.Instance;
             return FoldWhenBranchType(resultType: resultType,
                 branchType: branchType,
                 errorLocation: becomesStmt.Location);
@@ -997,7 +995,7 @@ public sealed partial class SemanticVerifier
     /// Infers type arguments for a generic routine from call arguments.
     /// Returns the inferred type arguments, or null if inference fails.
     /// </summary>
-    private List<TypeInfo>? InferGenericTypeArguments(RoutineInfo genericRoutine,
+    private List<TypeSymbol>? InferGenericTypeArguments(RoutineInfo genericRoutine,
         List<Expression> arguments, TypeSymbol? expectedType = null)
     {
         if (genericRoutine.GenericParameters == null ||
@@ -1023,7 +1021,7 @@ public sealed partial class SemanticVerifier
         // arguments; unify the routine's return type against the call's expected type — the field /
         // parameter / assignment target the result flows into — to fill it. Only used to fill gaps
         // (already-inferred params from the argument pass win).
-        if (expectedType is not null && expectedType != ErrorTypeInfo.Instance &&
+        if (expectedType is not null && expectedType != ErrorTypeSymbol.Instance &&
             genericRoutine.ReturnType is { } returnType)
         {
             InferMemberRoutineTypeArgumentsFromTypes(paramType: returnType,
@@ -1067,7 +1065,7 @@ public sealed partial class SemanticVerifier
             // against the Array expected type). Re-analyzing it here without that expected type would
             // default it back to List[T] and lose the arity K, so reuse its resolved Array type.
             TypeSymbol argType = ResolveArgTypeForInference(argExpr: argExpr);
-            if (argType == ErrorTypeInfo.Instance)
+            if (argType == ErrorTypeSymbol.Instance)
             {
                 continue;
             }
@@ -1187,8 +1185,8 @@ public sealed partial class SemanticVerifier
     {
         return type switch
         {
-            RecordTypeInfo r => r.ImplementedProtocols.ToList(),
-            EntityTypeInfo e => e.ImplementedProtocols.ToList(),
+            RecordTypeSymbol r => r.ImplementedProtocols.ToList(),
+            EntityTypeSymbol e => e.ImplementedProtocols.ToList(),
             _ => []
         };
     }
@@ -1202,7 +1200,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Infers memberRoutine-level generic type arguments for an already owner-resolved memberRoutine.
     /// </summary>
-    private List<TypeInfo>? InferMemberRoutineGenericTypeArguments(
+    private List<TypeSymbol>? InferMemberRoutineGenericTypeArguments(
         RoutineInfo genericMemberRoutine, List<Expression> arguments,
         TypeSymbol? receiverType = null)
     {
@@ -1234,7 +1232,7 @@ public sealed partial class SemanticVerifier
                 ? named.Value
                 : arguments[index: i];
             TypeSymbol argType = arg.ResolvedType ?? AnalyzeExpression(expression: arg);
-            if (argType == ErrorTypeInfo.Instance)
+            if (argType == ErrorTypeSymbol.Instance)
             {
                 continue;
             }
@@ -1263,7 +1261,7 @@ public sealed partial class SemanticVerifier
     private static void InferMemberRoutineTypeArgumentsFromTypes(TypeSymbol paramType,
         TypeSymbol argType, List<string> genericParameters, TypeSymbol?[] inferred)
     {
-        if (paramType is GenericParameterTypeInfo)
+        if (paramType is GenericParameterTypeSymbol)
         {
             BindInferredSlot(name: paramType.Name,
                 argType: argType,
@@ -1299,7 +1297,7 @@ public sealed partial class SemanticVerifier
             }
         }
 
-        // RoutineTypeInfo is structural: its parameter/return types live in ParameterTypes/ReturnType,
+        // RoutineTypeSymbol is structural: its parameter/return types live in ParameterTypes/ReturnType,
         // not TypeArguments. Without this branch, `Routine[(T,), U]` would not unify against
         // `Routine[(S64,), S64]` and memberRoutine-level params (e.g. `select[U]`) would stay unresolved.
         InferFromRoutineTypeStructure(paramType: paramType,
@@ -1332,7 +1330,7 @@ public sealed partial class SemanticVerifier
     private static bool TryInferFromMarkerProtocolWrapper(TypeSymbol paramType, TypeSymbol argType,
         List<string> genericParameters, TypeSymbol?[] inferred)
     {
-        if (paramType is not { TypeArguments: [GenericParameterTypeInfo markerParam] })
+        if (paramType is not { TypeArguments: [GenericParameterTypeSymbol markerParam] })
         {
             return false;
         }
@@ -1357,15 +1355,15 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Unifies a <c>RoutineTypeInfo</c> parameter against a <c>RoutineTypeInfo</c> argument by
+    /// Unifies a <c>RoutineTypeSymbol</c> parameter against a <c>RoutineTypeSymbol</c> argument by
     /// recursively inferring from each paired parameter type and then from the return types.
-    /// No-op when either side is not a <c>RoutineTypeInfo</c> or the parameter counts differ.
+    /// No-op when either side is not a <c>RoutineTypeSymbol</c> or the parameter counts differ.
     /// </summary>
     private static void InferFromRoutineTypeStructure(TypeSymbol paramType, TypeSymbol argType,
         List<string> genericParameters, TypeSymbol?[] inferred)
     {
-        if (paramType is not RoutineTypeInfo paramRoutine ||
-            argType is not RoutineTypeInfo argRoutine)
+        if (paramType is not RoutineTypeSymbol paramRoutine ||
+            argType is not RoutineTypeSymbol argRoutine)
         {
             return;
         }

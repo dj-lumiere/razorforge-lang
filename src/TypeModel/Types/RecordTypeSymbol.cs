@@ -1,5 +1,5 @@
 using System.Text;
-using Compiler.Declaration;
+using Builder.Declaration;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 
@@ -12,7 +12,7 @@ using CarrierKind = CarrierKind;
 /// Includes "primitive-like" types (s32, bool, etc.) which are single-member-variable records
 /// wrapping LLVM intrinsics.
 /// </summary>
-public class RecordTypeInfo : TypeInfo
+public class RecordTypeSymbol : TypeSymbol
 {
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.Record;
@@ -25,7 +25,7 @@ public class RecordTypeInfo : TypeInfo
     public List<MemberExpandTemplateInfo> ExpandTemplates { get; set; } = [];
 
     /// <summary>Protocols this record implements (obeys).</summary>
-    public List<TypeInfo> ImplementedProtocols { get; set; } = [];
+    public List<TypeSymbol> ImplementedProtocols { get; set; } = [];
 
     /// <summary>Conditional-conformance conditions from an <c>obeys P onlyif (param obeys proto, …)</c>
     /// clause, stored on the generic DEFINITION and keyed by the conditionally-obeyed protocol's bare name.
@@ -40,9 +40,9 @@ public class RecordTypeInfo : TypeInfo
     /// <summary>
     /// Associated-type bindings declared via <c>relates Concrete as Name</c> — maps a protocol
     /// slot name to the concrete type that fills it. Mirrors
-    /// <see cref="EntityTypeInfo.AssociatedTypeBindings"/>.
+    /// <see cref="EntityTypeSymbol.AssociatedTypeBindings"/>.
     /// </summary>
-    public Dictionary<string, TypeInfo> AssociatedTypeBindings { get; set; } = new();
+    public Dictionary<string, TypeSymbol> AssociatedTypeBindings { get; set; } = new();
 
     /// <summary>
     /// Backend type from @llvm("type") annotation. Null if not a backend-annotated type.
@@ -130,7 +130,7 @@ public class RecordTypeInfo : TypeInfo
 
         int size = 0;
         int maxAlignment = 1;
-        foreach (TypeInfo memberType in MemberVariables.Select(selector: mv => mv.Type))
+        foreach (TypeSymbol memberType in MemberVariables.Select(selector: mv => mv.Type))
         {
             int memberSize = memberType.SizeBytes(pointerSize: pointerSize);
             // @layout("packed"): fields sit at alignment 1 — no inter-field padding (C `packed`).
@@ -206,7 +206,7 @@ public class RecordTypeInfo : TypeInfo
 
     /// <summary>Whether this record has RC wrapper fields needing retain-on-copy / release-on-drop.</summary>
     public bool HasRCMemberVariables => MemberVariables.Any(predicate: f =>
-        f.Type is WrapperTypeInfo w && RCWrapperBaseNames.Contains(item: w.Name));
+        f.Type is WrapperTypeSymbol w && RCWrapperBaseNames.Contains(item: w.Name));
 
     /// <summary>
     /// Whether this is a compiler-known error-handling carrier (Maybe, Result, Lookup).
@@ -218,7 +218,7 @@ public class RecordTypeInfo : TypeInfo
     /// <summary>
     /// For generic definitions, the original generic type this was resolved from.
     /// </summary>
-    public RecordTypeInfo? GenericDefinition { get; init; }
+    public RecordTypeSymbol? GenericDefinition { get; init; }
 
     /// <summary>
     /// Looks up a member variable by name in this record.
@@ -231,17 +231,17 @@ public class RecordTypeInfo : TypeInfo
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="RecordTypeInfo"/> class.
+    /// Initializes a new instance of the <see cref="RecordTypeSymbol"/> class.
     /// </summary>
     /// <param name="name">The name of the record type.</param>
-    public RecordTypeInfo(string name) : base(name: name)
+    public RecordTypeSymbol(string name) : base(name: name)
     {
     }
 
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">Thrown if this is not a generic definition.</exception>
     /// <exception cref="ArgumentException">Thrown if the number of type arguments doesn't match.</exception>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         if (!IsGenericDefinition)
         {
@@ -257,7 +257,7 @@ public class RecordTypeInfo : TypeInfo
         }
 
         // Create type parameter substitution map
-        var substitution = new Dictionary<string, TypeInfo>();
+        var substitution = new Dictionary<string, TypeSymbol>();
         for (int i = 0; i < GenericParameters.Count; i++)
         {
             substitution[key: GenericParameters[index: i]] = typeArguments[index: i];
@@ -272,12 +272,12 @@ public class RecordTypeInfo : TypeInfo
 
         // Build resolved type name using FullName for each type argument so the resolved
         // type carries fully-qualified inner names (e.g., "Hijacked[Core.Byte]").
-        // TypeInfo.FullName then prepends the module: "Core.Hijacked[Core.Byte]".
+        // TypeSymbol.FullName then prepends the module: "Core.Hijacked[Core.Byte]".
         string resolvedName = $"{Name}[{string.Join(separator: ", ",
             values: typeArguments.Select(selector: t => t.FullName))}]";
 
         var substitutedProtocols = ImplementedProtocols.Select(selector: p =>
-                                                            (TypeInfo)(ProtocolTypeInfo)
+                                                            (TypeSymbol)(ProtocolTypeSymbol)
                                                             SubstituteType(type: p,
                                                                 substitution: substitution))
                                                        .ToList();
@@ -285,7 +285,7 @@ public class RecordTypeInfo : TypeInfo
         var substitutedBindings = AssociatedTypeBindings.ToDictionary(keySelector: kv => kv.Key,
             elementSelector: kv => SubstituteType(type: kv.Value, substitution: substitution));
 
-        return new RecordTypeInfo(name: resolvedName)
+        return new RecordTypeSymbol(name: resolvedName)
         {
             MemberVariables = substitutedMemberVariables,
             ImplementedProtocols = substitutedProtocols,
@@ -313,14 +313,14 @@ public class RecordTypeInfo : TypeInfo
     /// Returns the template unchanged if it contains no holes.
     /// </summary>
     private static string? ResolveBackendTypeTemplate(string? template,
-        List<string>? genericParams, List<TypeInfo> typeArguments)
+        List<string>? genericParams, List<TypeSymbol> typeArguments)
     {
         if (template == null || genericParams == null || !template.Contains(value: '{'))
         {
             return template;
         }
 
-        var paramMap = new Dictionary<string, TypeInfo>();
+        var paramMap = new Dictionary<string, TypeSymbol>();
         for (int i = 0; i < genericParams.Count && i < typeArguments.Count; i++)
         {
             paramMap[key: genericParams[index: i]] = typeArguments[index: i];
@@ -354,19 +354,19 @@ public class RecordTypeInfo : TypeInfo
         return result.ToString();
     }
 
-    private static string ResolveHole(string hole, Dictionary<string, TypeInfo> paramMap)
+    private static string ResolveHole(string hole, Dictionary<string, TypeSymbol> paramMap)
     {
         // Simple parameter name: {N} or {T}
-        if (paramMap.TryGetValue(key: hole, value: out TypeInfo? typeArg))
+        if (paramMap.TryGetValue(key: hole, value: out TypeSymbol? typeArg))
         {
             return SubstituteTypeArg(typeArg: typeArg);
         }
 
         // Arithmetic expression: {(N+7)//8}
         var constValues = new Dictionary<string, long>();
-        foreach ((string name, TypeInfo ti) in paramMap)
+        foreach ((string name, TypeSymbol ti) in paramMap)
         {
-            if (ti is ConstGenericValueTypeInfo constVal)
+            if (ti is ConstGenericValueTypeSymbol constVal)
             {
                 constValues[key: name] = constVal.Value;
             }
@@ -381,14 +381,14 @@ public class RecordTypeInfo : TypeInfo
         return hole; // fallback: return as-is
     }
 
-    private static string SubstituteTypeArg(TypeInfo typeArg)
+    private static string SubstituteTypeArg(TypeSymbol typeArg)
     {
-        if (typeArg is ConstGenericValueTypeInfo constVal)
+        if (typeArg is ConstGenericValueTypeSymbol constVal)
         {
             return constVal.Value.ToString();
         }
 
-        if (typeArg is RecordTypeInfo record)
+        if (typeArg is RecordTypeSymbol record)
         {
             return record.LlvmType;
         }
@@ -552,9 +552,9 @@ public class RecordTypeInfo : TypeInfo
     /// <param name="substitution">The type parameter substitution map.</param>
     /// <returns>A new <see cref="MemberVariableInfo"/> with the substituted type.</returns>
     private static MemberVariableInfo SubstituteMemberVariableType(
-        MemberVariableInfo memberVariable, Dictionary<string, TypeInfo> substitution)
+        MemberVariableInfo memberVariable, Dictionary<string, TypeSymbol> substitution)
     {
-        TypeInfo substitutedType =
+        TypeSymbol substitutedType =
             SubstituteType(type: memberVariable.Type, substitution: substitution);
         return memberVariable.WithSubstitutedType(newType: substitutedType);
     }
@@ -568,30 +568,30 @@ public class RecordTypeInfo : TypeInfo
     /// </summary>
     /// <param name="baseType">The concrete type whose associated-type binding is resolved.</param>
     /// <param name="slot">The associated-type slot name to look up (e.g. <c>Iter</c>).</param>
-    internal static TypeInfo? ProjectAssociatedBinding(TypeInfo baseType, string slot)
+    internal static TypeSymbol? ProjectAssociatedBinding(TypeSymbol baseType, string slot)
     {
-        (Dictionary<string, TypeInfo>? own, TypeInfo? def, List<TypeInfo>? args) = baseType switch
+        (Dictionary<string, TypeSymbol>? own, TypeSymbol? def, List<TypeSymbol>? args) = baseType switch
         {
-            EntityTypeInfo e => (e.AssociatedTypeBindings, (TypeInfo?)e.GenericDefinition,
+            EntityTypeSymbol e => (e.AssociatedTypeBindings, (TypeSymbol?)e.GenericDefinition,
                 e.TypeArguments),
-            RecordTypeInfo r => (r.AssociatedTypeBindings, (TypeInfo?)r.GenericDefinition,
+            RecordTypeSymbol r => (r.AssociatedTypeBindings, (TypeSymbol?)r.GenericDefinition,
                 r.TypeArguments),
             _ => (null, null, null)
         };
 
-        if (own != null && own.TryGetValue(key: slot, value: out TypeInfo? direct))
+        if (own != null && own.TryGetValue(key: slot, value: out TypeSymbol? direct))
         {
             return direct;
         }
 
-        Dictionary<string, TypeInfo>? defBindings = def switch
+        Dictionary<string, TypeSymbol>? defBindings = def switch
         {
-            EntityTypeInfo e => e.AssociatedTypeBindings,
-            RecordTypeInfo r => r.AssociatedTypeBindings,
+            EntityTypeSymbol e => e.AssociatedTypeBindings,
+            RecordTypeSymbol r => r.AssociatedTypeBindings,
             _ => null
         };
         if (defBindings is null ||
-            !defBindings.TryGetValue(key: slot, value: out TypeInfo? defBound))
+            !defBindings.TryGetValue(key: slot, value: out TypeSymbol? defBound))
         {
             return null;
         }
@@ -599,7 +599,7 @@ public class RecordTypeInfo : TypeInfo
         if (def!.GenericParameters is { } defParams && args is { } typeArgs &&
             defParams.Count == typeArgs.Count)
         {
-            var subs = new Dictionary<string, TypeInfo>();
+            var subs = new Dictionary<string, TypeSymbol>();
             for (int i = 0; i < defParams.Count; i++)
             {
                 subs[key: defParams[index: i]] = typeArgs[index: i];
@@ -611,37 +611,37 @@ public class RecordTypeInfo : TypeInfo
         return defBound;
     }
 
-    internal static TypeInfo SubstituteType(TypeInfo type,
-        Dictionary<string, TypeInfo> substitution)
+    internal static TypeSymbol SubstituteType(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitution)
     {
         // Associated-type projection (e.g. `S/Iter`): substitute the base type first; once the
         // base resolves to a concrete type that binds the slot, resolve to the bound type.
         // Otherwise keep a (re-based) deferred projection.
-        if (type is AssociatedProjectionTypeInfo projection)
+        if (type is AssociatedProjectionTypeSymbol projection)
         {
             return SubstituteAssociatedProjection(projection: projection,
                 substitution: substitution);
         }
 
-        // Comptime const-generic (`${max(T.data_size().byte_size(), 8)}`): fold to a concrete value
+        // Buildtime const-generic (`${max(T.data_size().byte_size(), 8)}`): fold to a concrete value
         // once its referenced type params are bound, else keep symbolic (mirror of the RoutineInfo
         // overload's fold on the TypeSymbol map).
-        if (type is ComptimeConstGenericTypeInfo comptime)
+        if (type is BuildtimeConstGenericTypeSymbol buildtime)
         {
-            return comptime.TryFold(resolveTypeParam: name =>
-                    substitution.TryGetValue(key: name, value: out TypeInfo? bound)
+            return buildtime.TryFold(resolveTypeParam: name =>
+                    substitution.TryGetValue(key: name, value: out TypeSymbol? bound)
                         ? bound
                         : null,
                 pointerSize: 8,
                 result: out long folded)
-                ? new ConstGenericValueTypeInfo(literalText: folded.ToString(),
+                ? new ConstGenericValueTypeSymbol(literalText: folded.ToString(),
                     value: folded,
                     explicitTypeName: "U64")
-                : comptime;
+                : buildtime;
         }
 
         // If it's a type parameter, substitute it
-        if (substitution.TryGetValue(key: type.Name, value: out TypeInfo? substituted))
+        if (substitution.TryGetValue(key: type.Name, value: out TypeSymbol? substituted))
         {
             return substituted;
         }
@@ -657,11 +657,11 @@ public class RecordTypeInfo : TypeInfo
 
     // Substitute an associated-type projection: re-base the projection onto its substituted base,
     // and if the base now binds the slot, resolve to that binding (substituting it in turn).
-    private static TypeInfo SubstituteAssociatedProjection(AssociatedProjectionTypeInfo projection,
-        Dictionary<string, TypeInfo> substitution)
+    private static TypeSymbol SubstituteAssociatedProjection(AssociatedProjectionTypeSymbol projection,
+        Dictionary<string, TypeSymbol> substitution)
     {
-        TypeInfo newBase = SubstituteType(type: projection.Base, substitution: substitution);
-        TypeInfo? bound = ProjectAssociatedBinding(baseType: newBase, slot: projection.SlotName);
+        TypeSymbol newBase = SubstituteType(type: projection.Base, substitution: substitution);
+        TypeSymbol? bound = ProjectAssociatedBinding(baseType: newBase, slot: projection.SlotName);
         if (bound != null)
         {
             // The binding may still carry params/projections of its own — substitute again.
@@ -670,12 +670,12 @@ public class RecordTypeInfo : TypeInfo
 
         return ReferenceEquals(objA: newBase, objB: projection.Base)
             ? projection
-            : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: projection.SlotName);
+            : new AssociatedProjectionTypeSymbol(baseType: newBase, slotName: projection.SlotName);
     }
 
     // Substitute a generic resolution's args and re-resolve through the ambient registry per kind.
-    private static TypeInfo SubstituteGenericResolution(TypeInfo type,
-        Dictionary<string, TypeInfo> substitution)
+    private static TypeSymbol SubstituteGenericResolution(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitution)
     {
         var newArgs = type.TypeArguments!
                           .Select(selector: arg =>
@@ -687,7 +687,7 @@ public class RecordTypeInfo : TypeInfo
         TypeRegistry? registry = TypeRegistry.Ambient;
 
         // Get the generic definition and create resolved instance with new args
-        if (type is RecordTypeInfo { GenericDefinition: not null } recordType)
+        if (type is RecordTypeSymbol { GenericDefinition: not null } recordType)
         {
             return registry != null
                 ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition,
@@ -695,7 +695,7 @@ public class RecordTypeInfo : TypeInfo
                 : recordType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
-        if (type is EntityTypeInfo { GenericDefinition: not null } entityType)
+        if (type is EntityTypeSymbol { GenericDefinition: not null } entityType)
         {
             return registry != null
                 ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition,
@@ -703,7 +703,7 @@ public class RecordTypeInfo : TypeInfo
                 : entityType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
-        if (type is ProtocolTypeInfo { GenericDefinition: not null } protocolType)
+        if (type is ProtocolTypeSymbol { GenericDefinition: not null } protocolType)
         {
             return registry != null
                 ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition,
@@ -711,7 +711,7 @@ public class RecordTypeInfo : TypeInfo
                 : protocolType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
-        if (type is WrapperTypeInfo wrapperType)
+        if (type is WrapperTypeSymbol wrapperType)
         {
             return wrapperType.CreateInstance(typeArguments: newArgs);
         }
@@ -728,7 +728,7 @@ public class RecordTypeInfo : TypeInfo
     {
         return memberVariable.Type switch
         {
-            RecordTypeInfo record => record.LlvmType,
+            RecordTypeSymbol record => record.LlvmType,
             _ => "ptr" // Reference types are pointers
         };
     }

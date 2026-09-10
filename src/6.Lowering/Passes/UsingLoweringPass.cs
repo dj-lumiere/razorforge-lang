@@ -2,7 +2,7 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Lowers <see cref="UsingStatement"/> to explicit <c>enter</c> / <c>exit</c> call sequences,
@@ -73,7 +73,7 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
             return LowerFallibleUsing(u: u, loweredBody: loweredBody);
         }
 
-        TypeInfo? resourceType = u.Resource.ResolvedType;
+        TypeSymbol? resourceType = u.Resource.ResolvedType;
         SourceLocation loc = u.Location;
 
         string resTemp = NextResTemp();
@@ -127,7 +127,7 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
 
     // Bind user's name via enter (or directly to the resource if no enter).
     private static void EmitEnterBinding(List<Statement> stmts, UsingStatement u,
-        RoutineInfo? enterMemberRoutine, IdentifierExpression resTempIdent, TypeInfo? resourceType,
+        RoutineInfo? enterMemberRoutine, IdentifierExpression resTempIdent, TypeSymbol? resourceType,
         SourceLocation loc)
     {
         if (enterMemberRoutine == null)
@@ -209,7 +209,7 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
     {
         Statement loweredFallback = VisitStatement(stmt: u.FallbackBody!);
 
-        TypeInfo? resourceType = u.Resource.ResolvedType;
+        TypeSymbol? resourceType = u.Resource.ResolvedType;
         SourceLocation loc = u.Location;
 
         string resTemp = NextResTemp();
@@ -393,7 +393,7 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
         return new BlockStatement(Statements: stmts.ToList(), Location: loc);
     }
 
-    private static DeclarationStatement MakeBinding(string name, Expression value, TypeInfo? type,
+    private static DeclarationStatement MakeBinding(string name, Expression value, TypeSymbol? type,
         SourceLocation loc)
     {
         var decl = new VariableDeclaration(Name: name,
@@ -406,12 +406,12 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
         return new DeclarationStatement(Declaration: decl, Location: loc);
     }
 
-    private static TypeExpression TypeInfoToExpr(TypeInfo type, SourceLocation loc)
+    private static TypeExpression TypeInfoToExpr(TypeSymbol type, SourceLocation loc)
     {
         string baseName = type switch
         {
-            RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
-            EntityTypeInfo { GenericDefinition: not null } e => e.GenericDefinition.Name,
+            RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition.Name,
+            EntityTypeSymbol { GenericDefinition: not null } e => e.GenericDefinition.Name,
             _ => type.IsGenericResolution
                 ? type.BareName
                 : type.Name

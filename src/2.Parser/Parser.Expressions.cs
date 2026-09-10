@@ -1,8 +1,8 @@
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
 using SyntaxTree;
 
-namespace Compiler.Parser;
+namespace Builder.Parser;
 
 /// <summary>
 /// Partial class containing expression parsing (precedence climbing chain).
@@ -28,7 +28,7 @@ public partial class Parser
     /// </summary>
     /// <returns>The parsed expression, possibly an assignment.</returns>
     /// <summary>
-    /// Parses the inner expression of a comptime splice after the opening <c>${</c> has been
+    /// Parses the inner expression of a buildtime splice after the opening <c>${</c> has been
     /// consumed, up to and including the closing <c>}</c>.
     /// </summary>
     /// <param name="kind">The required fold kind, fixed by the syntactic position.</param>
@@ -42,7 +42,7 @@ public partial class Parser
     }
 
     /// <summary>
-    /// Parses a brace-less comptime splice <c>$primary</c> after the leading <c>$</c> has been consumed.
+    /// Parses a brace-less buildtime splice <c>$primary</c> after the leading <c>$</c> has been consumed.
     /// The <c>$</c> binds to a single self-delimiting primary — an identifier optionally followed by one
     /// call (<c>$nameof(m)</c>, <c>$typeof(m)</c>, <c>$valueof(c)</c>) — and stops at a following <c>.</c>
     /// (chaining continues on the splice RESULT: <c>me.$nameof(m).foo</c> → <c>me.x.foo</c>).
@@ -65,7 +65,7 @@ public partial class Parser
             !IsKeywordValidAsMemberRoutineName(type: CurrentToken.Type))
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedIdentifier,
-                message: "Expected a primary (e.g. 'nameof(m)') after a '$' comptime splice.");
+                message: "Expected a primary (e.g. 'nameof(m)') after a '$' buildtime splice.");
         }
 
         string name = CurrentToken.Text;
@@ -85,7 +85,7 @@ public partial class Parser
     {
         SourceLocation location = GetLocation();
 
-        // Comptime splice in expression position: ${expr} (legacy) or $primary (brace-less).
+        // Buildtime splice in expression position: ${expr} (legacy) or $primary (brace-less).
         if (CheckAndAdvance(type: TokenType.SpliceOpen))
         {
             return ParseSplice(kind: SpliceKind.Value);

@@ -1,13 +1,11 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {
@@ -15,12 +13,12 @@ public sealed partial class SemanticVerifier
     {
         TypeSymbol conditionType = AnalyzeExpression(expression: ifStmt.Condition);
 
-        // Condition must be boolean. An ErrorTypeInfo condition is either a sub-expression that already
-        // reported its own error (piling "must be boolean" on top is pure cascade noise) OR a comptime
+        // Condition must be boolean. An ErrorTypeSymbol condition is either a sub-expression that already
+        // reported its own error (piling "must be boolean" on top is pure cascade noise) OR a buildtime
         // splice deferred to monomorphization — e.g. `if me.${m.name}.is_none()` inside an `expand`, where
         // the splice-member is ErrorType pre-monomorph and the real Bool only exists per concrete field.
         // Either way, suppress the boolean check for ErrorType and let the deferred/errored path settle.
-        if (!IsBoolType(type: conditionType) && conditionType is not ErrorTypeInfo)
+        if (!IsBoolType(type: conditionType) && conditionType is not ErrorTypeSymbol)
         {
             ReportError(code: SemanticDiagnosticCode.IfConditionNotBool,
                 message: $"If condition must be boolean, got '{conditionType.Name}'.",
@@ -187,9 +185,9 @@ public sealed partial class SemanticVerifier
     {
         TypeSymbol conditionType = AnalyzeExpression(expression: whileStmt.Condition);
 
-        // Condition must be boolean (ErrorType suppressed as cascade / comptime-splice deferral — see
+        // Condition must be boolean (ErrorType suppressed as cascade / buildtime-splice deferral — see
         // AnalyzeIfStatement for the rationale).
-        if (!IsBoolType(type: conditionType) && conditionType is not ErrorTypeInfo)
+        if (!IsBoolType(type: conditionType) && conditionType is not ErrorTypeSymbol)
         {
             ReportError(code: SemanticDiagnosticCode.WhileConditionNotBool,
                 message: $"While condition must be boolean, got '{conditionType.Name}'.",
@@ -203,17 +201,17 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Analyzes a comptime <c>expand m in allmemvarof(T)</c> loop. Because the concrete members of
+    /// Analyzes a buildtime <c>expand m in allmemvarof(T)</c> loop. Because the concrete members of
     /// <c>T</c> are unknown until monomorphization, this does NOT unroll or fully type the body —
     /// it only validates the template shape: the source type resolves, the handle <c>m</c> is
-    /// registered as a comptime-handle sentinel (so <c>m.name</c>/<c>m.id</c> and the splices type
+    /// registered as a buildtime-handle sentinel (so <c>m.name</c>/<c>m.id</c> and the splices type
     /// leniently), and the body is analyzed once. The real per-member expansion and typecheck
     /// happen in the generic AST rewriter at instantiation.
     /// </summary>
     private void AnalyzeExpandStatement(ExpandStatement expandStmt)
     {
         // BuilderExpansion gate: `expand` and its sources (allmemvarof/openmemvarof/caseof/branchof) are
-        // comptime intrinsics housed in the BuilderExpansion module — no longer keywords, siblings of
+        // buildtime intrinsics housed in the BuilderExpansion module — no longer keywords, siblings of
         // nameof/typeof. Using them requires the opt-in import (mirrors `import BuilderQuery`).
         if (!_importedModules.Contains(item: "BuilderExpansion"))
         {
@@ -237,7 +235,7 @@ public sealed partial class SemanticVerifier
         {
             ReportError(code: SemanticDiagnosticCode.NestedExpandNotAllowed,
                 message:
-                "An 'expand' cannot be nested inside another 'expand' — comptime member expansion is single-level.",
+                "An 'expand' cannot be nested inside another 'expand' — buildtime member expansion is single-level.",
                 location: expandStmt.Location);
         }
 
@@ -249,7 +247,7 @@ public sealed partial class SemanticVerifier
 
         // Register the per-part handle so `m`, `m.name`, `m.id` resolve leniently in the body.
         _registry.DeclareVariable(name: expandStmt.HandleName,
-            type: ComptimeHandleTypeInfo.Instance);
+            type: BuildtimeHandleTypeSymbol.Instance);
 
         bool prevInExpand = _inExpandBody;
         _inExpandBody = true;
@@ -311,7 +309,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void DeclareEachDestructuringBindings(EachStatement eachStmt, TypeSymbol elementType)
     {
-        if (elementType is TupleTypeInfo tupleType)
+        if (elementType is TupleTypeSymbol tupleType)
         {
             DeclareTupleDestructuringBindings(eachStmt: eachStmt, tupleType: tupleType);
         }
@@ -325,7 +323,7 @@ public sealed partial class SemanticVerifier
     /// Declares each-loop bindings for a tuple element type, matching positionally and reporting an
     /// arity mismatch when the binding count differs from the tuple's element count.
     /// </summary>
-    private void DeclareTupleDestructuringBindings(EachStatement eachStmt, TupleTypeInfo tupleType)
+    private void DeclareTupleDestructuringBindings(EachStatement eachStmt, TupleTypeSymbol tupleType)
     {
         int bindingCount = eachStmt.VariablePattern!.Bindings.Count;
         if (bindingCount != tupleType.Arity)
@@ -346,7 +344,7 @@ public sealed partial class SemanticVerifier
 
             TypeSymbol bindingType = i < tupleType.Arity
                 ? tupleType.ElementTypes[index: i]
-                : ErrorTypeInfo.Instance;
+                : ErrorTypeSymbol.Instance;
             _registry.DeclareVariable(name: binding.BindingName, type: bindingType);
         }
     }
@@ -365,7 +363,7 @@ public sealed partial class SemanticVerifier
                                          .Select(selector: b => b.BindingName)
                                          .Where(predicate: n => n != null))
         {
-            _registry.DeclareVariable(name: name!, type: ErrorTypeInfo.Instance);
+            _registry.DeclareVariable(name: name!, type: ErrorTypeSymbol.Instance);
         }
     }
 
@@ -373,7 +371,7 @@ public sealed partial class SemanticVerifier
     {
         TypeSymbol matchedType = AnalyzeExpression(expression: whenStmt.Expression);
 
-        // Comptime arm-expansion: concrete arms are unknown until monomorphization.
+        // Buildtime arm-expansion: concrete arms are unknown until monomorphization.
         // Validate leniently and skip exhaustiveness/order checks.
         if (whenStmt.ArmExpansion is { } armExp)
         {
@@ -392,8 +390,8 @@ public sealed partial class SemanticVerifier
         CheckWhenSuflaeEntityRef(whenStmt: whenStmt, matchedType: matchedType);
 
         string? whenVarName = (whenStmt.Expression as IdentifierExpression)?.Name;
-        VariantTypeInfo? whenVariant =
-            whenVarName != null && matchedType is VariantTypeInfo wv &&
+        VariantTypeSymbol? whenVariant =
+            whenVarName != null && matchedType is VariantTypeSymbol wv &&
             !IsCarrierType(type: matchedType)
                 ? wv
                 : null;
@@ -421,7 +419,7 @@ public sealed partial class SemanticVerifier
             _registry.ExitScope();
         }
 
-        if (matchedType is ChoiceTypeInfo or VariantTypeInfo || IsCarrierType(type: matchedType) ||
+        if (matchedType is ChoiceTypeSymbol or VariantTypeSymbol || IsCarrierType(type: matchedType) ||
             IsBoolType(type: matchedType))
         {
             CheckWhenExhaustiveness(whenStmt: whenStmt, matchedType: matchedType);
@@ -452,7 +450,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private readonly record struct WhenClauseContext(
         string? WhenVarName,
-        VariantTypeInfo? WhenVariant,
+        VariantTypeSymbol? WhenVariant,
         List<string> HandledArms);
 
     private bool AnalyzeWhenClause(WhenClause clause, TypeSymbol matchedType,
@@ -499,7 +497,7 @@ public sealed partial class SemanticVerifier
     /// and narrows to the sole remaining arm when exactly one is left.
     /// </summary>
     private void ApplyElseVariantNarrowing(WhenClause clause, string? whenVarName,
-        VariantTypeInfo? whenVariant, List<string> handledArms)
+        VariantTypeSymbol? whenVariant, List<string> handledArms)
     {
         if (whenVariant == null || whenVarName == null || clause.Pattern is not ElsePattern)
         {
@@ -548,7 +546,7 @@ public sealed partial class SemanticVerifier
     /// the subject variable to the matched arm's type inside this arm's body.
     /// </summary>
     private void ApplyVariantArmNarrowing(WhenClause clause, string? whenVarName,
-        VariantTypeInfo? whenVariant, List<string> handledArms)
+        VariantTypeSymbol? whenVariant, List<string> handledArms)
     {
         if (whenVariant == null || whenVarName == null)
         {
@@ -571,7 +569,7 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Analyzes a comptime arm-expansion `when` (`when me` / `is ${m.type} x => …`): its explicit
+    /// Analyzes a buildtime arm-expansion `when` (`when me` / `is ${m.type} x => …`): its explicit
     /// clauses and the expansion template body are validated leniently (bindings deferred to
     /// monomorphization) with the exhaustiveness/order checks skipped.
     /// </summary>
@@ -585,7 +583,7 @@ public sealed partial class SemanticVerifier
             _registry.EnterScope(kind: ScopeKind.Block, name: "when-clause");
             if (clause.Pattern is TypePattern { VariableName: { } explicitBind })
             {
-                _registry.DeclareVariable(name: explicitBind, type: ErrorTypeInfo.Instance);
+                _registry.DeclareVariable(name: explicitBind, type: ErrorTypeSymbol.Instance);
             }
 
             AnalyzeStatement(statement: clause.Body);
@@ -593,10 +591,10 @@ public sealed partial class SemanticVerifier
         }
 
         _registry.EnterScope(kind: ScopeKind.Block, name: "expand-arm");
-        _registry.DeclareVariable(name: armExp.HandleName, type: ComptimeHandleTypeInfo.Instance);
+        _registry.DeclareVariable(name: armExp.HandleName, type: BuildtimeHandleTypeSymbol.Instance);
         if (armExp.Template.Pattern is SpliceTypePattern { VariableName: { } bindName })
         {
-            _registry.DeclareVariable(name: bindName, type: ErrorTypeInfo.Instance);
+            _registry.DeclareVariable(name: bindName, type: ErrorTypeSymbol.Instance);
         }
 
         AnalyzeStatement(statement: armExp.Template.Body);
@@ -764,10 +762,10 @@ public sealed partial class SemanticVerifier
         // Only `crashable`-kind types are throwable errors. The `crashable` keyword implicitly
         // confers the Crashable contract; no other type kind may obey it (enforced at the
         // declaration site — see ValidateTypeProtocolImplementation), so there is no longer an
-        // explicit-`obeys Crashable` path for records/entities. `Error`/ErrorTypeInfo are the
+        // explicit-`obeys Crashable` path for records/entities. `Error`/ErrorTypeSymbol are the
         // catch-all error references used by generic error handling.
         bool isCrashable = errorType.Category == TypeCategory.Crashable ||
-                           errorType is ErrorTypeInfo || errorType.Name == "Error";
+                           errorType is ErrorTypeSymbol || errorType.Name == "Error";
         if (!isCrashable)
         {
             ReportError(code: SemanticDiagnosticCode.ThrowNotCrashable,
@@ -854,7 +852,7 @@ public sealed partial class SemanticVerifier
         // `discard foo()` on an Agent is the lazy-async footgun: `discard` only throws away the value,
         // it does NOT run the routine — an un-launched Agent's body never executes. (In the old eager
         // model `discard foo()` still ran the work.) So warn even though the value was explicitly ignored.
-        if (discardedType is RecordTypeInfo dag &&
+        if (discardedType is RecordTypeSymbol dag &&
             (dag.GenericDefinition?.Name ?? dag.Name) == "Agent")
         {
             string routineName = discard.Expression switch

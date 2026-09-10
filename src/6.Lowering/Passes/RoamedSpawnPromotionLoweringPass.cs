@@ -1,10 +1,10 @@
-using Compiler.LlvmEmit;
-using Compiler.Declaration;
+using Builder.LlvmEmit;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Stage 2b spawn-boundary <c>promote()</c> lowering, moved out of codegen. A <c>Roamed[T]</c>
@@ -198,7 +198,7 @@ internal sealed class RoamedSpawnPromotionLoweringPass(PostprocessingContext ctx
     // returns void and mutates in place, so the statement is a pure side effect before the spawn.
     private ExpressionStatement? TryMakePromote(Expression handle)
     {
-        if (handle.ResolvedType is not RecordTypeInfo rec ||
+        if (handle.ResolvedType is not RecordTypeSymbol rec ||
             LlvmEmitter.GetGenericBaseNameStatic(type: rec) != RuntimeContract.Roamed)
         {
             return null;

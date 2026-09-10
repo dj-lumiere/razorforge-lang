@@ -3,7 +3,7 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Expression code generation for collection literals and variadic argument packing.
@@ -15,10 +15,10 @@ namespace Compiler.LlvmEmit;
 /// </summary>
 public partial class LlvmEmitter
 {
-    private static TypeInfo UnwrapCollectionStorageType(TypeInfo type)
+    private static TypeSymbol UnwrapCollectionStorageType(TypeSymbol type)
     {
-        TypeInfo current = type;
-        while (current is WrapperTypeInfo { Name: Declaration.RuntimeContract.Owned } wrapper)
+        TypeSymbol current = type;
+        while (current is WrapperTypeSymbol { Name: Declaration.RuntimeContract.Owned } wrapper)
         {
             current = wrapper.InnerType;
         }
@@ -31,14 +31,14 @@ public partial class LlvmEmitter
     /// that remain in codegen as inline IR (insertvalue). All other collection types must be
     /// lowered to CreatorExpression + add calls by ExpressionLoweringPass.
     /// </summary>
-    private static bool IsArrayOrBitArrayLiteral(TypeInfo? type)
+    private static bool IsArrayOrBitArrayLiteral(TypeSymbol? type)
     {
         if (type == null)
         {
             return false;
         }
 
-        TypeInfo concrete = UnwrapCollectionStorageType(type: type);
+        TypeSymbol concrete = UnwrapCollectionStorageType(type: type);
         string baseName = GetGenericBaseName(type: concrete) ?? concrete.Name;
         return baseName is "Array" or "BitArray";
     }
@@ -49,7 +49,7 @@ public partial class LlvmEmitter
     /// </summary>
     private string EmitListLiteral(StringBuilder sb, ListLiteralExpression list)
     {
-        TypeInfo concreteListType = UnwrapCollectionStorageType(type: list.ResolvedType!);
+        TypeSymbol concreteListType = UnwrapCollectionStorageType(type: list.ResolvedType!);
         return EmitCollectionLiteralConstructor(sb: sb,
             resolvedType: concreteListType,
             arguments: list.Elements);
@@ -78,7 +78,7 @@ public partial class LlvmEmitter
     /// would not free it, so a temporary would leak). Returns true with <paramref name="collType"/>
     /// set for a plainly-owned collection.
     /// </summary>
-    private static bool TryGetOwnedCollectionType(TypeInfo? paramType, out TypeInfo collType)
+    private static bool TryGetOwnedCollectionType(TypeSymbol? paramType, out TypeSymbol collType)
     {
         collType = null!;
         if (paramType == null)
@@ -86,8 +86,8 @@ public partial class LlvmEmitter
             return false;
         }
 
-        TypeInfo t = paramType;
-        while (t is WrapperTypeInfo wrapper)
+        TypeSymbol t = paramType;
+        while (t is WrapperTypeSymbol wrapper)
         {
             if (wrapper.Name == Declaration.RuntimeContract.Owned)
             {
@@ -118,7 +118,7 @@ public partial class LlvmEmitter
     /// non-owned params. Non-empty collection defaults remain unsupported (the element expressions are
     /// never SA-analyzed, so they lack a ResolvedType for inline emission).
     /// </summary>
-    private bool TryEmitEmptyCollectionDefault(StringBuilder sb, TypeInfo? paramType,
+    private bool TryEmitEmptyCollectionDefault(StringBuilder sb, TypeSymbol? paramType,
         Expression? defaultValue, out string value)
     {
         value = "";
@@ -132,7 +132,7 @@ public partial class LlvmEmitter
             return false;
         }
 
-        if (!TryGetOwnedCollectionType(paramType: paramType, collType: out TypeInfo collType))
+        if (!TryGetOwnedCollectionType(paramType: paramType, collType: out TypeSymbol collType))
         {
             return false;
         }
@@ -147,7 +147,7 @@ public partial class LlvmEmitter
     /// Called from EmitListLiteral (Array/BitArray only) and from the CollectionConstruction
     /// lowering kind path in EmitRoutineCall / EmitMemberRoutineCall.
     /// </summary>
-    private string EmitCollectionLiteralConstructor(StringBuilder sb, TypeInfo resolvedType,
+    private string EmitCollectionLiteralConstructor(StringBuilder sb, TypeSymbol resolvedType,
         List<Expression> arguments)
     {
         string typeName = resolvedType.Name;
@@ -219,7 +219,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Array[T, N] literal: inline array construction via a per-element insertvalue chain.
     /// </summary>
-    private string EmitArrayLiteralInline(StringBuilder sb, TypeInfo resolvedType,
+    private string EmitArrayLiteralInline(StringBuilder sb, TypeSymbol resolvedType,
         List<Expression> arguments)
     {
         string llvmType = GetLlvmType(type: resolvedType);
@@ -227,7 +227,7 @@ public partial class LlvmEmitter
         for (int i = 0; i < arguments.Count; i++)
         {
             string elemVal = EmitExpression(sb: sb, expr: arguments[index: i]);
-            TypeInfo? elemType = GetExpressionType(expr: arguments[index: i]);
+            TypeSymbol? elemType = GetExpressionType(expr: arguments[index: i]);
             string elemLlvm = elemType != null
                 ? GetLlvmType(type: elemType)
                 : "i64";
@@ -244,7 +244,7 @@ public partial class LlvmEmitter
     /// BitArray[N] literal: inline bit-packed construction. All-literal elements pack at compile time
     /// via the shared PackBitArrayLiteralBytes; a non-literal element falls back to the runtime bit-pack.
     /// </summary>
-    private string EmitBitArrayLiteralInline(StringBuilder sb, TypeInfo resolvedType,
+    private string EmitBitArrayLiteralInline(StringBuilder sb, TypeSymbol resolvedType,
         List<Expression> arguments)
     {
         int[] bytes =
@@ -283,8 +283,8 @@ public partial class LlvmEmitter
 
             string keyVal = EmitExpression(sb: sb, expr: entry.Key);
             string valVal = EmitExpression(sb: sb, expr: entry.Value);
-            TypeInfo? keyType = GetExpressionType(expr: entry.Key);
-            TypeInfo? valueType = GetExpressionType(expr: entry.Value);
+            TypeSymbol? keyType = GetExpressionType(expr: entry.Key);
+            TypeSymbol? valueType = GetExpressionType(expr: entry.Value);
             string keyLlvm = keyType != null
                 ? GetLlvmType(type: keyType)
                 : "i64";
@@ -315,7 +315,7 @@ public partial class LlvmEmitter
         foreach (Expression arg in arguments)
         {
             string elemVal = EmitExpression(sb: sb, expr: arg);
-            TypeInfo? elemType = GetExpressionType(expr: arg);
+            TypeSymbol? elemType = GetExpressionType(expr: arg);
             string elemLlvm = elemType != null
                 ? GetLlvmType(type: elemType)
                 : "i64";
@@ -350,7 +350,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Runtime fallback for BitArray construction when arguments are non-literal booleans.
     /// </summary>
-    private string EmitBitArrayRuntime(StringBuilder sb, TypeInfo resolvedType,
+    private string EmitBitArrayRuntime(StringBuilder sb, TypeSymbol resolvedType,
         List<Expression> arguments)
     {
         string llvmType = GetLlvmType(type: resolvedType);
@@ -391,7 +391,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Emits a zero-arg create() call for a collection type, handling monomorphization.
     /// </summary>
-    private string EmitCollectionCreate(StringBuilder sb, TypeInfo? resolvedType)
+    private string EmitCollectionCreate(StringBuilder sb, TypeSymbol? resolvedType)
     {
         if (resolvedType == null)
         {
@@ -457,11 +457,11 @@ public partial class LlvmEmitter
     /// overload first, then the generic-definition owner's. Returns null when no zero-arg creator
     /// exists (a creator with parameters is rejected).
     /// </summary>
-    private RoutineInfo? LookupCollectionZeroArgCreator(TypeInfo resolvedType)
+    private RoutineInfo? LookupCollectionZeroArgCreator(TypeSymbol resolvedType)
     {
         string createName = $"{resolvedType.FullName}.create";
         RoutineInfo? creator =
-            _registry.LookupRoutineOverload(baseName: createName, argTypes: new List<TypeInfo>());
+            _registry.LookupRoutineOverload(baseName: createName, argTypes: new List<TypeSymbol>());
         if (creator is { Parameters.Count: > 0 })
         {
             creator = null;
@@ -469,10 +469,10 @@ public partial class LlvmEmitter
 
         if (creator == null)
         {
-            TypeInfo? genericDef = resolvedType switch
+            TypeSymbol? genericDef = resolvedType switch
             {
-                EntityTypeInfo { GenericDefinition: not null } e => e.GenericDefinition,
-                RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition,
+                EntityTypeSymbol { GenericDefinition: not null } e => e.GenericDefinition,
+                RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition,
                 _ => null
             };
             if (genericDef != null)
@@ -480,7 +480,7 @@ public partial class LlvmEmitter
                 string genCreateName = $"{RoutineInfo.GetTypeIdentity(type: genericDef)}.create";
                 // Signature-only: the 0-arg creator matches the empty-argTypes overload; no name-only fallback.
                 creator = _registry.LookupRoutineOverload(baseName: genCreateName,
-                    argTypes: new List<TypeInfo>());
+                    argTypes: new List<TypeSymbol>());
                 if (creator is { Parameters.Count: > 0 })
                 {
                     creator = null;

@@ -1,8 +1,8 @@
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.Verification;
+using Builder.Verification.Results;
 using Xunit.Abstractions;
 
 namespace RazorForge.Tests.Perf;
@@ -28,7 +28,7 @@ public sealed class WarmRestoreReproTests
 
     private static Program Parse(string src, string file)
     {
-        return new Compiler.Parser.Parser(
+        return new Builder.Parser.Parser(
             tokens: new Tokenizer(source: src, fileName: file, language: Language.RazorForge)
                .Tokenize(),
             language: Language.RazorForge,

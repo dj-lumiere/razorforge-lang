@@ -211,7 +211,7 @@ needs AnyType T
 
 ### The auto-derived default `eq()` for any record/entity/tuple: equal when every member variable is
 ### equal. Written as the universal `@overridable routine T.eq()`; `ne` is derived from this by the
-### compiler (`return not me.eq(...)`). The comptime `expand` field-walk replaces the hand-written C#
+### compiler (`return not me.eq(...)`). The buildtime `expand` field-walk replaces the hand-written C#
 ### builder — a zero-field type expands to no comparisons and returns `true`.
 @overridable
 routine T.eq(you: T) -> Bool
@@ -305,14 +305,14 @@ needs T obeys Hashable
 ### is lowered through its OWN `serialize()`. Every OTHER member type has no `serialize` and boxes its
 ### `represent()` Text instead: a routine-typed member (entities may hold one — records can't, RF-S412)
 ### whose serialized code is meaningless, an enum-like `choice`/`flags` (Diagnosable but not Serializable
-### — e.g. BuilderQuery's `Visibility`), and any opaque @llvm leaf. The comptime `m.obeying(Serializable)`
+### — e.g. BuilderQuery's `Visibility`), and any opaque @llvm leaf. The buildtime `m.obeying(Serializable)`
 ### gate prunes to exactly one arm per member at monomorph, so codegen never sees a `.serialize()` on a
 ### type that has none. Keys are the field names in declaration order; `Dict` iteration is
 ### insertion-ordered, so the output is stable.
 ###
 ### `serialize` is UNIVERSAL — EVERY type has one (a scalar boxes its own SerialValue arm; an aggregate
 ### recurses; a `choice`/`flags` or zero-field opaque leaf boxes its `represent()` Text as ITS serialize),
-### so the walk calls `me.field.serialize()` UNCONDITIONALLY — no capability gate, no comptime prune.
+### so the walk calls `me.field.serialize()` UNCONDITIONALLY — no capability gate, no buildtime prune.
 @overridable
 routine T.serialize() -> SerialValue
 needs AnyType T

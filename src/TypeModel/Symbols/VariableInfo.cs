@@ -12,7 +12,7 @@ public sealed class VariableInfo
     public string Name { get; }
 
     /// <summary>The resolved type of the variable.</summary>
-    public TypeInfo Type { get; }
+    public TypeSymbol Type { get; }
 
     /// <summary>Whether this variable is modifiable.
     /// Presets are not modifiable (IsModifiable=false).
@@ -64,7 +64,7 @@ public sealed class VariableInfo
     /// <c>@preset.*</c> constant and indexes into it. Scalar <c>@llvm</c> presets stay inlined.
     /// </summary>
     public bool IsPresettableAggregate =>
-        IsPreset && PresetValue is ListLiteralExpression && Type is RecordTypeInfo record &&
+        IsPreset && PresetValue is ListLiteralExpression && Type is RecordTypeSymbol record &&
         (record.GenericDefinition ?? record).BareName is "Array" or "BitArray";
 
     /// <summary>
@@ -72,7 +72,7 @@ public sealed class VariableInfo
     /// </summary>
     /// <param name="name">The name of the variable.</param>
     /// <param name="type">The resolved type of the variable.</param>
-    public VariableInfo(string name, TypeInfo type)
+    public VariableInfo(string name, TypeSymbol type)
     {
         Name = name;
         Type = type;

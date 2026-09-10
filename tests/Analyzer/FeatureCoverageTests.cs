@@ -1,7 +1,7 @@
-using Compiler.LlvmEmit;
-using Compiler.Targeting;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.LlvmEmit;
+using Builder.Targeting;
+using Builder.Verification;
+using Builder.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 

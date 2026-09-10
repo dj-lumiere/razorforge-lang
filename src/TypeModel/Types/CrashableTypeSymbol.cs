@@ -8,8 +8,8 @@ namespace TypeModel.Types;
 /// Always heap-allocated (entity semantics). Automatically conforms to the Crashable protocol.
 /// Must provide crash_message() -> Text; crash_title() is synthesized from the type name.
 /// </summary>
-// Crashable is an entity (reference type, heap-allocated) — extends EntityTypeInfo (shared members).
-public sealed class CrashableTypeInfo : EntityTypeInfo
+// Crashable is an entity (reference type, heap-allocated) — extends EntityTypeSymbol (shared members).
+public sealed class CrashableTypeSymbol : EntityTypeSymbol
 {
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.Crashable;
@@ -21,16 +21,16 @@ public sealed class CrashableTypeInfo : EntityTypeInfo
     public string CrashTitle { get; init; }
 
     /// <summary>
-    /// Initializes a new instance of <see cref="CrashableTypeInfo"/>.
+    /// Initializes a new instance of <see cref="CrashableTypeSymbol"/>.
     /// </summary>
     /// <param name="name">The type name.</param>
-    public CrashableTypeInfo(string name) : base(name: name)
+    public CrashableTypeSymbol(string name) : base(name: name)
     {
         CrashTitle = SynthesizeCrashTitle(typeName: name);
     }
 
     /// <inheritdoc/>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         throw new InvalidOperationException(
             message: $"Crashable type '{Name}' cannot be resolved with type arguments.");

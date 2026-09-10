@@ -1,10 +1,10 @@
-using Compiler.Instantiation;
-using Compiler.Tokenizer;
+using Builder.Instantiation;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Lowers operator-sugar expressions to plain memberRoutine call nodes.
@@ -348,7 +348,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// </summary>
     private Expression LowerChainedComparison(ChainedComparisonExpression chain)
     {
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
 
         // Lower all operands
         var operands = new List<Expression>(capacity: chain.Operands.Count);
@@ -387,7 +387,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     private CallExpression LowerForceUnwrap(UnaryExpression forceUnwrap)
     {
         Expression operand = VisitExpression(expr: forceUnwrap.Operand);
-        TypeInfo? operandType = operand.ResolvedType;
+        TypeSymbol? operandType = operand.ResolvedType;
         RoutineInfo? unwrapMemberRoutine = operandType != null
             ? ctx.Registry.LookupMemberRoutine(type: operandType, memberRoutineName: "unwrap")
             : null;
@@ -423,11 +423,11 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
                 : unary with { Operand = operand };
         }
 
-        TypeInfo? operandType = operand.ResolvedType;
+        TypeSymbol? operandType = operand.ResolvedType;
 
         // Flags types have no bitnot memberRoutine body -> codegen handles it via EmitBitwiseNot.
         // Skip memberRoutine-call lowering so the UnaryExpression passes through unchanged.
-        if (operandType is FlagsTypeInfo && memberRoutineName == "bitnot")
+        if (operandType is FlagsTypeSymbol && memberRoutineName == "bitnot")
         {
             return ReferenceEquals(objA: operand, objB: unary.Operand)
                 ? expr
@@ -516,7 +516,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
 
         Expression loweredObj = VisitExpression(expr: idx.Object);
         Expression loweredIdx = VisitExpression(expr: idx.Index);
-        TypeInfo? targetType = idx.Object.ResolvedType;
+        TypeSymbol? targetType = idx.Object.ResolvedType;
 
         // Desugar end-relative back-index bounds on range slices and scalar subscripts.
         loweredIdx = LowerBackIndexBounds(loweredObj: loweredObj,
@@ -527,7 +527,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         RoutineInfo? resolvedGetItem = null;
         if (targetType != null)
         {
-            TypeInfo? indexType = loweredIdx.ResolvedType ?? idx.Index.ResolvedType;
+            TypeSymbol? indexType = loweredIdx.ResolvedType ?? idx.Index.ResolvedType;
             resolvedGetItem = ResolveGetItemRoutine(targetType: targetType, indexType: indexType);
         }
 
@@ -576,13 +576,13 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// Returns the name of the generic definition for a resolved generic type, or null for non-generic types.
     /// Used to match typewise receivers of the form <c>GenericType[T]</c>.
     /// </summary>
-    private static string? GetGenericDefName(TypeInfo? t)
+    private static string? GetGenericDefName(TypeSymbol? t)
     {
         return t switch
         {
-            RecordTypeInfo { GenericDefinition: { } d } => d.Name,
-            EntityTypeInfo { GenericDefinition: { } d } => d.Name,
-            ProtocolTypeInfo { GenericDefinition: { } d } => d.Name,
+            RecordTypeSymbol { GenericDefinition: { } d } => d.Name,
+            EntityTypeSymbol { GenericDefinition: { } d } => d.Name,
+            ProtocolTypeSymbol { GenericDefinition: { } d } => d.Name,
             _ => null
         };
     }
@@ -594,7 +594,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// index expression unchanged when no back-index is present.
     /// </summary>
     private Expression LowerBackIndexBounds(Expression loweredObj, Expression loweredIdx,
-        TypeInfo? targetType, SourceLocation location)
+        TypeSymbol? targetType, SourceLocation location)
     {
         // End-relative SLICE bounds: `xs[a til ^0]`. By this pass the range index is already a
         // Range[U64] CreatorExpression (ExpressionLoweringPass ran first) whose start/end may
@@ -648,7 +648,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         // element has no retaining store (GetLifecycle.Store == null) and is left bare.
         // A bare entity element likewise has no store — reading one out to keep it is rejected
         // at SA (single-owner), so it never needs a copy here.
-        TypeInfo? elemType = idx.ResolvedType;
+        TypeSymbol? elemType = idx.ResolvedType;
         RoutineInfo? elemStore = elemType != null
             ? ctx.Registry.GetLifecycle(type: elemType)
                  .Store
@@ -676,7 +676,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// container of a Roamed wrapper, and finally memberRoutine-level generic monomorphization.
     /// Extracted from <see cref="LowerIndexExpression"/>.
     /// </summary>
-    private RoutineInfo? ResolveGetItemRoutine(TypeInfo targetType, TypeInfo? indexType)
+    private RoutineInfo? ResolveGetItemRoutine(TypeSymbol targetType, TypeSymbol? indexType)
     {
         // Pick the `getitem` overload by the (now forward U64) index argument type.
         RoutineInfo? resolvedGetItem =
@@ -707,7 +707,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// (a name-only lookup returns null once a <c>getitem(range:)</c> sibling makes the name ambiguous —
     /// no first-wins).
     /// </summary>
-    private RoutineInfo? ResolveGetItemOn(TypeInfo targetType, TypeInfo? indexType)
+    private RoutineInfo? ResolveGetItemOn(TypeSymbol targetType, TypeSymbol? indexType)
     {
         if (indexType != null)
         {
@@ -757,8 +757,8 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
             ? left
             : right;
 
-        TypeInfo? receiverType = receiver.ResolvedType;
-        TypeInfo? argType = argument.ResolvedType;
+        TypeSymbol? receiverType = receiver.ResolvedType;
+        TypeSymbol? argType = argument.ResolvedType;
         RoutineInfo? resolvedMemberRoutine = ResolveBinaryOperatorRoutine(
             memberRoutineName: memberRoutineName,
             receiverType: receiverType,
@@ -850,7 +850,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// <paramref name="argType"/> in place. No-op when the conditions do not apply.
     /// </summary>
     private void TryNormalizeMixedIntegerComparison(BinaryExpression bin, string memberRoutineName,
-        ref TypeInfo? receiverType, ref TypeInfo? argType, ref Expression receiver,
+        ref TypeSymbol? receiverType, ref TypeSymbol? argType, ref Expression receiver,
         ref Expression argument, ref RoutineInfo? resolvedMemberRoutine)
     {
         if (resolvedMemberRoutine != null || receiverType == null || argType == null)
@@ -867,7 +867,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
 
         if (!TryResolveCommonIntegerComparisonType(left: receiverType,
                 right: argType,
-                commonType: out TypeInfo? commonType))
+                commonType: out TypeSymbol? commonType))
         {
             return;
         }
@@ -887,7 +887,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// argument. No-op when the operator is not a shift or the types already match.
     /// </summary>
     private static Expression TryNarrowShiftOperand(BinaryExpression bin,
-        RoutineInfo? resolvedMemberRoutine, TypeInfo? argType, Expression argument)
+        RoutineInfo? resolvedMemberRoutine, TypeSymbol? argType, Expression argument)
     {
         if (resolvedMemberRoutine is not { Parameters.Count: > 0 })
         {
@@ -901,7 +901,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
             return argument;
         }
 
-        TypeInfo paramType = resolvedMemberRoutine.Parameters[index: 0].Type;
+        TypeSymbol paramType = resolvedMemberRoutine.Parameters[index: 0].Type;
         if (argType != null && argType.FullName != paramType.FullName &&
             TryGetFixedWidthIntegerInfo(type: argType, signed: out _, width: out _) &&
             TryGetFixedWidthIntegerInfo(type: paramType, signed: out _, width: out _))
@@ -918,7 +918,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// <see cref="LowerBinaryExpression"/>.
     /// </summary>
     private RoutineInfo? NormalizeToCommonIntegerComparison(string memberRoutineName,
-        TypeInfo commonType, ref Expression receiver, ref Expression argument)
+        TypeSymbol commonType, ref Expression receiver, ref Expression argument)
     {
         receiver = WrapNumericOperand(expr: receiver, targetType: commonType);
         argument = WrapNumericOperand(expr: argument, targetType: commonType);
@@ -934,7 +934,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// finally the UNWRAPPED inner type of a Roamed container wrapper. Returns null when unresolved.
     /// </summary>
     private RoutineInfo? ResolveBinaryOperatorRoutine(string memberRoutineName,
-        TypeInfo? receiverType, TypeInfo? argType)
+        TypeSymbol? receiverType, TypeSymbol? argType)
     {
         if (receiverType == null)
         {
@@ -972,13 +972,13 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         // stamp the inner memberRoutine; codegen projects the Roamed receiver to the inner value for
         // `me`, same as every other inner-memberRoutine call on a Roamed container.
         // The Roamed handle reaches here in EITHER representation the pipeline produces: a
-        // WrapperTypeInfo (SuflaeEntityLoweringPass.WrapInRoam) or a RecordTypeInfo (resolver-
+        // WrapperTypeSymbol (SuflaeEntityLoweringPass.WrapInRoam) or a RecordTypeSymbol (resolver-
         // built). Extract the inner container type from whichever it is.
-        TypeInfo? innerRecv = receiverType switch
+        TypeSymbol? innerRecv = receiverType switch
         {
-            WrapperTypeInfo w when Declaration.TypeRegistry.GetRcWrapperBaseName(type: w) != null
+            WrapperTypeSymbol w when Declaration.TypeRegistry.GetRcWrapperBaseName(type: w) != null
                 => w.InnerType,
-            RecordTypeInfo r when Declaration.TypeRegistry.GetRcWrapperBaseName(type: r) != null &&
+            RecordTypeSymbol r when Declaration.TypeRegistry.GetRcWrapperBaseName(type: r) != null &&
                                   r.TypeArguments is { Count: >= 1 } ra => ra[index: 0],
             _ => null
         };
@@ -1032,24 +1032,24 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     }
 
     private RoutineInfo ResolveMemberRoutineGenericRoutine(RoutineInfo routine,
-        List<TypeInfo> argTypes)
+        List<TypeSymbol> argTypes)
     {
         if (!routine.IsGenericDefinition || routine.GenericParameters == null)
         {
             return routine;
         }
 
-        if (argTypes.Any(predicate: static t => t is ErrorTypeInfo or GenericParameterTypeInfo))
+        if (argTypes.Any(predicate: static t => t is ErrorTypeSymbol or GenericParameterTypeSymbol))
         {
             return routine;
         }
 
-        var inferred = new TypeInfo?[routine.GenericParameters.Count];
+        var inferred = new TypeSymbol?[routine.GenericParameters.Count];
         // Skip the implicit `me` receiver parameter — argTypes only contains the explicit
         // call-site arguments (index type, value type, etc.), so we must align them
         // against the non-me parameters to correctly infer memberRoutine-level generics like I.
         int argIdx = 0;
-        foreach (ParameterInfo param in routine.Parameters)
+        foreach (ParamInfo param in routine.Parameters)
         {
             if (param.Name == "me")
             {
@@ -1068,7 +1068,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
             argIdx++;
         }
 
-        if (inferred.Any(predicate: t => t is null or ErrorTypeInfo or GenericParameterTypeInfo))
+        if (inferred.Any(predicate: t => t is null or ErrorTypeSymbol or GenericParameterTypeSymbol))
         {
             return routine;
         }
@@ -1078,10 +1078,10 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
                                    .ToList());
     }
 
-    private static void InferMemberRoutineGenericArguments(TypeInfo paramType, TypeInfo argType,
-        List<string> genericParameters, TypeInfo?[] inferred)
+    private static void InferMemberRoutineGenericArguments(TypeSymbol paramType, TypeSymbol argType,
+        List<string> genericParameters, TypeSymbol?[] inferred)
     {
-        if (paramType is GenericParameterTypeInfo)
+        if (paramType is GenericParameterTypeSymbol)
         {
             int idx = genericParameters.ToList()
                                        .IndexOf(item: paramType.Name);
@@ -1107,7 +1107,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         }
     }
 
-    private static Expression WrapNumericOperand(Expression expr, TypeInfo targetType)
+    private static Expression WrapNumericOperand(Expression expr, TypeSymbol targetType)
     {
         if (expr.ResolvedType?.FullName == targetType.FullName)
         {
@@ -1140,7 +1140,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     /// <see cref="CallLoweringKind.Unknown"/>.
     /// </summary>
     private static CallLoweringKind ClassifyCallLoweringKind(RoutineInfo? routine,
-        TypeInfo? receiverType)
+        TypeSymbol? receiverType)
     {
         if (routine != null)
         {
@@ -1162,20 +1162,20 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
     // The inner container type inside a `Roamed[E]` handle (either representation the pipeline
     // produces), or null when the type is not an RC wrapper. Mirrors the membership/comparison branch's
     // inner-type unwrap so the index (`d[i]`) getitem resolves against the bare container.
-    private static TypeInfo? UnwrapRoamedInner(TypeInfo? type)
+    private static TypeSymbol? UnwrapRoamedInner(TypeSymbol? type)
     {
         return type switch
         {
-            WrapperTypeInfo w when Declaration.TypeRegistry.GetRcWrapperBaseName(type: w) != null
+            WrapperTypeSymbol w when Declaration.TypeRegistry.GetRcWrapperBaseName(type: w) != null
                 => w.InnerType,
-            RecordTypeInfo { TypeArguments: { Count: >= 1 } ra } r when Declaration.TypeRegistry
+            RecordTypeSymbol { TypeArguments: { Count: >= 1 } ra } r when Declaration.TypeRegistry
                .GetRcWrapperBaseName(type: r) != null => ra[index: 0],
             _ => null
         };
     }
 
     private CallExpression BuildBackIndexResolve(Expression loweredObj,
-        BackIndexExpression backIndex, TypeInfo targetType, SourceLocation location)
+        BackIndexExpression backIndex, TypeSymbol targetType, SourceLocation location)
     {
         // Resolve the count member routine on the receiver; its return type is U64.
         RoutineInfo? countRoutine = ctx.Registry.LookupMemberRoutine(type: targetType,
@@ -1232,8 +1232,8 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         };
     }
 
-    private bool TryResolveCommonIntegerComparisonType(TypeInfo left, TypeInfo right,
-        out TypeInfo? commonType)
+    private bool TryResolveCommonIntegerComparisonType(TypeSymbol left, TypeSymbol right,
+        out TypeSymbol? commonType)
     {
         commonType = null;
 
@@ -1278,7 +1278,7 @@ internal sealed class OperatorLoweringPass(PostprocessingContext ctx) : AstRewri
         return commonType != null;
     }
 
-    private static bool TryGetFixedWidthIntegerInfo(TypeInfo type, out bool signed, out int width)
+    private static bool TryGetFixedWidthIntegerInfo(TypeSymbol type, out bool signed, out int width)
     {
         signed = false;
         width = 0;

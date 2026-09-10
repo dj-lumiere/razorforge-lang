@@ -1,4 +1,4 @@
-namespace Compiler.Tokenizer;
+namespace Builder.Tokenizer;
 
 /// <summary>
 /// Partial class containing identifier, keyword, and comment scanning memberRoutines for the unified tokenizer.
@@ -56,7 +56,7 @@ public partial class Tokenizer
     {
         _hasTokenOnLine = true;
 
-        // Comptime splice open — the two-character sequence dollar-brace is a SEPARATE structural token
+        // Buildtime splice open — the two-character sequence dollar-brace is a SEPARATE structural token
         // distinct from a bare dollar (wired marker) and a bare open-brace. The main scan loop already
         // consumed the dollar into _position, so the next character is the open-brace. Emit the splice-open
         // token and consume the brace; the balanced closing brace is an ordinary RightBrace matched by the

@@ -1,14 +1,12 @@
-using Compiler.Diagnostics;
-using Compiler.Verification;
-using Compiler.Verification.Enums;
+using Builder.Diagnostics;
+using Builder.Verification;
+using Builder.Verification.Enums;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Declaration;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Handles resolution and registration of routine signatures for the semantic analyzer.
@@ -173,7 +171,7 @@ internal sealed class SignatureResolver
         RoutineInfo? prevRoutine = _sa._currentRoutine;
         _sa._currentRoutine = contextRoutine;
 
-        var parameters = new List<ParameterInfo>();
+        var parameters = new List<ParamInfo>();
         var implicitGenerics = new List<string>();
         var implicitConstraints = new List<GenericConstraintDeclaration>();
         int implicitGenericCounter = 0;
@@ -232,7 +230,7 @@ internal sealed class SignatureResolver
         // `T` return mark is redundant with position and is now inferred. The explicit mark is still
         // accepted for back-compat; for records the rvalue bit is a no-op.
         bool isRvalueReturn = (routine.ReturnType?.IsRvalue ?? false) ||
-                              returnType is EntityTypeInfo or GenericParameterTypeInfo;
+                              returnType is EntityTypeSymbol or GenericParameterTypeSymbol;
 
         (List<string> allGenericParams, List<GenericConstraintDeclaration> allConstraints) =
             MergeAndApplyImplicitGenerics(routine: routine,
@@ -311,7 +309,7 @@ internal sealed class SignatureResolver
     }
 
     private readonly record struct ResolvedSignature(
-        List<ParameterInfo> Parameters,
+        List<ParamInfo> Parameters,
         TypeSymbol? ReturnType,
         bool IsRvalueReturn,
         MutationCategory DeclaredModification,
@@ -325,7 +323,7 @@ internal sealed class SignatureResolver
         RoutineDeclaration routine, TypeSymbol? refreshedOwnerType, TypeSymbol? meType,
         ResolvedSignature sig)
     {
-        (List<ParameterInfo> parameters, TypeSymbol? returnType, bool isRvalueReturn,
+        (List<ParamInfo> parameters, TypeSymbol? returnType, bool isRvalueReturn,
             MutationCategory declaredModification, List<string> allGenericParams,
             List<GenericConstraintDeclaration> allConstraints) = sig;
         return new RoutineInfo(name: pending.RoutineName)
@@ -406,12 +404,12 @@ internal sealed class SignatureResolver
     /// reaches here.
     /// </summary>
     private void CheckMemberwiseCreatorReserved(TypeSymbol? refreshedOwnerType,
-        List<ParameterInfo> parameters, RoutineDeclaration routine)
+        List<ParamInfo> parameters, RoutineDeclaration routine)
     {
         List<MemberVariableInfo>? fields = refreshedOwnerType switch
         {
-            EntityTypeInfo e => e.MemberVariables.ToList(),
-            RecordTypeInfo r => r.MemberVariables.ToList(),
+            EntityTypeSymbol e => e.MemberVariables.ToList(),
+            RecordTypeSymbol r => r.MemberVariables.ToList(),
             _ => null
         };
         if (fields is { Count: > 0 } && parameters.Count == fields.Count &&
@@ -449,7 +447,7 @@ internal sealed class SignatureResolver
     }
 
     /// <summary>
-    /// Resolves one routine parameter and appends its <see cref="ParameterInfo"/> to
+    /// Resolves one routine parameter and appends its <see cref="ParamInfo"/> to
     /// <paramref name="parameters"/>. Rejects rvalue marks and carrier types, and performs
     /// protocol-as-type desugaring (a protocol-typed param becomes an implicit generic with an
     /// <c>obeys</c> constraint), recording the implicit generic name/constraint/AST-rewrite for the
@@ -457,7 +455,7 @@ internal sealed class SignatureResolver
     /// by ref so implicit names stay globally sequential across params.
     /// </summary>
     private void ResolveAndAppendParameter(Parameter param, int paramIndex,
-        List<ParameterInfo> parameters, List<string> implicitGenerics,
+        List<ParamInfo> parameters, List<string> implicitGenerics,
         List<GenericConstraintDeclaration> implicitConstraints,
         List<(int Index, string GenericName)> astParamGenericNames, ref int implicitGenericCounter)
     {
@@ -465,7 +463,7 @@ internal sealed class SignatureResolver
         {
             // Type inference required - handle later
             parameters.Add(
-                item: new ParameterInfo(name: param.Name, type: ErrorTypeInfo.Instance)
+                item: new ParamInfo(name: param.Name, type: ErrorTypeSymbol.Instance)
                 {
                     IsVariadicParam = param.IsVariadic
                 });
@@ -503,7 +501,7 @@ internal sealed class SignatureResolver
         // for an entity, or the value itself for a value type) binds V. Body uses that touch an ENTITY
         // member get `.access()`/`.control()` auto-inserted at member-access analysis; a value conformer's
         // `.access()`/`.control()` is identity. This replaces the old erase-to-inner-T model.
-        if (paramType is ProtocolTypeInfo)
+        if (paramType is ProtocolTypeSymbol)
         {
             // Generate implicit generic parameter name
             string implicitGenericName = $"__T{implicitGenericCounter++}";
@@ -518,19 +516,19 @@ internal sealed class SignatureResolver
             implicitConstraints.Add(item: constraint);
 
             // Use the implicit generic as the parameter type
-            var genericParamType = new GenericParameterTypeInfo(name: implicitGenericName)
+            var genericParamType = new GenericParameterTypeSymbol(name: implicitGenericName)
             {
                 Location = param.Location
             };
 
-            parameters.Add(item: new ParameterInfo(name: param.Name, type: genericParamType)
+            parameters.Add(item: new ParamInfo(name: param.Name, type: genericParamType)
             {
                 DefaultValue = param.DefaultValue, IsVariadicParam = param.IsVariadic
             });
         }
         else
         {
-            parameters.Add(item: new ParameterInfo(name: param.Name, type: paramType)
+            parameters.Add(item: new ParamInfo(name: param.Name, type: paramType)
             {
                 DefaultValue = param.DefaultValue, IsVariadicParam = param.IsVariadic
             });
@@ -551,7 +549,7 @@ internal sealed class SignatureResolver
         List<string>? filteredGenericParams)
     {
         if (pending.Kind == RoutineKind.MemberRoutine &&
-            refreshedOwnerType is EntityTypeInfo or RecordTypeInfo &&
+            refreshedOwnerType is EntityTypeSymbol or RecordTypeSymbol &&
             pending.Kind is not RoutineKind.Creator && routine.RenderedReceiver is { } recvText &&
             recvText.Contains(value: '['))
         {
@@ -565,7 +563,7 @@ internal sealed class SignatureResolver
             if (isSpecialized)
             {
                 TypeSymbol resolvedRecv = _typeResolver.ResolveType(typeExpr: recvExpr!);
-                if (resolvedRecv is not ErrorTypeInfo)
+                if (resolvedRecv is not ErrorTypeSymbol)
                 {
                     return resolvedRecv;
                 }
@@ -587,7 +585,7 @@ internal sealed class SignatureResolver
     {
         if (sfUserEntity && pending.Kind == RoutineKind.MemberRoutine &&
             pending.Kind is not RoutineKind.Creator &&
-            refreshedOwnerType is EntityTypeInfo ownerEntity &&
+            refreshedOwnerType is EntityTypeSymbol ownerEntity &&
             _sa._registry.LookupType(name: RuntimeContract.Roamed) is { } roamedOwnerDef)
         {
             // Wrap the entity APPLIED TO ITS OWN GENERIC PARAMS (`Box[T]`), not the bare definition —
@@ -595,12 +593,12 @@ internal sealed class SignatureResolver
             // (Box[S64].get) can't substitute `T` into the handle, so codegen falls back to a bare
             // entity access that reads the RC controller's refcount instead of the field. Mirrors the
             // `Me` handling in TypeResolver.
-            TypeInfo entityForMe = ownerEntity is
+            TypeSymbol entityForMe = ownerEntity is
                 { IsGenericDefinition: true, GenericParameters: { } ownerParams }
                 ? _sa._registry.GetOrCreateResolution(genericDef: ownerEntity,
                     typeArguments: ownerParams
                                   .Select(selector: p =>
-                                       (TypeInfo)new GenericParameterTypeInfo(name: p))
+                                       (TypeSymbol)new GenericParameterTypeSymbol(name: p))
                                   .ToList())
                 : ownerEntity;
             return _sa._registry.GetOrCreateResolution(genericDef: roamedOwnerDef,
@@ -761,7 +759,7 @@ internal sealed class SignatureResolver
         var parts = ext.Parameters
                        .Select(selector: p => p.Type != null
                             ? _typeResolver.ResolveType(typeExpr: p.Type)
-                            : ErrorTypeInfo.Instance)
+                            : ErrorTypeSymbol.Instance)
                        .Select(selector: t => t.FullName)
                        .ToList();
 
@@ -805,8 +803,8 @@ internal sealed class SignatureResolver
         // Get the list of implemented protocols for this type
         List<TypeSymbol>? implementedProtocols = currentOwnerType switch
         {
-            RecordTypeInfo record => record.ImplementedProtocols,
-            EntityTypeInfo entity => entity.ImplementedProtocols,
+            RecordTypeSymbol record => record.ImplementedProtocols,
+            EntityTypeSymbol entity => entity.ImplementedProtocols,
             _ => null
         };
 
@@ -818,7 +816,7 @@ internal sealed class SignatureResolver
         // Check each protocol for a memberRoutine with this name
         foreach (TypeSymbol implemented in implementedProtocols)
         {
-            if (implemented is not ProtocolTypeInfo protocol)
+            if (implemented is not ProtocolTypeSymbol protocol)
             {
                 continue;
             }
@@ -850,7 +848,7 @@ internal sealed class SignatureResolver
     /// </summary>
     private readonly record struct ProtocolCheckContext(
         RoutineInfo TypeMemberRoutine,
-        ProtocolTypeInfo Protocol,
+        ProtocolTypeSymbol Protocol,
         Dictionary<string, string>? Substitution,
         List<string>? InferableParams,
         SourceLocation? Location);
@@ -860,7 +858,7 @@ internal sealed class SignatureResolver
     /// Reports specific errors for mismatches.
     /// </summary>
     private void ValidateMemberRoutineAgainstProtocol(RoutineInfo typeMemberRoutine,
-        ProtocolMemberRoutineInfo protoMemberRoutine, ProtocolTypeInfo protocol,
+        ProtocolMemberRoutineInfo protoMemberRoutine, ProtocolTypeSymbol protocol,
         SourceLocation? location)
     {
         // Build substitution map for generic protocols (e.g., Supplier[S32]: T -> S32)
@@ -873,7 +871,7 @@ internal sealed class SignatureResolver
         List<string>? inferableParams = null;
         if (substitution == null)
         {
-            ProtocolTypeInfo genericDef = protocol.GenericDefinition ?? protocol;
+            ProtocolTypeSymbol genericDef = protocol.GenericDefinition ?? protocol;
             if (genericDef.GenericParameters is { Count: > 0 })
             {
                 inferableParams = genericDef.GenericParameters.ToList();
@@ -962,13 +960,13 @@ internal sealed class SignatureResolver
         TypeSymbol actualType)
     {
         RoutineInfo typeMemberRoutine = ctx.TypeMemberRoutine;
-        ProtocolTypeInfo protocol = ctx.Protocol;
+        ProtocolTypeSymbol protocol = ctx.Protocol;
         Dictionary<string, string>? substitution = ctx.Substitution;
         List<string>? inferableParams = ctx.InferableParams;
         SourceLocation? location = ctx.Location;
 
         // Handle protocol self type (Me) - should match the owner type
-        if (expectedType is ProtocolSelfTypeInfo)
+        if (expectedType is ProtocolSelfTypeSymbol)
         {
             if (typeMemberRoutine.OwnerType != null && !MeTypeMatches(actualType: actualType,
                     ownerType: typeMemberRoutine.OwnerType))
@@ -1019,13 +1017,13 @@ internal sealed class SignatureResolver
         TypeSymbol actualReturn)
     {
         RoutineInfo typeMemberRoutine = ctx.TypeMemberRoutine;
-        ProtocolTypeInfo protocol = ctx.Protocol;
+        ProtocolTypeSymbol protocol = ctx.Protocol;
         Dictionary<string, string>? substitution = ctx.Substitution;
         List<string>? inferableParams = ctx.InferableParams;
         SourceLocation? location = ctx.Location;
 
         // Handle protocol self type (Me)
-        if (expectedReturn is ProtocolSelfTypeInfo)
+        if (expectedReturn is ProtocolSelfTypeSymbol)
         {
             if (typeMemberRoutine.OwnerType != null && !MeTypeMatches(actualType: actualReturn,
                     ownerType: typeMemberRoutine.OwnerType))
@@ -1083,9 +1081,9 @@ internal sealed class SignatureResolver
         // Generic resolution: actual is a generic instance of the owner type definition
         TypeSymbol? actualDef = actualType switch
         {
-            RecordTypeInfo r => r.GenericDefinition,
-            EntityTypeInfo e => e.GenericDefinition,
-            ProtocolTypeInfo p => p.GenericDefinition,
+            RecordTypeSymbol r => r.GenericDefinition,
+            EntityTypeSymbol e => e.GenericDefinition,
+            ProtocolTypeSymbol p => p.GenericDefinition,
             _ => null
         };
 
@@ -1183,8 +1181,8 @@ internal sealed class SignatureResolver
         // Get the list of explicitly declared protocols for this type
         List<TypeSymbol>? implementedProtocols = type switch
         {
-            RecordTypeInfo record => record.ImplementedProtocols,
-            EntityTypeInfo entity => entity.ImplementedProtocols,
+            RecordTypeSymbol record => record.ImplementedProtocols,
+            EntityTypeSymbol entity => entity.ImplementedProtocols,
             _ => null
         };
 
@@ -1196,7 +1194,7 @@ internal sealed class SignatureResolver
         // Check if the protocol is directly declared (or via parent protocols recursively)
         return implementedProtocols.Any(predicate: implemented =>
             implemented.Name == protocolName || implemented.BareName == protocolName ||
-            implemented is ProtocolTypeInfo proto &&
+            implemented is ProtocolTypeSymbol proto &&
             _sa.CheckParentProtocols(proto: proto, targetName: protocolName));
     }
 
@@ -1215,7 +1213,7 @@ internal sealed class SignatureResolver
         RoutineInfo? prevRoutine = _sa._currentRoutine;
         _sa._currentRoutine = routineInfo;
 
-        var parameters = new List<ParameterInfo>();
+        var parameters = new List<ParamInfo>();
 
         foreach (Parameter param in externalDecl.Parameters)
         {
@@ -1223,9 +1221,9 @@ internal sealed class SignatureResolver
                 positionDescription: $"parameter '{param.Name}'");
             TypeSymbol paramType = param.Type != null
                 ? _typeResolver.ResolveType(typeExpr: param.Type)
-                : ErrorTypeInfo.Instance;
+                : ErrorTypeSymbol.Instance;
 
-            parameters.Add(item: new ParameterInfo(name: param.Name, type: paramType)
+            parameters.Add(item: new ParamInfo(name: param.Name, type: paramType)
             {
                 DefaultValue = param.DefaultValue
             });
@@ -1260,7 +1258,7 @@ internal sealed class SignatureResolver
 
     private static string? GetCarrierBaseName(TypeSymbol type)
     {
-        if (type is not RecordTypeInfo r)
+        if (type is not RecordTypeSymbol r)
         {
             return null;
         }
@@ -1280,12 +1278,12 @@ internal sealed class SignatureResolver
     {
         return GetCarrierBaseName(type: type) == "Maybe";
     }
-    private static Dictionary<string, string>? BuildProtocolSubstitution(ProtocolTypeInfo protocol)
+    private static Dictionary<string, string>? BuildProtocolSubstitution(ProtocolTypeSymbol protocol)
     {
         Dictionary<string, string>? substitution = null;
         if (protocol.TypeArguments is { Count: > 0 })
         {
-            ProtocolTypeInfo genericDef = protocol.GenericDefinition ?? protocol;
+            ProtocolTypeSymbol genericDef = protocol.GenericDefinition ?? protocol;
             if (genericDef.GenericParameters is { Count: > 0 })
             {
                 substitution = new Dictionary<string, string>();

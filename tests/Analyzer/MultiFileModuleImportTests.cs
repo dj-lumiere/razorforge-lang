@@ -1,7 +1,7 @@
-using Compiler.Declaration;
-using Compiler.Diagnostics;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.Declaration;
+using Builder.Diagnostics;
+using Builder.Verification;
+using Builder.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 

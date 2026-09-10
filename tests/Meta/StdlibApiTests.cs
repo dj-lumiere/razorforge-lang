@@ -391,7 +391,7 @@ public sealed partial class StdlibApiTests
         Assert.True(condition: entries.Count > 0,
             userMessage: "No fixtures were discovered — the in-process harness compiled nothing.");
 
-        int rc = Builder.Program.CompileEntryToIrForTests(entryFile: harnessSrc, ir: out string ir);
+        int rc = Builder.Execution.Program.CompileEntryToIrForTests(entryFile: harnessSrc, ir: out string ir);
 
         Assert.True(condition: rc == 0,
             userMessage:

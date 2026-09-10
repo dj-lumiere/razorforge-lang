@@ -1,5 +1,5 @@
-using Compiler.Diagnostics;
-using Compiler.Verification.Results;
+using Builder.Diagnostics;
+using Builder.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 

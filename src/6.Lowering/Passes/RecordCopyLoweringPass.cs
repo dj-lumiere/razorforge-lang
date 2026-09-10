@@ -1,11 +1,11 @@
-using Compiler.Instantiation;
-using Compiler.Declaration;
+using Builder.Instantiation;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification;
+using Builder.Verification;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Postprocessing pass that lowers two ownership-related constructs:
@@ -89,7 +89,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
             return "";
         }
 
-        string owner = TypeInfo.StripTypeArgs(name: nameOrKey[..lastDot]);
+        string owner = TypeSymbol.StripTypeArgs(name: nameOrKey[..lastDot]);
         int od = owner.LastIndexOf(value: '.');
         return od >= 0
             ? owner[(od + 1)..]
@@ -119,7 +119,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
 
     // Structural form of the above: the routine's OwnerType is an RC wrapper record. Preferred wherever a
     // `RoutineInfo` is on hand — delegates to the same registry check as `IsRcWrapperType`, no name parsing.
-    private static bool OwnerTypeIsRcWrapper(TypeInfo? owner)
+    private static bool OwnerTypeIsRcWrapper(TypeSymbol? owner)
     {
         return owner is not null && TypeRegistry.GetRcWrapperBaseName(type: owner) is not null;
     }
@@ -127,8 +127,8 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
     // True when the type is an RC wrapper record (Retained/Tracked/Guarded/Witnessed/Roamed). A field of such a
     // type has its release-old/retain-new RC owned by codegen (isRoamedField), so the copy pass must NOT also
     // retain a field-write RHS of this type (double-count). Delegates to the registry's canonical
-    // structural check (matches on GenericDefinition/WrapperTypeInfo) — no ad-hoc name parsing here.
-    private static bool IsRcWrapperType(TypeInfo? type)
+    // structural check (matches on GenericDefinition/WrapperTypeSymbol) — no ad-hoc name parsing here.
+    private static bool IsRcWrapperType(TypeSymbol? type)
     {
         return type is not null && TypeRegistry.GetRcWrapperBaseName(type: type) is not null;
     }
@@ -166,7 +166,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
                 continue;
             }
 
-            TypeInfo? pt = p.Type?.ResolvedType;
+            TypeSymbol? pt = p.Type?.ResolvedType;
             if (pt != null && NeedsRetainingCopy(type: pt, copyMemberRoutine: out _))
             {
                 _borrowParamNames.Add(item: p.Name);
@@ -827,7 +827,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
     /// which is how leaf managed types like <c>Text</c> bump their refcount. Trivially-copyable
     /// records have only a synthesized identity <c>store</c> and need no injection.
     /// </summary>
-    private bool NeedsRetainingCopy(TypeInfo? type, out RoutineInfo? copyMemberRoutine)
+    private bool NeedsRetainingCopy(TypeSymbol? type, out RoutineInfo? copyMemberRoutine)
     {
         copyMemberRoutine = null;
         if (type == null)
@@ -861,7 +861,7 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
     {
         return init is CarrierPayloadExpression || (init is MemberExpression
         {
-            Object.ResolvedType: RecordTypeInfo
+            Object.ResolvedType: RecordTypeSymbol
             {
                 CarrierKind: not TypeModel.Enums.CarrierKind.None
             }

@@ -3,12 +3,10 @@ using TypeModel.Types;
 
 namespace TypeModel.Symbols;
 
-using TypeSymbol = TypeInfo;
-
 /// <summary>
 /// Information about a parameter in a routine.
 /// </summary>
-public sealed class ParameterInfo
+public sealed class ParamInfo
 {
     /// <summary>The name of the parameter.</summary>
     public string Name { get; }
@@ -29,11 +27,11 @@ public sealed class ParameterInfo
     public bool IsVariadicParam { get; init; }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ParameterInfo"/> class.
+    /// Initializes a new instance of the <see cref="ParamInfo"/> class.
     /// </summary>
     /// <param name="name">The name of the parameter.</param>
     /// <param name="type">The resolved type of the parameter.</param>
-    public ParameterInfo(string name, TypeSymbol type)
+    public ParamInfo(string name, TypeSymbol type)
     {
         Name = name;
         Type = type;
@@ -43,10 +41,10 @@ public sealed class ParameterInfo
     /// Creates a copy with substituted type for generic resolution.
     /// </summary>
     /// <param name="newType">The new type to substitute.</param>
-    /// <returns>A new <see cref="ParameterInfo"/> with the substituted type.</returns>
-    public ParameterInfo WithSubstitutedType(TypeSymbol newType)
+    /// <returns>A new <see cref="ParamInfo"/> with the substituted type.</returns>
+    public ParamInfo WithSubstitutedType(TypeSymbol newType)
     {
-        return new ParameterInfo(name: Name, type: newType)
+        return new ParamInfo(name: Name, type: newType)
         {
             DefaultValue = DefaultValue, Index = Index, IsVariadicParam = IsVariadicParam
         };

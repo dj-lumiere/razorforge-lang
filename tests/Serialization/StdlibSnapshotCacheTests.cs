@@ -1,5 +1,5 @@
-using Compiler.Serialization;
-using Compiler.Verification;
+using Builder.Serialization;
+using Builder.Verification;
 using TypeModel.Enums;
 
 namespace RazorForge.Tests.Serialization;

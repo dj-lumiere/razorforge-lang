@@ -1,4 +1,4 @@
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 /// <summary>
 /// Represents an edge in the call graph (a call from one routine to another).

@@ -1,6 +1,6 @@
 using SyntaxTree;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Desugars a homogeneous variadic parameter <c>nums...: T</c> into a const-generic

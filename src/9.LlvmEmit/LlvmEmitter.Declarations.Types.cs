@@ -2,14 +2,14 @@ using System.Text;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Declaration code generation for LLVM types and routine signatures.
 /// </summary>
 public partial class LlvmEmitter
 {
-    private void GenerateEntityType(EntityTypeInfo entity)
+    private void GenerateEntityType(EntityTypeSymbol entity)
     {
         string typeName = RawEntityTypeName(entity: entity);
         entity = RefreshEntityMembers(entity: entity);
@@ -36,14 +36,14 @@ public partial class LlvmEmitter
     /// definition's members were populated — re-creating from the definition, rebuilding from the
     /// AST, or re-looking-up from the registry.
     /// </summary>
-    private EntityTypeInfo RefreshEntityMembers(EntityTypeInfo entity)
+    private EntityTypeSymbol RefreshEntityMembers(EntityTypeSymbol entity)
     {
         if (entity is
             {
                 IsGenericResolution: true, MemberVariables.Count: 0,
                 GenericDefinition: { MemberVariables.Count: > 0 } genDef,
                 TypeArguments: not null
-            } && genDef.CreateInstance(typeArguments: entity.TypeArguments) is EntityTypeInfo
+            } && genDef.CreateInstance(typeArguments: entity.TypeArguments) is EntityTypeSymbol
             {
                 MemberVariables.Count: > 0
             } refreshed)
@@ -52,10 +52,10 @@ public partial class LlvmEmitter
         }
 
         // Structural re-lookup ONLY (a registered entity carries its members). No AST rebuild / no
-        // name-based type re-resolution: codegen consumes resolved TypeInfo, it does not reconstruct it.
+        // name-based type re-resolution: codegen consumes resolved TypeSymbol, it does not reconstruct it.
         if (entity.MemberVariables.Count == 0 &&
             (_registry.LookupType(name: entity.FullName) ??
-             _registry.LookupType(name: entity.Name)) is EntityTypeInfo
+             _registry.LookupType(name: entity.Name)) is EntityTypeSymbol
             {
                 MemberVariables.Count: > 0
             } resolvedEntity)
@@ -110,7 +110,7 @@ public partial class LlvmEmitter
     /// Generates the LLVM struct type for a crashable type.
     /// Crashable types have entity semantics (heap-allocated, pointer at usage sites).
     /// </summary>
-    private void GenerateCrashableType(CrashableTypeInfo crashable)
+    private void GenerateCrashableType(CrashableTypeSymbol crashable)
     {
         string typeName = RawCrashableTypeName(crashable: crashable);
 
@@ -149,7 +149,7 @@ public partial class LlvmEmitter
     /// Single-member-variable wrappers are unwrapped to their underlying intrinsic.
     /// </summary>
     /// <param name="record">The record type info.</param>
-    private void GenerateRecordType(RecordTypeInfo record)
+    private void GenerateRecordType(RecordTypeSymbol record)
     {
         // Backend-annotated records don't need struct types.
         // Skip generic definitions and any type whose type arguments still contain unresolved
@@ -190,11 +190,11 @@ public partial class LlvmEmitter
     /// Whether a record needs no struct type generated: backend-annotated types and generic
     /// definitions / partially-concrete resolutions (whose layout would be invalid IR).
     /// </summary>
-    private static bool ShouldSkipRecordTypeGeneration(RecordTypeInfo record)
+    private static bool ShouldSkipRecordTypeGeneration(RecordTypeSymbol record)
     {
         return record.BackendType != null || record.IsGenericDefinition ||
                record.TypeArguments?.Any(predicate: t =>
-                   ContainsGenericParameter(type: t) || t is ErrorTypeInfo ||
+                   ContainsGenericParameter(type: t) || t is ErrorTypeSymbol ||
                    ContainsAbstractProjection(type: t)) == true;
     }
 
@@ -203,14 +203,14 @@ public partial class LlvmEmitter
     /// Refreshes a record's member variables when a generic resolution was created before its
     /// definition's members were populated — re-creating from the definition.
     /// </summary>
-    private static RecordTypeInfo RefreshRecordMembers(RecordTypeInfo record)
+    private static RecordTypeSymbol RefreshRecordMembers(RecordTypeSymbol record)
     {
         if (record is
             {
                 IsGenericResolution: true, MemberVariables.Count: 0,
                 GenericDefinition: { MemberVariables.Count: > 0 } genDef,
                 TypeArguments: not null
-            } && genDef.CreateInstance(typeArguments: record.TypeArguments) is RecordTypeInfo
+            } && genDef.CreateInstance(typeArguments: record.TypeArguments) is RecordTypeSymbol
             {
                 MemberVariables.Count: > 0
             } refreshed)
@@ -238,7 +238,7 @@ public partial class LlvmEmitter
     // Recursively descends into a type's TypeArguments and wrapper inner types so that
     // concrete nested generics (e.g. Owned[BTreeDictNode[S64, S64]] inside a
     // Maybe[Owned[...]] field of SortedDict[S64, S64]) get their struct types emitted.
-    private void EnsureTypeGenerated(TypeInfo? type, HashSet<string> visited)
+    private void EnsureTypeGenerated(TypeSymbol? type, HashSet<string> visited)
     {
         if (type == null)
         {
@@ -251,7 +251,7 @@ public partial class LlvmEmitter
         }
 
         // Skip not-yet-concrete generic resolutions. A `ListNode[T]` resolution (where T is
-        // still `GenericParameterTypeInfo`) has IsGenericDefinition=false but its type
+        // still `GenericParameterTypeSymbol`) has IsGenericDefinition=false but its type
         // arguments include an unbound parameter; emitting its layout would force `T`
         // through GetLlvmType and crash. The same filter applies in GenerateTypeDeclarations
         // for top-level emission — replicate it here so it also gates recursive descent
@@ -267,7 +267,7 @@ public partial class LlvmEmitter
             // field-access / size GEP) via GetEntityTypeName / GetCrashableTypeName. Recursing into
             // them here would drag the whole reference-type graph (BTreeNode, SortedList, ...) into
             // every build.
-            case RecordTypeInfo
+            case RecordTypeSymbol
             {
                 IsGenericDefinition: false, BackendType: null
             } nestedRecord when !hasUnboundTypeArg:
@@ -275,14 +275,14 @@ public partial class LlvmEmitter
                 break;
         }
 
-        if (type is WrapperTypeInfo wrapper)
+        if (type is WrapperTypeSymbol wrapper)
         {
             EnsureTypeGenerated(type: wrapper.InnerType, visited: visited);
         }
 
         if (type.TypeArguments is { Count: > 0 } typeArgs)
         {
-            foreach (TypeInfo ta in typeArgs)
+            foreach (TypeSymbol ta in typeArgs)
             {
                 EnsureTypeGenerated(type: ta, visited: visited);
             }
@@ -294,7 +294,7 @@ public partial class LlvmEmitter
     /// Variant = { i64 tag, [N x i8] payload } where N = max member size.
     /// </summary>
     /// <param name="variant">The variant type info.</param>
-    private void GenerateVariantType(VariantTypeInfo variant)
+    private void GenerateVariantType(VariantTypeSymbol variant)
     {
         string typeName = RawVariantTypeName(variant: variant);
 

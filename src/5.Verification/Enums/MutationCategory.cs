@@ -1,4 +1,4 @@
-namespace Compiler.Verification.Enums;
+namespace Builder.Verification.Enums;
 
 /// <summary>
 /// Mutation category for memberRoutines, inferred by the builder.

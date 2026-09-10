@@ -183,7 +183,7 @@ public interface ISyntaxTreeVisitor<out T>
     /// <returns>Result of visiting the member expression</returns>
     T VisitMemberExpression(MemberExpression node);
 
-    /// <summary>Visits a comptime splice expression node (${expr})</summary>
+    /// <summary>Visits a buildtime splice expression node (${expr})</summary>
     /// <param name="node">The splice expression to visit</param>
     /// <returns>Result of visiting the splice expression</returns>
     T VisitSpliceExpression(SpliceExpression node);
@@ -383,7 +383,7 @@ public interface ISyntaxTreeVisitor<out T>
     /// <returns>Result of visiting the for statement</returns>
     T VisitEachStatement(EachStatement node);
 
-    /// <summary>Visits a comptime member-expansion statement node (expand m in allmemvarof(T))</summary>
+    /// <summary>Visits a buildtime member-expansion statement node (expand m in allmemvarof(T))</summary>
     /// <param name="node">The expand statement to visit</param>
     /// <returns>Result of visiting the expand statement</returns>
     T VisitExpandStatement(ExpandStatement node);

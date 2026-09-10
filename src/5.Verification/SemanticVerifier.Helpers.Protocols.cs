@@ -1,13 +1,11 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {
@@ -15,7 +13,7 @@ public sealed partial class SemanticVerifier
         Dictionary<string, TypeSymbol> substitution)
     {
         // Direct substitution for generic parameters
-        if (type is GenericParameterTypeInfo &&
+        if (type is GenericParameterTypeSymbol &&
             substitution.TryGetValue(key: type.Name, value: out TypeSymbol? sub))
         {
             return sub;
@@ -51,9 +49,9 @@ public sealed partial class SemanticVerifier
         // Get the generic definition and create a new instance with substituted args
         TypeSymbol? genericDef = type switch
         {
-            RecordTypeInfo r => r.GenericDefinition,
-            EntityTypeInfo e => e.GenericDefinition,
-            ProtocolTypeInfo p => p.GenericDefinition,
+            RecordTypeSymbol r => r.GenericDefinition,
+            EntityTypeSymbol e => e.GenericDefinition,
+            ProtocolTypeSymbol p => p.GenericDefinition,
             _ => null
         };
 
@@ -62,10 +60,10 @@ public sealed partial class SemanticVerifier
             return genericDef.CreateInstance(typeArguments: newArgs);
         }
 
-        // TupleTypeInfo doesn't have a GenericDefinition — create a new tuple directly
-        if (type is TupleTypeInfo)
+        // TupleTypeSymbol doesn't have a GenericDefinition — create a new tuple directly
+        if (type is TupleTypeSymbol)
         {
-            return new TupleTypeInfo(elementTypes: newArgs);
+            return new TupleTypeSymbol(elementTypes: newArgs);
         }
 
         return type;
@@ -103,7 +101,7 @@ public sealed partial class SemanticVerifier
             }
 
             TypeSymbol arg = typeArgs[index: idx];
-            if (arg is GenericParameterTypeInfo)
+            if (arg is GenericParameterTypeSymbol)
             {
                 continue;
             }
@@ -146,8 +144,8 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        TypeSymbol? ownerDef = (ownerType as EntityTypeInfo)?.GenericDefinition ??
-                               (ownerType as RecordTypeInfo)?.GenericDefinition as TypeSymbol;
+        TypeSymbol? ownerDef = (ownerType as EntityTypeSymbol)?.GenericDefinition ??
+                               (ownerType as RecordTypeSymbol)?.GenericDefinition as TypeSymbol;
         List<string>? paramNames =
             (ownerDef ?? ownerType).GenericParameters ?? ownerType.GenericParameters;
         List<TypeSymbol>? args = ownerType.TypeArguments;
@@ -176,8 +174,8 @@ public sealed partial class SemanticVerifier
     private List<GenericConstraintDeclaration>? ResolveMemberOwnerConstraints(
         RoutineInfo memberRoutine, TypeSymbol ownerType)
     {
-        TypeSymbol? ownerDef = (ownerType as EntityTypeInfo)?.GenericDefinition ??
-                               (ownerType as RecordTypeInfo)?.GenericDefinition as TypeSymbol;
+        TypeSymbol? ownerDef = (ownerType as EntityTypeSymbol)?.GenericDefinition ??
+                               (ownerType as RecordTypeSymbol)?.GenericDefinition as TypeSymbol;
         List<GenericConstraintDeclaration>? constraints = memberRoutine.GenericConstraints;
         if (constraints is not { Count: > 0 } && ownerDef != null)
         {
@@ -205,7 +203,7 @@ public sealed partial class SemanticVerifier
             }
 
             if (!subs.TryGetValue(key: c.ParameterName, value: out TypeSymbol? actual) ||
-                actual is GenericParameterTypeInfo)
+                actual is GenericParameterTypeSymbol)
             {
                 continue;
             }
@@ -257,7 +255,7 @@ public sealed partial class SemanticVerifier
 
         // Generic parameter: check current routine/owner type constraints for obeys declarations.
         // e.g., needs T obeys Equatable means T satisfies Equatable inside this routine's body.
-        if (type is GenericParameterTypeInfo)
+        if (type is GenericParameterTypeSymbol)
         {
             return GenericParamObeysConstraint(type: type, protocolName: protocolName);
         }
@@ -275,11 +273,11 @@ public sealed partial class SemanticVerifier
         // SA-only fallback the registry cannot compute.
         List<TypeSymbol>? implementedProtocols = type switch
         {
-            RecordTypeInfo record => record.ImplementedProtocols,
-            EntityTypeInfo entity => entity.ImplementedProtocols,
+            RecordTypeSymbol record => record.ImplementedProtocols,
+            EntityTypeSymbol entity => entity.ImplementedProtocols,
             _ => null
         };
-        if (implementedProtocols != null && protocol is ProtocolTypeInfo protoType)
+        if (implementedProtocols != null && protocol is ProtocolTypeSymbol protoType)
         {
             return ImplementsProtocolStructurally(type: type,
                 protoType: protoType,
@@ -342,7 +340,7 @@ public sealed partial class SemanticVerifier
     /// entity Accessing/Controlling satisfaction, the transparent readonly relay through a wrapper's
     /// inner type, and the final member-routine structural check.
     /// </summary>
-    private bool ImplementsProtocolStructurally(TypeSymbol type, ProtocolTypeInfo protoType,
+    private bool ImplementsProtocolStructurally(TypeSymbol type, ProtocolTypeSymbol protoType,
         string protocolName, List<TypeSymbol> implementedProtocols)
     {
         // Entity T implicitly satisfies Accessing[T] and Controlling[T]
@@ -381,8 +379,8 @@ public sealed partial class SemanticVerifier
     {
         List<TypeSymbol>? implementedProtocols = type switch
         {
-            RecordTypeInfo record => record.ImplementedProtocols,
-            EntityTypeInfo entity => entity.ImplementedProtocols,
+            RecordTypeSymbol record => record.ImplementedProtocols,
+            EntityTypeSymbol entity => entity.ImplementedProtocols,
             _ => null
         };
 
@@ -393,16 +391,16 @@ public sealed partial class SemanticVerifier
 
         return implementedProtocols.Any(predicate: implemented =>
             implemented.Name == protocolName || implemented.BareName == protocolName ||
-            implemented is ProtocolTypeInfo proto &&
+            implemented is ProtocolTypeSymbol proto &&
             CheckParentProtocols(proto: proto, targetName: protocolName));
     }
 
     /// <summary>
     /// Checks if any parent protocol matches the target.
     /// </summary>
-    internal bool CheckParentProtocols(ProtocolTypeInfo proto, string targetName)
+    internal bool CheckParentProtocols(ProtocolTypeSymbol proto, string targetName)
     {
-        foreach (ProtocolTypeInfo parent in proto.ParentProtocols)
+        foreach (ProtocolTypeSymbol parent in proto.ParentProtocols)
         {
             if (parent.Name == targetName || parent.BareName == targetName)
             {
@@ -411,11 +409,11 @@ public sealed partial class SemanticVerifier
 
             // Re-lookup parent from registry to get the latest version with populated ParentProtocols,
             // since immutable type updates may leave stale references in the hierarchy.
-            ProtocolTypeInfo latestParent = parent;
+            ProtocolTypeSymbol latestParent = parent;
             if (parent.ParentProtocols.Count == 0)
             {
                 TypeSymbol? looked = _registry.LookupType(name: parent.Name);
-                if (looked is ProtocolTypeInfo latest)
+                if (looked is ProtocolTypeSymbol latest)
                 {
                     latestParent = latest;
                 }
@@ -433,7 +431,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Checks if a type structurally conforms to a protocol by having all required memberRoutines.
     /// </summary>
-    private bool CheckStructuralConformance(TypeSymbol type, ProtocolTypeInfo protocol)
+    private bool CheckStructuralConformance(TypeSymbol type, ProtocolTypeSymbol protocol)
     {
         // Marker protocols (no memberRoutines) require explicit conformance — never structurally satisfied
         if (protocol.MemberRoutines.Count == 0)
@@ -537,7 +535,7 @@ public sealed partial class SemanticVerifier
             TypeSymbol actualType = typeMemberRoutine.Parameters[index: startIndex + i].Type;
 
             // Handle protocol self type (Me) - should match the implementing type
-            if (expectedType is ProtocolSelfTypeInfo)
+            if (expectedType is ProtocolSelfTypeSymbol)
             {
                 // 'Me' in protocol should match the owner type of the memberRoutine
                 if (typeMemberRoutine.OwnerType != null && !TypesMatch(actual: actualType,
@@ -585,7 +583,7 @@ public sealed partial class SemanticVerifier
     /// have <see cref="MutationCategory.Readonly"/> mutation. Marker protocols with no
     /// memberRoutines return false — they require explicit declaration, not relay.
     /// </summary>
-    private bool IsAllReadOnlyProtocol(ProtocolTypeInfo protocol)
+    private bool IsAllReadOnlyProtocol(ProtocolTypeSymbol protocol)
     {
         if (protocol.MemberRoutines.Count == 0)
         {
@@ -600,11 +598,11 @@ public sealed partial class SemanticVerifier
             }
         }
 
-        foreach (ProtocolTypeInfo parent in protocol.ParentProtocols)
+        foreach (ProtocolTypeSymbol parent in protocol.ParentProtocols)
         {
             // Re-lookup to get a fully-populated parent (same pattern as CheckParentProtocols).
-            ProtocolTypeInfo resolved = parent;
-            if (_registry.LookupType(name: parent.Name) is ProtocolTypeInfo latest)
+            ProtocolTypeSymbol resolved = parent;
+            if (_registry.LookupType(name: parent.Name) is ProtocolTypeSymbol latest)
             {
                 resolved = latest;
             }
@@ -648,8 +646,8 @@ public sealed partial class SemanticVerifier
             return true;
         }
 
-        // Handle ProtocolSelfTypeInfo in expected position
-        if (expected is ProtocolSelfTypeInfo)
+        // Handle ProtocolSelfTypeSymbol in expected position
+        if (expected is ProtocolSelfTypeSymbol)
         {
             // 'Me' matches the owner type - handled by caller
             return true;

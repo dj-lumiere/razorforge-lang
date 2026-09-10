@@ -1,10 +1,10 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Suflae-only lowering: an SF <c>entity</c> is a <c>Roamed[E]</c> biased-refcounted handle, not a
@@ -16,7 +16,7 @@ namespace Compiler.Lowering.Passes;
 ///
 /// <para>STAGE 1 (this cut): construction + aliasing + scope-exit release. For every SF construction
 /// <c>E(...)</c> (a <see cref="CreatorExpression"/> whose resolved type is a bare
-/// <see cref="EntityTypeInfo"/>) the value is rewritten to <c>E(...).roam()</c> and retyped to
+/// <see cref="EntityTypeSymbol"/>) the value is rewritten to <c>E(...).roam()</c> and retyped to
 /// <c>Roamed[E]</c>; locals bound to such a value (or aliased from one) are tracked so their
 /// identifier references retype to <c>Roamed[E]</c>. The entity's own field layout and memberRoutine
 /// receivers (<c>me</c>) stay bare <c>E</c> — the controller is peeled by the wrapper forwarder.
@@ -27,7 +27,7 @@ internal sealed class SuflaeEntityLoweringPass
     private readonly TypeRegistry _registry;
 
     // Per-routine scope: local name -> the Roamed[E] type it now carries. Reset per routine body.
-    private readonly Dictionary<string, WrapperTypeInfo> _roamedLocals = new();
+    private readonly Dictionary<string, WrapperTypeSymbol> _roamedLocals = new();
 
     // Per-routine scope: names that are BORROWED Roamed handles (`me` + Roamed parameters). Returning
     // one hands a fresh reference to the caller while the borrow itself is NOT released at scope exit
@@ -76,10 +76,10 @@ internal sealed class SuflaeEntityLoweringPass
     }
 
     /// <summary>
-    /// Post-resolve invariant (the "unification tail" guard): after <see cref="Compiler.Declaration.TypeResolver"/>
+    /// Post-resolve invariant (the "unification tail" guard): after <see cref="Builder.Declaration.TypeResolver"/>
     /// centralized entity→<c>Roamed[E]</c> substitution at every signature slot
-    /// (<see cref="Compiler.Declaration.TypeResolver.RoamSuflaeEntitySlot"/>), NO parameter or return in a
-    /// SUFLAE USER routine may still be a BARE <see cref="EntityTypeInfo"/> — an entity is always the
+    /// (<see cref="Builder.Declaration.TypeResolver.RoamSuflaeEntitySlot"/>), NO parameter or return in a
+    /// SUFLAE USER routine may still be a BARE <see cref="EntityTypeSymbol"/> — an entity is always the
     /// <c>Roamed[E]</c> handle. A bare entity here means a resolution site slipped the choke point (the
     /// class of bug the centralization was meant to eliminate), so fail LOUDLY at build time rather than
     /// mis-codegen a raw controller access at runtime.
@@ -100,7 +100,7 @@ internal sealed class SuflaeEntityLoweringPass
 
         foreach (Parameter p in r.Parameters)
         {
-            if (p.Type?.ResolvedType is EntityTypeInfo bareParam)
+            if (p.Type?.ResolvedType is EntityTypeSymbol bareParam)
             {
                 throw new InvalidOperationException(
                     message:
@@ -111,7 +111,7 @@ internal sealed class SuflaeEntityLoweringPass
         }
 
         if (r.ResolvedInfo is not { IsCreator: true } &&
-            r.ReturnType?.ResolvedType is EntityTypeInfo bareReturn)
+            r.ReturnType?.ResolvedType is EntityTypeSymbol bareReturn)
         {
             throw new InvalidOperationException(
                 message:
@@ -150,8 +150,8 @@ internal sealed class SuflaeEntityLoweringPass
         // codegen, but its declaration name is the type name here.)
         _inCreateRoutine = r.ReturnType is { Name: var rn } && r.Name == rn;
         foreach (Parameter p in r.Parameters.Where(predicate: p =>
-                     p.Type?.ResolvedType is WrapperTypeInfo { Name: RuntimeContract.Roamed }
-                         or RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }))
+                     p.Type?.ResolvedType is WrapperTypeSymbol { Name: RuntimeContract.Roamed }
+                         or RecordTypeSymbol { GenericDefinition.Name: RuntimeContract.Roamed }))
         {
             _borrowNames.Add(item: p.Name);
         }
@@ -280,7 +280,7 @@ internal sealed class SuflaeEntityLoweringPass
         // Track the local as Roamed[E] when its initializer resolved to a Roamed wrapper, so
         // later references (aliasing / access) retype consistently. `var` locals infer their
         // type from the initializer at codegen, so no declared-type rewrite is needed here.
-        if (init.ResolvedType is WrapperTypeInfo { Name: RuntimeContract.Roamed } w)
+        if (init.ResolvedType is WrapperTypeSymbol { Name: RuntimeContract.Roamed } w)
         {
             _roamedLocals[key: vd.Name] = w;
         }
@@ -314,7 +314,7 @@ internal sealed class SuflaeEntityLoweringPass
     // for `=`). SF implicit share: a borrowed Roamed RHS bound into a persistent slot (local var OR a
     // Roamed entity FIELD) must retain so the slot owns its own count. The former RcRetainLoweringPass
     // .RoamBump only fired for RF BARE-entity field writes (its `IsRoamedEntityField` requires the
-    // object to be a bare EntityTypeInfo) — it NEVER fired for SF's `roamed_obj.field = x` (object is
+    // object to be a bare EntityTypeSymbol) — it NEVER fired for SF's `roamed_obj.field = x` (object is
     // Roamed), so SF field reassignment had NO retain-new: the field aliased the RHS handle without a
     // count → double-free at teardown. Inserting the share HERE (the SF lowering, the home of implicit
     // sharing) fixes it. MaybeRoamCopy self-gates on a Roamed borrow value; a fresh rvalue / non-Roamed
@@ -414,7 +414,7 @@ internal sealed class SuflaeEntityLoweringPass
         return expr switch
         {
             // A creator that yields a bare SF entity -> `.roam()` : Roamed[E].
-            CreatorExpression creator when creator.ResolvedType is EntityTypeInfo ce => WrapInRoam(
+            CreatorExpression creator when creator.ResolvedType is EntityTypeSymbol ce => WrapInRoam(
                 inner: creator,
                 entity: ce),
             // A collection literal (`[1,2,3]` / `{…}`) is an entity rvalue just like a constructor call —
@@ -422,20 +422,20 @@ internal sealed class SuflaeEntityLoweringPass
             // (else a bare-list pointer is bound to a `Roamed` handle and reinterpreted as a controller →
             // AccessViolation on first access). ExpressionLoweringPass later expands the literal to a
             // `create + add_last` temp; the `.roam()` wraps that temp reference.
-            ListLiteralExpression when expr.ResolvedType is EntityTypeInfo le => WrapInRoam(
+            ListLiteralExpression when expr.ResolvedType is EntityTypeSymbol le => WrapInRoam(
                 inner: expr,
                 entity: le),
-            SetLiteralExpression when expr.ResolvedType is EntityTypeInfo se => WrapInRoam(
+            SetLiteralExpression when expr.ResolvedType is EntityTypeSymbol se => WrapInRoam(
                 inner: expr,
                 entity: se),
-            DictLiteralExpression when expr.ResolvedType is EntityTypeInfo de => WrapInRoam(
+            DictLiteralExpression when expr.ResolvedType is EntityTypeSymbol de => WrapInRoam(
                 inner: expr,
                 entity: de),
             // Reference to a local we've retyped to Roamed[E] -> flip its resolved type so aliasing
             // and access see the wrapper.
             IdentifierExpression id when _roamedLocals.TryGetValue(key: id.Name,
-                                             value: out WrapperTypeInfo? w) &&
-                                         id.ResolvedType is EntityTypeInfo => RetypeIdentifier(
+                                             value: out WrapperTypeSymbol? w) &&
+                                         id.ResolvedType is EntityTypeSymbol => RetypeIdentifier(
                 id: id,
                 w: w),
             MemberExpression m => LowerMemberExpression(m: m),
@@ -474,7 +474,7 @@ internal sealed class SuflaeEntityLoweringPass
     }
 
     private static IdentifierExpression RetypeIdentifier(IdentifierExpression id,
-        WrapperTypeInfo w)
+        WrapperTypeSymbol w)
     {
         id.ResolvedType = w;
         return id;
@@ -567,7 +567,7 @@ internal sealed class SuflaeEntityLoweringPass
                 : ipe with { Expression = inner };
         }
 
-        TypeInfo? boolType = _registry.LookupType(name: "Bool");
+        TypeSymbol? boolType = _registry.LookupType(name: "Bool");
         var isNoneCall = new CallExpression(
             Callee: new MemberExpression(Object: inner,
                 MemberName: "is_none",
@@ -607,7 +607,7 @@ internal sealed class SuflaeEntityLoweringPass
 
         // A construction `E(...)` stores its args into fields; a borrowed Roamed arg going into a
         // Roamed field must retain (else the field + the source local both release → double free).
-        if (call.ResolvedType is EntityTypeInfo)
+        if (call.ResolvedType is EntityTypeSymbol)
         {
             for (int k = 0; k < args.Count; k++)
             {
@@ -626,9 +626,9 @@ internal sealed class SuflaeEntityLoweringPass
         // is a bare `E` and must receive the real entity pointer — passing the RoamController
         // handle makes the callee read the controller as the entity (`x.field` → crash). Borrow
         // semantics: no retain, the caller keeps ownership. Skips construction (call.ResolvedType
-        // is EntityTypeInfo), whose args are field stores needing a retained Roamed (handled
+        // is EntityTypeSymbol), whose args are field stores needing a retained Roamed (handled
         // above). Mirrors the memberRoutine-receiver `raw_inner` interim below.
-        if (call.ResolvedType is not EntityTypeInfo && lowered.ResolvedRoutine is { } argRoutine)
+        if (call.ResolvedType is not EntityTypeSymbol && lowered.ResolvedRoutine is { } argRoutine)
         {
             lowered = ProjectRoamedArgsIntoBareParams(call: lowered, routine: argRoutine);
         }
@@ -653,8 +653,8 @@ internal sealed class SuflaeEntityLoweringPass
         Expression callee, ref bool changed)
     {
         if (callee is MemberExpression { Object: { } recv } calleeMember &&
-            call.ResolvedRoutine is { OwnerType: EntityTypeInfo } resolvedCallee &&
-            resolvedCallee.MeType is not RecordTypeInfo
+            call.ResolvedRoutine is { OwnerType: EntityTypeSymbol } resolvedCallee &&
+            resolvedCallee.MeType is not RecordTypeSymbol
             {
                 GenericDefinition.Name: RuntimeContract.Roamed
             } && RoamedInnerEntity(t: recv.ResolvedType) is { } recvEntity)
@@ -674,7 +674,7 @@ internal sealed class SuflaeEntityLoweringPass
     // parameterized SF constructor whose `create` body returns the bare entity.
     private CallExpression WrapCallResultInRoam(CallExpression call, CallExpression lowered)
     {
-        if (call.ResolvedType is EntityTypeInfo callEntity && !IsRfRealmRef(callee: call.Callee))
+        if (call.ResolvedType is EntityTypeSymbol callEntity && !IsRfRealmRef(callee: call.Callee))
         {
             return WrapInRoam(inner: lowered, entity: callEntity);
         }
@@ -717,7 +717,7 @@ internal sealed class SuflaeEntityLoweringPass
             }
         }
 
-        if (gmce.ResolvedType is EntityTypeInfo)
+        if (gmce.ResolvedType is EntityTypeSymbol)
         {
             for (int k = 0; k < gArgs.Count; k++)
             {
@@ -730,7 +730,7 @@ internal sealed class SuflaeEntityLoweringPass
         GenericMemberRoutineCallExpression loweredG = gChanged
             ? gmce with { Arguments = gArgs }
             : gmce;
-        return gmce.ResolvedType is EntityTypeInfo gEntity && !IsRfRealmRef(callee: gmce.Object)
+        return gmce.ResolvedType is EntityTypeSymbol gEntity && !IsRfRealmRef(callee: gmce.Object)
             ? WrapInRoam(inner: loweredG, entity: gEntity)
             : loweredG;
     }
@@ -741,15 +741,15 @@ internal sealed class SuflaeEntityLoweringPass
     private static CallExpression ProjectRoamedArgsIntoBareParams(CallExpression call,
         RoutineInfo routine)
     {
-        List<ParameterInfo> nonMe = BuildNonMeParams(routine: routine);
+        List<ParamInfo> nonMe = BuildNonMeParams(routine: routine);
 
         bool changed = false;
         var newArgs = new List<Expression>(capacity: call.Arguments.Count);
         int posIdx = 0;
         foreach (Expression a in call.Arguments)
         {
-            ParameterInfo? param = ResolveArgParam(a: a, nonMe: nonMe, posIdx: ref posIdx);
-            if (param?.Type is EntityTypeInfo entity)
+            ParamInfo? param = ResolveArgParam(a: a, nonMe: nonMe, posIdx: ref posIdx);
+            if (param?.Type is EntityTypeSymbol entity)
             {
                 Expression projected = ProjectRawInner(arg: a, targetEntity: entity);
                 newArgs.Add(item: projected);
@@ -770,10 +770,10 @@ internal sealed class SuflaeEntityLoweringPass
     }
 
     // Builds the list of non-`me` parameters from a routine (the subset that call arguments map to).
-    private static List<ParameterInfo> BuildNonMeParams(RoutineInfo routine)
+    private static List<ParamInfo> BuildNonMeParams(RoutineInfo routine)
     {
-        var nonMe = new List<ParameterInfo>();
-        foreach (ParameterInfo p in routine.Parameters)
+        var nonMe = new List<ParamInfo>();
+        foreach (ParamInfo p in routine.Parameters)
         {
             if (p.Name != "me")
             {
@@ -786,12 +786,12 @@ internal sealed class SuflaeEntityLoweringPass
 
     // Resolves which parameter an argument corresponds to — by name for NamedArgumentExpression,
     // positionally otherwise. Advances posIdx for positional arguments.
-    private static ParameterInfo? ResolveArgParam(Expression a, List<ParameterInfo> nonMe,
+    private static ParamInfo? ResolveArgParam(Expression a, List<ParamInfo> nonMe,
         ref int posIdx)
     {
         if (a is NamedArgumentExpression named)
         {
-            foreach (ParameterInfo p in nonMe)
+            foreach (ParamInfo p in nonMe)
             {
                 if (p.Name == named.Name)
                 {
@@ -802,7 +802,7 @@ internal sealed class SuflaeEntityLoweringPass
             return null;
         }
 
-        ParameterInfo? param = posIdx < nonMe.Count
+        ParamInfo? param = posIdx < nonMe.Count
             ? nonMe[index: posIdx]
             : null;
         posIdx++;
@@ -814,7 +814,7 @@ internal sealed class SuflaeEntityLoweringPass
     // bare entity, or a non-entity value) is returned unchanged. The access lock is applied around the
     // enclosing statement by RoamedLockBracketLoweringPass, which recognizes this control() coercion —
     // so reaching the inner through it stays serialized (unlike the old raw_inner, which was unlocked).
-    private static Expression ProjectRawInner(Expression arg, EntityTypeInfo targetEntity)
+    private static Expression ProjectRawInner(Expression arg, EntityTypeSymbol targetEntity)
     {
         Expression val = arg is NamedArgumentExpression na
             ? na.Value
@@ -837,28 +837,28 @@ internal sealed class SuflaeEntityLoweringPass
     }
 
     // True if the type is a `Roamed[E]` handle in either representation the pipeline produces: a
-    // WrapperTypeInfo (from this pass's WrapInRoam) or a RecordTypeInfo (from a field read, whose type
+    // WrapperTypeSymbol (from this pass's WrapInRoam) or a RecordTypeSymbol (from a field read, whose type
     // TypeBodyResolver builds via GetOrCreateResolution).
-    private static bool IsRoamedType(TypeInfo? t)
+    private static bool IsRoamedType(TypeSymbol? t)
     {
-        return t is WrapperTypeInfo { Name: RuntimeContract.Roamed } or RecordTypeInfo
+        return t is WrapperTypeSymbol { Name: RuntimeContract.Roamed } or RecordTypeSymbol
         {
             GenericDefinition.Name: RuntimeContract.Roamed
         };
     }
 
     // The bare entity `E` inside a `Roamed[E]` handle, in either representation the pipeline produces
-    // (WrapperTypeInfo from WrapInRoam, RecordTypeInfo from a resolver-built handle). Null when the
+    // (WrapperTypeSymbol from WrapInRoam, RecordTypeSymbol from a resolver-built handle). Null when the
     // type is not a Roamed handle over an entity.
-    private static EntityTypeInfo? RoamedInnerEntity(TypeInfo? t)
+    private static EntityTypeSymbol? RoamedInnerEntity(TypeSymbol? t)
     {
         return t switch
         {
-            WrapperTypeInfo { Name: RuntimeContract.Roamed, InnerType: EntityTypeInfo e } => e,
-            RecordTypeInfo
+            WrapperTypeSymbol { Name: RuntimeContract.Roamed, InnerType: EntityTypeSymbol e } => e,
+            RecordTypeSymbol
             {
                 GenericDefinition.Name: RuntimeContract.Roamed,
-                TypeArguments: [EntityTypeInfo e]
+                TypeArguments: [EntityTypeSymbol e]
             } => e,
             _ => null
         };
@@ -885,12 +885,12 @@ internal sealed class SuflaeEntityLoweringPass
     // construct `E(...).roam()`, a call) are already owned and are left alone.
     private static Expression MaybeRoamCopy(Expression expr)
     {
-        // Accept BOTH Roamed representations: WrapperTypeInfo (from this pass's WrapInRoam) and
-        // RecordTypeInfo (from the resolver's GetOrCreateResolution — e.g. `me`/params/fields typed via
+        // Accept BOTH Roamed representations: WrapperTypeSymbol (from this pass's WrapInRoam) and
+        // RecordTypeSymbol (from the resolver's GetOrCreateResolution — e.g. `me`/params/fields typed via
         // MeType / TypeBodyResolver). The `.roam()` copy verb retains the shared controller either way.
         if (expr is IdentifierExpression or MemberExpression && IsRoamedType(t: expr.ResolvedType))
         {
-            TypeInfo roamed = expr.ResolvedType!;
+            TypeSymbol roamed = expr.ResolvedType!;
             // Copy a borrowed Roamed value by bumping its biased refcount via the RC copy verb `.share()`
             // (renamed from the old construction-masquerading `.roam()` — Roamed[T].share() is the real
             // same-strength co-owner mint).
@@ -936,9 +936,9 @@ internal sealed class SuflaeEntityLoweringPass
         return false;
     }
 
-    private CallExpression WrapInRoam(Expression inner, EntityTypeInfo entity)
+    private CallExpression WrapInRoam(Expression inner, EntityTypeSymbol entity)
     {
-        WrapperTypeInfo roamed = _registry.GetOrCreateWrapperType(
+        WrapperTypeSymbol roamed = _registry.GetOrCreateWrapperType(
             wrapperName: RuntimeContract.Roamed,
             innerType: entity,
             isReadOnly: false);

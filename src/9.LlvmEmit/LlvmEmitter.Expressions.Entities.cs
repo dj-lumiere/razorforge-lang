@@ -1,11 +1,11 @@
 using System.Text;
-using Compiler.Desugaring.Passes;
+using Builder.Desugaring.Passes;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Expression code generation for entity construction and entity member operations.
@@ -39,7 +39,7 @@ public partial class LlvmEmitter
         return null;
     }
 
-    private string EmitEntityAllocation(StringBuilder sb, EntityTypeInfo entity,
+    private string EmitEntityAllocation(StringBuilder sb, EntityTypeSymbol entity,
         List<string>? memberVariableValues = null)
     {
         string typeName = GetEntityTypeName(entity: entity);
@@ -98,7 +98,7 @@ public partial class LlvmEmitter
     /// <returns>The temporary variable holding the result.</returns>
     private string EmitConstructorCall(StringBuilder sb, CreatorExpression expr)
     {
-        TypeInfo? type = ResolveCreatorType(creator: expr);
+        TypeSymbol? type = ResolveCreatorType(creator: expr);
         if (type == null)
         {
             throw new InvalidOperationException(
@@ -129,11 +129,11 @@ public partial class LlvmEmitter
         // since a base arm would otherwise capture them.
         return type switch
         {
-            VariantTypeInfo variant => EmitVariantConstruction(sb: sb,
+            VariantTypeSymbol variant => EmitVariantConstruction(sb: sb,
                 variant: variant,
                 expr: expr),
             // Crashable types are entity-like (heap-allocated, ptr semantics).
-            CrashableTypeInfo crashable => EmitCrashableConstruction(sb: sb,
+            CrashableTypeSymbol crashable => EmitCrashableConstruction(sb: sb,
                 crashable: crashable,
                 arguments: expr.MemberVariables
                                .Select(selector: mv => (Expression)new NamedArgumentExpression(
@@ -141,8 +141,8 @@ public partial class LlvmEmitter
                                     Value: mv.Value,
                                     Location: expr.Location))
                                .ToList()),
-            EntityTypeInfo entity => EmitEntityConstruction(sb: sb, entity: entity, expr: expr),
-            RecordTypeInfo record => EmitRecordConstruction(sb: sb, record: record, expr: expr),
+            EntityTypeSymbol entity => EmitEntityConstruction(sb: sb, entity: entity, expr: expr),
+            RecordTypeSymbol record => EmitRecordConstruction(sb: sb, record: record, expr: expr),
             _ => throw new InvalidOperationException(
                 message: $"Cannot construct type: {type.Category}")
         };
@@ -162,7 +162,7 @@ public partial class LlvmEmitter
     ///   %result = load %Variant.X, ptr %tmp
     /// </code>
     /// </summary>
-    private string EmitVariantConstruction(StringBuilder sb, VariantTypeInfo variant,
+    private string EmitVariantConstruction(StringBuilder sb, VariantTypeSymbol variant,
         CreatorExpression expr)
     {
         if (expr.MemberVariables.Count != 1)
@@ -218,7 +218,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Generates code to construct an entity with member variable values.
     /// </summary>
-    private string EmitEntityConstruction(StringBuilder sb, EntityTypeInfo entity,
+    private string EmitEntityConstruction(StringBuilder sb, EntityTypeSymbol entity,
         CreatorExpression expr)
     {
         // Empty creator (e.g. `Set[T]()` from collection-literal lowering) must route through
@@ -258,7 +258,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Emits entity construction: heap-allocate and initialize fields.
     /// </summary>
-    private string EmitEntityConstruction(StringBuilder sb, EntityTypeInfo entity,
+    private string EmitEntityConstruction(StringBuilder sb, EntityTypeSymbol entity,
         List<Expression> arguments)
     {
         string typeName = GetEntityTypeName(entity: entity);
@@ -312,7 +312,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Generates code to construct a record (value type).
     /// </summary>
-    private string EmitRecordConstruction(StringBuilder sb, RecordTypeInfo record,
+    private string EmitRecordConstruction(StringBuilder sb, RecordTypeSymbol record,
         CreatorExpression expr)
     {
         // Backend-annotated or single-member-variable wrapper: just return the inner value.
@@ -350,7 +350,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Constructs a record from a list of positional arguments (for TypeName(args...) calls).
     /// </summary>
-    private string EmitRecordConstruction(StringBuilder sb, RecordTypeInfo record,
+    private string EmitRecordConstruction(StringBuilder sb, RecordTypeSymbol record,
         List<Expression> arguments)
     {
         // Backend-annotated or single-member-variable wrapper: just return the inner value
@@ -360,7 +360,7 @@ public partial class LlvmEmitter
             if (record.BackendType != null)
             {
                 string targetLlvm = GetLlvmType(type: record);
-                TypeInfo? argType = GetExpressionType(expr: arguments[index: 0]);
+                TypeSymbol? argType = GetExpressionType(expr: arguments[index: 0]);
                 string argLlvm = argType != null
                     ? GetLlvmType(type: argType)
                     : targetLlvm;
@@ -406,7 +406,7 @@ public partial class LlvmEmitter
     /// buffer (an entity/crashable error stores its <c>ptr</c>; a value type stores its own LLVM type).
     /// Mirror of the reader in <see cref="EmitCarrierPayloadExpression"/>.
     /// </summary>
-    private string EmitInlineCarrierConstruction(StringBuilder sb, RecordTypeInfo record,
+    private string EmitInlineCarrierConstruction(StringBuilder sb, RecordTypeSymbol record,
         CreatorExpression expr)
     {
         string carrier = GetRecordTypeName(record: record);
@@ -429,8 +429,8 @@ public partial class LlvmEmitter
             string storeType;
             if (field.Name == "payload")
             {
-                TypeInfo? payloadType = GetExpressionType(expr: valueExpr);
-                if (payloadType is EntityTypeInfo or CrashableTypeInfo)
+                TypeSymbol? payloadType = GetExpressionType(expr: valueExpr);
+                if (payloadType is EntityTypeSymbol or CrashableTypeSymbol)
                 {
                     storeType = "ptr";
                 }
@@ -472,7 +472,7 @@ public partial class LlvmEmitter
     /// construction sites — plus variant/collection special construction. This helper only dedups the
     /// value-record struct build (no ownership semantics), which is safe to unify.</para>
     /// </summary>
-    private string EmitMemberwiseRecordStruct(StringBuilder sb, RecordTypeInfo record,
+    private string EmitMemberwiseRecordStruct(StringBuilder sb, RecordTypeSymbol record,
         Func<int, MemberVariableInfo, string?> valueForField)
     {
         string typeName = GetRecordTypeName(record: record);
@@ -505,7 +505,7 @@ public partial class LlvmEmitter
     /// empty construction, a real <c>create(from:)</c> conversion call for an entity-arg wrapper, or
     /// an inner-value passthrough (with a scalar cast when the arg's LLVM type differs).
     /// </summary>
-    private string EmitWrapperRecordConstruction(StringBuilder sb, RecordTypeInfo record,
+    private string EmitWrapperRecordConstruction(StringBuilder sb, RecordTypeSymbol record,
         CreatorExpression expr)
     {
         if (expr.MemberVariables.Count == 0)
@@ -514,12 +514,12 @@ public partial class LlvmEmitter
         }
 
         Expression argExpr = expr.MemberVariables[index: 0].Value;
-        TypeInfo? argType = GetExpressionType(expr: argExpr);
+        TypeSymbol? argType = GetExpressionType(expr: argExpr);
 
         // An entity-arg wrapper with a `pass` body (0 declared fields) is a real conversion, not a
         // passthrough. Example: `CStr(from: text)` must call `CStr.create(from: Accessing[Text])` to
         // UTF-8-encode — otherwise `rf_console_show` dumps raw entity-struct bytes.
-        if (argType is EntityTypeInfo && record.MemberVariables.Count == 0 &&
+        if (argType is EntityTypeSymbol && record.MemberVariables.Count == 0 &&
             argType.FullName != record.FullName &&
             _registry.LookupRoutineOverload(baseName: $"{record.FullName}.create",
                 argTypes: [argType]) is { OwnerType: not null } createOverload)
@@ -550,7 +550,7 @@ public partial class LlvmEmitter
     /// Emits crashable type construction: heap-allocate and initialize fields.
     /// Mirrors entity construction — crashable types have entity (ptr) semantics.
     /// </summary>
-    private string EmitCrashableConstruction(StringBuilder sb, CrashableTypeInfo crashable,
+    private string EmitCrashableConstruction(StringBuilder sb, CrashableTypeSymbol crashable,
         List<Expression> arguments)
     {
         string typeName = GetCrashableTypeName(crashable: crashable);
@@ -601,14 +601,14 @@ public partial class LlvmEmitter
 
         // Choice / Flags case-member access (e.g. FileMode.WRITE) reaches codegen unfolded
         // when it appears in a parameter default value: ExpressionLoweringPass only walks
-        // routine bodies, not `ParameterInfo.DefaultValue` (init-only, registry-owned), and
+        // routine bodies, not `ParamInfo.DefaultValue` (init-only, registry-owned), and
         // SA never analyzes default values so `ResolvedType` is null on those AST nodes.
         // Fold to the case's constant value here, looking the type up by identifier name.
-        TypeInfo? choiceFlagsLookup = expr.Object.ResolvedType ??
+        TypeSymbol? choiceFlagsLookup = expr.Object.ResolvedType ??
                                       (expr.Object is IdentifierExpression objId
                                           ? _registry.LookupType(name: objId.Name)
                                           : null);
-        if (choiceFlagsLookup is ChoiceTypeInfo choiceType)
+        if (choiceFlagsLookup is ChoiceTypeSymbol choiceType)
         {
             ChoiceCaseInfo? caseInfo =
                 choiceType.Cases.FirstOrDefault(predicate: c => c.Name == memberName);
@@ -618,7 +618,7 @@ public partial class LlvmEmitter
             }
         }
 
-        if (choiceFlagsLookup is FlagsTypeInfo flagsType)
+        if (choiceFlagsLookup is FlagsTypeSymbol flagsType)
         {
             FlagsMemberInfo? memberInfo =
                 flagsType.Members.FirstOrDefault(predicate: m => m.Name == memberName);
@@ -632,7 +632,7 @@ public partial class LlvmEmitter
         string target = EmitExpression(sb: sb, expr: expr.Object);
 
         // Get the target type
-        TypeInfo? targetType = GetExpressionType(expr: expr.Object);
+        TypeSymbol? targetType = GetExpressionType(expr: expr.Object);
         if (targetType == null)
         {
             throw new InvalidOperationException(
@@ -646,11 +646,11 @@ public partial class LlvmEmitter
         // Wrapper-of-record field read: Modifying[Record], Viewing[Record], etc. The wrapper is
         // `@llvm("ptr")` and the pointer addresses a record value. GEP at the field index and
         // load. Mirrors the symmetric write handler in EmitMemberVariableAssignment.
-        if (targetType is RecordTypeInfo wrapperRecOfRec &&
+        if (targetType is RecordTypeSymbol wrapperRecOfRec &&
             GetGenericBaseName(type: wrapperRecOfRec) is { } wrapRecBaseName &&
             WrapperTypeNames.Contains(item: wrapRecBaseName) &&
             wrapperRecOfRec is { BackendType: not null, TypeArguments.Count: > 0 } &&
-            wrapperRecOfRec.TypeArguments[index: 0] is RecordTypeInfo innerRecord &&
+            wrapperRecOfRec.TypeArguments[index: 0] is RecordTypeSymbol innerRecord &&
             !wrapperRecOfRec.MemberVariables.Any(predicate: mv => mv.Name == memberName))
         {
             string? wrapperRecordFieldRead = TryEmitWrapperRecordFieldRead(sb: sb,
@@ -667,11 +667,11 @@ public partial class LlvmEmitter
 
         // Wrapper type forwarding: Viewing[T], Modifying[T], etc.
         // These are records wrapping a Hijacked[T] (ptr) — forward member access to the inner entity type
-        if (targetType is RecordTypeInfo wrapperRecord &&
+        if (targetType is RecordTypeSymbol wrapperRecord &&
             GetGenericBaseName(type: wrapperRecord) is { } wrapBaseName &&
             WrapperTypeNames.Contains(item: wrapBaseName) &&
             wrapperRecord.TypeArguments is { Count: > 0 } &&
-            wrapperRecord.TypeArguments[index: 0] is EntityTypeInfo innerEntity &&
+            wrapperRecord.TypeArguments[index: 0] is EntityTypeSymbol innerEntity &&
             !wrapperRecord.MemberVariables.Any(predicate: mv => mv.Name == memberName))
         {
             return EmitWrapperEntityMemberVariableRead(sb: sb,
@@ -685,23 +685,23 @@ public partial class LlvmEmitter
         // Most-derived-first: Crashable (an Entity) and Variant (a Record) precede their bases.
         return targetType switch
         {
-            CrashableTypeInfo crashable => EmitCrashableMemberVariableRead(sb: sb,
+            CrashableTypeSymbol crashable => EmitCrashableMemberVariableRead(sb: sb,
                 crashablePtr: target,
                 crashable: crashable,
                 memberVariableName: memberName),
-            EntityTypeInfo entity => EmitEntityMemberVariableRead(sb: sb,
+            EntityTypeSymbol entity => EmitEntityMemberVariableRead(sb: sb,
                 entityPtr: target,
                 entity: entity,
                 memberVariableName: memberName),
-            TupleTypeInfo tuple => EmitTupleMemberVariableRead(sb: sb,
+            TupleTypeSymbol tuple => EmitTupleMemberVariableRead(sb: sb,
                 tupleValue: target,
                 tuple: tuple,
                 memberVariableName: memberName),
             // Synthetic type_id access generated by PatternLoweringPass for variant subjects.
-            VariantTypeInfo variant when memberName == "type_id" => EmitVariantTagAccess(sb: sb,
+            VariantTypeSymbol variant when memberName == "type_id" => EmitVariantTagAccess(sb: sb,
                 variantValue: target,
                 variant: variant),
-            RecordTypeInfo record => EmitRecordMemberVariableRead(sb: sb,
+            RecordTypeSymbol record => EmitRecordMemberVariableRead(sb: sb,
                 recordValue: target,
                 record: record,
                 memberVariableName: memberName),
@@ -717,7 +717,7 @@ public partial class LlvmEmitter
     /// (so the caller falls through to the entity-wrapper branch).
     /// </summary>
     private string? TryEmitWrapperRecordFieldRead(StringBuilder sb, string target,
-        RecordTypeInfo innerRecord, string memberName)
+        RecordTypeSymbol innerRecord, string memberName)
     {
         int fieldIndex = -1;
         MemberVariableInfo? fieldInfo = null;
@@ -755,7 +755,7 @@ public partial class LlvmEmitter
     /// struct wrapper) and reads the requested member off it.
     /// </summary>
     private string EmitWrapperEntityMemberVariableRead(StringBuilder sb, string target,
-        RecordTypeInfo wrapperRecord, string wrapBaseName, EntityTypeInfo innerEntity,
+        RecordTypeSymbol wrapperRecord, string wrapBaseName, EntityTypeSymbol innerEntity,
         string memberName)
     {
         // For @llvm("ptr") wrappers, the value IS the pointer directly
@@ -833,9 +833,9 @@ public partial class LlvmEmitter
     private string ProjectEntityPtrThroughController(StringBuilder sb, string target,
         string controllerName)
     {
-        TypeInfo? controllerType = _registry.LookupType(name: controllerName) ??
+        TypeSymbol? controllerType = _registry.LookupType(name: controllerName) ??
                                    _registry.LookupType(name: $"Core.{controllerName}");
-        return controllerType is EntityTypeInfo controllerEntity
+        return controllerType is EntityTypeSymbol controllerEntity
             ? EmitEntityMemberVariableRead(sb: sb,
                 entityPtr: target,
                 entity: controllerEntity,
@@ -847,15 +847,15 @@ public partial class LlvmEmitter
     /// Finds the index of the Hijacked[T] field on a struct wrapper that holds the inner entity
     /// pointer (e.g. Retained[T] has controller=0, data=1; Consulting[T] has ptr=0). Defaults to 0.
     /// </summary>
-    private static int FindHijackedFieldIndex(RecordTypeInfo wrapperRecord,
-        EntityTypeInfo innerEntity)
+    private static int FindHijackedFieldIndex(RecordTypeSymbol wrapperRecord,
+        EntityTypeSymbol innerEntity)
     {
         for (int fi = 0; fi < wrapperRecord.MemberVariables.Count; fi++)
         {
-            if (wrapperRecord.MemberVariables[index: fi].Type is WrapperTypeInfo
+            if (wrapperRecord.MemberVariables[index: fi].Type is WrapperTypeSymbol
                 {
                     Name: Declaration.RuntimeContract.Hijacked, TypeArguments.Count: > 0
-                } hijacked && hijacked.TypeArguments![index: 0] is EntityTypeInfo fieldInner &&
+                } hijacked && hijacked.TypeArguments![index: 0] is EntityTypeSymbol fieldInner &&
                 fieldInner.FullName == innerEntity.FullName)
             {
                 return fi;
@@ -870,7 +870,7 @@ public partial class LlvmEmitter
     /// Uses GEP to get member variable address, then load.
     /// </summary>
     private string EmitEntityMemberVariableRead(StringBuilder sb, string entityPtr,
-        EntityTypeInfo entity, string memberVariableName)
+        EntityTypeSymbol entity, string memberVariableName)
     {
         // Refresh stale generic resolutions (member variables may be empty or missing the target member)
         entity = RefreshEntityMemberVariables(entity: entity,
@@ -932,7 +932,7 @@ public partial class LlvmEmitter
     /// Uses GEP + load, same structural pattern as entities.
     /// </summary>
     private string EmitCrashableMemberVariableRead(StringBuilder sb, string crashablePtr,
-        CrashableTypeInfo crashable, string memberVariableName)
+        CrashableTypeSymbol crashable, string memberVariableName)
     {
         int memberVariableIndex = -1;
         MemberVariableInfo? memberVariable = null;
@@ -972,7 +972,7 @@ public partial class LlvmEmitter
     /// Uses extractvalue instruction.
     /// </summary>
     private string EmitRecordMemberVariableRead(StringBuilder sb, string recordValue,
-        RecordTypeInfo record, string memberVariableName)
+        RecordTypeSymbol record, string memberVariableName)
     {
         // Hijacked[T] (@llvm("ptr")): .address -> ptrtoint ptr to i64
         if (record is { BackendType: not null, LlvmType: "ptr" } &&
@@ -1005,10 +1005,10 @@ public partial class LlvmEmitter
         // Fallback: stale generic-instance resolutions (e.g. Maybe[Bool] cached from the
         // pre-registered carrier shell before Maybe's source body was resolved) may have empty
         // MemberVariables. Refresh from the GenericDefinition and retry.
-        if (memberVariableIndex < 0 && record.GenericDefinition is RecordTypeInfo gdef &&
+        if (memberVariableIndex < 0 && record.GenericDefinition is RecordTypeSymbol gdef &&
             record.TypeArguments != null && gdef.MemberVariables.Count > 0)
         {
-            var fresh = (RecordTypeInfo)gdef.CreateInstance(typeArguments: record.TypeArguments);
+            var fresh = (RecordTypeSymbol)gdef.CreateInstance(typeArguments: record.TypeArguments);
             record.MemberVariables = fresh.MemberVariables;
             for (int i = 0; i < record.MemberVariables.Count; i++)
             {
@@ -1042,10 +1042,10 @@ public partial class LlvmEmitter
 
     /// <summary>
     /// Extracts the i64 type_id tag (field 0) from a variant struct value via <c>extractvalue</c>.
-    /// Generated by <see cref="Compiler.Lowering.Passes.PatternLoweringPass"/> for variant <c>TypePattern</c> conditions.
+    /// Generated by <see cref="Builder.Lowering.Passes.PatternLoweringPass"/> for variant <c>TypePattern</c> conditions.
     /// </summary>
     private string EmitVariantTagAccess(StringBuilder sb, string variantValue,
-        VariantTypeInfo variant)
+        VariantTypeSymbol variant)
     {
         string typeName = GetVariantTypeName(variant: variant);
         string tag = NextTemp();
@@ -1057,7 +1057,7 @@ public partial class LlvmEmitter
     /// Generates code to read a field from a tuple value (value type — uses extractvalue).
     /// </summary>
     private string EmitTupleMemberVariableRead(StringBuilder sb, string tupleValue,
-        TupleTypeInfo tuple, string memberVariableName)
+        TupleTypeSymbol tuple, string memberVariableName)
     {
         // Field names are item0, item1, ... — parse the index directly
         if (!memberVariableName.StartsWith(value: "item",
@@ -1084,8 +1084,8 @@ public partial class LlvmEmitter
     /// Generates code to write a member variable on an entity.
     /// </summary>
     private void EmitEntityMemberVariableWrite(StringBuilder sb, string entityPtr,
-        EntityTypeInfo entity, string memberVariableName, string value,
-        TypeInfo? valueType = null)
+        EntityTypeSymbol entity, string memberVariableName, string value,
+        TypeSymbol? valueType = null)
     {
         // Refresh stale generic resolutions
         entity = RefreshEntityMemberVariables(entity: entity,
@@ -1142,7 +1142,7 @@ public partial class LlvmEmitter
     /// </summary>
     /// <param name="entity">The entity type to refresh.</param>
     /// <param name="memberVariableName">The member variable name being probed.</param>
-    private EntityTypeInfo RefreshEntityMemberVariables(EntityTypeInfo entity,
+    private EntityTypeSymbol RefreshEntityMemberVariables(EntityTypeSymbol entity,
         string memberVariableName)
     {
         if (entity.MemberVariables.Any(predicate: mv => mv.Name == memberVariableName))
@@ -1152,11 +1152,11 @@ public partial class LlvmEmitter
 
         // Non-generic entities can also be observed before pass 1c repopulates their member list.
         // Structural re-lookup / re-instantiation only — no AST rebuild or name-based type re-resolution.
-        TypeInfo? directLookup = _registry.LookupType(name: entity.FullName) ??
+        TypeSymbol? directLookup = _registry.LookupType(name: entity.FullName) ??
                                  LookupTypeInCurrentModule(name: entity.FullName) ??
                                  _registry.LookupType(name: entity.Name) ??
                                  LookupTypeInCurrentModule(name: entity.Name);
-        if (directLookup is EntityTypeInfo directEntity &&
+        if (directLookup is EntityTypeSymbol directEntity &&
             directEntity.MemberVariables.Any(predicate: mv => mv.Name == memberVariableName))
         {
             return directEntity;
@@ -1172,19 +1172,19 @@ public partial class LlvmEmitter
             TryReinstantiateEntity(genericDef: genDef,
                 typeArguments: entity.TypeArguments,
                 memberVariableName: memberVariableName,
-                refreshed: out EntityTypeInfo? fromGenDef))
+                refreshed: out EntityTypeSymbol? fromGenDef))
         {
             return fromGenDef!;
         }
 
         // Fallback: look up the generic definition from the registry
         string baseName = GetGenericBaseName(type: entity) ?? entity.Name;
-        var lookupDef = LookupTypeInCurrentModule(name: baseName) as EntityTypeInfo;
+        var lookupDef = LookupTypeInCurrentModule(name: baseName) as EntityTypeSymbol;
         if (lookupDef is { IsGenericDefinition: true, MemberVariables.Count: > 0 } &&
             TryReinstantiateEntity(genericDef: lookupDef,
                 typeArguments: entity.TypeArguments,
                 memberVariableName: memberVariableName,
-                refreshed: out EntityTypeInfo? fromLookup))
+                refreshed: out EntityTypeSymbol? fromLookup))
         {
             return fromLookup!;
         }
@@ -1196,10 +1196,10 @@ public partial class LlvmEmitter
     /// Re-instantiates <paramref name="genericDef"/> with the given type arguments and returns the
     /// fresh resolution when it carries the requested member variable. Returns false otherwise.
     /// </summary>
-    private static bool TryReinstantiateEntity(EntityTypeInfo genericDef,
-        List<TypeInfo> typeArguments, string memberVariableName, out EntityTypeInfo? refreshed)
+    private static bool TryReinstantiateEntity(EntityTypeSymbol genericDef,
+        List<TypeSymbol> typeArguments, string memberVariableName, out EntityTypeSymbol? refreshed)
     {
-        refreshed = genericDef.CreateInstance(typeArguments: typeArguments) as EntityTypeInfo;
+        refreshed = genericDef.CreateInstance(typeArguments: typeArguments) as EntityTypeSymbol;
         return refreshed != null &&
                refreshed.MemberVariables.Any(predicate: mv => mv.Name == memberVariableName);
     }

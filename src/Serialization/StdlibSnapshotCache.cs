@@ -1,9 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using TypeModel.Enums;
-using Compiler.Verification;
+using Builder.Verification;
 
-namespace Compiler.Serialization;
+namespace Builder.Serialization;
 
 /// <summary>
 /// On-disk cache of the compiled-stdlib snapshot as a <c>.pbrf</c> ("prebuilt razorforge") file. This is

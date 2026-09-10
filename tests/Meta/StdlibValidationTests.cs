@@ -1,6 +1,6 @@
 using TypeModel.Enums;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.Verification;
+using Builder.Verification.Results;
 
 namespace RazorForge.Tests.Meta;
 

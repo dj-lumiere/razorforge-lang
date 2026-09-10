@@ -1,8 +1,8 @@
 using SyntaxTree;
-using Compiler.Instantiation;
-using Compiler.Declaration;
+using Builder.Instantiation;
+using Builder.Declaration;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {

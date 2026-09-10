@@ -1,14 +1,14 @@
-using Compiler.Instantiation;
-using Compiler.Declaration;
+using Builder.Instantiation;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Desugaring.Passes;
+namespace Builder.Desugaring.Passes;
 
 /// <summary>
 /// Lowers <see cref="GenericMemberRoutineCallExpression"/> nodes to plain <see cref="CallExpression"/>
-/// nodes where possible. Runs after <see cref="Compiler.Lowering.Passes.ExpressionLoweringPass"/> in the per-file pipeline.
+/// nodes where possible. Runs after <see cref="Builder.Lowering.Passes.ExpressionLoweringPass"/> in the per-file pipeline.
 ///
 /// <para>Lowered cases (require <c>ResolvedRoutine != null</c> from Phase 4):</para>
 /// <list type="bullet">
@@ -268,12 +268,12 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// zero-init of the type's storage). Returns false for null and for types that carry
     /// fields needing initialization.
     /// </summary>
-    private static bool HasZeroMemberVariables(TypeInfo? type)
+    private static bool HasZeroMemberVariables(TypeSymbol? type)
     {
         return type switch
         {
-            RecordTypeInfo r => r.MemberVariables.Count == 0,
-            EntityTypeInfo e => e.MemberVariables.Count == 0,
+            RecordTypeSymbol r => r.MemberVariables.Count == 0,
+            EntityTypeSymbol e => e.MemberVariables.Count == 0,
             _ => false
         };
     }
@@ -495,13 +495,13 @@ internal sealed class GenericCallLoweringPass : AstRewriter
             return routine;
         }
 
-        var args = new List<TypeInfo>(capacity: gmc.TypeArguments.Count);
+        var args = new List<TypeSymbol>(capacity: gmc.TypeArguments.Count);
         foreach (TypeExpression te in gmc.TypeArguments)
         {
-            TypeInfo? arg = te.ResolvedType is { } rt and not ErrorTypeInfo
+            TypeSymbol? arg = te.ResolvedType is { } rt and not ErrorTypeSymbol
                 ? rt
                 : _registry.LookupType(name: te.Name);
-            if (arg == null || arg is ErrorTypeInfo || ContainsGenericParam(t: arg))
+            if (arg == null || arg is ErrorTypeSymbol || ContainsGenericParam(t: arg))
             {
                 return routine;
             }
@@ -536,9 +536,9 @@ internal sealed class GenericCallLoweringPass : AstRewriter
             p.Type != null && ContainsGenericParam(t: p.Type));
     }
 
-    private static bool ContainsGenericParam(TypeInfo t)
+    private static bool ContainsGenericParam(TypeSymbol t)
     {
-        if (t is GenericParameterTypeInfo)
+        if (t is GenericParameterTypeSymbol)
         {
             return true;
         }

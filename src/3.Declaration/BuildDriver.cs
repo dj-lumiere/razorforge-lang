@@ -1,11 +1,11 @@
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
-using Compiler.Parser;
-using Compiler.Verification.Results;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
+using Builder.Parser;
+using Builder.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Result of building a single source file.

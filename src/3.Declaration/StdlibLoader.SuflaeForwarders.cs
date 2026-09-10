@@ -1,7 +1,7 @@
 using SyntaxTree;
 using TypeModel.Enums;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Auto-forwarding synthesis for the Suflae wrapper standard library.

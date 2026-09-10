@@ -1,6 +1,6 @@
 using SyntaxTree;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 /// <summary>
 /// Immutable "already-analyzed stdlib" cache produced ONCE at the feed boundary (the warm/snapshot

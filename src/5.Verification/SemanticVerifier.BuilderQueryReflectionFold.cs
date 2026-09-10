@@ -1,9 +1,8 @@
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Types;
-using TypeInfo = TypeModel.Types.TypeInfo;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 public partial class SemanticVerifier
 {
@@ -280,7 +279,7 @@ public partial class SemanticVerifier
                 Callee: MemberExpression { MemberName: var rn, Object: { } recv },
                 Arguments: { Count: 0 }
             } bqCall && BuilderInfoProvider.IsListReturningConstantRoutine(name: rn) &&
-            recv.ResolvedType is { } owner && owner is not GenericParameterTypeInfo &&
+            recv.ResolvedType is { } owner && owner is not GenericParameterTypeSymbol &&
             !owner.IsGenericDefinition)
         {
             ListLiteralExpression? folded = FoldReflectionCall(owner: owner,
@@ -635,8 +634,8 @@ public partial class SemanticVerifier
             : list;
     }
 
-    private ListLiteralExpression? FoldReflectionCall(TypeInfo owner, string routineName,
-        TypeInfo? returnType, SourceLocation loc)
+    private ListLiteralExpression? FoldReflectionCall(TypeSymbol owner, string routineName,
+        TypeSymbol? returnType, SourceLocation loc)
     {
         List<string>? values = ComputeReflectionStrings(owner: owner, routineName: routineName);
         if (values == null)
@@ -644,7 +643,7 @@ public partial class SemanticVerifier
             return null;
         }
 
-        TypeInfo? textType = _registry.LookupType(name: "Text");
+        TypeSymbol? textType = _registry.LookupType(name: "Text");
         if (textType == null)
         {
             return null;
@@ -669,16 +668,16 @@ public partial class SemanticVerifier
     /// bodies in <c>WiredRoutinePass.TryHandleBuilderQueryConstant</c>. Returns null for a name that is not
     /// a constant list reflection routine.
     /// </summary>
-    private List<string>? ComputeReflectionStrings(TypeInfo owner, string routineName)
+    private List<string>? ComputeReflectionStrings(TypeSymbol owner, string routineName)
     {
         return routineName switch
         {
             "protocols" => owner switch
             {
-                RecordTypeInfo r => r.ImplementedProtocols
+                RecordTypeSymbol r => r.ImplementedProtocols
                                      .Select(selector: p => p.Name)
                                      .ToList(),
-                EntityTypeInfo e => e.ImplementedProtocols
+                EntityTypeSymbol e => e.ImplementedProtocols
                                      .Select(selector: p => p.Name)
                                      .ToList(),
                 _ => new List<string>()

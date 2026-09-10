@@ -1,8 +1,8 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Collection;
+namespace Builder.Collection;
 
 /// <summary>
 /// Pre-synthesis liveness pass: computes the set of concrete generic type instantiations
@@ -17,12 +17,12 @@ namespace Compiler.Collection;
 internal sealed class TypeLivenessPass(TypeRegistry registry)
 {
     private readonly HashSet<string> _live = new(comparer: StringComparer.Ordinal);
-    private readonly Queue<TypeInfo> _worklist = new();
+    private readonly Queue<TypeSymbol> _worklist = new();
 
     public void Run()
     {
         // Seed 1: all non-generic base types — always live.
-        foreach (TypeInfo t in registry.GetAllTypes())
+        foreach (TypeSymbol t in registry.GetAllTypes())
         {
             if (t.TypeArguments == null || t.TypeArguments.Count == 0)
             {
@@ -46,7 +46,7 @@ internal sealed class TypeLivenessPass(TypeRegistry registry)
                 Enqueue(type: routine.ReturnType);
             }
 
-            foreach (ParameterInfo param in routine.Parameters)
+            foreach (ParamInfo param in routine.Parameters)
             {
                 Enqueue(type: param.Type);
             }
@@ -59,7 +59,7 @@ internal sealed class TypeLivenessPass(TypeRegistry registry)
         // Deferring prevents phantom wrappers (e.g. BTreeSetNode[Bytes] created
         // as a SA side-effect of Bytes.split -> List[Bytes] -> List.create(from: SortedSet[T]))
         // from being seeded just because they exist in the registry.
-        foreach (WrapperTypeInfo w in registry.AllConcreteWrapperInstances)
+        foreach (WrapperTypeSymbol w in registry.AllConcreteWrapperInstances)
         {
             if (w.InnerType == null || _live.Contains(item: w.InnerType.FullName))
             {
@@ -85,11 +85,11 @@ internal sealed class TypeLivenessPass(TypeRegistry registry)
     /// Enqueues every type directly reachable from <paramref name="t"/>: its type arguments and,
     /// per kind, its member-variable types (record/entity) or wrapper inner type.
     /// </summary>
-    private void EnqueueReachableFrom(TypeInfo t)
+    private void EnqueueReachableFrom(TypeSymbol t)
     {
         if (t.TypeArguments != null)
         {
-            foreach (TypeInfo arg in t.TypeArguments)
+            foreach (TypeSymbol arg in t.TypeArguments)
             {
                 Enqueue(type: arg);
             }
@@ -97,21 +97,21 @@ internal sealed class TypeLivenessPass(TypeRegistry registry)
 
         switch (t)
         {
-            case RecordTypeInfo record:
+            case RecordTypeSymbol record:
                 foreach (MemberVariableInfo mv in record.MemberVariables)
                 {
                     Enqueue(type: mv.Type);
                 }
 
                 break;
-            case EntityTypeInfo entity:
+            case EntityTypeSymbol entity:
                 foreach (MemberVariableInfo mv in entity.MemberVariables)
                 {
                     Enqueue(type: mv.Type);
                 }
 
                 break;
-            case WrapperTypeInfo wrapper:
+            case WrapperTypeSymbol wrapper:
                 if (wrapper.InnerType != null)
                 {
                     Enqueue(type: wrapper.InnerType);
@@ -121,9 +121,9 @@ internal sealed class TypeLivenessPass(TypeRegistry registry)
         }
     }
 
-    private void Enqueue(TypeInfo type)
+    private void Enqueue(TypeSymbol type)
     {
-        if (type is GenericParameterTypeInfo or ErrorTypeInfo)
+        if (type is GenericParameterTypeSymbol or ErrorTypeSymbol)
         {
             return;
         }

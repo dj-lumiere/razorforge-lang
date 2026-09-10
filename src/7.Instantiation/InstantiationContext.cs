@@ -1,10 +1,10 @@
-using Compiler.Declaration;
-using Compiler.Targeting;
+using Builder.Declaration;
+using Builder.Targeting;
 using Microsoft.Win32;
 using SyntaxTree;
-using TypeInfo = TypeModel.Types.TypeInfo;
+using TypeModel.Types;
 
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// Invariant result of <c>RoutineReachabilityPass</c>'s per-body AST walk, keyed by
@@ -17,7 +17,7 @@ namespace Compiler.Instantiation;
 /// </summary>
 public sealed record RoutineBodyScan(
     List<object> Calls,
-    Dictionary<string, TypeInfo> VarDeclTypes);
+    Dictionary<string, TypeSymbol> VarDeclTypes);
 
 /// <summary>
 /// Guarded context for Phase 7 generic instantiation work.
@@ -103,7 +103,7 @@ public sealed class InstantiationContext
     public HashSet<string> LiveRoutineKeys { get; } = new(comparer: StringComparer.Ordinal);
 
     /// <summary>
-    /// Strategy-B live owner-type set: <c>TypeInfo.FullName</c> values for concrete owner
+    /// Strategy-B live owner-type set: <c>TypeSymbol.FullName</c> values for concrete owner
     /// types whose routines were reached by the entry-point BFS. GMP gates
     /// <c>ProcessConcreteType</c> on membership so unreachable concrete instances
     /// (e.g. <c>Array[BuildMode, 63]</c>, <c>BTreeListNode[Text]</c>) don't get monomorphized at all.
@@ -114,8 +114,8 @@ public sealed class InstantiationContext
     /// <summary>
     /// Call graph used by the v0.2.0 may-suspend effect analysis. Populated additively by
     /// <c>RoutineReachabilityPass</c> as it resolves callees (caller→callee edges, plus the
-    /// <see cref="Compiler.Verification.CallGraphNode.DirectlySuspends"/> seed when a callee is a suspend
-    /// primitive). Consumed by <see cref="Compiler.Verification.MaySuspendAnalysis"/> after that pass.
+    /// <see cref="Builder.Verification.CallGraphNode.DirectlySuspends"/> seed when a callee is a suspend
+    /// primitive). Consumed by <see cref="Builder.Verification.MaySuspendAnalysis"/> after that pass.
     /// </summary>
     public Verification.CallGraph MaySuspendGraph { get; } = new();
 

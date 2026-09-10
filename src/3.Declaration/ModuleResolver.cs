@@ -1,8 +1,8 @@
-using Compiler.Diagnostics;
-using Compiler.Verification.Results;
+using Builder.Diagnostics;
+using Builder.Verification.Results;
 using SyntaxTree;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Resolves import paths to source files using a pre-built index from parsed ASTs.

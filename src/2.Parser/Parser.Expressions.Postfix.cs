@@ -1,8 +1,8 @@
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
 using SyntaxTree;
 
-namespace Compiler.Parser;
+namespace Builder.Parser;
 
 /// <summary>
 /// Partial class containing postfix expression parsing.
@@ -67,7 +67,7 @@ public partial class Parser
             return true;
         }
 
-        // Comptime splice selectors: obj.${expr} or obj.$primary
+        // Buildtime splice selectors: obj.${expr} or obj.$primary
         if (TryParseSpliceMember(expr: expr, result: out Expression? spliceMember) &&
             spliceMember != null)
         {
@@ -117,7 +117,7 @@ public partial class Parser
     }
 
     /// <summary>
-    /// Attempts to parse a comptime splice member access if the current token is a dot followed by
+    /// Attempts to parse a buildtime splice member access if the current token is a dot followed by
     /// a splice opener (<c>${</c>) or a bare dollar (<c>$</c>). Returns false when no splice follows.
     /// </summary>
     private bool TryParseSpliceMember(Expression expr, out Expression? result)
@@ -125,7 +125,7 @@ public partial class Parser
         if (Check(type: TokenType.Dot) && PeekToken(offset: 1)
                .Type == TokenType.SpliceOpen)
         {
-            // Comptime splice selector: obj.${expr}. A distinct SpliceMemberExpression so the
+            // Buildtime splice selector: obj.${expr}. A distinct SpliceMemberExpression so the
             // monomorphizer folds the splice to a concrete field name before SA member resolve.
             Advance(); // consume '.'
             Advance(); // consume '${'
@@ -139,7 +139,7 @@ public partial class Parser
         if (Check(type: TokenType.Dot) && PeekToken(offset: 1)
                .Type == TokenType.Dollar)
         {
-            // Brace-less comptime splice selector: obj.$nameof(m). Same SpliceMemberExpression as
+            // Brace-less buildtime splice selector: obj.$nameof(m). Same SpliceMemberExpression as
             // the braced form; the monomorphizer folds nameof(m) to the concrete field name.
             Advance(); // consume '.'
             Advance(); // consume '$'

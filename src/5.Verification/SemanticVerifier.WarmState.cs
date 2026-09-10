@@ -1,12 +1,12 @@
-using Compiler.Instantiation;
-using Compiler.Declaration;
-using Compiler.Targeting;
-using Compiler.Tokenizer;
+using Builder.Instantiation;
+using Builder.Declaration;
+using Builder.Targeting;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 public partial class SemanticVerifier
 {
@@ -90,10 +90,10 @@ public partial class SemanticVerifier
         }
 
         var sa = new SemanticVerifier(language: language);
-        List<Token> tokens = new Compiler.Tokenizer.Tokenizer(source: source.ToString(),
+        List<Token> tokens = new Builder.Tokenizer.Tokenizer(source: source.ToString(),
             fileName: "__snapshot__",
             language: language).Tokenize();
-        var parser = new Compiler.Parser.Parser(tokens: tokens,
+        var parser = new Builder.Parser.Parser(tokens: tokens,
             language: language,
             fileName: "__snapshot__");
         sa.Analyze(program: parser.Parse());
@@ -147,7 +147,7 @@ public partial class SemanticVerifier
         // cloned program (StdlibPrograms serves this list), so there is no shared-vs-clone split.
         _registry.RestoreStdlibPrograms(programs: warm.StdlibPrograms
            .Select(selector: e =>
-                (Compiler.Instantiation.StdlibProgramBodyCloner.CloneBodies(program: e.Program),
+                (Builder.Instantiation.StdlibProgramBodyCloner.CloneBodies(program: e.Program),
                     e.FilePath, e.Module))
            .ToList());
         // Re-lazy the primed whole-stdlib instance closure so this warm compile re-discovers only what the

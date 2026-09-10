@@ -1,12 +1,10 @@
-using Compiler.Declaration;
-using Compiler.Verification.Enums;
+using Builder.Declaration;
+using Builder.Verification.Enums;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Types;
 
 namespace TypeModel.Symbols;
-
-using TypeSymbol = TypeInfo;
 
 /// <summary>
 /// Information about a routine (standalone routine, member routine, creator).
@@ -172,7 +170,7 @@ public sealed class RoutineInfo
     public TypeSymbol? MeType { get; init; }
 
     /// <summary>Parameters of this routine.</summary>
-    public List<ParameterInfo> Parameters { get; init; } = [];
+    public List<ParamInfo> Parameters { get; init; } = [];
 
     /// <summary>
     /// For lifted lambdas (<see cref="RoutineKind.Lambda"/>): the variables the lambda body captures
@@ -285,7 +283,7 @@ public sealed class RoutineInfo
 
     private static bool IsMarkerProtocolType(TypeSymbol type)
     {
-        if (type is not ProtocolTypeInfo proto || proto.TypeArguments is not { Count: 1 })
+        if (type is not ProtocolTypeSymbol proto || proto.TypeArguments is not { Count: 1 })
         {
             return false;
         }
@@ -312,7 +310,7 @@ public sealed class RoutineInfo
     /// U16.rf) — benign when the bodies are identical (same hash), but a DIVERGENT one (same signature,
     /// different body) means one silently shadows the other under last-wins registration, the hazard
     /// class that made <c>F64(from: F128)</c> resolve to a recursive-forwarder stub. Null for non-creators
-    /// / extern bodies. See <see cref="Compiler.Declaration.TypeRegistry.RegisterRoutine"/>.
+    /// / extern bodies. See <see cref="Builder.Declaration.TypeRegistry.RegisterRoutine"/>.
     /// </summary>
     public int? BodyHash { get; set; }
 
@@ -558,11 +556,11 @@ public sealed class RoutineInfo
             // `T` generic parameter). If we naively set GenericDefinition = this, that universal
             // provenance is buried one level down, and reachability / GMP (which gate the
             // self-type owner→receiver binding on `GenericDefinition.OwnerType is
-            // GenericParameterTypeInfo`) can no longer recover `T → receiver` — the concrete
+            // GenericParameterTypeSymbol`) can no longer recover `T → receiver` — the concrete
             // receiver carries no TypeArguments to recover it from, unlike `List[S32].MemberRoutine[U]`.
             // The result is an emitted call to `Receiver.share[P]` with no matching definition
             // (LINKERR). Keep the universal member routine as the definition so that binding survives.
-            GenericDefinition = GenericDefinition?.OwnerType is GenericParameterTypeInfo
+            GenericDefinition = GenericDefinition?.OwnerType is GenericParameterTypeSymbol
                 ? GenericDefinition
                 : this,
             Visibility = Visibility,
@@ -589,8 +587,8 @@ public sealed class RoutineInfo
     /// </summary>
     /// <param name="param">The parameter to substitute.</param>
     /// <param name="substitution">The type parameter substitution map.</param>
-    /// <returns>A new <see cref="ParameterInfo"/> with the substituted type.</returns>
-    internal static ParameterInfo SubstituteParameterType(ParameterInfo param,
+    /// <returns>A new <see cref="ParamInfo"/> with the substituted type.</returns>
+    internal static ParamInfo SubstituteParameterType(ParamInfo param,
         Dictionary<string, TypeSymbol> substitution)
     {
         TypeSymbol substitutedType = SubstituteType(type: param.Type, substitution: substitution);
@@ -607,19 +605,19 @@ public sealed class RoutineInfo
         Dictionary<string, TypeSymbol> substitution)
     {
         // Associated-type projection (`S/Iter`): substitute the base, then resolve via the base's
-        // binding (instance, or generic-definition fallback). Mirrors RecordTypeInfo.SubstituteType
+        // binding (instance, or generic-definition fallback). Mirrors RecordTypeSymbol.SubstituteType
         // so reachability/instantiation paths that route through here also resolve projections.
-        if (type is AssociatedProjectionTypeInfo projection)
+        if (type is AssociatedProjectionTypeSymbol projection)
         {
             return SubstituteAssociatedProjection(projection: projection,
                 substitution: substitution);
         }
 
-        // Comptime const-generic (`${max(T.data_size().byte_size(), 8)}`): once the referenced type
-        // params are bound, fold to a plain ConstGenericValueTypeInfo; otherwise keep it symbolic.
-        if (type is ComptimeConstGenericTypeInfo comptime)
+        // Buildtime const-generic (`${max(T.data_size().byte_size(), 8)}`): once the referenced type
+        // params are bound, fold to a plain ConstGenericValueTypeSymbol; otherwise keep it symbolic.
+        if (type is BuildtimeConstGenericTypeSymbol buildtime)
         {
-            return SubstituteComptimeConstGeneric(comptime: comptime, substitution: substitution);
+            return SubstituteBuildtimeConstGeneric(buildtime: buildtime, substitution: substitution);
         }
 
         if (substitution.TryGetValue(key: type.Name, value: out TypeSymbol? substituted))
@@ -628,12 +626,12 @@ public sealed class RoutineInfo
         }
 
         // Substitute inside routine types (e.g., Routine[(T, T), Bool] -> Routine[(S64, S64), Bool])
-        if (type is RoutineTypeInfo routineType)
+        if (type is RoutineTypeSymbol routineType)
         {
             return SubstituteRoutineType(routineType: routineType, substitution: substitution);
         }
 
-        if (type is TupleTypeInfo tupleType)
+        if (type is TupleTypeSymbol tupleType)
         {
             return SubstituteTupleType(tupleType: tupleType, substitution: substitution);
         }
@@ -648,10 +646,10 @@ public sealed class RoutineInfo
 
     // Associated-type projection (`S/Iter`): substitute the base, resolve via its binding, else re-base.
     private static TypeSymbol SubstituteAssociatedProjection(
-        AssociatedProjectionTypeInfo projection, Dictionary<string, TypeSymbol> substitution)
+        AssociatedProjectionTypeSymbol projection, Dictionary<string, TypeSymbol> substitution)
     {
         TypeSymbol newBase = SubstituteType(type: projection.Base, substitution: substitution);
-        TypeInfo? bound = RecordTypeInfo.ProjectAssociatedBinding(baseType: newBase,
+        TypeSymbol? bound = RecordTypeSymbol.ProjectAssociatedBinding(baseType: newBase,
             slot: projection.SlotName);
         if (bound != null)
         {
@@ -660,27 +658,27 @@ public sealed class RoutineInfo
 
         return ReferenceEquals(objA: newBase, objB: projection.Base)
             ? projection
-            : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: projection.SlotName);
+            : new AssociatedProjectionTypeSymbol(baseType: newBase, slotName: projection.SlotName);
     }
 
-    // Comptime const-generic: fold once referenced params are bound, else keep symbolic.
-    private static TypeSymbol SubstituteComptimeConstGeneric(ComptimeConstGenericTypeInfo comptime,
+    // Buildtime const-generic: fold once referenced params are bound, else keep symbolic.
+    private static TypeSymbol SubstituteBuildtimeConstGeneric(BuildtimeConstGenericTypeSymbol buildtime,
         Dictionary<string, TypeSymbol> substitution)
     {
-        return comptime.TryFold(resolveTypeParam: name =>
+        return buildtime.TryFold(resolveTypeParam: name =>
                 substitution.TryGetValue(key: name, value: out TypeSymbol? s)
                     ? s
                     : null,
             pointerSize: 8,
             result: out long folded)
-            ? new ConstGenericValueTypeInfo(literalText: folded.ToString(),
+            ? new ConstGenericValueTypeSymbol(literalText: folded.ToString(),
                 value: folded,
                 explicitTypeName: "U64")
-            : comptime;
+            : buildtime;
     }
 
     // Substitute inside a routine type's parameter and return types.
-    private static RoutineTypeInfo SubstituteRoutineType(RoutineTypeInfo routineType,
+    private static RoutineTypeSymbol SubstituteRoutineType(RoutineTypeSymbol routineType,
         Dictionary<string, TypeSymbol> substitution)
     {
         var substitutedParams = routineType.ParameterTypes
@@ -691,12 +689,12 @@ public sealed class RoutineInfo
         TypeSymbol? substitutedReturn = routineType.ReturnType != null
             ? SubstituteType(type: routineType.ReturnType, substitution: substitution)
             : null;
-        return new RoutineTypeInfo(parameterTypes: substitutedParams,
+        return new RoutineTypeSymbol(parameterTypes: substitutedParams,
             returnType: substitutedReturn) { IsFailable = routineType.IsFailable };
     }
 
     // Substitute inside a tuple type's element types.
-    private static TupleTypeInfo SubstituteTupleType(TupleTypeInfo tupleType,
+    private static TupleTypeSymbol SubstituteTupleType(TupleTypeSymbol tupleType,
         Dictionary<string, TypeSymbol> substitution)
     {
         var substitutedElements = tupleType.ElementTypes
@@ -709,7 +707,7 @@ public sealed class RoutineInfo
                                                       objB: tupleType.ElementTypes[index: index]))
                                              .Any();
         return anyChanged
-            ? new TupleTypeInfo(elementTypes: substitutedElements)
+            ? new TupleTypeSymbol(elementTypes: substitutedElements)
             : tupleType;
     }
 
@@ -728,7 +726,7 @@ public sealed class RoutineInfo
         TypeRegistry? registry = TypeRegistry.Ambient;
 
         // Use GenericDefinition to create the new resolution (not the resolution itself)
-        if (type is EntityTypeInfo { GenericDefinition: not null } entityType)
+        if (type is EntityTypeSymbol { GenericDefinition: not null } entityType)
         {
             return registry != null
                 ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition,
@@ -736,7 +734,7 @@ public sealed class RoutineInfo
                 : entityType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
-        if (type is RecordTypeInfo { GenericDefinition: not null } recordType)
+        if (type is RecordTypeSymbol { GenericDefinition: not null } recordType)
         {
             return registry != null
                 ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition,
@@ -744,7 +742,7 @@ public sealed class RoutineInfo
                 : recordType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
-        if (type is ProtocolTypeInfo { GenericDefinition: not null } protocolType)
+        if (type is ProtocolTypeSymbol { GenericDefinition: not null } protocolType)
         {
             return registry != null
                 ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition,
@@ -752,14 +750,14 @@ public sealed class RoutineInfo
                 : protocolType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
-        // WrapperTypeInfo (Retained[T], Guarded[T], etc.) — if the registry has a RecordTypeInfo
-        // for the same base name, prefer that so the concrete type stays RecordTypeInfo everywhere.
-        // This avoids the WrapperTypeInfo -> "ptr" codegen mapping mismatch when the actual LLVM
-        // function definition uses the struct layout from the RecordTypeInfo.
-        if (type is WrapperTypeInfo && registry != null)
+        // WrapperTypeSymbol (Retained[T], Guarded[T], etc.) — if the registry has a RecordTypeSymbol
+        // for the same base name, prefer that so the concrete type stays RecordTypeSymbol everywhere.
+        // This avoids the WrapperTypeSymbol -> "ptr" codegen mapping mismatch when the actual LLVM
+        // function definition uses the struct layout from the RecordTypeSymbol.
+        if (type is WrapperTypeSymbol && registry != null)
         {
-            TypeInfo? recordDef = registry.LookupType(name: type.Name);
-            if (recordDef is RecordTypeInfo { IsGenericDefinition: true })
+            TypeSymbol? recordDef = registry.LookupType(name: type.Name);
+            if (recordDef is RecordTypeSymbol { IsGenericDefinition: true })
             {
                 return registry.GetOrCreateResolution(genericDef: recordDef,
                     typeArguments: newArgs);

@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 /// <summary>
 /// Redirects P/Invoke loads of <c>razorforge_runtime</c> to a per-process shadow copy in

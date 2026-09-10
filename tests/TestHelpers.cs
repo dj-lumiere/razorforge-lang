@@ -1,16 +1,14 @@
 using System.Runtime.CompilerServices;
-using Compiler.Tokenizer;
-using Compiler.Declaration;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.Tokenizer;
+using Builder.Declaration;
+using Builder.Verification;
+using Builder.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
 namespace RazorForge.Tests;
-
-using TypeInfo = TypeInfo;
 
 /// <summary>
 /// Helper memberRoutines for parsing and analyzing test code.
@@ -50,7 +48,7 @@ public static class TestHelpers
     public static Program Parse(string source, [CallerMemberName] string? fileName = null)
     {
         List<Token> tokens = Tokenize(source: source, fileName: fileName);
-        var parser = new Compiler.Parser.Parser(tokens: tokens,
+        var parser = new Builder.Parser.Parser(tokens: tokens,
             language: Language.RazorForge,
             fileName: fileName);
         return parser.Parse();
@@ -59,11 +57,11 @@ public static class TestHelpers
     /// <summary>
     /// Parses RazorForge source and returns the parser for error checking.
     /// </summary>
-    public static (Program Program, Compiler.Parser.Parser Parser) ParseWithErrors(string source,
+    public static (Program Program, Builder.Parser.Parser Parser) ParseWithErrors(string source,
         [CallerMemberName] string? fileName = null)
     {
         List<Token> tokens = Tokenize(source: source, fileName: fileName);
-        var parser = new Compiler.Parser.Parser(tokens: tokens,
+        var parser = new Builder.Parser.Parser(tokens: tokens,
             language: Language.RazorForge,
             fileName: fileName);
         Program program = parser.Parse();
@@ -75,7 +73,7 @@ public static class TestHelpers
     /// </summary>
     public static void AssertParseError(string source, [CallerMemberName] string? fileName = null)
     {
-        (Program _, Compiler.Parser.Parser parser) =
+        (Program _, Builder.Parser.Parser parser) =
             ParseWithErrors(source: source, fileName: fileName);
         Assert.True(condition: parser.HasErrors,
             userMessage: "Expected parse errors but none were found");
@@ -96,7 +94,7 @@ public static class TestHelpers
     /// </summary>
     public static Program AssertParses(string source, [CallerMemberName] string? fileName = null)
     {
-        (Program program, Compiler.Parser.Parser parser) =
+        (Program program, Builder.Parser.Parser parser) =
             ParseWithErrors(source: source, fileName: fileName);
 
         if (parser.HasErrors)
@@ -167,7 +165,7 @@ public static class TestHelpers
     public static Program ParseSuflae(string source, [CallerMemberName] string? fileName = null)
     {
         List<Token> tokens = TokenizeSuflae(source: source, fileName: fileName);
-        var parser = new Compiler.Parser.Parser(tokens: tokens,
+        var parser = new Builder.Parser.Parser(tokens: tokens,
             language: Language.Suflae,
             fileName: fileName);
         return parser.Parse();
@@ -176,11 +174,11 @@ public static class TestHelpers
     /// <summary>
     /// Parses Suflae source and returns the parser for error checking.
     /// </summary>
-    public static (Program Program, Compiler.Parser.Parser Parser) ParseSuflaeWithErrors(
+    public static (Program Program, Builder.Parser.Parser Parser) ParseSuflaeWithErrors(
         string source, [CallerMemberName] string? fileName = null)
     {
         List<Token> tokens = TokenizeSuflae(source: source, fileName: fileName);
-        var parser = new Compiler.Parser.Parser(tokens: tokens,
+        var parser = new Builder.Parser.Parser(tokens: tokens,
             language: Language.Suflae,
             fileName: fileName);
         Program program = parser.Parse();
@@ -251,7 +249,7 @@ public static class TestHelpers
     public static Program AssertParsesSuflae(string source,
         [CallerMemberName] string? fileName = null)
     {
-        (Program program, Compiler.Parser.Parser parser) =
+        (Program program, Builder.Parser.Parser parser) =
             ParseSuflaeWithErrors(source: source, fileName: fileName);
 
         if (parser.HasErrors)
@@ -383,7 +381,7 @@ public static class TypeRegistryExtensions
     /// <summary>
     /// Gets a type by name (wrapper for LookupType).
     /// </summary>
-    public static TypeInfo? GetType(this TypeRegistry registry, string name)
+    public static TypeSymbol? GetType(this TypeRegistry registry, string name)
     {
         return registry.LookupType(name: name);
     }

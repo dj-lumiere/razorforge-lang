@@ -1,7 +1,7 @@
 using TypeModel.Symbols;
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 /// <summary>
 /// Represents a node in the call graph (a single routine).

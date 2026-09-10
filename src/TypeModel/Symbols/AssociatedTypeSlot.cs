@@ -2,12 +2,10 @@ using TypeModel.Types;
 
 namespace TypeModel.Symbols;
 
-using TypeSymbol = TypeInfo;
-
 /// <summary>
 /// An associated-type slot declared on a protocol via <c>relates Name obeys Constraint</c>.
 /// Implementers bind the slot to a concrete type (stored as a binding on the implementer's
-/// <see cref="EntityTypeInfo"/>/<see cref="RecordTypeInfo"/>).
+/// <see cref="EntityTypeSymbol"/>/<see cref="RecordTypeSymbol"/>).
 /// </summary>
 public sealed class AssociatedTypeSlot
 {

@@ -1,6 +1,6 @@
 using SyntaxTree;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Future Phase 8 pass: lower block-expression result flow (`becomes`) into explicit

@@ -1,11 +1,9 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {
@@ -78,7 +76,7 @@ public sealed partial class SemanticVerifier
 
     /// <summary>
     /// All wrapper types that transparently forward to their inner type. Single source of truth is
-    /// <see cref="Compiler.Declaration.RuntimeContract.WrapperTypes"/> — do NOT re-list the members here
+    /// <see cref="Builder.Declaration.RuntimeContract.WrapperTypes"/> — do NOT re-list the members here
     /// (a local copy silently drifts when a wrapper is added/renamed).
     /// </summary>
     private static readonly IReadOnlySet<string> WrapperTypes =
@@ -86,7 +84,7 @@ public sealed partial class SemanticVerifier
 
     /// <summary>
     /// Read-only wrapper types that can only access @readonly memberRoutines. Single source of truth is
-    /// <see cref="Compiler.Declaration.RuntimeContract.ReadOnlyWrapperTypes"/>.
+    /// <see cref="Builder.Declaration.RuntimeContract.ReadOnlyWrapperTypes"/>.
     /// </summary>
     private static readonly IReadOnlySet<string> ReadOnlyWrapperTypes =
         Declaration.RuntimeContract.ReadOnlyWrapperTypes;
@@ -151,9 +149,9 @@ public sealed partial class SemanticVerifier
 
         return innerType switch
         {
-            RecordTypeInfo record => record.LookupMemberVariable(
+            RecordTypeSymbol record => record.LookupMemberVariable(
                 memberVariableName: memberVariableName),
-            EntityTypeInfo entity => entity.LookupMemberVariable(
+            EntityTypeSymbol entity => entity.LookupMemberVariable(
                 memberVariableName: memberVariableName),
             _ => null
         };
@@ -257,7 +255,7 @@ public sealed partial class SemanticVerifier
 
     private static bool IsTriviallyAssignable(TypeSymbol type)
     {
-        if (type is ErrorTypeInfo or GenericParameterTypeInfo || type.IsNone)
+        if (type is ErrorTypeSymbol or GenericParameterTypeSymbol || type.IsNone)
         {
             // Unknown / void types — be permissive so we do not double-report.
             return true;
@@ -266,7 +264,7 @@ public sealed partial class SemanticVerifier
         // Generic-definition wrappers / records (no concrete type args) appear when SA walks
         // generic-def bodies. The concrete instantiations are re-analysed via monomorphisation,
         // so suppress here to avoid duplicate / placeholder-shaped diagnostics on stdlib.
-        if (type is RecordTypeInfo
+        if (type is RecordTypeSymbol
             {
                 IsGenericDefinition: true, TypeArguments: null or { Count: 0 }
             })
@@ -275,7 +273,7 @@ public sealed partial class SemanticVerifier
         }
 
         // Tuples — anonymous; auto-derive cascades only when every element does.
-        if (type is TupleTypeInfo tuple)
+        if (type is TupleTypeSymbol tuple)
         {
             return tuple.ElementTypes.All(predicate: IsTriviallyAssignable);
         }
@@ -284,10 +282,10 @@ public sealed partial class SemanticVerifier
         // ProtocolConformanceAnalyzer (explicit + auto-derived Assignable).
         List<TypeSymbol>? implemented = type switch
         {
-            ChoiceTypeInfo c => c.ImplementedProtocols,
-            FlagsTypeInfo f => f.ImplementedProtocols,
-            RecordTypeInfo r => r.ImplementedProtocols,
-            EntityTypeInfo e => e.ImplementedProtocols,
+            ChoiceTypeSymbol c => c.ImplementedProtocols,
+            FlagsTypeSymbol f => f.ImplementedProtocols,
+            RecordTypeSymbol r => r.ImplementedProtocols,
+            EntityTypeSymbol e => e.ImplementedProtocols,
             _ => null
         };
 
@@ -331,13 +329,13 @@ public sealed partial class SemanticVerifier
                 : prefix);
         }
 
-        if (type is RecordTypeInfo record && !(record is
+        if (type is RecordTypeSymbol record && !(record is
                 { IsGenericDefinition: true, TypeArguments: not { Count: > 0 } }))
         {
             return FindInRecord(record: record, prefix: prefix, visited: visited);
         }
 
-        if (type is TupleTypeInfo tuple)
+        if (type is TupleTypeSymbol tuple)
         {
             return FindInTuple(tuple: tuple, prefix: prefix, visited: visited);
         }
@@ -345,7 +343,7 @@ public sealed partial class SemanticVerifier
         return null;
     }
 
-    private static (string, string)? FindInRecord(RecordTypeInfo record, string prefix,
+    private static (string, string)? FindInRecord(RecordTypeSymbol record, string prefix,
         HashSet<string> visited)
     {
         if (!visited.Add(item: record.FullName))
@@ -370,7 +368,7 @@ public sealed partial class SemanticVerifier
         return null;
     }
 
-    private static (string, string)? FindInTuple(TupleTypeInfo tuple, string prefix,
+    private static (string, string)? FindInTuple(TupleTypeSymbol tuple, string prefix,
         HashSet<string> visited)
     {
         if (!visited.Add(item: tuple.FullName))

@@ -1,6 +1,6 @@
 using SyntaxTree;
 
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// Produces a build-local COPY of a restored stdlib <see cref="Program"/> in which every routine body is a
@@ -71,7 +71,7 @@ internal static class StdlibProgramBodyCloner
     private static RoutineDeclaration CloneRoutine(RoutineDeclaration r)
     {
         // A GENERIC-DEFINITION template's body must stay UNFOLDED until monomorphization binds the type params
-        // (a comptime construct like `nameof`/`orderof`/`expand` inside a `WhereIterable[T,S]` template must
+        // (a buildtime construct like `nameof`/`orderof`/`expand` inside a `WhereIterable[T,S]` template must
         // fold with the concrete T/S, not prematurely) — so its body is cloned with a PURE STRUCTURAL deep-copy
         // (GenericAstRewriter.DeepCloneStatement, CloneOnly mode: no folding), whereas a concrete body is cloned
         // by the substituting rewrite (which is safe/idempotent when params are already bound). BOTH are cloned:

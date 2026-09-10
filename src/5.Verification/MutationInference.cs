@@ -1,10 +1,10 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 /// <summary>
 /// Performs mutation inference for routines.
@@ -196,12 +196,12 @@ public sealed class MutationInference
     /// <summary>
     /// Returns true if <paramref name="fieldName"/> is a <c>Hijacked[T]</c> field on <paramref name="ownerType"/>.
     /// </summary>
-    private static bool IsHijackedField(TypeInfo? ownerType, string fieldName)
+    private static bool IsHijackedField(TypeSymbol? ownerType, string fieldName)
     {
         List<MemberVariableInfo>? fields = ownerType switch
         {
-            EntityTypeInfo e => e.MemberVariables,
-            RecordTypeInfo r => r.MemberVariables,
+            EntityTypeSymbol e => e.MemberVariables,
+            RecordTypeSymbol r => r.MemberVariables,
             _ => null
         };
 

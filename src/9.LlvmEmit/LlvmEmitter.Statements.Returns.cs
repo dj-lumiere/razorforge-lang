@@ -2,7 +2,7 @@ using System.Text;
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Statement code generation for return, throw, absent, and variant-return paths.
@@ -43,8 +43,8 @@ public partial class LlvmEmitter
             return;
         }
 
-        TypeInfo? retValType = GetExpressionType(expr: ret.Value);
-        if (retValType is CrashableTypeInfo && _currentRoutineIsFailable)
+        TypeSymbol? retValType = GetExpressionType(expr: ret.Value);
+        if (retValType is CrashableTypeSymbol && _currentRoutineIsFailable)
         {
             EmitThrow(sb: sb,
                 throwStmt: new ThrowStatement(Error: ret.Value, Location: ret.Location));
@@ -58,7 +58,7 @@ public partial class LlvmEmitter
     private void EmitValueReturn(StringBuilder sb, ReturnStatement ret)
     {
         string value = EmitExpression(sb: sb, expr: ret.Value!);
-        TypeInfo? retType = _currentRoutineReturnType ?? GetExpressionType(expr: ret.Value!);
+        TypeSymbol? retType = _currentRoutineReturnType ?? GetExpressionType(expr: ret.Value!);
         if (retType == null)
         {
             throw new InvalidOperationException(
@@ -78,7 +78,7 @@ public partial class LlvmEmitter
             EmitLine(sb: sb, line: TracePop);
         }
 
-        TypeInfo? exprType = GetExpressionType(expr: ret.Value!);
+        TypeSymbol? exprType = GetExpressionType(expr: ret.Value!);
         if (IsMaybeType(type: retType) && value != "zeroinitializer" &&
             (exprType == null || !IsMaybeType(type: exprType)))
         {
@@ -162,13 +162,13 @@ public partial class LlvmEmitter
         }
     }
 
-    private void EmitMaybeWrappedReturn(StringBuilder sb, TypeInfo retType, string innerValue)
+    private void EmitMaybeWrappedReturn(StringBuilder sb, TypeSymbol retType, string innerValue)
     {
-        TypeInfo innerType = retType.TypeArguments is { Count: > 0 }
+        TypeSymbol innerType = retType.TypeArguments is { Count: > 0 }
             ? retType.TypeArguments[index: 0]
             : retType;
         string carrierType = GetLlvmType(type: retType);
-        string innerLlvm = innerType is EntityTypeInfo
+        string innerLlvm = innerType is EntityTypeSymbol
             ? "ptr"
             : GetLlvmType(type: innerType);
         // Maybe `present` (field 0) is a Bool, stored as i8 (see GetFieldStorageLlvmType).
@@ -184,12 +184,12 @@ public partial class LlvmEmitter
     {
         return expr switch
         {
-            CreatorExpression { ConstructedType: EntityTypeInfo } or ListLiteralExpression
+            CreatorExpression { ConstructedType: EntityTypeSymbol } or ListLiteralExpression
                 or SetLiteralExpression or DictLiteralExpression => true,
             CreatorExpression => true,
-            CallExpression { ConstructedType: EntityTypeInfo } => true,
+            CallExpression { ConstructedType: EntityTypeSymbol } => true,
             CallExpression { Callee: IdentifierExpression id } =>
-                _registry.LookupType(name: id.Name) is EntityTypeInfo,
+                _registry.LookupType(name: id.Name) is EntityTypeSymbol,
             _ => false
         };
     }
@@ -217,10 +217,10 @@ public partial class LlvmEmitter
 
     private void EmitThrow(StringBuilder sb, ThrowStatement throwStmt)
     {
-        TypeInfo? errorType = GetExpressionType(expr: throwStmt.Error);
+        TypeSymbol? errorType = GetExpressionType(expr: throwStmt.Error);
         string typeName = errorType?.Name ?? "UnknownError";
 
-        bool isEmptyRecord = errorType is RecordTypeInfo { MemberVariables.Count: 0 };
+        bool isEmptyRecord = errorType is RecordTypeSymbol { MemberVariables.Count: 0 };
         string errorVal;
         if (isEmptyRecord)
         {
@@ -278,7 +278,7 @@ public partial class LlvmEmitter
     /// codepoint-buffer pointer and count into <paramref name="dataPtr"/> / <paramref name="msgLen"/>.
     /// </summary>
     private void EmitCrashMessageText(StringBuilder sb, ResolvedMemberRoutine resolvedCrash,
-        TypeInfo errorType, string errorVal, out string dataPtr,
+        TypeSymbol errorType, string errorVal, out string dataPtr,
         out string msgLen)
     {
         GenerateRoutineDeclaration(routine: resolvedCrash.Routine);
@@ -287,8 +287,8 @@ public partial class LlvmEmitter
 
         // crash_message() returns a Text by value. Derive the Text record type AND the buffer/count
         // field indices from the registered Text type — never assume the physical field order.
-        RecordTypeInfo? textRecord = _registry.LookupType(name: "Text") as RecordTypeInfo ??
-                                     _registry.LookupType(name: "Core.Text") as RecordTypeInfo;
+        RecordTypeSymbol? textRecord = _registry.LookupType(name: "Text") as RecordTypeSymbol ??
+                                     _registry.LookupType(name: "Core.Text") as RecordTypeSymbol;
         string textLlvm = textRecord != null
             ? GetRecordTypeName(record: textRecord)
             : "%Record.Core.Text";
@@ -370,7 +370,7 @@ public partial class LlvmEmitter
             return;
         }
 
-        TypeInfo absentRetType = _currentEmittingRoutine!.ReturnType!;
+        TypeSymbol absentRetType = _currentEmittingRoutine!.ReturnType!;
         string absentCarrierType = GetLlvmType(type: absentRetType);
         EmitRcRecordCleanup(sb: sb);
         // Balance the routine-entry trace_push. Missing this leaks a frame on the shadow stack

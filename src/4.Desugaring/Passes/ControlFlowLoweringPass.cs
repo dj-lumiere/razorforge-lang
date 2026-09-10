@@ -1,9 +1,9 @@
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Desugaring.Passes;
+namespace Builder.Desugaring.Passes;
 
 /// <summary>
 /// Lowers all loop constructs to the <see cref="LoopStatement"/> primitive so the code
@@ -55,7 +55,7 @@ namespace Compiler.Desugaring.Passes;
 ///
 /// <para>Range-based loops (<c>for x in 0 to n</c>) are also covered: the
 /// <c>RangeExpression</c> iterable is converted to <c>Range[T](...)</c> by
-/// <see cref="Compiler.Lowering.Passes.ExpressionLoweringPass"/> (which runs after this pass).</para>
+/// <see cref="Builder.Lowering.Passes.ExpressionLoweringPass"/> (which runs after this pass).</para>
 /// </summary>
 internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
 {
@@ -499,14 +499,14 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     /// and LoweringKind on the iter and try_emit calls so CallOverloadResolutionPass doesn't
     /// need to re-classify them (which fails for instantiated bodies where the receiver variable
     /// has no SA-annotated type), and so reachability marks the CONCRETE emitter's try_emit.
-    /// Skip ErrorTypeInfo: SA suppresses stdlib errors. Returns the (possibly re-annotated)
+    /// Skip ErrorTypeSymbol: SA suppresses stdlib errors. Returns the (possibly re-annotated)
     /// try_emit call expression.
     /// </summary>
     private CallExpression AnnotateIterAndTryEmit(EachStatement eachStmt,
         CallExpression iterCallExpr, IdentifierExpression tryNextReceiver,
         CallExpression tryNextCallExpr)
     {
-        if (eachStmt.Iterable.ResolvedType is { } iterType and not ErrorTypeInfo)
+        if (eachStmt.Iterable.ResolvedType is { } iterType and not ErrorTypeSymbol)
         {
             RoutineInfo? iterMemberRoutine =
                 ctx.Registry.LookupMemberRoutine(type: iterType, memberRoutineName: "iter");
@@ -517,7 +517,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
                 // owner's type args so `try_emit` resolves on the CONCRETE emitter
                 // (`EnumerateEmitter[Text, ListEmitter[Text]]`); otherwise reachability marks the
                 // unresolved-projection emitter's try_emit and the concrete one never generates.
-                TypeInfo iteratorType = SubstituteForConcreteOwner(type: rawIteratorType,
+                TypeSymbol iteratorType = SubstituteForConcreteOwner(type: rawIteratorType,
                     owner: iterType);
                 iterCallExpr.ResolvedRoutine = iterMemberRoutine;
                 iterCallExpr.ResolvedType = iteratorType;
@@ -703,26 +703,26 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     /// Substitutes a type with a concrete generic owner's type arguments (e.g. the generic-def
     /// <c>iter</c> return <c>EnumerateEmitter[T, S/Iter]</c> for owner
     /// <c>EnumerateIterator[Text, List[Text]]</c> → <c>EnumerateEmitter[Text, ListEmitter[Text]]</c>).
-    /// Resolves associated-type projections via <see cref="RecordTypeInfo.SubstituteType"/>.
+    /// Resolves associated-type projections via <see cref="RecordTypeSymbol.SubstituteType"/>.
     /// </summary>
-    private static TypeInfo SubstituteForConcreteOwner(TypeInfo type, TypeInfo owner)
+    private static TypeSymbol SubstituteForConcreteOwner(TypeSymbol type, TypeSymbol owner)
     {
-        TypeInfo? def = owner switch
+        TypeSymbol? def = owner switch
         {
-            EntityTypeInfo e => e.GenericDefinition,
-            RecordTypeInfo r => r.GenericDefinition,
+            EntityTypeSymbol e => e.GenericDefinition,
+            RecordTypeSymbol r => r.GenericDefinition,
             _ => null
         };
         if (def?.GenericParameters is { } defParams && owner.TypeArguments is { } args &&
             defParams.Count == args.Count && defParams.Count > 0)
         {
-            var subs = new Dictionary<string, TypeInfo>();
+            var subs = new Dictionary<string, TypeSymbol>();
             for (int i = 0; i < defParams.Count; i++)
             {
                 subs[key: defParams[index: i]] = args[index: i];
             }
 
-            return RecordTypeInfo.SubstituteType(type: type, substitution: subs);
+            return RecordTypeSymbol.SubstituteType(type: type, substitution: subs);
         }
 
         return type;
@@ -756,7 +756,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     /// <summary>
     /// Lower EachStatement/DestructuringStatement etc. in monomorphized bodies that GMP
     /// produced from stdlib originals (which never went through Phase 6 desugaring).
-    /// Notable consumer: <see cref="Compiler.Instantiation.Passes.ProtocolDefaultImplLoweringPass"/>,
+    /// Notable consumer: <see cref="Builder.Instantiation.Passes.ProtocolDefaultImplLoweringPass"/>,
     /// which clones stdlib protocol-default-impl bodies (e.g. <c>Iterable[Text].join</c>) into
     /// per-implementer routines; those clones contain raw `for` loops that codegen rejects.
     /// </summary>

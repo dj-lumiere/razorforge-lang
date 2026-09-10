@@ -1,12 +1,12 @@
-using Compiler.Tokenizer;
-using Compiler.Desugaring.Passes;
-using Compiler.Lowering.Passes;
-using Compiler.Declaration;
+using Builder.Tokenizer;
+using Builder.Desugaring.Passes;
+using Builder.Lowering.Passes;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// Deep-clones a RoutineDeclaration AST, replacing all occurrences of generic type
@@ -25,14 +25,14 @@ internal static class GenericAstRewriter
     /// <para>
     /// When <paramref name="typeSubs"/> and <paramref name="registry"/> are provided, the
     /// rewriter also sets <see cref="Expression.ResolvedType"/> on every cloned expression
-    /// whose original <c>ResolvedType</c> was a <see cref="GenericParameterTypeInfo"/> or a
+    /// whose original <c>ResolvedType</c> was a <see cref="GenericParameterTypeSymbol"/> or a
     /// generic resolution containing generic parameters. This removes the need for
     /// <c>_typeSubstitutions</c> fallback lookups during codegen emission.
     /// </para>
     /// </summary>
     public static RoutineDeclaration Rewrite(RoutineDeclaration routine,
         IReadOnlyDictionary<string, string> subs,
-        IReadOnlyDictionary<string, TypeInfo>? typeSubs = null, TypeRegistry? registry = null,
+        IReadOnlyDictionary<string, TypeSymbol>? typeSubs = null, TypeRegistry? registry = null,
         RoutineInfo? enclosingRoutine = null)
     {
         RewriteContext ctx = typeSubs != null && registry != null
@@ -45,7 +45,7 @@ internal static class GenericAstRewriter
 
         foreach (Parameter p in rewrittenParams)
         {
-            TypeInfo? pType = p.Type?.ResolvedType ?? (p.Type != null
+            TypeSymbol? pType = p.Type?.ResolvedType ?? (p.Type != null
                 ? ctx.ResolveTypeExpressionPublic(typeExpr: p.Type)
                 : null);
             if (pType != null)
@@ -56,7 +56,7 @@ internal static class GenericAstRewriter
 
         if (enclosingRoutine?.OwnerType is { } ownerType)
         {
-            TypeInfo resolvedOwner = ctx.ResolveType(original: ownerType) ?? ownerType;
+            TypeSymbol resolvedOwner = ctx.ResolveType(original: ownerType) ?? ownerType;
             ctx.ParamTypes[key: "me"] = resolvedOwner;
         }
 
@@ -89,19 +89,19 @@ internal static class GenericAstRewriter
 
     /// <summary>
     /// Carries the string-name substitution map (always present) and the optional
-    /// TypeInfo substitution map + registry (used for ResolvedType annotation).
+    /// TypeSymbol substitution map + registry (used for ResolvedType annotation).
     /// </summary>
     private sealed class RewriteContext(
         IReadOnlyDictionary<string, string> stringSubs,
-        IReadOnlyDictionary<string, TypeInfo>? typeSubs,
+        IReadOnlyDictionary<string, TypeSymbol>? typeSubs,
         TypeRegistry? registry)
     {
         public IReadOnlyDictionary<string, string> StringSubs { get; } = stringSubs;
-        public IReadOnlyDictionary<string, TypeInfo>? TypeSubs { get; } = typeSubs;
+        public IReadOnlyDictionary<string, TypeSymbol>? TypeSubs { get; } = typeSubs;
         public TypeRegistry? Registry { get; } = registry;
 
         /// <summary>
-        /// PURE STRUCTURAL DEEP-COPY mode. When true, NO comptime folding/unrolling runs — every
+        /// PURE STRUCTURAL DEEP-COPY mode. When true, NO buildtime folding/unrolling runs — every
         /// <c>expand</c> loop, <c>when T … is X</c> type-switch, arm-expansion, splice, and metadata
         /// intrinsic (<c>nameof</c>/<c>orderof</c>/…) is left INTACT and merely recursed into structurally.
         /// Used to clone a GENERIC-DEFINITION template body (which must stay UNFOLDED until real
@@ -112,7 +112,7 @@ internal static class GenericAstRewriter
         public bool CloneOnly { get; init; }
 
         /// <summary>
-        /// The active comptime <c>expand</c> handle name (e.g. <c>m</c>) while its body is being
+        /// The active buildtime <c>expand</c> handle name (e.g. <c>m</c>) while its body is being
         /// unrolled for one member, or null outside any expand. When set, <c>m.name</c>/<c>m.id</c>
         /// member accesses fold to literals and <c>x.${m.name}</c> splices become real member
         /// accesses on <see cref="ActiveMemberName"/>. Save/restore around the loop for nesting.
@@ -127,7 +127,7 @@ internal static class GenericAstRewriter
 
         /// <summary>The current member's static type during expand unrolling (for annotating the
         /// unrolled member access so the chained call resolves).</summary>
-        public TypeInfo? ActiveMemberType { get; set; }
+        public TypeSymbol? ActiveMemberType { get; set; }
 
         /// <summary>Whether the current member is secret-visibility during expand unrolling.</summary>
         public bool ActiveMemberIsSecret { get; set; }
@@ -155,16 +155,16 @@ internal static class GenericAstRewriter
         /// reference to the bound payload (e.g. <c>x</c> in <c>is ${m.type} x => x.represent()</c>)
         /// resolves to the arm's type. Cleared per arm.
         /// </summary>
-        public Dictionary<string, TypeInfo> ActiveBindingTypes { get; } = new();
+        public Dictionary<string, TypeSymbol> ActiveBindingTypes { get; } = new();
 
         /// <summary>
-        /// Map of parameter name to substituted TypeInfo for the routine being rewritten.
+        /// Map of parameter name to substituted TypeSymbol for the routine being rewritten.
         /// Populated by <see cref="Rewrite"/> and the public <c>RewriteStatement</c>
         /// overloads that accept a routine. Used to backfill <c>IdentifierExpression.ResolvedType</c>
         /// when SA failed to annotate a parameter reference (e.g. <c>you.address()</c> in
         /// <c>Hijacked[T].cmp</c>'s generic-def body).
         /// </summary>
-        public Dictionary<string, TypeInfo> ParamTypes { get; } = new();
+        public Dictionary<string, TypeSymbol> ParamTypes { get; } = new();
 
         /// <summary>
         /// Local variables whose type must be RE-INFERRED after monomorphization because their
@@ -176,13 +176,13 @@ internal static class GenericAstRewriter
         /// instead of the abstract protocol memberRoutine (which has no body → linker error). Only used to
         /// concretize references whose stale type is itself a protocol, so other locals are untouched.
         /// </summary>
-        public Dictionary<string, TypeInfo> LocalReinferredTypes { get; } = new();
+        public Dictionary<string, TypeSymbol> LocalReinferredTypes { get; } = new();
 
         /// <summary>
-        /// Resolves a <see cref="TypeInfo"/> through the substitution map. Returns null
+        /// Resolves a <see cref="TypeSymbol"/> through the substitution map. Returns null
         /// when the registry is not available or the type has no substitution.
         /// </summary>
-        public TypeInfo? ResolveType(TypeInfo? original)
+        public TypeSymbol? ResolveType(TypeSymbol? original)
         {
             if (original == null || TypeSubs == null || Registry == null)
             {
@@ -213,32 +213,32 @@ internal static class GenericAstRewriter
                 return resolvedDefinition;
             }
 
-            // WrapperTypeInfo (Hijacked[T] -> Hijacked[S64], or Hijacked[S64] -> stays): always
-            // resolve to the real RecordTypeInfo so LLVM mangled names use "Core.Hijacked[S64]"
-            // (from RecordTypeInfo.FullName) rather than "Hijacked[Core.S64]" (WrapperTypeInfo
-            // with Module=null). The WrapperTypeInfo.FullName appends inner.FullName which includes
+            // WrapperTypeSymbol (Hijacked[T] -> Hijacked[S64], or Hijacked[S64] -> stays): always
+            // resolve to the real RecordTypeSymbol so LLVM mangled names use "Core.Hijacked[S64]"
+            // (from RecordTypeSymbol.FullName) rather than "Hijacked[Core.S64]" (WrapperTypeSymbol
+            // with Module=null). The WrapperTypeSymbol.FullName appends inner.FullName which includes
             // the module prefix, producing the wrong "Hijacked[Core.S64]" format.
-            if (original is WrapperTypeInfo wrapper)
+            if (original is WrapperTypeSymbol wrapper)
             {
                 return ResolveWrapper(wrapper: wrapper);
             }
 
-            // Routine value type (`Routine[(T,), U]` -> `Routine[(S64,), S64]`): RoutineTypeInfo
+            // Routine value type (`Routine[(T,), U]` -> `Routine[(S64,), S64]`): RoutineTypeSymbol
             // carries its parameter/return types in dedicated slots, NOT TypeArguments, so the
             // generic-resolution branch above never reaches them. A chained iterator emitter stores
             // its projection as `secret transform: Routine[(T,), U]`; the `me.transform(item)` call's
-            // indirect return type is read straight off this RoutineTypeInfo at codegen, so an
+            // indirect return type is read straight off this RoutineTypeSymbol at codegen, so an
             // unsubstituted `U` here reaches GetLlvmType. Resolve each slot recursively (handles
             // nested generics/wrappers/tuples uniformly) and rebuild.
-            if (original is RoutineTypeInfo routineType)
+            if (original is RoutineTypeSymbol routineType)
             {
                 return ResolveRoutineType(routineType: routineType);
             }
 
-            // Tuple (`Tuple[T, Bool]` -> `Tuple[U8, Bool]`): TupleTypeInfo is not an
+            // Tuple (`Tuple[T, Bool]` -> `Tuple[U8, Bool]`): TupleTypeSymbol is not an
             // IsGenericResolution, so substitute each element type and rebuild. Without this a
             // tuple carrying `T` in a CallExpression.ResolvedType survives into codegen.
-            if (original is TupleTypeInfo tuple)
+            if (original is TupleTypeSymbol tuple)
             {
                 return ResolveTupleType(tuple: tuple);
             }
@@ -246,12 +246,12 @@ internal static class GenericAstRewriter
             return null;
         }
 
-        private TypeInfo? ResolveSpecialType(TypeInfo original)
+        private TypeSymbol? ResolveSpecialType(TypeSymbol original)
         {
             // A marker borrow protocol (Accessing[X]/Controlling[X]) is ABI-transparent to its inner X:
             // collapse it so no protocol type survives on a monomorphized expression's ResolvedType (the
             // backend then reads the concrete inner — an entity ptr / a value — never a protocol).
-            if (original is ProtocolTypeInfo { TypeArguments: [{ } markerInner] } markerProto &&
+            if (original is ProtocolTypeSymbol { TypeArguments: [{ } markerInner] } markerProto &&
                 RuntimeContract.IsMarkerProtocol(
                     baseName: (markerProto.GenericDefinition ?? markerProto).BareName))
             {
@@ -259,21 +259,21 @@ internal static class GenericAstRewriter
             }
 
             // Protocol self (`Me`/ProtocolSelf) -> the bound implementer (TypeSubs["Me"]).
-            if (original is ProtocolSelfTypeInfo &&
-                TypeSubs!.TryGetValue(key: "Me", value: out TypeInfo? meBound))
+            if (original is ProtocolSelfTypeSymbol &&
+                TypeSubs!.TryGetValue(key: "Me", value: out TypeSymbol? meBound))
             {
                 return meBound;
             }
 
             // Associated-type projection (`S/Iter`) -> resolve base then its binding.
-            if (original is AssociatedProjectionTypeInfo proj &&
+            if (original is AssociatedProjectionTypeSymbol proj &&
                 ResolveAssociatedType(proj: proj) is { } resolvedProjection)
             {
                 return resolvedProjection;
             }
 
             // Direct generic parameter substitution: T -> S64
-            if (original is GenericParameterTypeInfo gp && ResolveGenericParameter(gp: gp) is
+            if (original is GenericParameterTypeSymbol gp && ResolveGenericParameter(gp: gp) is
                     { } resolvedParameter)
             {
                 return resolvedParameter;
@@ -282,10 +282,10 @@ internal static class GenericAstRewriter
             return null;
         }
 
-        private TypeInfo? ResolveAssociatedType(AssociatedProjectionTypeInfo proj)
+        private TypeSymbol? ResolveAssociatedType(AssociatedProjectionTypeSymbol proj)
         {
-            TypeInfo newBase = ResolveType(original: proj.Base) ?? proj.Base;
-            TypeInfo? bound = RecordTypeInfo.ProjectAssociatedBinding(baseType: newBase,
+            TypeSymbol newBase = ResolveType(original: proj.Base) ?? proj.Base;
+            TypeSymbol? bound = RecordTypeSymbol.ProjectAssociatedBinding(baseType: newBase,
                 slot: proj.SlotName);
             if (bound != null)
             {
@@ -295,7 +295,7 @@ internal static class GenericAstRewriter
             return null;
         }
 
-        private TypeInfo? ResolveGenericParameter(GenericParameterTypeInfo gp)
+        private TypeSymbol? ResolveGenericParameter(GenericParameterTypeSymbol gp)
         {
             // `$Col` is the decl-position expand-column placeholder. In an EXPRESSION-position type
             // splice — `hijacked_from[${m.type}]` / `blank[Hijacked[${m.type}]]` inside an
@@ -309,7 +309,7 @@ internal static class GenericAstRewriter
                 return ActiveMemberType;
             }
 
-            if (TypeSubs!.TryGetValue(key: gp.Name, value: out TypeInfo? direct))
+            if (TypeSubs!.TryGetValue(key: gp.Name, value: out TypeSymbol? direct))
             {
                 return direct;
             }
@@ -318,7 +318,7 @@ internal static class GenericAstRewriter
             // name as a structural marker (`ForwarderOriginalName`). At monomorphization
             // time the binding lives under that name, not under the disambiguated `Name`.
             if (gp.ForwarderOriginalName is { } originalInnerName &&
-                TypeSubs.TryGetValue(key: originalInnerName, value: out TypeInfo? renamed))
+                TypeSubs.TryGetValue(key: originalInnerName, value: out TypeSymbol? renamed))
             {
                 return renamed;
             }
@@ -326,13 +326,13 @@ internal static class GenericAstRewriter
             return null;
         }
 
-        private TypeInfo? ResolveGenericArguments(TypeInfo original)
+        private TypeSymbol? ResolveGenericArguments(TypeSymbol original)
         {
             bool anyChanged = false;
-            var newArgs = new List<TypeInfo>(capacity: original.TypeArguments!.Count);
-            foreach (TypeInfo arg in original.TypeArguments)
+            var newArgs = new List<TypeSymbol>(capacity: original.TypeArguments!.Count);
+            foreach (TypeSymbol arg in original.TypeArguments)
             {
-                TypeInfo? resolved = ResolveType(original: arg);
+                TypeSymbol? resolved = ResolveType(original: arg);
                 if (resolved != null && !ReferenceEquals(objA: resolved, objB: arg))
                 {
                     newArgs.Add(item: resolved);
@@ -346,11 +346,11 @@ internal static class GenericAstRewriter
 
             if (anyChanged)
             {
-                TypeInfo? genericBase = original switch
+                TypeSymbol? genericBase = original switch
                 {
-                    RecordTypeInfo { GenericDefinition: { } d } => d,
-                    EntityTypeInfo { GenericDefinition: { } d } => d,
-                    ProtocolTypeInfo { GenericDefinition: { } d } => d,
+                    RecordTypeSymbol { GenericDefinition: { } d } => d,
+                    EntityTypeSymbol { GenericDefinition: { } d } => d,
+                    ProtocolTypeSymbol { GenericDefinition: { } d } => d,
                     _ => null
                 };
                 if (genericBase != null)
@@ -370,13 +370,13 @@ internal static class GenericAstRewriter
             return null;
         }
 
-        private TypeInfo? ResolveGenericDefinition(TypeInfo original)
+        private TypeSymbol? ResolveGenericDefinition(TypeSymbol original)
         {
-            var typeArgs = new List<TypeInfo>(capacity: original.GenericParameters!.Count);
+            var typeArgs = new List<TypeSymbol>(capacity: original.GenericParameters!.Count);
             bool complete = true;
             foreach (string gpName in original.GenericParameters)
             {
-                if (TypeSubs!.TryGetValue(key: gpName, value: out TypeInfo? subType))
+                if (TypeSubs!.TryGetValue(key: gpName, value: out TypeSymbol? subType))
                 {
                     typeArgs.Add(item: subType);
                 }
@@ -395,12 +395,12 @@ internal static class GenericAstRewriter
             return null;
         }
 
-        private WrapperTypeInfo? ResolveWrapper(WrapperTypeInfo wrapper)
+        private WrapperTypeSymbol? ResolveWrapper(WrapperTypeSymbol wrapper)
         {
-            var newWrapperArgs = new List<TypeInfo>(capacity: wrapper.TypeArguments?.Count ?? 1);
-            foreach (TypeInfo arg in wrapper.TypeArguments ?? [])
+            var newWrapperArgs = new List<TypeSymbol>(capacity: wrapper.TypeArguments?.Count ?? 1);
+            foreach (TypeSymbol arg in wrapper.TypeArguments ?? [])
             {
-                TypeInfo? resolved = ResolveType(original: arg);
+                TypeSymbol? resolved = ResolveType(original: arg);
                 newWrapperArgs.Add(
                     item: resolved != null && !ReferenceEquals(objA: resolved, objB: arg)
                         ? resolved
@@ -420,13 +420,13 @@ internal static class GenericAstRewriter
             return null;
         }
 
-        private RoutineTypeInfo? ResolveRoutineType(RoutineTypeInfo routineType)
+        private RoutineTypeSymbol? ResolveRoutineType(RoutineTypeSymbol routineType)
         {
             bool anyRoutineChanged = false;
-            var newParams = new List<TypeInfo>(capacity: routineType.ParameterTypes.Count);
-            foreach (TypeInfo p in routineType.ParameterTypes)
+            var newParams = new List<TypeSymbol>(capacity: routineType.ParameterTypes.Count);
+            foreach (TypeSymbol p in routineType.ParameterTypes)
             {
-                TypeInfo? resolved = ResolveType(original: p);
+                TypeSymbol? resolved = ResolveType(original: p);
                 newParams.Add(item: resolved != null && !ReferenceEquals(objA: resolved, objB: p)
                     ? resolved
                     : p);
@@ -436,7 +436,7 @@ internal static class GenericAstRewriter
                 }
             }
 
-            TypeInfo? newReturn = routineType.ReturnType != null
+            TypeSymbol? newReturn = routineType.ReturnType != null
                 ? ResolveType(original: routineType.ReturnType)
                 : null;
             if (newReturn != null &&
@@ -447,7 +447,7 @@ internal static class GenericAstRewriter
 
             if (anyRoutineChanged)
             {
-                return new RoutineTypeInfo(parameterTypes: newParams,
+                return new RoutineTypeSymbol(parameterTypes: newParams,
                     returnType: newReturn ?? routineType.ReturnType)
                 {
                     IsFailable = routineType.IsFailable
@@ -457,13 +457,13 @@ internal static class GenericAstRewriter
             return null;
         }
 
-        private TupleTypeInfo? ResolveTupleType(TupleTypeInfo tuple)
+        private TupleTypeSymbol? ResolveTupleType(TupleTypeSymbol tuple)
         {
             bool anyChanged = false;
-            var newElems = new List<TypeInfo>(capacity: tuple.ElementTypes.Count);
-            foreach (TypeInfo elem in tuple.ElementTypes)
+            var newElems = new List<TypeSymbol>(capacity: tuple.ElementTypes.Count);
+            foreach (TypeSymbol elem in tuple.ElementTypes)
             {
-                TypeInfo? resolved = ResolveType(original: elem);
+                TypeSymbol? resolved = ResolveType(original: elem);
                 if (resolved != null && !ReferenceEquals(objA: resolved, objB: elem))
                 {
                     newElems.Add(item: resolved);
@@ -477,21 +477,21 @@ internal static class GenericAstRewriter
 
             if (anyChanged)
             {
-                return new TupleTypeInfo(elementTypes: newElems);
+                return new TupleTypeSymbol(elementTypes: newElems);
             }
 
             return null;
         }
 
-        public RoutineInfo? ResolveRoutine(RoutineInfo? original, TypeInfo? expressionType = null,
-            List<TypeInfo>? callArgTypes = null)
+        public RoutineInfo? ResolveRoutine(RoutineInfo? original, TypeSymbol? expressionType = null,
+            List<TypeSymbol>? callArgTypes = null)
         {
             if (original == null || Registry == null)
             {
                 return null;
             }
 
-            TypeInfo? resolvedOwner = ResolveTypeForLookup(original: original.OwnerType);
+            TypeSymbol? resolvedOwner = ResolveTypeForLookup(original: original.OwnerType);
             var resolvedParamTypes = original.Parameters
                                              .Select(selector: selector =>
                                                   ResolveTypeForLookup(original: selector.Type) ??
@@ -500,7 +500,7 @@ internal static class GenericAstRewriter
             // Prefer concrete call-site arg types for memberRoutine-generic inference — routine's own
             // Parameters still carry generic param refs (e.g., I) that ResolveTypeForLookup
             // can't concretize since they're memberRoutine-level, not owner-level.
-            List<TypeInfo> memberRoutineInferArgTypes = callArgTypes is { Count: > 0 }
+            List<TypeSymbol> memberRoutineInferArgTypes = callArgTypes is { Count: > 0 }
                 ? callArgTypes
                 : resolvedParamTypes;
 
@@ -537,7 +537,7 @@ internal static class GenericAstRewriter
                 }
             }
 
-            if (original.IsGenericDefinition || original.OwnerType is GenericParameterTypeInfo or
+            if (original.IsGenericDefinition || original.OwnerType is GenericParameterTypeSymbol or
                     { IsGenericDefinition: true })
             {
                 return null;
@@ -551,8 +551,8 @@ internal static class GenericAstRewriter
         /// monomorphizing a memberRoutine-generic definition form when needed. Returns null when no
         /// concrete-owner memberRoutine binds here (the caller then falls through to other strategies).
         /// </summary>
-        private RoutineInfo? ResolveRoutineOnOwner(RoutineInfo original, TypeInfo resolvedOwner,
-            List<TypeInfo> resolvedParamTypes, List<TypeInfo> memberRoutineInferArgTypes)
+        private RoutineInfo? ResolveRoutineOnOwner(RoutineInfo original, TypeSymbol resolvedOwner,
+            List<TypeSymbol> resolvedParamTypes, List<TypeSymbol> memberRoutineInferArgTypes)
         {
             RoutineInfo? resolvedMemberRoutine = ResolveMemberRoutineOnConcreteOwner(
                 ownerType: resolvedOwner,
@@ -593,10 +593,10 @@ internal static class GenericAstRewriter
         /// <paramref name="expressionType"/>. Returns null when the target or a concrete creator
         /// cannot be resolved.
         /// </summary>
-        private RoutineInfo? ResolveCreateTarget(RoutineInfo original, TypeInfo? expressionType,
-            List<TypeInfo> resolvedParamTypes)
+        private RoutineInfo? ResolveCreateTarget(RoutineInfo original, TypeSymbol? expressionType,
+            List<TypeSymbol> resolvedParamTypes)
         {
-            TypeInfo? resolvedTarget = ResolveTypeForLookup(original: expressionType);
+            TypeSymbol? resolvedTarget = ResolveTypeForLookup(original: expressionType);
             if (resolvedTarget == null)
             {
                 return null;
@@ -623,7 +623,7 @@ internal static class GenericAstRewriter
         /// overload with the same failability. Returns null when neither strategy binds.
         /// </summary>
         private RoutineInfo? ResolveFreeRoutine(RoutineInfo original,
-            List<TypeInfo> resolvedParamTypes)
+            List<TypeSymbol> resolvedParamTypes)
         {
             RoutineInfo? instantiatedRoutine = TryInstantiateRoutine(routine: original);
             if (instantiatedRoutine != null)
@@ -645,7 +645,7 @@ internal static class GenericAstRewriter
         // Mirrors OperatorLoweringPass.ResolveMemberRoutineGenericRoutine: infer memberRoutine-level
         // generic arguments from call-site param types, then GetOrCreateRoutineResolution.
         private RoutineInfo? TryResolveMemberRoutineGeneric(RoutineInfo routine,
-            List<TypeInfo> argTypes)
+            List<TypeSymbol> argTypes)
         {
             if (Registry == null || !routine.IsGenericDefinition ||
                 routine.GenericParameters == null)
@@ -653,7 +653,7 @@ internal static class GenericAstRewriter
                 return null;
             }
 
-            var inferred = new TypeInfo?[routine.GenericParameters.Count];
+            var inferred = new TypeSymbol?[routine.GenericParameters.Count];
             int count = Math.Min(val1: routine.Parameters.Count, val2: argTypes.Count);
             for (int i = 0; i < count; i++)
             {
@@ -673,15 +673,15 @@ internal static class GenericAstRewriter
                                        .ToList());
         }
 
-        private static void InferMemberRoutineParam(TypeInfo? paramType, TypeInfo argType,
-            List<string> genericParams, TypeInfo?[] inferred)
+        private static void InferMemberRoutineParam(TypeSymbol? paramType, TypeSymbol argType,
+            List<string> genericParams, TypeSymbol?[] inferred)
         {
             if (paramType == null)
             {
                 return;
             }
 
-            if (paramType is GenericParameterTypeInfo gp)
+            if (paramType is GenericParameterTypeSymbol gp)
             {
                 for (int idx = 0; idx < genericParams.Count; idx++)
                 {
@@ -719,10 +719,10 @@ internal static class GenericAstRewriter
             }
 
             var resolvedTypeArgs =
-                new List<TypeInfo>(capacity: genericDefinition.GenericParameters.Count);
+                new List<TypeSymbol>(capacity: genericDefinition.GenericParameters.Count);
             for (int i = 0; i < genericDefinition.GenericParameters.Count; i++)
             {
-                TypeInfo? resolvedArg = null;
+                TypeSymbol? resolvedArg = null;
                 if (routine.TypeArguments is { Count: > 0 } && i < routine.TypeArguments.Count)
                 {
                     resolvedArg = ResolveTypeForLookup(original: routine.TypeArguments[index: i]);
@@ -730,11 +730,11 @@ internal static class GenericAstRewriter
 
                 resolvedArg ??= TypeSubs != null && TypeSubs.TryGetValue(
                     key: genericDefinition.GenericParameters[index: i],
-                    value: out TypeInfo? substituted)
+                    value: out TypeSymbol? substituted)
                     ? substituted
                     : null;
 
-                if (resolvedArg == null || resolvedArg is GenericParameterTypeInfo)
+                if (resolvedArg == null || resolvedArg is GenericParameterTypeSymbol)
                 {
                     return null;
                 }
@@ -746,8 +746,8 @@ internal static class GenericAstRewriter
                 typeArguments: resolvedTypeArgs);
         }
 
-        private RoutineInfo? ResolveMemberRoutineOnConcreteOwner(TypeInfo ownerType,
-            string memberRoutineName, List<TypeInfo> argTypes, bool isFailable)
+        private RoutineInfo? ResolveMemberRoutineOnConcreteOwner(TypeSymbol ownerType,
+            string memberRoutineName, List<TypeSymbol> argTypes, bool isFailable)
         {
             string lookupMemberRoutineName =
                 NormalizeMemberRoutineLookupName(memberRoutineName: memberRoutineName);
@@ -774,7 +774,7 @@ internal static class GenericAstRewriter
                 : memberRoutineName;
         }
 
-        public RoutineInfo? ResolveCallRoutine(CallExpression call, List<TypeInfo> callArgTypes)
+        public RoutineInfo? ResolveCallRoutine(CallExpression call, List<TypeSymbol> callArgTypes)
         {
             if (Registry == null)
             {
@@ -793,14 +793,14 @@ internal static class GenericAstRewriter
         }
 
         private RoutineInfo? ResolveMemberCallRoutine(MemberExpression member,
-            List<TypeInfo> callArgTypes)
+            List<TypeSymbol> callArgTypes)
         {
-            TypeInfo? receiverType = ResolveTypeForLookup(original: member.Object.ResolvedType);
+            TypeSymbol? receiverType = ResolveTypeForLookup(original: member.Object.ResolvedType);
             // A const-generic value receiver (e.g. `N` in `Array[T, N]` monomorphized to the value 4)
             // has no memberRoutines of its own — arithmetic/comparison resolves on its underlying numeric
             // type. Mirror CallOverloadResolutionPass's const-generic handling so `N - 1` lowers to a
             // real `U64.sub!` instead of leaving `.sub` unresolved in the monomorphized body.
-            if (receiverType is ConstGenericValueTypeInfo constRecv && Registry != null)
+            if (receiverType is ConstGenericValueTypeSymbol constRecv && Registry != null)
             {
                 receiverType = Registry.LookupType(name: constRecv.ExplicitTypeName ?? "U64") ??
                                receiverType;
@@ -818,7 +818,7 @@ internal static class GenericAstRewriter
         }
 
         private RoutineInfo? ResolveFreeCallRoutine(CallExpression call,
-            IdentifierExpression identifier, List<TypeInfo> callArgTypes)
+            IdentifierExpression identifier, List<TypeSymbol> callArgTypes)
         {
             // Identifier names are bare; the failable `!` is a structured flag on the call node.
             string callName = identifier.Name;
@@ -832,8 +832,8 @@ internal static class GenericAstRewriter
                                                .Select(selector: selector =>
                                                     ResolveTypeExpression(typeExpr: selector))
                                                .Where(predicate: t =>
-                                                    t is not null and not ErrorTypeInfo)
-                                               .Cast<TypeInfo>()
+                                                    t is not null and not ErrorTypeSymbol)
+                                               .Cast<TypeSymbol>()
                                                .ToList();
 
                     if (candidate.GenericParameters?.Count == resolvedTypeArgs.Count)
@@ -884,13 +884,13 @@ internal static class GenericAstRewriter
             }
 
             // Resolve the explicit `[U]` type-argument expressions to concrete TypeInfos.
-            var explicitArgs = new List<TypeInfo>(capacity: typeArgExprs.Count);
+            var explicitArgs = new List<TypeSymbol>(capacity: typeArgExprs.Count);
             foreach (TypeExpression te in typeArgExprs)
             {
-                TypeInfo? arg = te.ResolvedType is { } rt and not ErrorTypeInfo
+                TypeSymbol? arg = te.ResolvedType is { } rt and not ErrorTypeSymbol
                     ? ResolveType(original: rt) ?? rt
                     : ResolveTypeExpression(typeExpr: te);
-                if (arg == null || arg is ErrorTypeInfo || HasGenericParam(t: arg))
+                if (arg == null || arg is ErrorTypeSymbol || HasGenericParam(t: arg))
                 {
                     return null;
                 }
@@ -920,9 +920,9 @@ internal static class GenericAstRewriter
                 typeArguments: explicitArgs);
         }
 
-        private static bool HasGenericParam(TypeInfo t)
+        private static bool HasGenericParam(TypeSymbol t)
         {
-            if (t is GenericParameterTypeInfo)
+            if (t is GenericParameterTypeSymbol)
             {
                 return true;
             }
@@ -936,12 +936,12 @@ internal static class GenericAstRewriter
                    args.Any(predicate: a => HasGenericParam(t: a));
         }
 
-        public TypeInfo? ResolveTypeExpressionPublic(TypeExpression typeExpr)
+        public TypeSymbol? ResolveTypeExpressionPublic(TypeExpression typeExpr)
         {
             return ResolveTypeExpression(typeExpr: typeExpr);
         }
 
-        private TypeInfo? ResolveTypeExpression(TypeExpression typeExpr)
+        private TypeSymbol? ResolveTypeExpression(TypeExpression typeExpr)
         {
             if (Registry == null)
             {
@@ -949,12 +949,12 @@ internal static class GenericAstRewriter
             }
 
             if (TypeSubs != null &&
-                TypeSubs.TryGetValue(key: typeExpr.Name, value: out TypeInfo? substituted))
+                TypeSubs.TryGetValue(key: typeExpr.Name, value: out TypeSymbol? substituted))
             {
                 return substituted;
             }
 
-            TypeInfo? baseType = Registry.LookupType(name: typeExpr.Name);
+            TypeSymbol? baseType = Registry.LookupType(name: typeExpr.Name);
             if (baseType == null)
             {
                 return null;
@@ -966,7 +966,7 @@ internal static class GenericAstRewriter
                                            .Select(selector: selector =>
                                                 ResolveTypeExpression(typeExpr: selector))
                                            .Where(predicate: t => t != null)
-                                           .Cast<TypeInfo>()
+                                           .Cast<TypeSymbol>()
                                            .ToList();
 
                 if (baseType.GenericParameters?.Count == resolvedArgs.Count)
@@ -979,15 +979,15 @@ internal static class GenericAstRewriter
             return baseType;
         }
 
-        private TypeInfo? ResolveTypeForLookup(TypeInfo? original)
+        private TypeSymbol? ResolveTypeForLookup(TypeSymbol? original)
         {
             if (original == null)
             {
                 return null;
             }
 
-            TypeInfo resolved = ResolveType(original: original) ?? original;
-            if (resolved is WrapperTypeInfo wrapperType && Registry != null &&
+            TypeSymbol resolved = ResolveType(original: original) ?? original;
+            if (resolved is WrapperTypeSymbol wrapperType && Registry != null &&
                 Registry.LookupType(name: wrapperType.Name) is
                     { IsGenericDefinition: true } wrapperDef && wrapperType.TypeArguments is
                     { Count: > 0 })
@@ -1025,7 +1025,7 @@ internal static class GenericAstRewriter
         // The TypeExpression's own ResolvedType (SA-annotated on the generic-def AST) may still be a
         // bare `T` / a generic resolution carrying `T`; substitute it so no generic parameter survives
         // on a type-expression node (C1). Falls back to the original when there is nothing to resolve.
-        TypeInfo? resolvedType = ctx.ResolveType(original: type.ResolvedType) ?? type.ResolvedType;
+        TypeSymbol? resolvedType = ctx.ResolveType(original: type.ResolvedType) ?? type.ResolvedType;
 
         if (name == type.Name && args == null && type.GenericArguments == null &&
             ReferenceEquals(objA: resolvedType, objB: type.ResolvedType))
@@ -1046,14 +1046,14 @@ internal static class GenericAstRewriter
     {
         string[] segments = type.Name.Split(separator: '/');
         if (segments.Length < 2 || ctx.TypeSubs is null ||
-            !ctx.TypeSubs.TryGetValue(key: segments[0], value: out TypeInfo? current))
+            !ctx.TypeSubs.TryGetValue(key: segments[0], value: out TypeSymbol? current))
         {
             return null;
         }
 
         for (int i = 1; i < segments.Length; i++)
         {
-            TypeInfo? bound = RecordTypeInfo.ProjectAssociatedBinding(baseType: current,
+            TypeSymbol? bound = RecordTypeSymbol.ProjectAssociatedBinding(baseType: current,
                 slot: segments[i]);
             if (bound is null)
             {
@@ -1069,14 +1069,14 @@ internal static class GenericAstRewriter
         };
     }
 
-    /// <summary>Builds a <see cref="TypeExpression"/> for a (resolved) <see cref="TypeInfo"/>.</summary>
-    private static TypeExpression TypeInfoToTypeExpr(TypeInfo type, SourceLocation location)
+    /// <summary>Builds a <see cref="TypeExpression"/> for a (resolved) <see cref="TypeSymbol"/>.</summary>
+    private static TypeExpression TypeInfoToTypeExpr(TypeSymbol type, SourceLocation location)
     {
         string baseName = type switch
         {
-            RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
-            EntityTypeInfo { GenericDefinition: not null } e => e.GenericDefinition.Name,
-            ProtocolTypeInfo { GenericDefinition: not null } p => p.GenericDefinition.Name,
+            RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition.Name,
+            EntityTypeSymbol { GenericDefinition: not null } e => e.GenericDefinition.Name,
+            ProtocolTypeSymbol { GenericDefinition: not null } p => p.GenericDefinition.Name,
             _ => type.IsGenericResolution
                 ? type.BareName
                 : type.Name
@@ -1096,7 +1096,7 @@ internal static class GenericAstRewriter
     private static Expression RewriteExpression(Expression expr, RewriteContext ctx)
     {
         Expression result = RewriteConstructionExpression(expr: expr, ctx: ctx) ??
-                            RewriteComptimeCallExpression(expr: expr, ctx: ctx) ??
+                            RewriteBuildtimeCallExpression(expr: expr, ctx: ctx) ??
                             RewriteOperatorExpression(expr: expr, ctx: ctx) ??
                             RewriteCompositeExpression(expr: expr, ctx: ctx) ??
                             RewriteLeafExpression(expr: expr, ctx: ctx) ?? expr;
@@ -1198,11 +1198,11 @@ internal static class GenericAstRewriter
         };
     }
 
-    private static Expression? RewriteComptimeCallExpression(Expression expr, RewriteContext ctx)
+    private static Expression? RewriteBuildtimeCallExpression(Expression expr, RewriteContext ctx)
     {
         return expr switch
         {
-            // Comptime type test `T is X` (T a generic parameter concrete in this instantiation) folds
+            // Buildtime type test `T is X` (T a generic parameter concrete in this instantiation) folds
             // to a bool literal — so `if T is X` selects a branch with no runtime IsPatternExpression.
             IsPatternExpression { Pattern: TypePattern tsp } ipeType when !ctx.CloneOnly &&
                 TryEvalTypeParamIs(
@@ -1242,7 +1242,7 @@ internal static class GenericAstRewriter
                     TypeArguments = null
                 },
 
-            // Comptime expand-handle capability probe: m.obeying(Protocol) -> folded Bool literal
+            // Buildtime expand-handle capability probe: m.obeying(Protocol) -> folded Bool literal
             // (the current member's type conformance), only inside an active expand unroll. Placed
             // BEFORE the generic CallExpression clone so it never resolves as a real routine call.
             CallExpression
@@ -1256,7 +1256,7 @@ internal static class GenericAstRewriter
                     call: obeysCall,
                     ctx: ctx),
 
-            // Comptime metadata intrinsic: nameof(m) / orderof(m) / typeof(m) / typeidof(m) / valueof(c) /
+            // Buildtime metadata intrinsic: nameof(m) / orderof(m) / typeof(m) / typeidof(m) / valueof(c) /
             // placeof(m) / sizeof(m|T) -> folded off the active expand-unroll context. Placed BEFORE the
             // generic CallExpression clone so it never resolves as a real routine call.
             CallExpression
@@ -1272,7 +1272,7 @@ internal static class GenericAstRewriter
 
             CallExpression call => CloneCall(call: call, ctx: ctx),
 
-            // Comptime expand-handle projection: m.name / m.id -> folded literal (only inside an
+            // Buildtime expand-handle projection: m.name / m.id -> folded literal (only inside an
             // active expand unroll; a same-named local elsewhere is left to the generic arm below).
             MemberExpression { Object: IdentifierExpression handleId } handleMember when
                 !ctx.CloneOnly &&
@@ -1283,7 +1283,7 @@ internal static class GenericAstRewriter
                     ctx: ctx,
                     location: handleMember.Location),
 
-            // Comptime splice selector: x.${m.name} -> real member access on the current field.
+            // Buildtime splice selector: x.${m.name} -> real member access on the current field.
             // CloneOnly: keep the splice node intact (structural clone) — folding it needs the expand
             // context a bare template clone doesn't have.
             SpliceMemberExpression sm when !ctx.CloneOnly => RewriteSpliceMember(sm: sm, ctx: ctx),
@@ -1294,7 +1294,7 @@ internal static class GenericAstRewriter
                 Selector = (SpliceExpression)RewriteExpression(expr: sm.Selector, ctx: ctx)
             },
 
-            // Comptime splice in expression position: fold the inner projection (real subs only).
+            // Buildtime splice in expression position: fold the inner projection (real subs only).
             SpliceExpression se when !ctx.CloneOnly => RewriteExpression(expr: se.Inner, ctx: ctx),
 
             SpliceExpression se => se with
@@ -1515,7 +1515,7 @@ internal static class GenericAstRewriter
     private static void AnnotateRewrittenExpression(Expression result, Expression expr,
         RewriteContext ctx)
     {
-        TypeInfo? resolvedType = RefineResolvedType(
+        TypeSymbol? resolvedType = RefineResolvedType(
             initial: ctx.ResolveType(original: expr.ResolvedType) ?? expr.ResolvedType,
             result: result,
             expr: expr,
@@ -1523,7 +1523,7 @@ internal static class GenericAstRewriter
 
         result.ResolvedType = resolvedType;
 
-        TypeInfo? routineResultType = resolvedType ?? result.ResolvedType ?? expr.ResolvedType;
+        TypeSymbol? routineResultType = resolvedType ?? result.ResolvedType ?? expr.ResolvedType;
         RebindRewrittenNode(result: result,
             expr: expr,
             routineResultType: routineResultType,
@@ -1549,18 +1549,18 @@ internal static class GenericAstRewriter
     /// const-generic identifier, <c>me</c> receiver, branchof binding, stale-protocol local,
     /// SoA splice column, and typewise fold.
     /// </summary>
-    private static TypeInfo? RefineResolvedType(TypeInfo? initial, Expression result,
+    private static TypeSymbol? RefineResolvedType(TypeSymbol? initial, Expression result,
         Expression expr, RewriteContext ctx)
     {
-        TypeInfo? resolvedType = initial;
+        TypeSymbol? resolvedType = initial;
 
         // Const-generic identifiers (e.g. N in Array[T, N]) have ResolvedType=null in the
         // generic body because SA doesn't run on stdlib bodies before Phase 6.  After GMP
-        // substitutes N -> ConstGenericValueTypeInfo("63"), annotate the rewritten identifier
+        // substitutes N -> ConstGenericValueTypeSymbol("63"), annotate the rewritten identifier
         // so CallOverloadResolutionPass can resolve operator calls like N.sub!(1u64).
         if (resolvedType == null && result is IdentifierExpression cgIdent &&
-            ctx.TypeSubs?.TryGetValue(key: cgIdent.Name, value: out TypeInfo? cgSub) == true &&
-            cgSub is ConstGenericValueTypeInfo)
+            ctx.TypeSubs?.TryGetValue(key: cgIdent.Name, value: out TypeSymbol? cgSub) == true &&
+            cgSub is ConstGenericValueTypeSymbol)
         {
             resolvedType = cgSub;
         }
@@ -1568,25 +1568,25 @@ internal static class GenericAstRewriter
         // `me` (the receiver) in a re-homed protocol-default-impl body must be the concrete
         // implementer (ParamTypes["me"]), not the protocol's substituted element type.
         if (result is IdentifierExpression { Name: "me" } &&
-            ctx.ParamTypes.TryGetValue(key: "me", value: out TypeInfo? meReceiverType))
+            ctx.ParamTypes.TryGetValue(key: "me", value: out TypeSymbol? meReceiverType))
         {
             resolvedType = meReceiverType;
         }
 
         // An `branchof` arm payload binding (`x` in `is ${m.type} x => …`) has no SA annotation on
         // the generic template — supply the concrete arm type so the chained call re-resolves.
-        if (resolvedType is null or ErrorTypeInfo && result is IdentifierExpression bindingRef &&
+        if (resolvedType is null or ErrorTypeSymbol && result is IdentifierExpression bindingRef &&
             ctx.ActiveBindingTypes.TryGetValue(key: bindingRef.Name,
-                value: out TypeInfo? bindType))
+                value: out TypeSymbol? bindType))
         {
             resolvedType = bindType;
         }
 
         // Concretize a reference to a local whose type was re-inferred from a re-dispatched
         // initializer. Guarded to only replace a stale PROTOCOL type so concrete references are left untouched.
-        if (result is IdentifierExpression localRef && resolvedType is ProtocolTypeInfo &&
+        if (result is IdentifierExpression localRef && resolvedType is ProtocolTypeSymbol &&
             ctx.LocalReinferredTypes.TryGetValue(key: localRef.Name,
-                value: out TypeInfo? concreteLocal))
+                value: out TypeSymbol? concreteLocal))
         {
             resolvedType = concreteLocal;
         }
@@ -1600,23 +1600,23 @@ internal static class GenericAstRewriter
     /// concrete-type preservation. Both share the same shape (keep <c>result.ResolvedType</c> when
     /// the computed <paramref name="resolvedType"/> would otherwise be null or an error sentinel).
     /// </summary>
-    private static TypeInfo? RefineSoAAndTypewiseType(TypeInfo? resolvedType, Expression result,
+    private static TypeSymbol? RefineSoAAndTypewiseType(TypeSymbol? resolvedType, Expression result,
         Expression expr, RewriteContext ctx)
     {
         // A `${m.name}` splice on a SoA container resolves to the COLUMN type, not the source member
         // type. Preserve the splice-computed type when the object is an SoA container.
         if (expr is SpliceMemberExpression && result is MemberExpression spliceMember &&
-            result.ResolvedType is not (null or ErrorTypeInfo) &&
+            result.ResolvedType is not (null or ErrorTypeSymbol) &&
             IsSoAContainerType(type: ResolveSpliceObjectType(obj: spliceMember.Object, ctx: ctx)))
         {
             resolvedType = result.ResolvedType;
         }
 
-        // A folded comptime type projection yields a TYPEWISE IdentifierExpression; it must keep that
-        // concrete type rather than being overwritten with the source's deferred ErrorTypeInfo placeholder.
+        // A folded buildtime type projection yields a TYPEWISE IdentifierExpression; it must keep that
+        // concrete type rather than being overwritten with the source's deferred ErrorTypeSymbol placeholder.
         bool exprFoldsTypewise = FoldsTypewise(expr: expr);
-        if (resolvedType is null or ErrorTypeInfo &&
-            result.ResolvedType is not (null or ErrorTypeInfo) && exprFoldsTypewise)
+        if (resolvedType is null or ErrorTypeSymbol &&
+            result.ResolvedType is not (null or ErrorTypeSymbol) && exprFoldsTypewise)
         {
             resolvedType = result.ResolvedType;
         }
@@ -1630,7 +1630,7 @@ internal static class GenericAstRewriter
     /// Mutates <paramref name="result"/> in place.
     /// </summary>
     private static void RebindRewrittenNode(Expression result, Expression expr,
-        TypeInfo? routineResultType, RewriteContext ctx)
+        TypeSymbol? routineResultType, RewriteContext ctx)
     {
         switch (result)
         {
@@ -1685,7 +1685,7 @@ internal static class GenericAstRewriter
 
     /// <summary>Re-binds a cloned <see cref="CallExpression"/> that already carries a resolved routine.</summary>
     private static void RebindResolvedCall(CallExpression call, Expression expr,
-        TypeInfo? routineResultType, RewriteContext ctx)
+        TypeSymbol? routineResultType, RewriteContext ctx)
     {
         call.ConstructedType = ctx.ResolveType(original: call.ConstructedType) ??
                                call.ConstructedType ??
@@ -1697,7 +1697,7 @@ internal static class GenericAstRewriter
                                     ? nae.Value
                                     : a).ResolvedType)
                                .Where(predicate: t => t != null)
-                               .Cast<TypeInfo>()
+                               .Cast<TypeSymbol>()
                                .ToList();
         RoutineInfo? rewrittenRoutine = ctx.ResolveRoutine(original: call.ResolvedRoutine,
             expressionType: routineResultType,
@@ -1731,7 +1731,7 @@ internal static class GenericAstRewriter
                                     ? nae.Value
                                     : a).ResolvedType)
                                .Where(predicate: t => t != null)
-                               .Cast<TypeInfo>()
+                               .Cast<TypeSymbol>()
                                .ToList();
         RoutineInfo? plainResolved =
             ctx.ResolveCallRoutine(call: call, callArgTypes: callArgTypes) ?? call.ResolvedRoutine;
@@ -1766,7 +1766,7 @@ internal static class GenericAstRewriter
     /// <summary>Re-binds a cloned <see cref="GenericMemberRoutineCallExpression"/> that carries a resolved routine.</summary>
     private static void RebindGenericMemberRoutineCall(
         GenericMemberRoutineCallExpression genericCall, Expression expr,
-        TypeInfo? routineResultType, RewriteContext ctx)
+        TypeSymbol? routineResultType, RewriteContext ctx)
     {
         genericCall.ConstructedType = ctx.ResolveType(original: genericCall.ConstructedType) ??
                                       genericCall.ConstructedType ??
@@ -1837,9 +1837,9 @@ internal static class GenericAstRewriter
             p.Type != null && TypeHasGenericParam(t: p.Type));
     }
 
-    private static bool TypeHasGenericParam(TypeInfo t)
+    private static bool TypeHasGenericParam(TypeSymbol t)
     {
-        if (t is GenericParameterTypeInfo)
+        if (t is GenericParameterTypeSymbol)
         {
             return true;
         }
@@ -1888,7 +1888,7 @@ internal static class GenericAstRewriter
     {
         Expression newObj = RewriteExpression(expr: me.Object, ctx: ctx);
         if (newObj.ResolvedType == null && newObj is IdentifierExpression idObj &&
-            ctx.ParamTypes.TryGetValue(key: idObj.Name, value: out TypeInfo? paramType))
+            ctx.ParamTypes.TryGetValue(key: idObj.Name, value: out TypeSymbol? paramType))
         {
             newObj.ResolvedType = paramType;
         }
@@ -1900,7 +1900,7 @@ internal static class GenericAstRewriter
         // UNAMBIGUOUS (a member receiver), so substitute it to the concrete type it binds to (TypeSubs["T"])
         // — rename + carry the ResolvedType so the static/wired member resolves against the real type.
         if (newObj is IdentifierExpression { ResolvedType: null } tpObj && ctx.TypeSubs != null &&
-            ctx.TypeSubs.TryGetValue(key: tpObj.Name, value: out TypeInfo? boundTy) &&
+            ctx.TypeSubs.TryGetValue(key: tpObj.Name, value: out TypeSymbol? boundTy) &&
             boundTy is { IsGenericDefinition: false })
         {
             newObj = tpObj with { Name = boundTy.Name };
@@ -1936,7 +1936,7 @@ internal static class GenericAstRewriter
         string? typeName = callee.Object switch
         {
             IdentifierExpression { Name: "me" } when ctx.ParamTypes.TryGetValue(key: "me",
-                value: out TypeInfo? meType) => meType.FullName,
+                value: out TypeSymbol? meType) => meType.FullName,
             IdentifierExpression id when ctx.StringSubs.TryGetValue(key: id.Name,
                 value: out string? sub) => sub,
             IdentifierExpression id => id.Name,
@@ -1950,7 +1950,7 @@ internal static class GenericAstRewriter
             return null;
         }
 
-        TypeInfo? typeInfo = ctx.Registry!.LookupType(name: typeName);
+        TypeSymbol? typeInfo = ctx.Registry!.LookupType(name: typeName);
         if (typeInfo == null)
         {
             return null;
@@ -1958,11 +1958,11 @@ internal static class GenericAstRewriter
 
         // Delegate actual folding to BuilderQueryInliningPass so both code paths
         // use identical constant-computation logic.
-        TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-        TypeInfo? s64Type = ctx.Registry.LookupType(name: "S64");
-        TypeInfo? textType = ctx.Registry.LookupType(name: "Text");
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
-        TypeInfo? byteSizeType = ctx.Registry.LookupType(name: "ByteSize");
+        TypeSymbol? u64Type = ctx.Registry.LookupType(name: "U64");
+        TypeSymbol? s64Type = ctx.Registry.LookupType(name: "S64");
+        TypeSymbol? textType = ctx.Registry.LookupType(name: "Text");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? byteSizeType = ctx.Registry.LookupType(name: "ByteSize");
 
         return callee.MemberName switch
         {
@@ -1996,12 +1996,12 @@ internal static class GenericAstRewriter
             "member_variable_count" when s64Type != null => new LiteralExpression(
                 Value: (long)(typeInfo switch
                 {
-                    TupleTypeInfo t => t.MemberVariables.Count,
-                    ChoiceTypeInfo ch => ch.Cases.Count,
-                    FlagsTypeInfo f => f.Members.Count,
-                    VariantTypeInfo v => v.Members.Count,
-                    RecordTypeInfo r => r.MemberVariables.Count,
-                    EntityTypeInfo e => e.MemberVariables.Count,
+                    TupleTypeSymbol t => t.MemberVariables.Count,
+                    ChoiceTypeSymbol ch => ch.Cases.Count,
+                    FlagsTypeSymbol f => f.Members.Count,
+                    VariantTypeSymbol v => v.Members.Count,
+                    RecordTypeSymbol r => r.MemberVariables.Count,
+                    EntityTypeSymbol e => e.MemberVariables.Count,
                     _ => 0
                 }),
                 LiteralType: TokenType.S64Literal,
@@ -2039,8 +2039,8 @@ internal static class GenericAstRewriter
 
     private static bool CallRoutineNeedsRebinding(RoutineInfo routine)
     {
-        if (routine.IsGenericDefinition || routine.OwnerType is GenericParameterTypeInfo
-                or ProtocolTypeInfo or { IsGenericDefinition: true })
+        if (routine.IsGenericDefinition || routine.OwnerType is GenericParameterTypeSymbol
+                or ProtocolTypeSymbol or { IsGenericDefinition: true })
         {
             // A protocol-owned memberRoutine is abstract (no body) — after monomorphization the call must
             // re-dispatch to the concrete implementer (e.g. Iterator[S64].try_emit, resolved via a
@@ -2053,14 +2053,14 @@ internal static class GenericAstRewriter
                    predicate: predicate => ContainsGenericPlaceholder(type: predicate.Type));
     }
 
-    private static bool ContainsGenericPlaceholder(TypeInfo? type)
+    private static bool ContainsGenericPlaceholder(TypeSymbol? type)
     {
         if (type == null)
         {
             return false;
         }
 
-        if (type is GenericParameterTypeInfo or ErrorTypeInfo)
+        if (type is GenericParameterTypeSymbol or ErrorTypeSymbol)
         {
             return true;
         }
@@ -2076,7 +2076,7 @@ internal static class GenericAstRewriter
             return true;
         }
 
-        return type is TupleTypeInfo tuple &&
+        return type is TupleTypeSymbol tuple &&
                tuple.ElementTypes.Any(predicate: ContainsGenericPlaceholder);
     }
 
@@ -2099,7 +2099,7 @@ internal static class GenericAstRewriter
     }
 
     public static Statement RewriteStatement(Statement stmt,
-        IReadOnlyDictionary<string, string> subs, IReadOnlyDictionary<string, TypeInfo>? typeSubs,
+        IReadOnlyDictionary<string, string> subs, IReadOnlyDictionary<string, TypeSymbol>? typeSubs,
         TypeRegistry? registry, RoutineInfo? enclosingRoutine = null)
     {
         RewriteContext ctx = typeSubs != null && registry != null
@@ -2107,9 +2107,9 @@ internal static class GenericAstRewriter
             : new RewriteContext(stringSubs: subs, typeSubs: null, registry: null);
         if (enclosingRoutine?.Parameters != null)
         {
-            foreach (ParameterInfo p in enclosingRoutine.Parameters)
+            foreach (ParamInfo p in enclosingRoutine.Parameters)
             {
-                TypeInfo? resolvedParamType = ctx.ResolveType(original: p.Type) ?? p.Type;
+                TypeSymbol? resolvedParamType = ctx.ResolveType(original: p.Type) ?? p.Type;
                 if (resolvedParamType != null)
                 {
                     ctx.ParamTypes[key: p.Name] = resolvedParamType;
@@ -2119,7 +2119,7 @@ internal static class GenericAstRewriter
 
         if (enclosingRoutine?.OwnerType is { } ownerType)
         {
-            TypeInfo resolvedOwner = ctx.ResolveType(original: ownerType) ?? ownerType;
+            TypeSymbol resolvedOwner = ctx.ResolveType(original: ownerType) ?? ownerType;
             ctx.ParamTypes[key: "me"] = resolvedOwner;
         }
 
@@ -2187,7 +2187,7 @@ internal static class GenericAstRewriter
                     : null
             },
 
-            // Comptime member-expansion: unroll the body once per member of the concrete source
+            // Buildtime member-expansion: unroll the body once per member of the concrete source
             // type. Never survives to codegen — replaced by a flat block of the per-member clones.
             // CloneOnly: leave the expand INTACT (structural recurse) so the generic-def template stays
             // foldable by a later real monomorphization.
@@ -2202,7 +2202,7 @@ internal static class GenericAstRewriter
             WhenStatement { ArmExpansion: not null } armWhen when !ctx.CloneOnly =>
                 RewriteWhenArmExpansion(ws: armWhen, ctx: ctx),
 
-            // Comptime type-switch: `when T … is X => …` where T is this instantiation's concrete type.
+            // Buildtime type-switch: `when T … is X => …` where T is this instantiation's concrete type.
             // Fold to the matching arm (or else / no-op) so codegen never sees `T` in value position.
             WhenStatement typeSwitch when !ctx.CloneOnly &&
                                           IsTypeParamSubject(expr: typeSwitch.Expression, ctx: ctx)
@@ -2257,9 +2257,9 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Pure structural DEEP-CLONE of a statement (no substitutions, no comptime folding). Every node is
+    /// Pure structural DEEP-CLONE of a statement (no substitutions, no buildtime folding). Every node is
     /// copied so mutation of the clone (e.g. on-demand SA annotating <c>ResolvedCreatorRoutine</c> /
-    /// <c>ResolvedType</c>) cannot leak into the original. Unlike the substituting rewrite, comptime
+    /// <c>ResolvedType</c>) cannot leak into the original. Unlike the substituting rewrite, buildtime
     /// constructs (<c>expand</c>, type-switch <c>when</c>, arm-expansion, splices, metadata intrinsics)
     /// are LEFT INTACT — so a GENERIC-DEFINITION template body stays foldable by a later real
     /// monomorphization. This is the isolation primitive for warm builds sharing one stdlib snapshot.
@@ -2274,7 +2274,7 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Unrolls a comptime <c>expand m in allmemvarof(T)</c> loop at monomorphization: resolves the
+    /// Unrolls a buildtime <c>expand m in allmemvarof(T)</c> loop at monomorphization: resolves the
     /// concrete source type, then clones the body once per member variable with the handle
     /// projections folded (<c>m.name</c>→Text literal, <c>m.id</c>→U64 literal) and the
     /// <c>x.${m.name}</c> splices rewritten to real member accesses. The per-member clones are
@@ -2283,7 +2283,7 @@ internal static class GenericAstRewriter
     private static BlockStatement RewriteExpandStatement(ExpandStatement expand,
         RewriteContext ctx)
     {
-        TypeInfo? source = ResolveExpandSource(sourceType: expand.SourceType, ctx: ctx);
+        TypeSymbol? source = ResolveExpandSource(sourceType: expand.SourceType, ctx: ctx);
 
         // caseof(T): iterate a choice's cases (S32 discriminants) or a flags' members (U64 bit values),
         // exposing c.name / c.id (ordinal) / c.value (the numeric constant, spliced via ${c.value}).
@@ -2293,11 +2293,11 @@ internal static class GenericAstRewriter
         }
 
         // openmemvarof/allmemvarof work over any field-carrying aggregate: records, tuples (a
-        // RecordTypeInfo subtype), and entities (their own MemberVariables list).
+        // RecordTypeSymbol subtype), and entities (their own MemberVariables list).
         List<MemberVariableInfo>? members = source switch
         {
-            RecordTypeInfo record => record.MemberVariables,
-            EntityTypeInfo entity => entity.MemberVariables,
+            RecordTypeSymbol record => record.MemberVariables,
+            EntityTypeSymbol entity => entity.MemberVariables,
             _ => null
         };
 
@@ -2305,7 +2305,7 @@ internal static class GenericAstRewriter
         // Computed over the FULL declaration-order list BEFORE the openmemvarof filter, so a `secret`/
         // `posted` field ahead still pushes the offsets `placeof(m)` folds to.
         Dictionary<MemberVariableInfo, long> offsets = ComputeMemberOffsets(members: members,
-            packed: source is RecordTypeInfo { IsPacked: true });
+            packed: source is RecordTypeSymbol { IsPacked: true });
 
         // openmemvarof(T) yields only the publicly-readable members (OPEN ∪ POSTED) — a `secret` field is
         // filtered out. allmemvarof(T) yields every member. This visibility split is
@@ -2323,7 +2323,7 @@ internal static class GenericAstRewriter
             string? prevHandle = ctx.ActiveExpandHandle;
             string? prevName = ctx.ActiveMemberName;
             long prevIndex = ctx.ActiveMemberIndex;
-            TypeInfo? prevType = ctx.ActiveMemberType;
+            TypeSymbol? prevType = ctx.ActiveMemberType;
             bool prevSecret = ctx.ActiveMemberIsSecret;
             VisibilityModifier prevVis = ctx.ActiveMemberVisibility;
             long prevOffset = ctx.ActiveMemberOffset;
@@ -2365,10 +2365,10 @@ internal static class GenericAstRewriter
 
     /// <summary>Byte size of a member/type for repr-C layout, guarded: a non-concrete <c>@llvm</c>
     /// template hole (a generic-def body being cloned before substitution) throws inside
-    /// <see cref="TypeInfo.SizeBytes"/>, so treat it as 0 rather than detonating the whole rewrite.</summary>
+    /// <see cref="TypeSymbol.SizeBytes"/>, so treat it as 0 rather than detonating the whole rewrite.</summary>
     private const int PointerSize = 8;
 
-    private static int SafeSizeBytes(TypeInfo? type)
+    private static int SafeSizeBytes(TypeSymbol? type)
     {
         if (type is null)
         {
@@ -2387,7 +2387,7 @@ internal static class GenericAstRewriter
 
     /// <summary>Natural (ABI) alignment of <paramref name="type"/> with the same non-throwing guard as
     /// <see cref="SafeSizeBytes"/> (a non-concrete <c>@llvm</c> template hole yields 1, not a throw).</summary>
-    private static int SafeAlignment(TypeInfo? type)
+    private static int SafeAlignment(TypeSymbol? type)
     {
         if (type is null)
         {
@@ -2404,7 +2404,7 @@ internal static class GenericAstRewriter
     /// <summary>
     /// Computes each member's byte OFFSET within the parent struct using the repr-C layout formula
     /// (<c>alignment = member natural alignment; size = AlignTo(size, alignment); offset = size; size
-    /// += memberSize</c>), matching <see cref="RecordTypeInfo.SizeBytes"/> — so <c>placeof(m)</c> equals C
+    /// += memberSize</c>), matching <see cref="RecordTypeSymbol.SizeBytes"/> — so <c>placeof(m)</c> equals C
     /// <c>offsetof</c> even for nested aggregates. Keyed by member identity so
     /// the caller can look up an offset after filtering the iteration set. Empty when the source carries
     /// no member list.
@@ -2423,7 +2423,7 @@ internal static class GenericAstRewriter
         {
             int memberSize = SafeSizeBytes(type: mv.Type);
             // @layout("packed"): no inter-field padding, so each member sits at the running byte
-            // offset (alignment 1) — matches RecordTypeInfo.SizeBytes's packed branch and the packed
+            // offset (alignment 1) — matches RecordTypeSymbol.SizeBytes's packed branch and the packed
             // LLVM `<{...}>` layout, so placeof(m) stays truthful for a packed record.
             int alignment = packed
                 ? 1
@@ -2437,7 +2437,7 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>Rounds <paramref name="size"/> up to the next multiple of <paramref name="alignment"/>
-    /// (repr-C member alignment); mirrors <c>RecordTypeInfo.AlignTo</c>.</summary>
+    /// (repr-C member alignment); mirrors <c>RecordTypeSymbol.AlignTo</c>.</summary>
     private static long AlignTo(long size, int alignment)
     {
         if (alignment <= 1)
@@ -2457,15 +2457,15 @@ internal static class GenericAstRewriter
     /// folded to literals. A choice case's value is its computed discriminant; a flags member's value
     /// is <c>1 &lt;&lt; bitPosition</c>.
     /// </summary>
-    private static BlockStatement RewriteCaseExpand(ExpandStatement expand, TypeInfo? source,
+    private static BlockStatement RewriteCaseExpand(ExpandStatement expand, TypeSymbol? source,
         RewriteContext ctx)
     {
         List<(string Name, long Value)>? cases = source switch
         {
-            ChoiceTypeInfo choice => choice.Cases
+            ChoiceTypeSymbol choice => choice.Cases
                                            .Select(selector: c => (c.Name, (long)c.ComputedValue))
                                            .ToList(),
-            FlagsTypeInfo flags => flags.Members
+            FlagsTypeSymbol flags => flags.Members
                                         .Select(selector: m =>
                                              (m.Name, (long)(1UL << m.BitPosition)))
                                         .ToList(),
@@ -2482,7 +2482,7 @@ internal static class GenericAstRewriter
             bool prevIsFlags = ctx.ActiveCaseIsFlags;
 
             ctx.ActiveExpandHandle = expand.HandleName;
-            ctx.ActiveCaseIsFlags = source is FlagsTypeInfo;
+            ctx.ActiveCaseIsFlags = source is FlagsTypeSymbol;
             long idx = 0;
             foreach ((string caseName, long caseValue) in cases)
             {
@@ -2512,7 +2512,7 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Unrolls a comptime <c>when me</c> / <c>expand m in branchof(T)</c> / <c>is ${m.type} x => …</c>
+    /// Unrolls a buildtime <c>when me</c> / <c>expand m in branchof(T)</c> / <c>is ${m.type} x => …</c>
     /// at monomorphization: resolves the concrete variant, then clones the template clause once per
     /// arm with <c>${m.type}</c> folded to the arm type and the payload binding annotated. Payload-
     /// less arms (None / None) are skipped for now — a template with a binding cannot serve them;
@@ -2520,7 +2520,7 @@ internal static class GenericAstRewriter
     /// </summary>
     /// <summary>
     /// True when <paramref name="expr"/> is a bare generic parameter this instantiation substitutes to
-    /// a concrete type — i.e. a comptime type-switch subject (`when T …`) we can fold here.
+    /// a concrete type — i.e. a buildtime type-switch subject (`when T …`) we can fold here.
     /// </summary>
     private static bool IsTypeParamSubject(Expression expr, RewriteContext ctx)
     {
@@ -2529,7 +2529,7 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Comptime type test: <c>&lt;T&gt; is &lt;Type&gt;</c> where <c>T</c> resolves to a concrete type in
+    /// Buildtime type test: <c>&lt;T&gt; is &lt;Type&gt;</c> where <c>T</c> resolves to a concrete type in
     /// this instantiation. RF has no inheritance, so this is exact type-identity equality. Returns null
     /// when it can't be decided here (operand not a substituted type parameter, or target unresolved).
     /// </summary>
@@ -2537,14 +2537,14 @@ internal static class GenericAstRewriter
         RewriteContext ctx)
     {
         if (operand is not IdentifierExpression id || ctx.TypeSubs == null ||
-            !ctx.TypeSubs.TryGetValue(key: id.Name, value: out TypeInfo? concrete))
+            !ctx.TypeSubs.TryGetValue(key: id.Name, value: out TypeSymbol? concrete))
         {
             return null;
         }
 
         // ResolveType returns null when the target needs no substitution (a fully concrete pattern
         // type like `Text`), so fall back to the pattern's own resolved type.
-        TypeInfo? target = typePattern.Type.ResolvedType == null
+        TypeSymbol? target = typePattern.Type.ResolvedType == null
             ? null
             : ctx.ResolveType(original: typePattern.Type.ResolvedType) ??
               typePattern.Type.ResolvedType;
@@ -2556,7 +2556,7 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Folds a comptime type-switch <c>when T … is X =&gt; …</c> to the SINGLE arm whose type pattern
+    /// Folds a buildtime type-switch <c>when T … is X =&gt; …</c> to the SINGLE arm whose type pattern
     /// matches the concrete substitution for <c>T</c> (or the <c>else</c> arm, or a no-op). Non-matching
     /// arms — which may use operations valid only for their arm type — are REMOVED, not dead-branched.
     /// </summary>
@@ -2597,7 +2597,7 @@ internal static class GenericAstRewriter
     {
         WhenArmExpansion arm = ws.ArmExpansion!;
         Expression subject = RewriteExpression(expr: ws.Expression, ctx: ctx);
-        TypeInfo? source = ResolveExpandSource(sourceType: arm.SourceType, ctx: ctx);
+        TypeSymbol? source = ResolveExpandSource(sourceType: arm.SourceType, ctx: ctx);
         string? binding = (arm.Template.Pattern as SpliceTypePattern)?.VariableName;
         SourceLocation loc = arm.Template.Location;
 
@@ -2605,12 +2605,12 @@ internal static class GenericAstRewriter
         var clauses = ws.Clauses
                         .Select(selector: c => RewriteWhenClause(clause: c, ctx: ctx))
                         .ToList();
-        if (source is VariantTypeInfo variant)
+        if (source is VariantTypeSymbol variant)
         {
             string? prevHandle = ctx.ActiveExpandHandle;
             string? prevName = ctx.ActiveMemberName;
             long prevIndex = ctx.ActiveMemberIndex;
-            TypeInfo? prevType = ctx.ActiveMemberType;
+            TypeSymbol? prevType = ctx.ActiveMemberType;
 
             ctx.ActiveExpandHandle = arm.HandleName;
             foreach (VariantMemberInfo vm in variant.Members)
@@ -2663,14 +2663,14 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Resolves the concrete <see cref="TypeInfo"/> that an <c>expand</c> loop iterates over. A
+    /// Resolves the concrete <see cref="TypeSymbol"/> that an <c>expand</c> loop iterates over. A
     /// bare generic parameter (<c>T</c>) resolves through the type-substitution map; otherwise the
     /// (string-substituted) name is looked up in the registry.
     /// </summary>
-    private static TypeInfo? ResolveExpandSource(TypeExpression sourceType, RewriteContext ctx)
+    private static TypeSymbol? ResolveExpandSource(TypeExpression sourceType, RewriteContext ctx)
     {
         if (ctx.TypeSubs != null &&
-            ctx.TypeSubs.TryGetValue(key: sourceType.Name, value: out TypeInfo? bound))
+            ctx.TypeSubs.TryGetValue(key: sourceType.Name, value: out TypeSymbol? bound))
         {
             return bound;
         }
@@ -2682,7 +2682,7 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Folds a comptime expand-handle projection to a literal: <c>m.name</c>→Text field name,
+    /// Folds a buildtime expand-handle projection to a literal: <c>m.name</c>→Text field name,
     /// <c>m.id</c>→U64 ordinal.
     /// </summary>
     private static Expression FoldHandleProjection(string projection, RewriteContext ctx,
@@ -2790,7 +2790,7 @@ internal static class GenericAstRewriter
         // (`.data_size()`, `.type_id()`, …) re-resolves as a universal memberRoutine on it — exactly like a
         // hand-written `S64.data_size()`. (In TYPE/pattern position `${m.type}` is a different node,
         // TypeExpression.SpliceHandle / SpliceTypePattern, handled at parse/resolve time.)
-        TypeInfo? memberType = ctx.ActiveMemberType;
+        TypeSymbol? memberType = ctx.ActiveMemberType;
         return new IdentifierExpression(Name: memberType?.Name ?? "None", Location: location)
         {
             ResolvedType = memberType
@@ -2802,7 +2802,7 @@ internal static class GenericAstRewriter
     {
         // A routine-typed member (only entities may hold one; records are barred by RF-S412) has
         // neither `serialize` nor `represent`, so a derive skips it (boxes a `<routine>` placeholder).
-        bool isRoutine = ctx.ActiveMemberType is RoutineTypeInfo;
+        bool isRoutine = ctx.ActiveMemberType is RoutineTypeSymbol;
         return new LiteralExpression(Value: isRoutine,
             LiteralType: isRoutine
                 ? TokenType.True
@@ -2839,16 +2839,16 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>Resolves a metadata intrinsic type argument (a type param like <c>T</c> or a concrete
-    /// type name) to a concrete <see cref="TypeInfo"/> for <c>sizeof(T)</c>/<c>typeof(T)</c>.</summary>
-    private static TypeInfo? ResolveMetadataType(string typeName, RewriteContext ctx)
+    /// type name) to a concrete <see cref="TypeSymbol"/> for <c>sizeof(T)</c>/<c>typeof(T)</c>.</summary>
+    private static TypeSymbol? ResolveMetadataType(string typeName, RewriteContext ctx)
     {
         if (ctx.TypeSubs != null &&
-            ctx.TypeSubs.TryGetValue(key: typeName, value: out TypeInfo? sub))
+            ctx.TypeSubs.TryGetValue(key: typeName, value: out TypeSymbol? sub))
         {
             return ConcretizeGenericDef(type: sub, ctx: ctx);
         }
 
-        TypeInfo? t = ctx.Registry?.LookupType(name: typeName);
+        TypeSymbol? t = ctx.Registry?.LookupType(name: typeName);
         return t != null
             ? ConcretizeGenericDef(type: t, ctx: ctx)
             : null;
@@ -2856,7 +2856,7 @@ internal static class GenericAstRewriter
 
     /// <summary>The concrete type a metadata intrinsic argument denotes: the active member's type when
     /// the argument is the expand handle, else a resolved type name (for <c>sizeof(T)</c>/<c>typeof(T)</c>).</summary>
-    private static TypeInfo? MetadataArgType(Expression arg, RewriteContext ctx)
+    private static TypeSymbol? MetadataArgType(Expression arg, RewriteContext ctx)
     {
         if (arg is IdentifierExpression argId)
         {
@@ -2872,7 +2872,7 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Folds a comptime metadata intrinsic (<c>nameof</c>/<c>orderof</c>/<c>typeof</c>/<c>typeidof</c>/
+    /// Folds a buildtime metadata intrinsic (<c>nameof</c>/<c>orderof</c>/<c>typeof</c>/<c>typeidof</c>/
     /// <c>valueof</c>/<c>placeof</c>/<c>sizeof</c>) to a literal or typewise receiver off the active
     /// expand-unroll context. The name/order/type/type_id/value cases delegate to
     /// <see cref="FoldHandleProjection"/> (same folds as the retired dot-projection); <c>placeof</c> and
@@ -2921,7 +2921,7 @@ internal static class GenericAstRewriter
             default
                 : // "typeof" — a typewise receiver naming the concrete member/type (see FoldHandleProjection "type").
             {
-                TypeInfo? t = MetadataArgType(arg: arg, ctx: ctx);
+                TypeSymbol? t = MetadataArgType(arg: arg, ctx: ctx);
                 return new IdentifierExpression(Name: t?.Name ?? "None", Location: location)
                 {
                     ResolvedType = t
@@ -2931,11 +2931,11 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Folds a comptime expand-handle capability probe <c>m.obeying(Protocol)</c> to a literal Bool:
+    /// Folds a buildtime expand-handle capability probe <c>m.obeying(Protocol)</c> to a literal Bool:
     /// does the CURRENT member's type conform to the named protocol? The argument must be a bare
     /// protocol identifier. A derive template gates a per-field call on this (e.g. only call
     /// <c>me.field.serialize()</c> when the field <c>m.obeying(Serializable)</c>, else fall back to
-    /// <c>represent</c>) — the enclosing <c>if</c> then comptime-prunes so the untaken branch (an
+    /// <c>represent</c>) — the enclosing <c>if</c> then buildtime-prunes so the untaken branch (an
     /// invalid call for this member) never reaches codegen (see <see cref="RewriteIf"/>).
     /// </summary>
     private static LiteralExpression FoldHandleObeys(CallExpression call, RewriteContext ctx)
@@ -2955,7 +2955,7 @@ internal static class GenericAstRewriter
     }
 
     /// <summary>
-    /// Rewrites an <c>if</c>, comptime-PRUNING it when — inside an active expand unroll — its condition
+    /// Rewrites an <c>if</c>, buildtime-PRUNING it when — inside an active expand unroll — its condition
     /// folded to a constant Bool (e.g. <c>if m.obeys(Serializable)</c>). Only the taken branch is
     /// kept, so codegen never sees the dead branch, which may contain a call that is invalid for this
     /// concrete member (e.g. <c>.serialize()</c> on a non-serializable field). Outside expand, or with
@@ -3016,8 +3016,8 @@ internal static class GenericAstRewriter
         // is the column `Array[F32, N]`, not the source field `F32`. For the common case (the object IS
         // the expand source, e.g. `me` is the record being walked, or `result` is a fresh element), the
         // lookup falls back to the source member type.
-        TypeInfo? objType = ResolveSpliceObjectType(obj: obj, ctx: ctx);
-        TypeInfo? memberType =
+        TypeSymbol? objType = ResolveSpliceObjectType(obj: obj, ctx: ctx);
+        TypeSymbol? memberType =
             LookupMemberType(type: objType, name: memberName) ?? ctx.ActiveMemberType;
 
         var member = new MemberExpression(Object: obj,
@@ -3028,19 +3028,19 @@ internal static class GenericAstRewriter
 
     /// <summary>Best-effort concrete type of an expand splice's object (<c>me</c>, a param, or an
     /// annotated expression), used to look up the real member a <c>${m.name}</c> splice targets.</summary>
-    private static TypeInfo? ResolveSpliceObjectType(Expression obj, RewriteContext ctx)
+    private static TypeSymbol? ResolveSpliceObjectType(Expression obj, RewriteContext ctx)
     {
         // `me` → the concrete owner type bound for this monomorphization.
         if (obj is IdentifierExpression { Name: "me" })
         {
-            if (ctx.ParamTypes.TryGetValue(key: "me", value: out TypeInfo? meParam))
+            if (ctx.ParamTypes.TryGetValue(key: "me", value: out TypeSymbol? meParam))
             {
                 return ConcretizeGenericDef(type: ctx.ResolveType(original: meParam) ?? meParam,
                     ctx: ctx);
             }
 
             if (ctx.TypeSubs != null &&
-                ctx.TypeSubs.TryGetValue(key: "Me", value: out TypeInfo? meBound))
+                ctx.TypeSubs.TryGetValue(key: "Me", value: out TypeSymbol? meBound))
             {
                 return ConcretizeGenericDef(type: meBound, ctx: ctx);
             }
@@ -3048,7 +3048,7 @@ internal static class GenericAstRewriter
 
         // A parameter reference whose type the context tracks.
         if (obj is IdentifierExpression id &&
-            ctx.ParamTypes.TryGetValue(key: id.Name, value: out TypeInfo? paramType))
+            ctx.ParamTypes.TryGetValue(key: id.Name, value: out TypeSymbol? paramType))
         {
             return ConcretizeGenericDef(type: ctx.ResolveType(original: paramType) ?? paramType,
                 ctx: ctx);
@@ -3071,7 +3071,7 @@ internal static class GenericAstRewriter
     /// by binding its parameters through the current type-substitution map. This is what surfaces the
     /// decl-position expand columns (they live on the concrete instance, not the definition).
     /// </summary>
-    private static TypeInfo? ConcretizeGenericDef(TypeInfo? type, RewriteContext ctx)
+    private static TypeSymbol? ConcretizeGenericDef(TypeSymbol? type, RewriteContext ctx)
     {
         if (type == null || ctx.Registry == null || ctx.TypeSubs == null)
         {
@@ -3080,8 +3080,8 @@ internal static class GenericAstRewriter
 
         List<string>? genericParams = type switch
         {
-            RecordTypeInfo { IsGenericDefinition: true } r => r.GenericParameters,
-            EntityTypeInfo { IsGenericDefinition: true } e => e.GenericParameters,
+            RecordTypeSymbol { IsGenericDefinition: true } r => r.GenericParameters,
+            EntityTypeSymbol { IsGenericDefinition: true } e => e.GenericParameters,
             _ => null
         };
         if (genericParams is not { Count: > 0 })
@@ -3089,10 +3089,10 @@ internal static class GenericAstRewriter
             return type;
         }
 
-        var args = new List<TypeInfo>(capacity: genericParams.Count);
+        var args = new List<TypeSymbol>(capacity: genericParams.Count);
         foreach (string p in genericParams)
         {
-            if (!ctx.TypeSubs.TryGetValue(key: p, value: out TypeInfo? bound))
+            if (!ctx.TypeSubs.TryGetValue(key: p, value: out TypeSymbol? bound))
             {
                 return type; // can't fully bind — leave as-is
             }
@@ -3117,12 +3117,12 @@ internal static class GenericAstRewriter
     /// definition as <paramref name="def"/> — i.e. binding a parameter of <c>def</c> to <c>bound</c> would
     /// make <c>def</c> its own (transitive) type argument, a self-referential nest that concretizes without
     /// end. Compared by generic-definition identity (reference, else bare name).</summary>
-    private static bool BoundReferencesDef(TypeInfo bound, TypeInfo def)
+    private static bool BoundReferencesDef(TypeSymbol bound, TypeSymbol def)
     {
-        TypeInfo? boundDef = bound switch
+        TypeSymbol? boundDef = bound switch
         {
-            RecordTypeInfo r => r.GenericDefinition ?? r,
-            EntityTypeInfo e => e.GenericDefinition ?? e,
+            RecordTypeSymbol r => r.GenericDefinition ?? r,
+            EntityTypeSymbol e => e.GenericDefinition ?? e,
             _ => null
         };
         if (boundDef != null &&
@@ -3140,35 +3140,35 @@ internal static class GenericAstRewriter
     /// (<c>Array[F32, N]</c>) that diverge from the expand source's member types, so their
     /// monomorph-computed type must be preserved rather than overwritten with the deferred splice
     /// placeholder.</summary>
-    private static bool IsSoAContainerType(TypeInfo? type)
+    private static bool IsSoAContainerType(TypeSymbol? type)
     {
         // A concrete instance (SplitArray[Point, 4]) carries the materialized columns in
         // MemberVariables but NOT the ExpandTemplates list (those stay on the generic definition —
         // ExpandSoAColumns reads them from the def), so also consult the GenericDefinition.
         return type switch
         {
-            RecordTypeInfo { ExpandTemplates.Count: > 0 } => true,
-            EntityTypeInfo { ExpandTemplates.Count: > 0 } => true,
-            RecordTypeInfo
+            RecordTypeSymbol { ExpandTemplates.Count: > 0 } => true,
+            EntityTypeSymbol { ExpandTemplates.Count: > 0 } => true,
+            RecordTypeSymbol
             {
-                GenericDefinition: RecordTypeInfo { ExpandTemplates.Count: > 0 }
+                GenericDefinition: RecordTypeSymbol { ExpandTemplates.Count: > 0 }
             } => true,
-            EntityTypeInfo
+            EntityTypeSymbol
             {
-                GenericDefinition: EntityTypeInfo { ExpandTemplates.Count: > 0 }
+                GenericDefinition: EntityTypeSymbol { ExpandTemplates.Count: > 0 }
             } => true,
             _ => false
         };
     }
 
     /// <summary>Looks up a member variable's type by name on a record/entity type, or null.</summary>
-    private static TypeInfo? LookupMemberType(TypeInfo? type, string name)
+    private static TypeSymbol? LookupMemberType(TypeSymbol? type, string name)
     {
         return type switch
         {
-            RecordTypeInfo r => r.MemberVariables.FirstOrDefault(predicate: mv => mv.Name == name)
+            RecordTypeSymbol r => r.MemberVariables.FirstOrDefault(predicate: mv => mv.Name == name)
                                 ?.Type,
-            EntityTypeInfo e => e.MemberVariables.FirstOrDefault(predicate: mv => mv.Name == name)
+            EntityTypeSymbol e => e.MemberVariables.FirstOrDefault(predicate: mv => mv.Name == name)
                                 ?.Type,
             _ => null
         };
@@ -3289,8 +3289,8 @@ internal static class GenericAstRewriter
                 // correctly-typed local.
                 if (vd.Type == null &&
                     newInit is CallExpression { ResolvedRoutine.ReturnType: { } reinferred } &&
-                    vd.Initializer?.ResolvedType is ProtocolTypeInfo &&
-                    reinferred is not ProtocolTypeInfo and not GenericParameterTypeInfo)
+                    vd.Initializer?.ResolvedType is ProtocolTypeSymbol &&
+                    reinferred is not ProtocolTypeSymbol and not GenericParameterTypeSymbol)
                 {
                     ctx.LocalReinferredTypes[key: vd.Name] = reinferred;
                 }

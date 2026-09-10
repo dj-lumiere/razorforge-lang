@@ -6,7 +6,7 @@ namespace TypeModel.Types;
 /// Represents a generic type parameter (like T in <c>List[T]</c>).
 /// This is an unbound placeholder that gets replaced during generic resolution.
 /// </summary>
-public sealed class GenericParameterTypeInfo : TypeInfo
+public sealed class GenericParameterTypeSymbol : TypeSymbol
 {
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.TypeParameter;
@@ -19,7 +19,7 @@ public sealed class GenericParameterTypeInfo : TypeInfo
     /// </summary>
     /// <remarks>
     /// Substitution sites should look up this property first (when non-null) before falling
-    /// back to <see cref="TypeInfo.Name"/>. This replaces the older string-prefix sentinel
+    /// back to <see cref="TypeSymbol.Name"/>. This replaces the older string-prefix sentinel
     /// (e.g. <c>__rfwd_T__</c>) with a structural marker that doesn't require lexical
     /// awareness in every substitution path.
     /// </remarks>
@@ -27,7 +27,7 @@ public sealed class GenericParameterTypeInfo : TypeInfo
 
     /// <summary>
     /// Positional slot of this parameter in its declaring scope's parameter list (0-based): the
-    /// <c>0</c>th, <c>1</c>st, … hole of the template. This — NOT <see cref="TypeInfo.Name"/> — is a
+    /// <c>0</c>th, <c>1</c>st, … hole of the template. This — NOT <see cref="TypeSymbol.Name"/> — is a
     /// parameter's true identity: the source name is a human label, so renaming it must be a no-op,
     /// while the slot is what a concrete type argument binds to at instantiation. <c>-1</c> when the
     /// slot is unknown (a placeholder minted outside a resolution scope, e.g. a self-application).
@@ -40,10 +40,10 @@ public sealed class GenericParameterTypeInfo : TypeInfo
     public int Slot { get; init; } = -1;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="GenericParameterTypeInfo"/> class.
+    /// Initializes a new instance of the <see cref="GenericParameterTypeSymbol"/> class.
     /// </summary>
     /// <param name="name">The name of the generic type parameter (a source label; see <see cref="Slot"/>).</param>
-    public GenericParameterTypeInfo(string name) : base(name: name)
+    public GenericParameterTypeSymbol(string name) : base(name: name)
     {
     }
 
@@ -52,14 +52,14 @@ public sealed class GenericParameterTypeInfo : TypeInfo
     /// </summary>
     /// <param name="name">The source label of the parameter.</param>
     /// <param name="slot">The 0-based positional slot in the declaring scope (see <see cref="Slot"/>).</param>
-    public GenericParameterTypeInfo(string name, int slot) : base(name: name)
+    public GenericParameterTypeSymbol(string name, int slot) : base(name: name)
     {
         Slot = slot;
     }
 
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">Always thrown as generic parameters cannot be resolved.</exception>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         throw new InvalidOperationException(message: "Cannot resolve a generic type parameter.");
     }

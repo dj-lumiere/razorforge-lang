@@ -1,12 +1,12 @@
 using System.Diagnostics;
-using Compiler.Desugaring;
-using Compiler.Declaration;
+using Builder.Desugaring;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification;
+using Builder.Verification;
 
-namespace Compiler.Instantiation.Passes;
+namespace Builder.Instantiation.Passes;
 
 /// <summary>
 /// Phase 7 global pass that builds concrete generic memberRoutine bodies before codegen.
@@ -198,7 +198,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     {
         // Seed with liveness-filtered instances + wrapper instances. On an incremental re-run the
         // Add returns false for everything already processed, so these scans become cheap lookups.
-        foreach (TypeInfo concreteType in ctx.Registry
+        foreach (TypeSymbol concreteType in ctx.Registry
                                              .AllConcreteGenericInstances
                                              .Concat(second: ctx.Registry
                                                                 .AllConcreteWrapperInstances)
@@ -215,7 +215,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // but not reached by the liveness walk). Self-nesting types (Hijacked^N) are blocked by
         // the guard in GetOrCreateResolution, so this scan terminates.
         // Materialize to a list first — ProcessConcreteType modifies _resolutions during iteration.
-        foreach (TypeInfo preExisting in
+        foreach (TypeSymbol preExisting in
                  ctx.Registry.AllConcreteGenericInstancesUnfiltered.ToList())
         {
             if (!_processedTypes.Add(item: preExisting.FullName))
@@ -229,7 +229,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // Same for wrapper instances (Hijacked[T], T, etc.). Wrappers like Hijacked have
         // explicit memberRoutine definitions in stdlib that need monomorphization for each concrete T,
         // but live in _wrapperResolutions and aren't enqueued by NotifyConcreteRegistration.
-        foreach (TypeInfo preExisting in
+        foreach (TypeSymbol preExisting in
                  ctx.Registry.AllConcreteWrapperInstancesUnfiltered.ToList())
         {
             if (!_processedTypes.Add(item: preExisting.FullName))
@@ -252,10 +252,10 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         do
         {
             madeProgress = false;
-            List<TypeInfo> discovered = ctx.Registry.DrainGmpDiscoveryQueue();
+            List<TypeSymbol> discovered = ctx.Registry.DrainGmpDiscoveryQueue();
             while (discovered.Count > 0)
             {
-                foreach (TypeInfo newType in discovered)
+                foreach (TypeSymbol newType in discovered)
                 {
                     if (!_processedTypes.Add(item: newType.FullName))
                     {
@@ -270,10 +270,10 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             }
 
             // Wrapper instances aren't enqueued by NotifyConcreteRegistration (it only handles
-            // EntityTypeInfo/RecordTypeInfo). Re-scan _wrapperResolutions each round to pick up
+            // EntityTypeSymbol/RecordTypeSymbol). Re-scan _wrapperResolutions each round to pick up
             // new wrappers like Hijacked[Text] that GenericAstRewriter created while
             // rewriting List[Text] forwarder bodies.
-            foreach (TypeInfo wrapper in
+            foreach (TypeSymbol wrapper in
                      ctx.Registry.AllConcreteWrapperInstancesUnfiltered.ToList())
             {
                 if (!_processedTypes.Add(item: wrapper.FullName))
@@ -336,7 +336,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// </summary>
     private bool WalkEmittedBodiesForLiveness(ref bool changed, ref bool registeredRoutine)
     {
-        var newOwners = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
+        var newOwners = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal);
         // Captured locals: ref parameters cannot be used inside the walk lambdas (CS1628); mirror them
         // in locals the closures can touch, then write the results back to the ref parameters at the end.
         bool localChanged = false;
@@ -396,10 +396,10 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// Marks each discovered owner type in <paramref name="newOwners"/> live and processes it.
     /// Returns true if any new owner was enlivened.
     /// </summary>
-    private bool EnliveNewOwnerTypesFromMap(Dictionary<string, TypeInfo> newOwners)
+    private bool EnliveNewOwnerTypesFromMap(Dictionary<string, TypeSymbol> newOwners)
     {
         bool changed = false;
-        foreach ((string fullName, TypeInfo type) in newOwners)
+        foreach ((string fullName, TypeSymbol type) in newOwners)
         {
             if (ctx.LiveOwnerTypeNames.Add(item: fullName))
             {
@@ -418,10 +418,10 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// </summary>
     private void DrainDiscoveryQueueForLiveness(ref bool changed)
     {
-        List<TypeInfo> discovered = ctx.Registry.DrainGmpDiscoveryQueue();
+        List<TypeSymbol> discovered = ctx.Registry.DrainGmpDiscoveryQueue();
         while (discovered.Count > 0)
         {
-            foreach (TypeInfo newType in discovered)
+            foreach (TypeSymbol newType in discovered)
             {
                 if (!_processedTypes.Add(item: newType.FullName))
                 {
@@ -448,7 +448,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             return false;
         }
 
-        TypeInfo? errorType = throwStmt.Error.ResolvedType ??
+        TypeSymbol? errorType = throwStmt.Error.ResolvedType ??
                               (throwStmt.Error is CreatorExpression cre
                                   ? cre.ConstructedType
                                   : null);
@@ -481,7 +481,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// Returns true if it newly marked an owner type or routine live (so the fixed point continues).
     /// </summary>
     private bool EnliveEmittedBodyExpression(Expression expr,
-        Dictionary<string, TypeInfo> newOwners, ref bool registeredRoutine)
+        Dictionary<string, TypeSymbol> newOwners, ref bool registeredRoutine)
     {
         bool changed = false;
         CollectConcreteOwnerTypes(t: expr.ResolvedType, sink: newOwners);
@@ -542,13 +542,13 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     private bool EnliveIndexAccessors(Expression expr, ref bool registeredRoutine)
     {
         if (expr is not IndexExpression { Object.ResolvedType: { } idxObjType } idxExpr ||
-            idxObjType is GenericParameterTypeInfo || ctx.LiveRoutineKeys.Count == 0)
+            idxObjType is GenericParameterTypeSymbol || ctx.LiveRoutineKeys.Count == 0)
         {
             return false;
         }
 
         bool changed = false;
-        TypeInfo? idxType = idxExpr.Index.ResolvedType;
+        TypeSymbol? idxType = idxExpr.Index.ResolvedType;
         foreach (string accessor in (ReadOnlySpan<string>)["getitem", "setitem"])
         {
             if (EnliveOneIndexAccessor(idxObjType: idxObjType,
@@ -568,7 +568,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// exact overload matched by index type; falls back to all candidates when no exact match exists.
     /// Returns true if it newly marked any accessor live.
     /// </summary>
-    private bool EnliveOneIndexAccessor(TypeInfo idxObjType, TypeInfo? idxType,
+    private bool EnliveOneIndexAccessor(TypeSymbol idxObjType, TypeSymbol? idxType,
         string accessorName, ref bool registeredRoutine)
     {
         // Prefer the exact argType-matched overload. When the index type doesn't pin one (it is
@@ -717,7 +717,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // those fall out of the closure. NOT display (represent/diagnose): that's a force-seeded closure whose
         // callees escape the registry (type_name, nested represents on non-registered members) → net-new
         // declares (measured: adding represent took the gap 140→367). Skip pseudo-concrete instances whose
-        // const-generic arg is an UNFOLDED comptime splice (`Array[U8, ${max(...)}]` carrier — its `N` never
+        // const-generic arg is an UNFOLDED buildtime splice (`Array[U8, ${max(...)}]` carrier — its `N` never
         // folds → codegen `Unknown identifier N`; a FOLDED `Array[U8,63]` builds fine).
         SeedLifecycleHooks(worklist: worklist, totalBuilt: ref totalBuilt);
 
@@ -736,9 +736,9 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// </summary>
     private void SeedEntitySelfFreeTail(Queue<MonomorphizedBody> worklist, ref int totalBuilt)
     {
-        foreach (TypeInfo t in ctx.Registry.AllConcreteGenericInstancesUnfiltered.ToArray())
+        foreach (TypeSymbol t in ctx.Registry.AllConcreteGenericInstancesUnfiltered.ToArray())
         {
-            if (t is not EntityTypeInfo { IsGenericDefinition: false } entity)
+            if (t is not EntityTypeSymbol { IsGenericDefinition: false } entity)
             {
                 continue;
             }
@@ -750,7 +750,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 worklist.Enqueue(item: hb);
             }
 
-            TypeInfo hijacked = ctx.Registry.GetOrCreateWrapperType(
+            TypeSymbol hijacked = ctx.Registry.GetOrCreateWrapperType(
                 wrapperName: RuntimeContract.Hijacked,
                 innerType: entity,
                 isReadOnly: false);
@@ -765,18 +765,18 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
     /// <summary>
     /// Seeds the isolation worklist with lifecycle hooks (destroy/roam_free/roam_trace) on
-    /// every registered concrete and wrapper instance that has no unfolded comptime type argument.
+    /// every registered concrete and wrapper instance that has no unfolded buildtime type argument.
     /// </summary>
     private void SeedLifecycleHooks(Queue<MonomorphizedBody> worklist, ref int totalBuilt)
     {
         string[] lifecycleHooks = ["destroy", "roam_free", "roam_trace"];
-        foreach (TypeInfo t in ctx.Registry
+        foreach (TypeSymbol t in ctx.Registry
                                   .AllConcreteGenericInstancesUnfiltered
                                   .Concat(second: ctx.Registry
                                                      .AllConcreteWrapperInstancesUnfiltered)
                                   .ToArray())
         {
-            if (HasUnfoldedComptimeArg(ty: t))
+            if (HasUnfoldedBuildtimeArg(ty: t))
             {
                 continue;
             }
@@ -793,11 +793,11 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
     }
 
-    /// <summary>Returns true when any type argument is an unfolded comptime splice, which cannot be codegen'd.</summary>
-    private static bool HasUnfoldedComptimeArg(TypeInfo ty)
+    /// <summary>Returns true when any type argument is an unfolded buildtime splice, which cannot be codegen'd.</summary>
+    private static bool HasUnfoldedBuildtimeArg(TypeSymbol ty)
     {
         return ty.TypeArguments is { Count: > 0 } a &&
-               a.Any(predicate: x => x is ComptimeConstGenericTypeInfo);
+               a.Any(predicate: x => x is BuildtimeConstGenericTypeSymbol);
     }
 
     /// <summary>
@@ -912,7 +912,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         private readonly Queue<(string Key, Statement Body)> _worklist = new();
 
         // Reached concrete owner types — each needs force-seeded codegen-injected verbs.
-        private readonly HashSet<TypeInfo> _reachedOwners =
+        private readonly HashSet<TypeSymbol> _reachedOwners =
             new(comparer: ReferenceEqualityComparer.Instance);
 
         internal int Run(IEnumerable<(string Key, Statement Body)> entrySeeds)
@@ -937,7 +937,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // refill the worklist), and repeat until both are exhausted.
         private void RunFixpoint()
         {
-            var seededOwners = new HashSet<TypeInfo>(comparer: ReferenceEqualityComparer.Instance);
+            var seededOwners = new HashSet<TypeSymbol>(comparer: ReferenceEqualityComparer.Instance);
             // Dispatched Crashable members seen in any walked body (represent/diagnose/crash_message/crash_title).
             // Seeded on each reached crashable owner after the walk — see the CrashableDispatch case in WalkBody.
             var dispatchMembers = new HashSet<string>(comparer: StringComparer.Ordinal);
@@ -949,7 +949,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                     WalkBody(dispatchMembers: dispatchMembers);
                 }
 
-                foreach (TypeInfo owner in _reachedOwners
+                foreach (TypeSymbol owner in _reachedOwners
                                           .Where(predicate: o => seededOwners.Add(item: o))
                                           .ToArray())
                 {
@@ -962,8 +962,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 // as _reachedOwners grows; its Discover calls refill the worklist, extending the fixpoint.
                 if (dispatchMembers.Count > 0)
                 {
-                    foreach (TypeInfo owner in _reachedOwners.ToArray()
-                                                             .OfType<CrashableTypeInfo>())
+                    foreach (TypeSymbol owner in _reachedOwners.ToArray()
+                                                             .OfType<CrashableTypeSymbol>())
                     {
                         foreach (string member in dispatchMembers)
                         {
@@ -1028,11 +1028,11 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                         // (e.g. coro_body → Worker.do_work → Box's create/destroy) — is genuinely live even
                         // though no CallExpression names it. Discover it here so the demand walk follows it.
                         // Two forms: pre-resolved (ResolvedRoutine set) or a bare name whose ResolvedType is a
-                        // RoutineTypeInfo (codegen resolves it by name+param-types via TryResolveRoutineReference,
+                        // RoutineTypeSymbol (codegen resolves it by name+param-types via TryResolveRoutineReference,
                         // e.g. a routine passed to a C function pointer like `rf_coro_create(entry: coro_body)`).
                         case IdentifierExpression { ResolvedRoutine: { } ir }:
                             Discover(r: ir); break;
-                        case IdentifierExpression { ResolvedType: RoutineTypeInfo rvt } rid:
+                        case IdentifierExpression { ResolvedType: RoutineTypeSymbol rvt } rid:
                             Discover(
                                 r: gmp.ResolveRoutineValueByName(name: rid.Name,
                                     routineType: rvt));
@@ -1083,7 +1083,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // unmarked Emittable owner leaves its synthesized `try_emit` undefined at link (the
         // warm-restore-overprune Category-B symptom). Called for a routine's owner AND for a
         // CreatorExpression's ConstructedType (an Emittable is often only CONSTRUCTED, never method-called).
-        private void MarkOwner(TypeInfo? t)
+        private void MarkOwner(TypeSymbol? t)
         {
             if (t is not { IsGenericDefinition: false } owner)
             {
@@ -1151,7 +1151,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             // Needs a genuine T → owner substitution: a concrete (fully-resolved) owner, never a generic
             // definition or a bare type-parameter placeholder.
             if (r.OwnerType is not { IsGenericDefinition: false } owner ||
-                owner is GenericParameterTypeInfo)
+                owner is GenericParameterTypeSymbol)
             {
                 return;
             }
@@ -1163,7 +1163,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 return;
             }
 
-            var typeSubs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal)
+            var typeSubs = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal)
             {
                 [key: template.OwnerParam] = owner
             };
@@ -1230,9 +1230,9 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // monomorphized instance — so a generic throw needs the def's list too.
         private void SeedThrowableCrashPath(RoutineInfo r)
         {
-            foreach (TypeInfo thrown in r.ThrowableTypes.Concat(
+            foreach (TypeSymbol thrown in r.ThrowableTypes.Concat(
                          second: r.GenericDefinition?.ThrowableTypes ??
-                                 Enumerable.Empty<TypeInfo>()))
+                                 Enumerable.Empty<TypeSymbol>()))
             {
                 if (_ctx.Registry.LookupMemberRoutine(type: thrown,
                         memberRoutineName: RuntimeContract.CrashMessage) is not { } tcm)
@@ -1275,7 +1275,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // AST call for the walk to follow. The collector is self-sufficient: this is the SOLE force-seeder now
         // (the reachability-side pass was retired + deleted, Stage-3). Each seed goes through
         // Discover (build-if-generic + mark-live + queue-body).
-        private void ForceSeedOwner(TypeInfo type)
+        private void ForceSeedOwner(TypeSymbol type)
         {
             SeedNonCallDrivenWiredRoutines(type: type);
             SeedImplicitCodegenInserts(type: type);
@@ -1287,7 +1287,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // (1) Wired derives. The CALL-DRIVEN family is EXCLUDED (denylist): each is reached through a real
         // lowered call site. Force-seeding those per reached owner OVER-APPROXIMATES — drags in dead chains the
         // retired codegen liveness gate used to prune. Only non-call-driven, non-operator wired names are seeded.
-        private void SeedNonCallDrivenWiredRoutines(TypeInfo type)
+        private void SeedNonCallDrivenWiredRoutines(TypeSymbol type)
         {
             foreach (string wiredName in WiredRoutineCatalog.BuildReachabilitySeedNames())
             {
@@ -1344,9 +1344,9 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         //   lock field by constructing P (Exclusive/MultiRead/ReadOnly), but the ctor is synthesized into the
         //   container's create with NO resolved-creator AST call the walk can follow. Seed P.create on each
         //   reached lock policy so codegen's lock-field init links. Demand-scoped to a reached policy type.
-        private void SeedImplicitCodegenInserts(TypeInfo type)
+        private void SeedImplicitCodegenInserts(TypeSymbol type)
         {
-            foreach ((TypeInfo owner, string mn) in ImplicitCallContract.ForLiveType(
+            foreach ((TypeSymbol owner, string mn) in ImplicitCallContract.ForLiveType(
                          liveType: type))
             {
                 Discover(r: _ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: mn));
@@ -1370,7 +1370,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // Skip a type that still carries a generic parameter: GetOrCreateWrapperType would mint
         // `Hijacked[RangeEmittable[T]]` recursively → unbounded monomorphization. Only fully-concrete entities.
         // (4) Text.replace — FStringLoweringPass synthesizes it for `:?`/`?` in-flight-entity interpolation.
-        private void SeedEntitySelfFreeIfApplicable(TypeInfo type)
+        private void SeedEntitySelfFreeIfApplicable(TypeSymbol type)
         {
             if (type is { Name: "Text", Module: "Core" })
             {
@@ -1378,7 +1378,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                     memberRoutineName: RuntimeContract.Collection.Replace));
             }
 
-            if (type is not EntityTypeInfo { IsGenericDefinition: false })
+            if (type is not EntityTypeSymbol { IsGenericDefinition: false })
             {
                 return;
             }
@@ -1390,7 +1390,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
             Discover(r: _ctx.Registry.LookupMemberRoutine(type: type,
                 memberRoutineName: RuntimeContract.RawPointer.Hijack));
-            TypeInfo hijacked = _ctx.Registry.GetOrCreateWrapperType(
+            TypeSymbol hijacked = _ctx.Registry.GetOrCreateWrapperType(
                 wrapperName: RuntimeContract.Hijacked,
                 innerType: type,
                 isReadOnly: false);
@@ -1404,7 +1404,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // (MaterializeEntitySelfFreeInIsolation); mirror that DEMAND-scoped on each reached concrete owner.
         // Also seeds the exact lifecycle-destroy GetLifecycle returns — routine-VALUEs carry a `destroy`
         // that `LookupMemberRoutine` misses but GetLifecycle surfaces.
-        private void SeedLifecycleHooksIfApplicable(TypeInfo type)
+        private void SeedLifecycleHooksIfApplicable(TypeSymbol type)
         {
             if (ContainsGenericParam(t: type))
             {
@@ -1436,7 +1436,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // over-approximation (NON-DETERMINISTIC — warm vs cold build differ). Only the genuinely
         // NON-discoverable common family is seeded: the UnpackedFloat integer-width helpers (to_width /
         // low_mask / from_words), reached only through nested generic-member instantiation with no AST call.
-        private void SeedCommonUnpackedFloatHelpers(TypeInfo type)
+        private void SeedCommonUnpackedFloatHelpers(TypeSymbol type)
         {
             foreach (RoutineInfo commonR in _ctx.Registry
                                                 .GetMemberRoutinesForType(type: type)
@@ -1453,21 +1453,21 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
         /// <summary>True when <paramref name="t"/> still carries a generic parameter (directly or
         /// nested in a type argument) — i.e. not yet a fully-concrete monomorphized type.</summary>
-        private static bool ContainsGenericParam(TypeInfo t)
+        private static bool ContainsGenericParam(TypeSymbol t)
         {
-            return t is GenericParameterTypeInfo or ProtocolSelfTypeInfo
-                       or ComptimeConstGenericTypeInfo ||
+            return t is GenericParameterTypeSymbol or ProtocolSelfTypeSymbol
+                       or BuildtimeConstGenericTypeSymbol ||
                    (t.TypeArguments?.Any(predicate: ContainsGenericParam) ?? false);
         }
     }
 
     /// <summary>
-    /// Resolves a bare routine-VALUE reference (an identifier typed as a <see cref="RoutineTypeInfo"/>, e.g.
+    /// Resolves a bare routine-VALUE reference (an identifier typed as a <see cref="RoutineTypeSymbol"/>, e.g.
     /// a coroutine entry passed to a C function pointer) to its <see cref="RoutineInfo"/> by name + parameter
     /// types via the ONLY legitimate resolver, signature-based <see cref="TypeRegistry.LookupRoutineOverload"/>.
     /// (Name-only lookups are not a valid resolution path.) Returns null if unresolved (Discover no-ops on null).
     /// </summary>
-    private RoutineInfo? ResolveRoutineValueByName(string name, RoutineTypeInfo routineType)
+    private RoutineInfo? ResolveRoutineValueByName(string name, RoutineTypeSymbol routineType)
     {
         return ctx.Registry.LookupRoutineOverload(baseName: name,
             argTypes: routineType.ParameterTypes.ToList());
@@ -1479,7 +1479,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// </summary>
     private IEnumerable<RoutineInfo> WiredLeafCalleesOf(RoutineInfo routine)
     {
-        TypeInfo? owner = routine.OwnerType;
+        TypeSymbol? owner = routine.OwnerType;
         if (owner == null)
         {
             yield break;
@@ -1526,7 +1526,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// Yields the wired callees for comparison routines (lt, le, gt, ge, cmp): the owner's cmp,
     /// the ComparisonSign eq/ne testers, and for composite cmp the field-wise cmp callees.
     /// </summary>
-    private IEnumerable<RoutineInfo> YieldComparisonWiredCallees(TypeInfo owner,
+    private IEnumerable<RoutineInfo> YieldComparisonWiredCallees(TypeSymbol owner,
         string routineName)
     {
         if (routineName != "cmp" &&
@@ -1563,22 +1563,22 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// kinds (choices, flags, <c>@llvm</c>-backed primitives) have no fields and yield nothing.
     /// Mirrors <c>WiredRoutinePass.BuildDestroyBody</c>'s field selection.
     /// </summary>
-    private IEnumerable<RoutineInfo> MemberVariableWiredCallees(TypeInfo owner, string verb)
+    private IEnumerable<RoutineInfo> MemberVariableWiredCallees(TypeSymbol owner, string verb)
     {
-        IEnumerable<TypeInfo> fieldTypes = owner switch
+        IEnumerable<TypeSymbol> fieldTypes = owner switch
         {
-            VariantTypeInfo v => v.Members
+            VariantTypeSymbol v => v.Members
                                   .Where(predicate: m => m is { IsNone: false, Type: not null })
                                   .Select(selector: m => m.Type!),
-            EntityTypeInfo e => e.MemberVariables.Select(selector: f => f.Type),
-            TupleTypeInfo t => t.MemberVariables.Select(selector: f => f.Type),
-            ChoiceTypeInfo or FlagsTypeInfo => [],
-            RecordTypeInfo { BackendType: null } r => r.MemberVariables.Select(selector: f =>
+            EntityTypeSymbol e => e.MemberVariables.Select(selector: f => f.Type),
+            TupleTypeSymbol t => t.MemberVariables.Select(selector: f => f.Type),
+            ChoiceTypeSymbol or FlagsTypeSymbol => [],
+            RecordTypeSymbol { BackendType: null } r => r.MemberVariables.Select(selector: f =>
                 f.Type),
             _ => []
         };
 
-        foreach (TypeInfo ft in fieldTypes)
+        foreach (TypeSymbol ft in fieldTypes)
         {
             if (ft == null)
             {
@@ -1597,21 +1597,21 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// — including those nested in its type arguments — to <paramref name="sink"/>. Generic
     /// definitions and types with unresolved parameters are ignored.
     /// </summary>
-    private static void CollectConcreteOwnerTypes(TypeInfo? t, Dictionary<string, TypeInfo> sink)
+    private static void CollectConcreteOwnerTypes(TypeSymbol? t, Dictionary<string, TypeSymbol> sink)
     {
         if (t == null || HasUnresolvedTypeArgs(t: t))
         {
             return;
         }
 
-        if (GetGenericBase(type: t) != null || t is WrapperTypeInfo)
+        if (GetGenericBase(type: t) != null || t is WrapperTypeSymbol)
         {
             sink.TryAdd(key: t.FullName, value: t);
         }
 
         if (t.TypeArguments is { Count: > 0 } args)
         {
-            foreach (TypeInfo arg in args)
+            foreach (TypeSymbol arg in args)
             {
                 CollectConcreteOwnerTypes(t: arg, sink: sink);
             }
@@ -1619,7 +1619,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
     // Per-type processing
 
-    private void ProcessConcreteType(TypeInfo concreteType)
+    private void ProcessConcreteType(TypeSymbol concreteType)
     {
         // Strategy-B reachability gate at the type level: skip concrete instances that no
         // reachable routine ever owned. This prevents unreachable types like Array[BuildMode, 63]
@@ -1640,11 +1640,11 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             return;
         }
 
-        TypeInfo? genDef = concreteType switch
+        TypeSymbol? genDef = concreteType switch
         {
-            EntityTypeInfo { GenericDefinition: { } d } => d,
-            RecordTypeInfo { GenericDefinition: { } d } => d,
-            WrapperTypeInfo wrapper => ctx.Registry.LookupType(name: wrapper.Name),
+            EntityTypeSymbol { GenericDefinition: { } d } => d,
+            RecordTypeSymbol { GenericDefinition: { } d } => d,
+            WrapperTypeSymbol wrapper => ctx.Registry.LookupType(name: wrapper.Name),
             _ => null
         };
 
@@ -1653,13 +1653,13 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             return;
         }
 
-        List<TypeInfo>? typeArgs = concreteType.TypeArguments;
+        List<TypeSymbol>? typeArgs = concreteType.TypeArguments;
         if (typeArgs == null || typeArgs.Count != genDef.GenericParameters.Count)
         {
             return;
         }
 
-        (Dictionary<string, TypeInfo> typeSubs, Dictionary<string, string> stringSubs) =
+        (Dictionary<string, TypeSymbol> typeSubs, Dictionary<string, string> stringSubs) =
             BuildConcreteTypeSubstitutionMaps(genDef: genDef, typeArgs: typeArgs);
 
         foreach (RoutineInfo genMemberRoutine in ctx.Registry.GetMemberRoutinesForType(
@@ -1676,13 +1676,13 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// <summary>
     /// Builds the owner type-parameter substitution maps for a concrete generic instance.
     /// stringSubs uses FullName (e.g. "T" → "Core.S64") so rewritten AST type-expression names are
-    /// fully qualified; typeSubs carries the resolved TypeInfo for ResolvedType annotation in
+    /// fully qualified; typeSubs carries the resolved TypeSymbol for ResolvedType annotation in
     /// GenericAstRewriter.
     /// </summary>
-    private static (Dictionary<string, TypeInfo> typeSubs, Dictionary<string, string> stringSubs)
-        BuildConcreteTypeSubstitutionMaps(TypeInfo genDef, List<TypeInfo> typeArgs)
+    private static (Dictionary<string, TypeSymbol> typeSubs, Dictionary<string, string> stringSubs)
+        BuildConcreteTypeSubstitutionMaps(TypeSymbol genDef, List<TypeSymbol> typeArgs)
     {
-        var typeSubs = new Dictionary<string, TypeInfo>(capacity: genDef.GenericParameters!.Count);
+        var typeSubs = new Dictionary<string, TypeSymbol>(capacity: genDef.GenericParameters!.Count);
         var stringSubs = new Dictionary<string, string>(capacity: genDef.GenericParameters.Count);
         for (int i = 0; i < genDef.GenericParameters.Count; i++)
         {
@@ -1697,8 +1697,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// Builds and stores the monomorphized body for one member routine of a concrete generic
     /// instance, applying the reachability + capability gates and the abstract-derive check.
     /// </summary>
-    private void ProcessConcreteTypeMemberRoutine(TypeInfo concreteType, TypeInfo genDef,
-        RoutineInfo genMemberRoutine, Dictionary<string, TypeInfo> typeSubs,
+    private void ProcessConcreteTypeMemberRoutine(TypeSymbol concreteType, TypeSymbol genDef,
+        RoutineInfo genMemberRoutine, Dictionary<string, TypeSymbol> typeSubs,
         Dictionary<string, string> stringSubs)
     {
         RoutineInfo? concreteInfo = BuildConcreteRoutineInfo(genMemberRoutine: genMemberRoutine,
@@ -1778,7 +1778,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     ///  * Anything else (a real collection/carrier like `List[Text].copy`): the receiver obeys the
     ///    protocol but has no concrete derive — a genuine conformance/derive gap. Blow up LOUDLY.
     /// </summary>
-    private static MonomorphizedBody? HandleAbstractDeriveCall(TypeInfo genDef,
+    private static MonomorphizedBody? HandleAbstractDeriveCall(TypeSymbol genDef,
         RoutineInfo concreteInfo, string absMember)
     {
         bool ownerIsWrapper = WrapperForwardingPass.WrapperTypeNames.Contains(item: genDef.Name);
@@ -1798,7 +1798,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
     /// Routines emitted for every live owner regardless of call-site reachability. Two sources:
     /// (1) the unified-teardown lifecycle routines (<c>destroy</c>/<c>store</c>, from
-    /// <see cref="Compiler.Declaration.WiredRoutineCatalog.AlwaysLiveNames"/>) — scope-exit teardown
+    /// <see cref="Builder.Declaration.WiredRoutineCatalog.AlwaysLiveNames"/>) — scope-exit teardown
     /// inserts <c>destroy</c> calls that must always have a concrete body, and the matching
     /// retaining <c>store</c> likewise; (2) <c>try_emit</c>, reachable only through synthesized
     /// for-loop iteration bodies whose owner type (ListEmitter[Byte], etc.) is created post-pass
@@ -1824,7 +1824,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// a missing symbol downstream in codegen. The actual protocol-to-wired-routine map
     /// lives in <see cref="TypeRegistry"/> (single source of truth).
     /// </summary>
-    private bool RoutineApplicableToConcreteOwner(RoutineInfo routine, TypeInfo owner)
+    private bool RoutineApplicableToConcreteOwner(RoutineInfo routine, TypeSymbol owner)
     {
         return ctx.Registry.TypeHasWiredRoutine(type: owner, wiredName: routine.Name);
     }
@@ -1866,7 +1866,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // universal represent/diagnose template would field-walk their (empty) member set into a
         // bogus `Routine()`. Emit the SIGNATURE (the routine type's own name, e.g.
         // `Routine[(S32,), S32]`) directly: no parens, no field walk.
-        if (resolvedRoutine.OwnerType is RoutineTypeInfo routineOwner &&
+        if (resolvedRoutine.OwnerType is RoutineTypeSymbol routineOwner &&
             resolvedRoutine.Name is RuntimeContract.Display.Represent
                 or RuntimeContract.Display.Diagnose)
         {
@@ -1875,7 +1875,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             return;
         }
 
-        Dictionary<string, TypeInfo> typeSubs =
+        Dictionary<string, TypeSymbol> typeSubs =
             BuildResolvedRoutineTypeSubstitutions(resolvedRoutine: resolvedRoutine);
         if (typeSubs.Count == 0 || typeSubs.Values.Any(predicate: HasUnresolvedTypeArgs))
         {
@@ -1902,7 +1902,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         if (resolvedRoutine.GenericDefinition == null ||
             ctx.InstantiatedGenericBodies.ContainsKey(key: resolvedRoutine.RegistryKey) ||
             ctx.VariantBodies.ContainsKey(key: resolvedRoutine.RegistryKey) ||
-            resolvedRoutine.OwnerType is ProtocolTypeInfo)
+            resolvedRoutine.OwnerType is ProtocolTypeSymbol)
         {
             return false;
         }
@@ -1930,7 +1930,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// Returns true if the variant body was found and stored.
     /// </summary>
     private bool TryBuildAndStoreVariantBody(RoutineInfo resolvedRoutine,
-        Dictionary<string, TypeInfo> typeSubs)
+        Dictionary<string, TypeSymbol> typeSubs)
     {
         if (resolvedRoutine.GenericDefinition?.OriginalName == null ||
             resolvedRoutine.GenericDefinition.OwnerType is not { } variantGenDefOwner)
@@ -1959,7 +1959,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// and rewriting it with type substitutions. Falls back to variant-body sources when no AST is found.
     /// </summary>
     private void EmitResolvedRoutineBodyFromAst(RoutineInfo resolvedRoutine,
-        Dictionary<string, TypeInfo> typeSubs)
+        Dictionary<string, TypeSymbol> typeSubs)
     {
         string astName = BuildAstNameForResolvedRoutine(resolvedRoutine: resolvedRoutine);
         RoutineDeclaration? astDecl = FindInStdlib(genericAstName: astName,
@@ -1974,7 +1974,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                                                    .Select(selector: static p => p.Type?.Name)
                                                    .ToList(),
             expectedOwnerModule: resolvedRoutine.OwnerType?.FullName is { } ownerFn
-                ? TypeInfo.StripTypeArgs(name: ownerFn)
+                ? TypeSymbol.StripTypeArgs(name: ownerFn)
                 : null);
         if (astDecl == null)
         {
@@ -2006,7 +2006,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// own name literal (no field walk).
     /// </summary>
     private void EmitRoutineTypeSignatureBody(RoutineInfo resolvedRoutine,
-        RoutineTypeInfo routineOwner)
+        RoutineTypeSymbol routineOwner)
     {
         SourceLocation loc = resolvedRoutine.Location ??
                              new SourceLocation(FileName: "",
@@ -2021,7 +2021,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         ctx.InstantiatedGenericBodies[key: resolvedRoutine.RegistryKey] = new MonomorphizedBody(
             Ast: WrapInShellDecl(name: resolvedRoutine.Name, body: sigBody, info: resolvedRoutine),
             Info: resolvedRoutine,
-            TypeSubs: new Dictionary<string, TypeInfo>(),
+            TypeSubs: new Dictionary<string, TypeSymbol>(),
             VariantStatus: null,
             VariantInnerType: null,
             IsSynthesized: true);
@@ -2034,7 +2034,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// synthesized sentinel body. Stores whichever matches first.
     /// </summary>
     private void EmitResolvedRoutineBodyFromVariantFallback(RoutineInfo resolvedRoutine,
-        Dictionary<string, TypeInfo> typeSubs)
+        Dictionary<string, TypeSymbol> typeSubs)
     {
         // Check if the generic definition has a synthesized body in VariantBodies.
         // ProcessConcreteType->BuildBody checks genMemberRoutine.RegistryKey (the generic def key),
@@ -2130,7 +2130,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// </summary>
     private void EmitGenericDefBuilderQueryBodies()
     {
-        foreach (TypeInfo type in ctx.Registry.GetTypesWithMemberRoutines())
+        foreach (TypeSymbol type in ctx.Registry.GetTypesWithMemberRoutines())
         {
             if (!type.IsGenericDefinition)
             {
@@ -2141,7 +2141,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             // (which substitutes T with the concrete inner type). Emitting the wrapper generic-def
             // version would attempt to lower a body that still contains unresolved T references
             // (e.g. the as_entity() call), causing Phase B codegen failures.
-            if (type is WrapperTypeInfo)
+            if (type is WrapperTypeSymbol)
             {
                 continue;
             }
@@ -2178,7 +2178,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         ctx.InstantiatedGenericBodies[key: key] = new MonomorphizedBody(
             Ast: WrapInShellDecl(name: routine.Name, body: body, info: routine),
             Info: routine,
-            TypeSubs: new Dictionary<string, TypeInfo>(),
+            TypeSubs: new Dictionary<string, TypeSymbol>(),
             VariantStatus: null,
             VariantInnerType: null,
             IsSynthesized: true);
@@ -2203,7 +2203,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
     /// <summary>
     /// After monomorphization, no call in a CONCRETE routine body may remain resolved to an ABSTRACT
-    /// protocol member (owner is a <see cref="ProtocolTypeInfo"/>) for the derive family — the receiver is
+    /// protocol member (owner is a <see cref="ProtocolTypeSymbol"/>) for the derive family — the receiver is
     /// concrete, so it must resolve to that type's own derive. A leftover abstract call means the type
     /// "obeys P" but never got P's derive (e.g. a variant that obeys Copyable whose `copy` was never
     /// synthesized). Throw with the enclosing routine so the conformance/derive gap is unmissable.
@@ -2220,7 +2220,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 }
 
                 RoutineInfo? rr = (expr as CallExpression)?.ResolvedRoutine;
-                if (rr?.OwnerType is ProtocolTypeInfo proto &&
+                if (rr?.OwnerType is ProtocolTypeSymbol proto &&
                     _concreteRequiredDerives.Contains(item: rr.Name))
                 {
                     found = $"{proto.Name}.{rr.Name}()";
@@ -2231,7 +2231,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     private MonomorphizedBody? BuildBody(RoutineInfo genMemberRoutine, RoutineInfo concreteInfo,
-        TypeInfo genDef, Dictionary<string, TypeInfo> typeSubs,
+        TypeSymbol genDef, Dictionary<string, TypeSymbol> typeSubs,
         Dictionary<string, string> stringSubs)
     {
         // Variant memberRoutines (try_/check_/lookup_)
@@ -2247,10 +2247,10 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
 
         // If the concrete memberRoutine still has unresolved memberRoutine-level generic parameters
-        // (e.g. Text.getitem! where index: I is still GenericParameterTypeInfo),
+        // (e.g. Text.getitem! where index: I is still GenericParameterTypeSymbol),
         // skip this body here. ProcessResolvedMemberRoutineGenericRoutines handles per-concrete-
         // index-type specialization once OperatorLoweringPass registers the resolutions.
-        if (concreteInfo.Parameters.Any(predicate: static p => p.Type is GenericParameterTypeInfo))
+        if (concreteInfo.Parameters.Any(predicate: static p => p.Type is GenericParameterTypeSymbol))
         {
             return null;
         }
@@ -2295,7 +2295,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             expectedParamNames: paramNames,
             expectedParamTypeNames: paramTypeNames,
             expectedOwnerModule: genDef.FullName is { } gdFn
-                ? TypeInfo.StripTypeArgs(name: gdFn)
+                ? TypeSymbol.StripTypeArgs(name: gdFn)
                 : null,
             expectedOwnerRealm: genDef.Realm);
 
@@ -2325,7 +2325,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// stdlib AST lookup instead.
     /// </summary>
     private MonomorphizedBody? BuildVariantBodyFromVariantBodies(RoutineInfo concreteInfo,
-        TypeInfo genDef, Dictionary<string, TypeInfo> typeSubs,
+        TypeSymbol genDef, Dictionary<string, TypeSymbol> typeSubs,
         Dictionary<string, string> stringSubs, Statement variantBody,
         out bool skippedForStdlibFallback)
     {
@@ -2340,7 +2340,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // name rather than genMemberRoutine.WrapperForwarderInnerMemberRoutine.
         bool isWrapperWithNonEntityInner =
             WrapperForwardingPass.WrapperTypeNames.Contains(item: genDef.Name) &&
-            typeSubs.Count > 0 && typeSubs.Values.First() is not EntityTypeInfo;
+            typeSubs.Count > 0 && typeSubs.Values.First() is not EntityTypeSymbol;
         if (!isWrapperWithNonEntityInner)
         {
             Statement rewritten = GenericAstRewriter.RewriteStatement(stmt: variantBody,
@@ -2363,12 +2363,12 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     private MonomorphizedBody? BuildVariantBody(RoutineInfo genMemberRoutine,
-        RoutineInfo concreteInfo, TypeInfo genDef, Dictionary<string, TypeInfo> typeSubs,
+        RoutineInfo concreteInfo, TypeSymbol genDef, Dictionary<string, TypeSymbol> typeSubs,
         Dictionary<string, string> stringSubs)
     {
         // Compute carrier-unwrapping metadata for instantiated variant bodies.
         FailableVariant? variantStatus = null;
-        TypeInfo? variantInnerType = null;
+        TypeSymbol? variantInnerType = null;
 
         if (concreteInfo.ReturnType?.TypeArguments is { Count: > 0 })
         {
@@ -2499,7 +2499,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// substituting owner and memberRoutine type parameters.
     /// </summary>
     private RoutineInfo? BuildConcreteRoutineInfo(RoutineInfo genMemberRoutine,
-        TypeInfo concreteOwner, Dictionary<string, TypeInfo> typeSubs)
+        TypeSymbol concreteOwner, Dictionary<string, TypeSymbol> typeSubs)
     {
         // Wrapper-forwarder special case: the generic forwarder's signature came from the
         // inner-generic-def memberRoutine (e.g. List[T].getitem! returning T). Naive name-based
@@ -2511,7 +2511,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 IsSynthesized: true, WrapperForwarderInnerMemberRoutine: { } innerGenMemberRoutine
             } && concreteOwner.TypeArguments is { Count: 1 } wrapperArgs)
         {
-            TypeInfo concreteInner = wrapperArgs[index: 0];
+            TypeSymbol concreteInner = wrapperArgs[index: 0];
             RoutineInfo? concreteInnerMemberRoutine = ctx.Registry.LookupMemberRoutine(
                 type: concreteInner,
                 memberRoutineName: innerGenMemberRoutine.Name,
@@ -2557,15 +2557,15 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         var resolvedParams = genMemberRoutine.Parameters
                                              .Select(selector: p =>
                                               {
-                                                  TypeInfo resolved =
+                                                  TypeSymbol resolved =
                                                       ResolveSubstitutedType(type: p.Type,
                                                           subs: typeSubs);
                                                   // Final sweep: if ResolveSubstitutedType couldn't resolve a generic parameter
                                                   // (e.g., TryGetResolution returned null for a wrapper type), fall back to a direct
-                                                  // name-based lookup in typeSubs. Post-GMP there must be no GenericParameterTypeInfo.
-                                                  if (resolved is GenericParameterTypeInfo gp &&
+                                                  // name-based lookup in typeSubs. Post-GMP there must be no GenericParameterTypeSymbol.
+                                                  if (resolved is GenericParameterTypeSymbol gp &&
                                                       typeSubs.TryGetValue(key: gp.Name,
-                                                          value: out TypeInfo? directSub))
+                                                          value: out TypeSymbol? directSub))
                                                   {
                                                       resolved = directSub;
                                                   }
@@ -2574,11 +2574,11 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                                               })
                                              .ToList();
 
-        TypeInfo? resolvedReturn = genMemberRoutine.ReturnType != null
+        TypeSymbol? resolvedReturn = genMemberRoutine.ReturnType != null
             ? ResolveSubstitutedType(type: genMemberRoutine.ReturnType, subs: typeSubs)
             : null;
-        if (resolvedReturn is GenericParameterTypeInfo retGp &&
-            typeSubs.TryGetValue(key: retGp.Name, value: out TypeInfo? directRetSub))
+        if (resolvedReturn is GenericParameterTypeSymbol retGp &&
+            typeSubs.TryGetValue(key: retGp.Name, value: out TypeSymbol? directRetSub))
         {
             resolvedReturn = directRetSub;
         }
@@ -2614,21 +2614,21 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
     /// <summary>
     /// Resolves a type by applying generic substitutions.
-    /// Also converts <see cref="WrapperTypeInfo"/> to the concrete <see cref="RecordTypeInfo"/>
+    /// Also converts <see cref="WrapperTypeSymbol"/> to the concrete <see cref="RecordTypeSymbol"/>
     /// so memberRoutine lookup and LLVM name mangling use the correct module-qualified type name.
     /// </summary>
     /// <summary>The inner X of a marker borrow protocol <c>Accessing[X]</c>/<c>Controlling[X]</c>, or null.
     /// A marker is ABI-transparent to its inner, so during monomorphization it is replaced by X — no marker
     /// protocol survives into a concrete signature, and the backend never sees a protocol-typed param.</summary>
-    private static TypeInfo? MarkerInner(TypeInfo t)
+    private static TypeSymbol? MarkerInner(TypeSymbol t)
     {
-        return t is ProtocolTypeInfo { TypeArguments: [{ } inner] } p &&
+        return t is ProtocolTypeSymbol { TypeArguments: [{ } inner] } p &&
                RuntimeContract.IsMarkerProtocol(baseName: (p.GenericDefinition ?? p).BareName)
             ? inner
             : null;
     }
 
-    private TypeInfo ResolveSubstitutedType(TypeInfo type, Dictionary<string, TypeInfo> subs)
+    private TypeSymbol ResolveSubstitutedType(TypeSymbol type, Dictionary<string, TypeSymbol> subs)
     {
         // A marker borrow protocol (directly, or reached through a substitution below) collapses to its
         // ABI-transparent inner — recurse so a still-generic inner is resolved too.
@@ -2637,31 +2637,31 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             return ResolveSubstitutedType(type: directInner, subs: subs);
         }
 
-        if (subs.TryGetValue(key: type.Name, value: out TypeInfo? sub))
+        if (subs.TryGetValue(key: type.Name, value: out TypeSymbol? sub))
         {
             return MarkerInner(t: sub) is { } subbedInner
                 ? ResolveSubstitutedType(type: subbedInner, subs: subs)
                 : sub;
         }
 
-        // WrapperTypeInfo (e.g., Hijacked[T] or Hijacked[Core.Byte]) must always be resolved
-        // to the real RecordTypeInfo so LookupMemberRoutine and LLVM mangled names work correctly.
+        // WrapperTypeSymbol (e.g., Hijacked[T] or Hijacked[Core.Byte]) must always be resolved
+        // to the real RecordTypeSymbol so LookupMemberRoutine and LLVM mangled names work correctly.
         // Use TryGetResolution (lookup-only) -> GMP must not grow AllConcreteGenericInstances.
-        if (type is WrapperTypeInfo wrapper)
+        if (type is WrapperTypeSymbol wrapper)
         {
             return ResolveWrapperType(wrapper: wrapper, subs: subs);
         }
 
         // Tuples carry their elements in ElementTypes (not TypeArguments), so the generic-resolution
         // recursion below misses them — substitute element-wise (e.g. Tuple[U64, T] -> Tuple[U64, Text]).
-        if (type is TupleTypeInfo tuple)
+        if (type is TupleTypeSymbol tuple)
         {
             return ResolveTupleType(tuple: tuple, subs: subs);
         }
 
         if (type is { IsGenericResolution: true, TypeArguments: not null })
         {
-            TypeInfo? resolved = ResolveGenericResolutionType(type: type, subs: subs);
+            TypeSymbol? resolved = ResolveGenericResolutionType(type: type, subs: subs);
             if (resolved != null)
             {
                 return resolved;
@@ -2684,11 +2684,11 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// <paramref name="subs"/> or the registry, then looking up or creating the concrete instance.
     /// Returns null when not all parameters could be resolved.
     /// </summary>
-    private TypeInfo? TryResolveByGenericDefinition(TypeInfo type,
-        Dictionary<string, TypeInfo> subs)
+    private TypeSymbol? TryResolveByGenericDefinition(TypeSymbol type,
+        Dictionary<string, TypeSymbol> subs)
     {
         var typeArgs = type.GenericParameters!.Select(selector: gp =>
-                                subs.TryGetValue(key: gp, value: out TypeInfo? s)
+                                subs.TryGetValue(key: gp, value: out TypeSymbol? s)
                                     ? s
                                     : ctx.Registry.LookupType(name: gp))
                            .Where(predicate: t => t != null)
@@ -2702,9 +2702,9 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     /// <summary>Resolves a wrapper type by substituting its inner type arguments and looking up the concrete instance.</summary>
-    private TypeInfo ResolveWrapperType(WrapperTypeInfo wrapper, Dictionary<string, TypeInfo> subs)
+    private TypeSymbol ResolveWrapperType(WrapperTypeSymbol wrapper, Dictionary<string, TypeSymbol> subs)
     {
-        TypeInfo? wrapperDef = ctx.Registry.LookupType(name: wrapper.Name);
+        TypeSymbol? wrapperDef = ctx.Registry.LookupType(name: wrapper.Name);
         if (wrapperDef is { IsGenericDefinition: true } && wrapper.TypeArguments is { Count: > 0 })
         {
             var resolvedInnerArgs = wrapper.TypeArguments
@@ -2719,7 +2719,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     /// <summary>Resolves a tuple type by substituting each element type.</summary>
-    private TupleTypeInfo ResolveTupleType(TupleTypeInfo tuple, Dictionary<string, TypeInfo> subs)
+    private TupleTypeSymbol ResolveTupleType(TupleTypeSymbol tuple, Dictionary<string, TypeSymbol> subs)
     {
         var subbedElems = tuple.ElementTypes
                                .Select(selector: e => ResolveSubstitutedType(type: e, subs: subs))
@@ -2729,7 +2729,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                                                 objB: tuple.ElementTypes[index: i]))
                                        .Any();
         return tupleChanged
-            ? new TupleTypeInfo(elementTypes: subbedElems)
+            ? new TupleTypeSymbol(elementTypes: subbedElems)
             : tuple;
     }
 
@@ -2737,14 +2737,14 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// Resolves a generic-resolution type by substituting each type argument and looking up or creating
     /// the concrete instance. Returns null if no substitution occurred or no generic base was found.
     /// </summary>
-    private TypeInfo? ResolveGenericResolutionType(TypeInfo type,
-        Dictionary<string, TypeInfo> subs)
+    private TypeSymbol? ResolveGenericResolutionType(TypeSymbol type,
+        Dictionary<string, TypeSymbol> subs)
     {
         bool anySubstituted = false;
-        var substitutedArgs = new List<TypeInfo>();
-        foreach (TypeInfo arg in type.TypeArguments!)
+        var substitutedArgs = new List<TypeSymbol>();
+        foreach (TypeSymbol arg in type.TypeArguments!)
         {
-            TypeInfo resolved = ResolveSubstitutedType(type: arg, subs: subs);
+            TypeSymbol resolved = ResolveSubstitutedType(type: arg, subs: subs);
             substitutedArgs.Add(item: resolved);
             if (!ReferenceEquals(objA: resolved, objB: arg))
             {
@@ -2757,13 +2757,13 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             return null;
         }
 
-        TypeInfo? genericBase = GetGenericBase(type: type);
+        TypeSymbol? genericBase = GetGenericBase(type: type);
         if (genericBase == null)
         {
             return null;
         }
 
-        TypeInfo? alreadyResolved = ctx.Registry.TryGetResolution(
+        TypeSymbol? alreadyResolved = ctx.Registry.TryGetResolution(
             genericDef: genericBase,
             typeArguments: substitutedArgs);
         if (alreadyResolved != null)
@@ -2772,10 +2772,10 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
 
         // Not yet registered — create it so the concrete signature reaches codegen
-        // without unresolved GenericParameterTypeInfo. Safe here because wrapper types
-        // are intercepted above (the WrapperTypeInfo branch) and never reach this path.
+        // without unresolved GenericParameterTypeSymbol. Safe here because wrapper types
+        // are intercepted above (the WrapperTypeSymbol branch) and never reach this path.
         // GetOrCreateResolution also enqueues the new type for ProcessConcreteType.
-        if (substitutedArgs.All(predicate: a => a is not ErrorTypeInfo))
+        if (substitutedArgs.All(predicate: a => a is not ErrorTypeSymbol))
         {
             return ctx.Registry.GetOrCreateResolution(genericDef: genericBase,
                 typeArguments: substitutedArgs);
@@ -2785,7 +2785,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     /// <summary>Builds the expected AST name for a routine on a generic type definition.</summary>
-    private static string BuildAstName(TypeInfo genDef, string routineName)
+    private static string BuildAstName(TypeSymbol genDef, string routineName)
     {
         if (genDef.GenericParameters is { Count: > 0 })
         {
@@ -2824,14 +2824,14 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
 
         if (resolvedRoutine.GenericDefinition
-                          ?.OwnerType is GenericParameterTypeInfo universalOwner)
+                          ?.OwnerType is GenericParameterTypeSymbol universalOwner)
         {
             return universalOwner.Name;
         }
 
-        TypeInfo ownerType = resolvedRoutine.OwnerType!;
-        TypeInfo? ownerGenericDef = GetGenericBase(type: ownerType) ??
-                                    (ownerType is WrapperTypeInfo
+        TypeSymbol ownerType = resolvedRoutine.OwnerType!;
+        TypeSymbol? ownerGenericDef = GetGenericBase(type: ownerType) ??
+                                    (ownerType is WrapperTypeSymbol
                                         ? ctx.Registry.LookupType(name: ownerType.Name)
                                         : null);
         if (ownerGenericDef?.GenericParameters is { Count: > 0 } gdParams)
@@ -2851,9 +2851,9 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// <summary>Formats a specialized-receiver pattern (a memberRoutine's MeType, e.g. List[Agent[V]]) into
     /// the short AST-name form used by the routine index ("List[Agent[V]]"), stripping module
     /// prefixes so it matches how the declaration's receiver was written in source.</summary>
-    private string FormatReceiverPatternAstName(TypeInfo type)
+    private string FormatReceiverPatternAstName(TypeSymbol type)
     {
-        if (type is GenericParameterTypeInfo)
+        if (type is GenericParameterTypeSymbol)
         {
             return type.Name;
         }
@@ -2863,7 +2863,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // Unwrap the Roamed handle so the AST-index name matches the declaration (`Box[T].get`),
         // otherwise the generic body is looked up under `Roamed[Box[T]].get`, never found, and codegen
         // falls back to a naive direct field access that reads the RC controller instead of the entity.
-        if (type is RecordTypeInfo
+        if (type is RecordTypeSymbol
             {
                 GenericDefinition.Name: RuntimeContract.Roamed,
                 TypeArguments: [{ } roamedInner]
@@ -2890,18 +2890,18 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
     /// <summary>Recursively unifies a MeType pattern (List[Agent[V]]) against the concrete owner
     /// (List[Agent[S64]]), recording memberRoutine-generic bindings (V → S64) into <paramref name="into"/>.</summary>
-    private static void UnifyMePatternIntoSubs(TypeInfo pattern, TypeInfo concrete,
-        List<string>? genericParams, Dictionary<string, TypeInfo> into)
+    private static void UnifyMePatternIntoSubs(TypeSymbol pattern, TypeSymbol concrete,
+        List<string>? genericParams, Dictionary<string, TypeSymbol> into)
     {
         if (genericParams is not { Count: > 0 })
         {
             return;
         }
 
-        if (pattern is GenericParameterTypeInfo gp)
+        if (pattern is GenericParameterTypeSymbol gp)
         {
             if (genericParams.Contains(item: gp.Name) && !into.ContainsKey(key: gp.Name) &&
-                concrete is not GenericParameterTypeInfo)
+                concrete is not GenericParameterTypeSymbol)
             {
                 into[key: gp.Name] = concrete;
             }
@@ -2922,10 +2922,10 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
     }
 
-    private Dictionary<string, TypeInfo> BuildResolvedRoutineTypeSubstitutions(
+    private Dictionary<string, TypeSymbol> BuildResolvedRoutineTypeSubstitutions(
         RoutineInfo resolvedRoutine)
     {
-        var typeSubs = new Dictionary<string, TypeInfo>();
+        var typeSubs = new Dictionary<string, TypeSymbol>();
 
         // (1) Specialized-receiver member: bind receiver-derived generics (V → S64) by unifying the
         // generic definition's MeType against the concrete owner.
@@ -2940,7 +2940,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
         // (2) Universal-owner binding: map the single generic-owner parameter to the concrete owner.
         if (resolvedRoutine.GenericDefinition
-                          ?.OwnerType is GenericParameterTypeInfo universalOwner &&
+                          ?.OwnerType is GenericParameterTypeSymbol universalOwner &&
             resolvedRoutine.OwnerType != null)
         {
             typeSubs[key: universalOwner.Name] = resolvedRoutine.OwnerType;
@@ -2971,11 +2971,11 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// Adds the owner's type-argument → generic-parameter substitutions, including propagation of a
     /// wrapper forwarder's inner-generic-def parameters (e.g. K, V from Owned[BTreeDictNode[K,V]]).
     /// </summary>
-    private void AddOwnerTypeArgSubstitutions(Dictionary<string, TypeInfo> typeSubs,
-        RoutineInfo resolvedRoutine, TypeInfo ownerType)
+    private void AddOwnerTypeArgSubstitutions(Dictionary<string, TypeSymbol> typeSubs,
+        RoutineInfo resolvedRoutine, TypeSymbol ownerType)
     {
-        TypeInfo? ownerGenericDef = GetGenericBase(type: ownerType) ??
-                                    (ownerType is WrapperTypeInfo
+        TypeSymbol? ownerGenericDef = GetGenericBase(type: ownerType) ??
+                                    (ownerType is WrapperTypeSymbol
                                         ? ctx.Registry.LookupType(name: ownerType.Name)
                                         : null);
         if (ownerGenericDef?.GenericParameters is { Count: > 0 })
@@ -3014,14 +3014,14 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// Adds method-level generic type-argument substitutions, resolving name collisions by
     /// instantiating the already-mapped generic definition or by substituting into it.
     /// </summary>
-    private void AddMemberRoutineTypeArgSubstitutions(Dictionary<string, TypeInfo> typeSubs,
-        List<string> memberRoutineParams, List<TypeInfo> memberRoutineTypeArgs)
+    private void AddMemberRoutineTypeArgSubstitutions(Dictionary<string, TypeSymbol> typeSubs,
+        List<string> memberRoutineParams, List<TypeSymbol> memberRoutineTypeArgs)
     {
         for (int i = 0; i < memberRoutineParams.Count && i < memberRoutineTypeArgs.Count; i++)
         {
             string pName = memberRoutineParams[index: i];
-            TypeInfo pVal = memberRoutineTypeArgs[index: i];
-            if (typeSubs.TryGetValue(key: pName, value: out TypeInfo? existingOwnerValue))
+            TypeSymbol pVal = memberRoutineTypeArgs[index: i];
+            if (typeSubs.TryGetValue(key: pName, value: out TypeSymbol? existingOwnerValue))
             {
                 typeSubs[key: pName] = ResolveTypeArgCollision(pName: pName,
                     pVal: pVal,
@@ -3039,8 +3039,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// When the existing value is a generic definition that uses the same name, instantiates it with
     /// the method arg. Otherwise substitutes the method arg into the existing mapping.
     /// </summary>
-    private TypeInfo ResolveTypeArgCollision(string pName, TypeInfo pVal,
-        TypeInfo existingOwnerValue)
+    private TypeSymbol ResolveTypeArgCollision(string pName, TypeSymbol pVal,
+        TypeSymbol existingOwnerValue)
     {
         // Name collision: the owner already maps pName -> some type.
         // When existingOwnerValue is a generic definition (TypeArguments=null),
@@ -3053,15 +3053,15 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         {
             var newArgs = innerParams.Select(selector: p => p == pName
                                           ? pVal
-                                          : (TypeInfo)new GenericParameterTypeInfo(name: p))
+                                          : (TypeSymbol)new GenericParameterTypeSymbol(name: p))
                                      .ToList();
-            return newArgs.All(predicate: a => a is not GenericParameterTypeInfo)
+            return newArgs.All(predicate: a => a is not GenericParameterTypeSymbol)
                 ? ctx.Registry.GetOrCreateResolution(genericDef: existingOwnerValue,
                     typeArguments: newArgs)
                 : existingOwnerValue;
         }
 
-        var innerSub = new Dictionary<string, TypeInfo> { [key: pName] = pVal };
+        var innerSub = new Dictionary<string, TypeSymbol> { [key: pName] = pVal };
         return RoutineInfo.SubstituteType(type: existingOwnerValue, substitution: innerSub);
     }
 
@@ -3073,7 +3073,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// overload of e.g. <c>Maybe[T]</c> from being selected when T is an entity type.
     /// </summary>
     private RoutineDeclaration? FindInStdlib(string genericAstName, int expectedParamCount = -1,
-        Dictionary<string, TypeInfo>? typeSubs = null, List<string>? expectedParamNames = null,
+        Dictionary<string, TypeSymbol>? typeSubs = null, List<string>? expectedParamNames = null,
         List<string?>? expectedParamTypeNames = null, string? expectedOwnerModule = null,
         string? expectedOwnerRealm = null)
     {
@@ -3119,7 +3119,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         {
             var moduleMatched = candidates.Where(predicate: d =>
                                                d.ResolvedInfo?.OwnerType?.FullName is { } fn &&
-                                               TypeInfo.StripTypeArgs(name: fn) ==
+                                               TypeSymbol.StripTypeArgs(name: fn) ==
                                                expectedOwnerModule)
                                           .ToList();
             if (moduleMatched.Count > 0)
@@ -3149,7 +3149,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// parameter-name+type matches over count-only matches over first-encountered fallbacks.
     /// </summary>
     private static RoutineDeclaration? FindBestCandidate(List<RoutineDeclaration> candidates,
-        bool requireGenericSuffix, Dictionary<string, TypeInfo>? typeSubs, int expectedParamCount,
+        bool requireGenericSuffix, Dictionary<string, TypeSymbol>? typeSubs, int expectedParamCount,
         List<string>? expectedParamNames, List<string?>? expectedParamTypeNames)
     {
         RoutineDeclaration? countOnlyMatch = null;
@@ -3267,7 +3267,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
     private static string StripGenericSuffix(string typeName)
     {
-        return TypeInfo.StripTypeArgs(name: typeName);
+        return TypeSymbol.StripTypeArgs(name: typeName);
     }
 
     /// <summary>Borrow/reference wrapper type names. A parameter declared with one of these
@@ -3296,7 +3296,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     {
         string baseName = StripGenericSuffix(typeName: typeName);
         if (BorrowWrapperNames.Contains(item: baseName) &&
-            TypeInfo.ExtractTypeArgsString(name: typeName) is { } inner)
+            TypeSymbol.ExtractTypeArgsString(name: typeName) is { } inner)
         {
             return MatchableBaseName(typeName: inner);
         }
@@ -3309,7 +3309,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// satisfied by the concrete type substitutions in <paramref name="subs"/>.
     /// </summary>
     private static bool ConstraintsSatisfied(RoutineDeclaration routine,
-        Dictionary<string, TypeInfo>? subs)
+        Dictionary<string, TypeSymbol>? subs)
     {
         if (routine.GenericConstraints is not { Count: > 0 })
         {
@@ -3323,7 +3323,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
         foreach (GenericConstraintDeclaration c in routine.GenericConstraints)
         {
-            if (!subs.TryGetValue(key: c.ParameterName, value: out TypeInfo? actual))
+            if (!subs.TryGetValue(key: c.ParameterName, value: out TypeSymbol? actual))
             {
                 continue;
             }
@@ -3331,11 +3331,11 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             bool ok = c.ConstraintType switch
             {
                 ConstraintKind.RecordType => IsRecordLike(type: actual),
-                ConstraintKind.EntityType => actual is EntityTypeInfo,
-                ConstraintKind.ChoiceType => actual is ChoiceTypeInfo,
-                ConstraintKind.FlagsType => actual is FlagsTypeInfo,
-                ConstraintKind.VariantType => actual is VariantTypeInfo,
-                ConstraintKind.Crashable => actual is CrashableTypeInfo,
+                ConstraintKind.EntityType => actual is EntityTypeSymbol,
+                ConstraintKind.ChoiceType => actual is ChoiceTypeSymbol,
+                ConstraintKind.FlagsType => actual is FlagsTypeSymbol,
+                ConstraintKind.VariantType => actual is VariantTypeSymbol,
+                ConstraintKind.Crashable => actual is CrashableTypeSymbol,
                 ConstraintKind.ConstGeneric => CheckStructuralConstGeneric(c: c, actual: actual),
                 _ => true // Obeys/TypeEquality: trust SA
             };
@@ -3353,7 +3353,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// type-category requirement.
     /// </summary>
     private static bool CheckStructuralConstGeneric(GenericConstraintDeclaration c,
-        TypeInfo actual)
+        TypeSymbol actual)
     {
         string? typeName = c.ConstraintTypes is { Count: > 0 }
             ? c.ConstraintTypes[index: 0].Name
@@ -3361,21 +3361,21 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         return typeName switch
         {
             "RecordType" => IsRecordLike(type: actual),
-            "EntityType" => actual is EntityTypeInfo,
-            "ChoiceType" => actual is ChoiceTypeInfo,
-            "FlagsType" => actual is FlagsTypeInfo,
-            "VariantType" => actual is VariantTypeInfo,
-            "Crashable" => actual is CrashableTypeInfo,
+            "EntityType" => actual is EntityTypeSymbol,
+            "ChoiceType" => actual is ChoiceTypeSymbol,
+            "FlagsType" => actual is FlagsTypeSymbol,
+            "VariantType" => actual is VariantTypeSymbol,
+            "Crashable" => actual is CrashableTypeSymbol,
             _ => true
         };
     }
 
     /// Wrappers (Owned, Retained, Hijacked, ...) are declared with `record` syntax and behave as
-    /// record-category types for constraint purposes; they are tracked as WrapperTypeInfo for layout
+    /// record-category types for constraint purposes; they are tracked as WrapperTypeSymbol for layout
     /// reasons but a `needs T is RecordType` constraint must still accept them.
-    private static bool IsRecordLike(TypeInfo type)
+    private static bool IsRecordLike(TypeSymbol type)
     {
-        return type is RecordTypeInfo || type is WrapperTypeInfo;
+        return type is RecordTypeSymbol || type is WrapperTypeSymbol;
     }
 
     /// <summary>Wraps a pre-built body statement in a minimal shell RoutineDeclaration.</summary>
@@ -3400,9 +3400,9 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// or is itself a generic definition (free type params, no TypeArguments).
     /// Used to skip wrapper instances whose inner type still has free type params.
     /// </summary>
-    private static bool HasUnresolvedTypeArgs(TypeInfo t)
+    private static bool HasUnresolvedTypeArgs(TypeSymbol t)
     {
-        if (t is GenericParameterTypeInfo or ErrorTypeInfo)
+        if (t is GenericParameterTypeSymbol or ErrorTypeSymbol)
         {
             return true;
         }
@@ -3420,18 +3420,18 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         return args.Any(predicate: HasUnresolvedTypeArgs);
     }
 
-    private static TypeInfo? GetGenericBase(TypeInfo type)
+    private static TypeSymbol? GetGenericBase(TypeSymbol type)
     {
         return type switch
         {
-            RecordTypeInfo { GenericDefinition: { } d } => d,
-            EntityTypeInfo { GenericDefinition: { } d } => d,
-            ProtocolTypeInfo { GenericDefinition: { } d } => d,
+            RecordTypeSymbol { GenericDefinition: { } d } => d,
+            EntityTypeSymbol { GenericDefinition: { } d } => d,
+            ProtocolTypeSymbol { GenericDefinition: { } d } => d,
             _ => null
         };
     }
 
-    private static string? GetGenericBaseName(TypeInfo type)
+    private static string? GetGenericBaseName(TypeSymbol type)
     {
         return GetGenericBase(type: type)
           ?.Name;
@@ -3586,13 +3586,13 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 IsGenericDefinition: true, GenericParameters: { Count: > 0 } genParams
             } memberRoutine)
         {
-            TypeInfo?[] inferred = InferMemberRoutineTypeArgsFromCall(memberRoutine: memberRoutine,
+            TypeSymbol?[] inferred = InferMemberRoutineTypeArgsFromCall(memberRoutine: memberRoutine,
                 genParams: genParams,
                 call: call);
             if (inferred.Length == genParams.Count && inferred.All(predicate: t => t != null))
             {
                 ctx.Registry.GetOrCreateRoutineResolution(genericDef: memberRoutine,
-                    typeArguments: inferred.Cast<TypeInfo>()
+                    typeArguments: inferred.Cast<TypeSymbol>()
                                            .ToList());
             }
         }
@@ -3612,7 +3612,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     private void RegisterIndexAccessorGenericResolutions(IndexExpression idx)
     {
         if (idx.Object.ResolvedType is not { } idxObjType ||
-            idx.Index.ResolvedType is not ({ } idxIdxType and not GenericParameterTypeInfo))
+            idx.Index.ResolvedType is not ({ } idxIdxType and not GenericParameterTypeSymbol))
         {
             return;
         }
@@ -3637,22 +3637,22 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     /// <summary>
-    /// Infers memberRoutine-level type arguments by matching GenericParameterTypeInfo params
+    /// Infers memberRoutine-level type arguments by matching GenericParameterTypeSymbol params
     /// against the corresponding call-site argument ResolvedTypes.
     /// </summary>
-    private static TypeInfo?[] InferMemberRoutineTypeArgsFromCall(RoutineInfo memberRoutine,
+    private static TypeSymbol?[] InferMemberRoutineTypeArgsFromCall(RoutineInfo memberRoutine,
         List<string> genParams, CallExpression call)
     {
-        var result = new TypeInfo?[genParams.Count];
+        var result = new TypeSymbol?[genParams.Count];
 
-        foreach (ParameterInfo param in memberRoutine.Parameters)
+        foreach (ParamInfo param in memberRoutine.Parameters)
         {
             if (param.Name == "me")
             {
                 continue;
             }
 
-            if (param.Type is not GenericParameterTypeInfo gp)
+            if (param.Type is not GenericParameterTypeSymbol gp)
             {
                 continue;
             }
@@ -3673,15 +3673,15 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// Finds the ResolvedType of the argument bound to <paramref name="paramName"/> in the call,
     /// skipping arguments whose type is still an unresolved generic parameter.
     /// </summary>
-    private static TypeInfo? FindArgTypeForParam(CallExpression call, string paramName)
+    private static TypeSymbol? FindArgTypeForParam(CallExpression call, string paramName)
     {
         foreach (Expression arg in call.Arguments)
         {
             Expression argValue = arg is NamedArgumentExpression nae && nae.Name == paramName
                 ? nae.Value
                 : arg;
-            TypeInfo? argType = argValue.ResolvedType;
-            if (argType != null && argType is not GenericParameterTypeInfo)
+            TypeSymbol? argType = argValue.ResolvedType;
+            if (argType != null && argType is not GenericParameterTypeSymbol)
             {
                 return argType;
             }

@@ -1,9 +1,9 @@
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
 
-namespace Compiler.Parser;
+namespace Builder.Parser;
 
 /// <summary>
 /// Unified parser for both RazorForge and Suflae languages.

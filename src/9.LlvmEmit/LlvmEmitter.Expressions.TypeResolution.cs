@@ -1,9 +1,9 @@
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Expression code generation helpers for result type resolution and conditional lowering.
@@ -13,9 +13,9 @@ public partial class LlvmEmitter
     /// <summary>
     /// Resolves the identifier type from semantic compiler state.
     /// </summary>
-    private TypeInfo? ResolveIdentifierType(IdentifierExpression id)
+    private TypeSymbol? ResolveIdentifierType(IdentifierExpression id)
     {
-        if (_localVariables.TryGetValue(key: id.Name, value: out TypeInfo? varType))
+        if (_localVariables.TryGetValue(key: id.Name, value: out TypeSymbol? varType))
         {
             return ApplyTypeSubstitutions(type: varType);
         }
@@ -29,17 +29,17 @@ public partial class LlvmEmitter
     /// <summary>
     /// Gets the type of an expression (from semantic analysis metadata).
     /// </summary>
-    private TypeInfo? GetExpressionType(Expression expr)
+    private TypeSymbol? GetExpressionType(Expression expr)
     {
         // For identifier expressions (and named-argument wrappers around them), prefer the
         // concrete local-variable type when it is more specific than a stale semantic annotation.
-        if (TryPreferLocalIdentifierType(expr: expr, preferred: out TypeInfo? preferredLocal))
+        if (TryPreferLocalIdentifierType(expr: expr, preferred: out TypeSymbol? preferredLocal))
         {
             return preferredLocal;
         }
 
         // First, check if the semantic analyzer has already resolved the type
-        if (expr.ResolvedType is null or ErrorTypeInfo)
+        if (expr.ResolvedType is null or ErrorTypeSymbol)
         {
             return InferExpressionTypeFromStructure(expr: expr);
         }
@@ -51,8 +51,8 @@ public partial class LlvmEmitter
         bool skipSaResolved = false;
         if (expr is CallExpression { Callee: MemberExpression calleeMember })
         {
-            TypeInfo? rcvrType = GetExpressionType(expr: calleeMember.Object);
-            if (rcvrType is ProtocolTypeInfo { MemberRoutines.Count: 0, TypeArguments.Count: > 0 })
+            TypeSymbol? rcvrType = GetExpressionType(expr: calleeMember.Object);
+            if (rcvrType is ProtocolTypeSymbol { MemberRoutines.Count: 0, TypeArguments.Count: > 0 })
             {
                 skipSaResolved = true;
             }
@@ -61,13 +61,13 @@ public partial class LlvmEmitter
         if (!skipSaResolved)
         {
             // During monomorphization, resolve unsubstituted generic params (e.g., Hijacked[U] -> Hijacked[S64])
-            TypeInfo resolved = ApplyTypeSubstitutions(type: expr.ResolvedType);
+            TypeSymbol resolved = ApplyTypeSubstitutions(type: expr.ResolvedType);
             // If the type is still an unresolved generic parameter or an error placeholder,
             // fall through to the expression-specific resolution which can use call-site type arguments
-            if (resolved is not GenericParameterTypeInfo and not ErrorTypeInfo)
+            if (resolved is not GenericParameterTypeSymbol and not ErrorTypeSymbol)
             {
                 // Const generic values resolve to their underlying primitive type for memberRoutine dispatch
-                if (resolved is ConstGenericValueTypeInfo constVal)
+                if (resolved is ConstGenericValueTypeSymbol constVal)
                 {
                     return ResolveConstGenericUnderlyingType(constVal: constVal);
                 }
@@ -88,7 +88,7 @@ public partial class LlvmEmitter
     /// disagrees with the routine's actual parameter table (e.g. "from" marked S8 inside
     /// try_create(from: S32)).
     /// </summary>
-    private bool TryPreferLocalIdentifierType(Expression expr, out TypeInfo? preferred)
+    private bool TryPreferLocalIdentifierType(Expression expr, out TypeSymbol? preferred)
     {
         preferred = null;
         string? innerIdName = expr switch
@@ -98,23 +98,23 @@ public partial class LlvmEmitter
             _ => null
         };
         if (innerIdName == null ||
-            !_localVariables.TryGetValue(key: innerIdName, value: out TypeInfo? localVarType))
+            !_localVariables.TryGetValue(key: innerIdName, value: out TypeSymbol? localVarType))
         {
             return false;
         }
 
-        TypeInfo concreteLocal = ApplyTypeSubstitutions(type: localVarType);
+        TypeSymbol concreteLocal = ApplyTypeSubstitutions(type: localVarType);
         // A Suflae entity `me` is bound to the `Roamed[E]` handle, but a monomorphized body's
         // AST node can still carry the bare inner entity `E` as its ResolvedType. Prefer the
         // Roamed handle so member access deref's through the RC controller instead of reading
         // the controller's refcount off the bare entity pointer.
-        bool localRoamsResolved = expr.ResolvedType is { } rt && concreteLocal is RecordTypeInfo
+        bool localRoamsResolved = expr.ResolvedType is { } rt && concreteLocal is RecordTypeSymbol
         {
             GenericDefinition.Name: Declaration.RuntimeContract.Roamed,
             TypeArguments: [{ } roamInner]
         } && roamInner.FullName == rt.FullName;
-        if (concreteLocal is not GenericParameterTypeInfo && !concreteLocal.IsGenericDefinition &&
-            (expr.ResolvedType is null or ErrorTypeInfo or GenericParameterTypeInfo ||
+        if (concreteLocal is not GenericParameterTypeSymbol && !concreteLocal.IsGenericDefinition &&
+            (expr.ResolvedType is null or ErrorTypeSymbol or GenericParameterTypeSymbol ||
              localRoamsResolved || ShouldPreferLocalIdentifierType(localType: concreteLocal,
                  resolvedType: expr.ResolvedType)))
         {
@@ -129,7 +129,7 @@ public partial class LlvmEmitter
     /// Infers an expression's type purely from its structural node kind (the fallback used when the
     /// semantic analyzer left no usable <c>ResolvedType</c>, and after a still-generic SA type).
     /// </summary>
-    private TypeInfo? InferExpressionTypeFromStructure(Expression expr)
+    private TypeSymbol? InferExpressionTypeFromStructure(Expression expr)
     {
         return expr switch
         {
@@ -161,7 +161,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Returns whether should prefer local identifier type applies in the current compiler context.
     /// </summary>
-    private static bool ShouldPreferLocalIdentifierType(TypeInfo localType, TypeInfo resolvedType)
+    private static bool ShouldPreferLocalIdentifierType(TypeSymbol localType, TypeSymbol resolvedType)
     {
         if (localType.FullName == resolvedType.FullName)
         {
@@ -189,19 +189,19 @@ public partial class LlvmEmitter
     /// <summary>
     /// Resolves the creator type from semantic compiler state.
     /// </summary>
-    private TypeInfo? ResolveCreatorType(CreatorExpression creator)
+    private TypeSymbol? ResolveCreatorType(CreatorExpression creator)
     {
-        if (creator.ConstructedType is not null and not ErrorTypeInfo)
+        if (creator.ConstructedType is not null and not ErrorTypeSymbol)
         {
             return ApplyTypeSubstitutions(type: creator.ConstructedType);
         }
 
-        if (creator.ResolvedType is not null and not ErrorTypeInfo)
+        if (creator.ResolvedType is not null and not ErrorTypeSymbol)
         {
             return ApplyTypeSubstitutions(type: creator.ResolvedType);
         }
 
-        TypeInfo? tupleType = ResolveTupleTypeExpression(typeExpr: new TypeExpression(
+        TypeSymbol? tupleType = ResolveTupleTypeExpression(typeExpr: new TypeExpression(
             Name: creator.TypeName,
             GenericArguments: creator.TypeArguments,
             Location: creator.Location));
@@ -210,7 +210,7 @@ public partial class LlvmEmitter
             return tupleType;
         }
 
-        TypeInfo? type = LookupTypeInCurrentModule(name: creator.TypeName);
+        TypeSymbol? type = LookupTypeInCurrentModule(name: creator.TypeName);
         if (type == null)
         {
             return null;
@@ -218,10 +218,10 @@ public partial class LlvmEmitter
 
         if (type.IsGenericDefinition && creator.TypeArguments is { Count: > 0 })
         {
-            var resolvedArgs = new List<TypeInfo>(capacity: creator.TypeArguments.Count);
+            var resolvedArgs = new List<TypeSymbol>(capacity: creator.TypeArguments.Count);
             foreach (TypeExpression ta in creator.TypeArguments)
             {
-                TypeInfo? resolved = ResolveTypeArgument(ta: ta);
+                TypeSymbol? resolved = ResolveTypeArgument(ta: ta);
                 if (resolved == null)
                 {
                     return type;
@@ -243,9 +243,9 @@ public partial class LlvmEmitter
     /// <summary>
     /// Gets the return type of an index expression by looking up getitem on the target type.
     /// </summary>
-    private TypeInfo? GetUnaryExpressionType(UnaryExpression unary)
+    private TypeSymbol? GetUnaryExpressionType(UnaryExpression unary)
     {
-        TypeInfo? operandType = GetExpressionType(expr: unary.Operand);
+        TypeSymbol? operandType = GetExpressionType(expr: unary.Operand);
         if (unary.Operator == UnaryOperator.ForceUnwrap && operandType != null &&
             IsCarrierType(type: operandType) && operandType.TypeArguments is { Count: 1 })
         {
@@ -259,7 +259,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Gets the binary expression type needed by this compiler phase.
     /// </summary>
-    private TypeInfo? GetBinaryExpressionType(BinaryExpression binary)
+    private TypeSymbol? GetBinaryExpressionType(BinaryExpression binary)
     {
         return binary.Operator is BinaryOperator.Equal or BinaryOperator.NotEqual
             or BinaryOperator.Less or BinaryOperator.LessEqual or BinaryOperator.Greater
@@ -273,19 +273,19 @@ public partial class LlvmEmitter
     /// <summary>
     /// Gets the type of a GenericMemberExpression (member access + indexing).
     /// </summary>
-    private TypeInfo? GetGenericMemberExpressionType(GenericMemberExpression gme)
+    private TypeSymbol? GetGenericMemberExpressionType(GenericMemberExpression gme)
     {
         // Get the type of the object
-        TypeInfo? objType = GetExpressionType(expr: gme.Object);
+        TypeSymbol? objType = GetExpressionType(expr: gme.Object);
         switch (objType)
         {
             case null:
                 return null;
             // Refresh stale generic entity resolutions (same as GetMemberType).
-            // EntityTypeInfo.CreateInstance uses cycle detection that returns a shell with empty
+            // EntityTypeSymbol.CreateInstance uses cycle detection that returns a shell with empty
             // MemberVariables when recursion is detected. The shell has GenericDefinition set,
             // so we can refresh it from the definition with the same type arguments.
-            case EntityTypeInfo
+            case EntityTypeSymbol
             {
                 IsGenericResolution: true, MemberVariables.Count: 0,
                 GenericDefinition: { MemberVariables.Count: > 0 } genDef,
@@ -294,7 +294,7 @@ public partial class LlvmEmitter
             {
                 var refreshed =
                     genDef.CreateInstance(typeArguments: staleEntity.TypeArguments!) as
-                        EntityTypeInfo;
+                        EntityTypeSymbol;
                 if (refreshed is { MemberVariables.Count: > 0 })
                 {
                     objType = refreshed;
@@ -307,8 +307,8 @@ public partial class LlvmEmitter
         // Find the member variable
         List<MemberVariableInfo>? memberVars = objType switch
         {
-            EntityTypeInfo e => e.MemberVariables,
-            RecordTypeInfo r => r.MemberVariables,
+            EntityTypeSymbol e => e.MemberVariables,
+            RecordTypeSymbol r => r.MemberVariables,
             _ => null
         };
         MemberVariableInfo? memberVar =
@@ -319,7 +319,7 @@ public partial class LlvmEmitter
         }
 
         // The member's type has type arguments -> the first one is the element type
-        TypeInfo memberType = memberVar.Type;
+        TypeSymbol memberType = memberVar.Type;
         if (memberType.TypeArguments is { Count: > 0 })
         {
             return memberType.TypeArguments[index: 0];
@@ -328,7 +328,7 @@ public partial class LlvmEmitter
         // Try the scalar-index getitem on the member type (element type = its return). Signature-only:
         // getitem has two overloads — `getitem(index: U64) -> T` and `getitem(range) -> List[T]` — so a
         // name-only first-wins lookup could pick the range form and report the wrong element type.
-        TypeInfo? u64ForIndex = _registry.LookupType(name: "U64");
+        TypeSymbol? u64ForIndex = _registry.LookupType(name: "U64");
         RoutineInfo? getItem = u64ForIndex != null
             ? _registry.LookupMemberRoutineOverload(type: memberType,
                 memberRoutineName: "getitem",
@@ -340,7 +340,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Gets the type of a literal expression from its token type.
     /// </summary>
-    private TypeInfo? GetLiteralType(LiteralExpression literal)
+    private TypeSymbol? GetLiteralType(LiteralExpression literal)
     {
         string? typeName = literal.LiteralType switch
         {
@@ -389,9 +389,9 @@ public partial class LlvmEmitter
     /// so most are gone before codegen; this is the residual safety net for the paths they do not cover
     /// (non-monomorphized bodies). It disappears once every marker-reaching-codegen path is closed upstream.
     /// </summary>
-    private static TypeInfo? MarkerProtocolInner(TypeInfo? type)
+    private static TypeSymbol? MarkerProtocolInner(TypeSymbol? type)
     {
-        if (type is ProtocolTypeInfo { TypeArguments: [{ } inner] } proto &&
+        if (type is ProtocolTypeSymbol { TypeArguments: [{ } inner] } proto &&
             Declaration.RuntimeContract.IsMarkerProtocol(
                 baseName: (proto.GenericDefinition ?? proto).BareName))
         {
@@ -404,18 +404,18 @@ public partial class LlvmEmitter
     /// <summary>
     /// Gets the type of a member access expression.
     /// </summary>
-    private TypeInfo? GetMemberType(MemberExpression member)
+    private TypeSymbol? GetMemberType(MemberExpression member)
     {
-        TypeInfo? targetType = GetExpressionType(expr: member.Object);
+        TypeSymbol? targetType = GetExpressionType(expr: member.Object);
         if (targetType == null)
         {
             return null;
         }
 
-        TypeInfo? lookupType = MarkerProtocolInner(type: targetType) ?? targetType;
+        TypeSymbol? lookupType = MarkerProtocolInner(type: targetType) ?? targetType;
 
         // Refresh stale entity metadata for member variable lookup.
-        if (lookupType is EntityTypeInfo entityType)
+        if (lookupType is EntityTypeSymbol entityType)
         {
             lookupType = RefreshEntityMemberVariables(entity: entityType,
                 memberVariableName: member.MemberName);
@@ -423,12 +423,12 @@ public partial class LlvmEmitter
 
         MemberVariableInfo? memberVariable = lookupType switch
         {
-            EntityTypeInfo e => e.LookupMemberVariable(memberVariableName: member.MemberName),
-            RecordTypeInfo r => r.LookupMemberVariable(memberVariableName: member.MemberName),
+            EntityTypeSymbol e => e.LookupMemberVariable(memberVariableName: member.MemberName),
+            RecordTypeSymbol r => r.LookupMemberVariable(memberVariableName: member.MemberName),
             _ => null
         };
 
-        TypeInfo? memberType = memberVariable?.Type;
+        TypeSymbol? memberType = memberVariable?.Type;
         if (memberType != null && lookupType is
                 { IsGenericResolution: true, TypeArguments: not null })
         {
@@ -464,15 +464,15 @@ public partial class LlvmEmitter
     /// <summary>
     /// Performs the apply type substitutions step for this compiler phase.
     /// </summary>
-    internal TypeInfo ApplyTypeSubstitutions(TypeInfo type)
+    internal TypeSymbol ApplyTypeSubstitutions(TypeSymbol type)
     {
         // Track C: GenericMonomorphizationPass now emits fully-concrete bodies, so codegen holds no
         // live type-substitution map — every generic parameter is already resolved before emission.
-        // The only remaining work here is normalizing a WrapperTypeInfo (Hijacked[S64]) to its real
-        // RecordTypeInfo so LLVM name mangling uses the module-qualified record name.
-        if (type is WrapperTypeInfo wrapper)
+        // The only remaining work here is normalizing a WrapperTypeSymbol (Hijacked[S64]) to its real
+        // RecordTypeSymbol so LLVM name mangling uses the module-qualified record name.
+        if (type is WrapperTypeSymbol wrapper)
         {
-            TypeInfo? wrapperRecordDef = _registry.LookupType(name: wrapper.Name);
+            TypeSymbol? wrapperRecordDef = _registry.LookupType(name: wrapper.Name);
             if (wrapperRecordDef is { IsGenericDefinition: true } &&
                 wrapper.TypeArguments is { Count: > 0 })
             {
@@ -487,28 +487,28 @@ public partial class LlvmEmitter
     /// <summary>
     /// Performs the substitute type params step for this compiler phase.
     /// </summary>
-    internal TypeInfo SubstituteTypeParams(TypeInfo type,
-        Dictionary<string, TypeInfo> substitutions)
+    internal TypeSymbol SubstituteTypeParams(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitutions)
     {
-        if (substitutions.TryGetValue(key: type.Name, value: out TypeInfo? sub))
+        if (substitutions.TryGetValue(key: type.Name, value: out TypeSymbol? sub))
         {
             return sub;
         }
 
-        TypeInfo? resolvedGenericResolution =
+        TypeSymbol? resolvedGenericResolution =
             TrySubstituteGenericResolution(type: type, substitutions: substitutions);
         if (resolvedGenericResolution != null)
         {
             return resolvedGenericResolution;
         }
 
-        TypeInfo? resolvedWrapper = TrySubstituteWrapper(type: type, substitutions: substitutions);
+        TypeSymbol? resolvedWrapper = TrySubstituteWrapper(type: type, substitutions: substitutions);
         if (resolvedWrapper != null)
         {
             return resolvedWrapper;
         }
 
-        TypeInfo? resolvedGenericDef = TrySubstituteGenericDefinition(
+        TypeSymbol? resolvedGenericDef = TrySubstituteGenericDefinition(
             type: type,
             substitutions: substitutions);
         if (resolvedGenericDef != null)
@@ -516,7 +516,7 @@ public partial class LlvmEmitter
             return resolvedGenericDef;
         }
 
-        TypeInfo? resolvedTuple = TrySubstituteTuple(type: type, substitutions: substitutions);
+        TypeSymbol? resolvedTuple = TrySubstituteTuple(type: type, substitutions: substitutions);
         if (resolvedTuple != null)
         {
             return resolvedTuple;
@@ -530,8 +530,8 @@ public partial class LlvmEmitter
     /// resolution when any argument changed; returns null if the type is not a generic resolution
     /// or no argument required substitution.
     /// </summary>
-    private TypeInfo? TrySubstituteGenericResolution(TypeInfo type,
-        Dictionary<string, TypeInfo> substitutions)
+    private TypeSymbol? TrySubstituteGenericResolution(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitutions)
     {
         if (type is not { IsGenericResolution: true, TypeArguments: not null })
         {
@@ -539,8 +539,8 @@ public partial class LlvmEmitter
         }
 
         bool needsResolution = false;
-        var resolvedArgs = new List<TypeInfo>();
-        foreach (TypeInfo ta in type.TypeArguments)
+        var resolvedArgs = new List<TypeSymbol>();
+        foreach (TypeSymbol ta in type.TypeArguments)
         {
             resolvedArgs.Add(item: SubstituteTypeArgument(ta: ta,
                 substitutions: substitutions,
@@ -552,7 +552,7 @@ public partial class LlvmEmitter
             return null;
         }
 
-        TypeInfo? genericBase = GetGenericBase(type: type);
+        TypeSymbol? genericBase = GetGenericBase(type: type);
         return genericBase != null
             ? _registry.GetOrCreateResolution(genericDef: genericBase, typeArguments: resolvedArgs)
             : null;
@@ -562,17 +562,17 @@ public partial class LlvmEmitter
     /// Tries to substitute the inner type of a wrapper type. Returns the substituted wrapper (or
     /// a resolved generic record) when the inner type changed; returns null if the type is not a wrapper.
     /// </summary>
-    private TypeInfo? TrySubstituteWrapper(TypeInfo type,
-        Dictionary<string, TypeInfo> substitutions)
+    private TypeSymbol? TrySubstituteWrapper(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitutions)
     {
-        if (type is not WrapperTypeInfo wrapperT)
+        if (type is not WrapperTypeSymbol wrapperT)
         {
             return null;
         }
 
-        TypeInfo resolvedInner = SubstituteTypeParams(type: wrapperT.InnerType,
+        TypeSymbol resolvedInner = SubstituteTypeParams(type: wrapperT.InnerType,
             substitutions: substitutions);
-        TypeInfo? wrapperRecordDef = _registry.LookupType(name: wrapperT.Name);
+        TypeSymbol? wrapperRecordDef = _registry.LookupType(name: wrapperT.Name);
         if (wrapperRecordDef is { IsGenericDefinition: true })
         {
             return _registry.GetOrCreateResolution(genericDef: wrapperRecordDef,
@@ -581,7 +581,7 @@ public partial class LlvmEmitter
 
         if (!ReferenceEquals(objA: resolvedInner, objB: wrapperT.InnerType))
         {
-            return new WrapperTypeInfo(wrapperName: wrapperT.Name,
+            return new WrapperTypeSymbol(wrapperName: wrapperT.Name,
                 innerType: resolvedInner,
                 isReadOnly: wrapperT.IsReadOnly);
         }
@@ -593,18 +593,18 @@ public partial class LlvmEmitter
     /// Tries to resolve a generic definition whose all parameters are covered by the substitution map.
     /// Returns the concrete resolution when all parameters are bound; null otherwise.
     /// </summary>
-    private TypeInfo? TrySubstituteGenericDefinition(TypeInfo type,
-        Dictionary<string, TypeInfo> substitutions)
+    private TypeSymbol? TrySubstituteGenericDefinition(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitutions)
     {
         if (type is not { IsGenericDefinition: true, GenericParameters: not null })
         {
             return null;
         }
 
-        var resolvedArgs = new List<TypeInfo>();
+        var resolvedArgs = new List<TypeSymbol>();
         foreach (string param in type.GenericParameters)
         {
-            if (substitutions.TryGetValue(key: param, value: out TypeInfo? paramSub))
+            if (substitutions.TryGetValue(key: param, value: out TypeSymbol? paramSub))
             {
                 resolvedArgs.Add(item: paramSub);
             }
@@ -623,19 +623,19 @@ public partial class LlvmEmitter
     /// Tries to substitute element types inside a tuple type. Returns the new tuple when any element
     /// changed; null when the type is not a tuple or no element changed.
     /// </summary>
-    private TupleTypeInfo? TrySubstituteTuple(TypeInfo type,
-        Dictionary<string, TypeInfo> substitutions)
+    private TupleTypeSymbol? TrySubstituteTuple(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitutions)
     {
-        if (type is not TupleTypeInfo tuple)
+        if (type is not TupleTypeSymbol tuple)
         {
             return null;
         }
 
         bool anyChanged = false;
-        var resolvedElems = new List<TypeInfo>();
-        foreach (TypeInfo elem in tuple.ElementTypes)
+        var resolvedElems = new List<TypeSymbol>();
+        foreach (TypeSymbol elem in tuple.ElementTypes)
         {
-            TypeInfo resolved = SubstituteTypeParams(type: elem, substitutions: substitutions);
+            TypeSymbol resolved = SubstituteTypeParams(type: elem, substitutions: substitutions);
             if (resolved != elem)
             {
                 anyChanged = true;
@@ -645,7 +645,7 @@ public partial class LlvmEmitter
         }
 
         return anyChanged
-            ? new TupleTypeInfo(elementTypes: resolvedElems.ToList())
+            ? new TupleTypeSymbol(elementTypes: resolvedElems.ToList())
             : null;
     }
 
@@ -654,10 +654,10 @@ public partial class LlvmEmitter
     /// sub-resolution, or an unresolved generic-definition argument whose own params are all bound.
     /// Sets <paramref name="needsResolution"/> when the argument actually changed.
     /// </summary>
-    private TypeInfo SubstituteTypeArgument(TypeInfo ta,
-        Dictionary<string, TypeInfo> substitutions, ref bool needsResolution)
+    private TypeSymbol SubstituteTypeArgument(TypeSymbol ta,
+        Dictionary<string, TypeSymbol> substitutions, ref bool needsResolution)
     {
-        if (substitutions.TryGetValue(key: ta.Name, value: out TypeInfo? argSub))
+        if (substitutions.TryGetValue(key: ta.Name, value: out TypeSymbol? argSub))
         {
             needsResolution = true;
             return argSub;
@@ -665,7 +665,7 @@ public partial class LlvmEmitter
 
         if (ta is { IsGenericResolution: true, TypeArguments: not null })
         {
-            TypeInfo innerResolved = SubstituteTypeParams(type: ta, substitutions: substitutions);
+            TypeSymbol innerResolved = SubstituteTypeParams(type: ta, substitutions: substitutions);
             if (innerResolved != ta)
             {
                 needsResolution = true;
@@ -675,13 +675,13 @@ public partial class LlvmEmitter
         }
 
         if (ta is { IsGenericDefinition: true, GenericParameters: not null }
-            and not EntityTypeInfo)
+            and not EntityTypeSymbol)
         {
             bool canResolve = true;
-            var innerArgs = new List<TypeInfo>();
+            var innerArgs = new List<TypeSymbol>();
             foreach (string param in ta.GenericParameters)
             {
-                if (substitutions.TryGetValue(key: param, value: out TypeInfo? paramSub))
+                if (substitutions.TryGetValue(key: param, value: out TypeSymbol? paramSub))
                 {
                     innerArgs.Add(item: paramSub);
                 }
@@ -705,9 +705,9 @@ public partial class LlvmEmitter
     /// <summary>
     /// Resolves the type argument from semantic compiler state.
     /// </summary>
-    private TypeInfo? ResolveTypeArgument(TypeExpression ta)
+    private TypeSymbol? ResolveTypeArgument(TypeExpression ta)
     {
-        if (ta.ResolvedType is { } resolvedType and not ErrorTypeInfo)
+        if (ta.ResolvedType is { } resolvedType and not ErrorTypeSymbol)
         {
             return ApplyTypeSubstitutions(type: resolvedType);
         }
@@ -716,18 +716,18 @@ public partial class LlvmEmitter
                 value: out long constValue,
                 explicitType: out string? explicitType))
         {
-            return new ConstGenericValueTypeInfo(literalText: ta.Name,
+            return new ConstGenericValueTypeSymbol(literalText: ta.Name,
                 value: constValue,
                 explicitTypeName: explicitType);
         }
 
-        TypeInfo? tupleType = ResolveTupleTypeExpression(typeExpr: ta);
+        TypeSymbol? tupleType = ResolveTupleTypeExpression(typeExpr: ta);
         if (tupleType != null)
         {
             return tupleType;
         }
 
-        TypeInfo? genericInstance = ResolveGenericInstanceTypeArgument(ta: ta);
+        TypeSymbol? genericInstance = ResolveGenericInstanceTypeArgument(ta: ta);
         if (genericInstance != null)
         {
             return genericInstance;
@@ -740,23 +740,23 @@ public partial class LlvmEmitter
     /// Resolves a generic-instance type argument (e.g. <c>List[S64]</c>): looks up the base type,
     /// recursively resolves its inner arguments, and instantiates it when the arity matches.
     /// </summary>
-    private TypeInfo? ResolveGenericInstanceTypeArgument(TypeExpression ta)
+    private TypeSymbol? ResolveGenericInstanceTypeArgument(TypeExpression ta)
     {
         if (ta.GenericArguments is not { Count: > 0 } genericArguments)
         {
             return null;
         }
 
-        TypeInfo? baseType = _registry.LookupType(name: ta.Name);
+        TypeSymbol? baseType = _registry.LookupType(name: ta.Name);
         if (baseType == null)
         {
             return null;
         }
 
-        var innerArgs = new List<TypeInfo>();
+        var innerArgs = new List<TypeSymbol>();
         foreach (TypeExpression innerTa in genericArguments)
         {
-            TypeInfo? innerResolved = ResolveTypeArgument(ta: innerTa);
+            TypeSymbol? innerResolved = ResolveTypeArgument(ta: innerTa);
             if (innerResolved != null)
             {
                 innerArgs.Add(item: innerResolved);
@@ -771,7 +771,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Resolves the tuple type expression from semantic compiler state.
     /// </summary>
-    private TupleTypeInfo? ResolveTupleTypeExpression(TypeExpression typeExpr)
+    private TupleTypeSymbol? ResolveTupleTypeExpression(TypeExpression typeExpr)
     {
         if (typeExpr.Name is not "Tuple" and not "ValueTuple")
         {
@@ -783,10 +783,10 @@ public partial class LlvmEmitter
             return null;
         }
 
-        var elementTypes = new List<TypeInfo>(capacity: elementTypeExprs.Count);
+        var elementTypes = new List<TypeSymbol>(capacity: elementTypeExprs.Count);
         foreach (TypeExpression elementTypeExpr in elementTypeExprs)
         {
-            TypeInfo? elementType = ResolveTypeArgument(ta: elementTypeExpr);
+            TypeSymbol? elementType = ResolveTypeArgument(ta: elementTypeExpr);
             if (elementType == null)
             {
                 return null;
@@ -834,11 +834,11 @@ public partial class LlvmEmitter
     // -----------------------------------------------------------------------------
 
     /// <summary>
-    /// Resolves a <see cref="ConstGenericValueTypeInfo"/> to its underlying primitive type
+    /// Resolves a <see cref="ConstGenericValueTypeSymbol"/> to its underlying primitive type
     /// for memberRoutine dispatch. E.g., a const generic value "8" with constraint "N is U64"
     /// resolves to the U64 type so that memberRoutine calls like N.represent() work correctly.
     /// </summary>
-    private TypeInfo ResolveConstGenericUnderlyingType(ConstGenericValueTypeInfo constVal)
+    private TypeSymbol ResolveConstGenericUnderlyingType(ConstGenericValueTypeSymbol constVal)
     {
         string typeName = constVal.ExplicitTypeName ?? "U64";
         return _registry.LookupType(name: typeName) ?? constVal;
@@ -847,19 +847,19 @@ public partial class LlvmEmitter
     /// <summary>
     /// Gets the return type of an index expression by looking up getitem on the target type.
     /// </summary>
-    private TypeInfo? GetIndexReturnType(IndexExpression index)
+    private TypeSymbol? GetIndexReturnType(IndexExpression index)
     {
-        TypeInfo? targetType = GetExpressionType(expr: index.Object);
+        TypeSymbol? targetType = GetExpressionType(expr: index.Object);
         if (targetType == null)
         {
             return null;
         }
 
-        TypeInfo? lookupType = MarkerProtocolInner(type: targetType) ?? targetType;
+        TypeSymbol? lookupType = MarkerProtocolInner(type: targetType) ?? targetType;
 
         // Scalar-index getitem (`getitem(index: U64) -> T`) — signature-only so the range overload
         // (`getitem(range) -> List[T]`) is not first-wins-picked.
-        TypeInfo? u64ForIndex = _registry.LookupType(name: "U64");
+        TypeSymbol? u64ForIndex = _registry.LookupType(name: "U64");
         RoutineInfo? getItem = u64ForIndex != null
             ? _registry.LookupMemberRoutineOverload(type: lookupType,
                 memberRoutineName: "getitem",
@@ -885,14 +885,14 @@ public partial class LlvmEmitter
     }
 
     /// <summary>Resolves the owner generic-parameter names for a generic-resolution index target.</summary>
-    private static List<string>? ResolveOwnerGenericParams(TypeInfo lookupType,
+    private static List<string>? ResolveOwnerGenericParams(TypeSymbol lookupType,
         RoutineInfo getItem)
     {
-        TypeInfo? lookupGenericDef = lookupType switch
+        TypeSymbol? lookupGenericDef = lookupType switch
         {
-            RecordTypeInfo { IsGenericResolution: true } r => r.GenericDefinition,
-            EntityTypeInfo { IsGenericResolution: true } e => e.GenericDefinition,
-            ProtocolTypeInfo { IsGenericResolution: true } p => p.GenericDefinition,
+            RecordTypeSymbol { IsGenericResolution: true } r => r.GenericDefinition,
+            EntityTypeSymbol { IsGenericResolution: true } e => e.GenericDefinition,
+            ProtocolTypeSymbol { IsGenericResolution: true } p => p.GenericDefinition,
             _ => null
         };
         return lookupGenericDef?.GenericParameters ?? getItem.OwnerType?.GenericParameters;
@@ -902,10 +902,10 @@ public partial class LlvmEmitter
     /// Substitutes the index target's type arguments into <c>getitem</c>'s return type — a direct
     /// param match returns the arg verbatim, otherwise a full type-parameter substitution is applied.
     /// </summary>
-    private TypeInfo SubstituteIndexReturnType(TypeInfo returnType,
-        List<string> ownerGenericParams, List<TypeInfo> typeArgs)
+    private TypeSymbol SubstituteIndexReturnType(TypeSymbol returnType,
+        List<string> ownerGenericParams, List<TypeSymbol> typeArgs)
     {
-        var substitutions = new Dictionary<string, TypeInfo>();
+        var substitutions = new Dictionary<string, TypeSymbol>();
         for (int i = 0; i < ownerGenericParams.Count && i < typeArgs.Count; i++)
         {
             if (returnType.Name == ownerGenericParams[index: i])
@@ -927,16 +927,16 @@ public partial class LlvmEmitter
     /// use as a LLVM return type (i.e., not a generic parameter, not an error, not a generic definition,
     /// and contains no unresolved generic parameters).
     /// </summary>
-    private static bool IsConcreteReturnType(TypeInfo type)
+    private static bool IsConcreteReturnType(TypeSymbol type)
     {
-        return type is not GenericParameterTypeInfo and not ErrorTypeInfo &&
+        return type is not GenericParameterTypeSymbol and not ErrorTypeSymbol &&
                !type.IsGenericDefinition && !ContainsGenericParameter(type: type);
     }
 
     /// <summary>
     /// Gets the return type of a call expression.
     /// </summary>
-    private TypeInfo? GetCallReturnType(CallExpression call)
+    private TypeSymbol? GetCallReturnType(CallExpression call)
     {
         // The emitted `call` targets ResolvedRoutine, and its LLVM return type is
         // GetLlvmType(ResolvedRoutine.ReturnType). So a FULLY CONCRETE resolved return type is
@@ -947,19 +947,19 @@ public partial class LlvmEmitter
         // there yields a mismatched store, which fails LLVM verification. When ReturnType is still
         // generic (the universal create returns T/Me), it is not concrete, so we fall through to
         // ConstructedType — preserving prior behaviour for generic constructors.
-        if (call.ResolvedRoutine?.ReturnType is { } resolvedReturn and not ErrorTypeInfo)
+        if (call.ResolvedRoutine?.ReturnType is { } resolvedReturn and not ErrorTypeSymbol)
         {
-            TypeInfo concreteReturn = ApplyTypeSubstitutions(type: resolvedReturn);
+            TypeSymbol concreteReturn = ApplyTypeSubstitutions(type: resolvedReturn);
             if (IsConcreteReturnType(type: concreteReturn))
             {
                 return concreteReturn;
             }
         }
 
-        if (call.ConstructedType is not null and not ErrorTypeInfo)
+        if (call.ConstructedType is not null and not ErrorTypeSymbol)
         {
-            TypeInfo constructed = ApplyTypeSubstitutions(type: call.ConstructedType);
-            if (constructed is not GenericParameterTypeInfo and not ErrorTypeInfo)
+            TypeSymbol constructed = ApplyTypeSubstitutions(type: call.ConstructedType);
+            if (constructed is not GenericParameterTypeSymbol and not ErrorTypeSymbol)
             {
                 return constructed;
             }
@@ -968,10 +968,10 @@ public partial class LlvmEmitter
         // Fallback: OperatorLoweringPass sets ResolvedType on getitem! calls when it can't
         // find a RoutineInfo via LookupMemberRoutine (e.g., when registered name differs from lookup name).
         // ResolvedType was set from the IndexExpression SA annotated before lowering.
-        if (call.ResolvedType is not null and not ErrorTypeInfo)
+        if (call.ResolvedType is not null and not ErrorTypeSymbol)
         {
-            TypeInfo fallback = ApplyTypeSubstitutions(type: call.ResolvedType);
-            if (fallback is not GenericParameterTypeInfo and not ErrorTypeInfo)
+            TypeSymbol fallback = ApplyTypeSubstitutions(type: call.ResolvedType);
+            if (fallback is not GenericParameterTypeSymbol and not ErrorTypeSymbol)
             {
                 return fallback;
             }

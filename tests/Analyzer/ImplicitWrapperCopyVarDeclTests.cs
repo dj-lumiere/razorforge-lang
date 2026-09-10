@@ -1,4 +1,4 @@
-using Compiler.Verification.Results;
+using Builder.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 
@@ -78,7 +78,7 @@ public class ImplicitWrapperCopyVarDeclTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>Trivially-Assignable record (all-primitive) bitwise copies — no error.</summary>
@@ -99,7 +99,7 @@ public class ImplicitWrapperCopyVarDeclTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>Initializer that is a fresh call result (not a borrowed reference) is accepted.</summary>
@@ -121,7 +121,7 @@ public class ImplicitWrapperCopyVarDeclTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>`var v = a.view()` is rejected: Viewing[T] is a scoped token that can't escape.</summary>
@@ -141,7 +141,7 @@ public class ImplicitWrapperCopyVarDeclTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy &&
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy &&
                 e.Message.Contains(value: "Viewing",
                     comparisonType: StringComparison.OrdinalIgnoreCase));
     }
@@ -163,7 +163,7 @@ public class ImplicitWrapperCopyVarDeclTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy &&
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy &&
                 e.Message.Contains(value: "Modifying",
                     comparisonType: StringComparison.OrdinalIgnoreCase));
     }
@@ -187,7 +187,7 @@ public class ImplicitWrapperCopyVarDeclTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>`var t = ra.track()` produces a fresh Tracked handle — accepted as a call result.</summary>
@@ -208,7 +208,7 @@ public class ImplicitWrapperCopyVarDeclTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>Bare copy of a `Retained[T]` variable into a second var is rejected even inside a record field read.</summary>
@@ -236,7 +236,7 @@ public class ImplicitWrapperCopyVarDeclTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>`using a.view() as v` is the supported form — accepted.</summary>
@@ -259,6 +259,6 @@ public class ImplicitWrapperCopyVarDeclTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 }

@@ -1,8 +1,8 @@
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
 using SyntaxTree;
 
-namespace Compiler.Parser;
+namespace Builder.Parser;
 
 /// <summary>
 /// Partial class containing type parsing and generic constraints.
@@ -210,7 +210,7 @@ public partial class Parser
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
-        // CASE 1c: `${m.type}` — a comptime type-position splice of an expand handle's member type.
+        // CASE 1c: `${m.type}` — a buildtime type-position splice of an expand handle's member type.
         // Used in decl-position expand column templates (e.g. `Array[${m.type}, N]`) and, later, in
         // type-arg / pattern positions. Resolves to the current member's static type at expansion.
         // ═══════════════════════════════════════════════════════════════════════════
@@ -219,7 +219,7 @@ public partial class Parser
             Expression spliced = ParseExpression();
             Consume(type: TokenType.RightBrace,
                 errorMessage: "Expected '}' to close '${...}' splice");
-            // `${handle.type}` — a comptime TYPE splice of an expand handle's member type.
+            // `${handle.type}` — a buildtime TYPE splice of an expand handle's member type.
             if (spliced is MemberExpression
                 {
                     Object: IdentifierExpression handleId, MemberName: "type"
@@ -231,17 +231,17 @@ public partial class Parser
                     SpliceHandle: handleId.Name);
             }
 
-            // Otherwise a comptime VALUE splice used as a const-generic argument, e.g. the carrier
+            // Otherwise a buildtime VALUE splice used as a const-generic argument, e.g. the carrier
             // payload size `Array[U8, ${max(T.data_size().byte_size(), 8)}]`. Carry the expression for
             // the monomorphizer to fold into a ConstGenericValueTypeInfo.
             return new TypeExpression(Name: "splice_value",
                 GenericArguments: null,
                 Location: location,
-                ComptimeValue: spliced);
+                BuildtimeValue: spliced);
         }
 
-        // Brace-less comptime type splice: `$typeof(m)` (a TYPE splice of an expand handle's member type)
-        // or `$sizeof(m)` etc. (a comptime VALUE splice used as a const-generic argument).
+        // Brace-less buildtime type splice: `$typeof(m)` (a TYPE splice of an expand handle's member type)
+        // or `$sizeof(m)` etc. (a buildtime VALUE splice used as a const-generic argument).
         if (CheckAndAdvance(type: TokenType.Dollar))
         {
             Expression spliced = ParseDollarSpliceInner();
@@ -260,7 +260,7 @@ public partial class Parser
             return new TypeExpression(Name: "splice_value",
                 GenericArguments: null,
                 Location: location,
-                ComptimeValue: spliced);
+                BuildtimeValue: spliced);
         }
 
         // ═══════════════════════════════════════════════════════════════════════════

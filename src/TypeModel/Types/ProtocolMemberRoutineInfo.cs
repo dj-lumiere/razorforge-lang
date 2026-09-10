@@ -1,4 +1,4 @@
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 using SyntaxTree;
 using TypeModel.Enums;
 
@@ -21,13 +21,13 @@ public sealed class ProtocolMemberRoutineInfo
     public MutationCategory Mutation { get; init; } = MutationCategory.Reshaping;
 
     /// <summary>Parameter types (excluding me for instance memberRoutines).</summary>
-    public List<TypeInfo> ParameterTypes { get; init; } = [];
+    public List<TypeSymbol> ParameterTypes { get; init; } = [];
 
     /// <summary>Parameter names.</summary>
     public List<string> ParameterNames { get; init; } = [];
 
     /// <summary>Return type, or null for void.</summary>
-    public TypeInfo? ReturnType { get; init; }
+    public TypeSymbol? ReturnType { get; init; }
 
     /// <summary>Whether this memberRoutine can fail (has ! suffix).</summary>
     public bool IsFailable { get; init; }

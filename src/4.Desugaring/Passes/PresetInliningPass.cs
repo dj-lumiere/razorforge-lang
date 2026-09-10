@@ -1,9 +1,9 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Desugaring.Passes;
+namespace Builder.Desugaring.Passes;
 
 /// <summary>
 /// Substitutes <c>IdentifierExpression</c> nodes for preset constants with the
@@ -197,7 +197,7 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
 
             // Carry the Phase-4 ResolvedType from the identifier onto the inlined value.
             // This ensures operator-lowering and other subsequent passes see the correct type.
-            TypeInfo? resolvedType = id.ResolvedType ?? v.PresetValue.ResolvedType;
+            TypeSymbol? resolvedType = id.ResolvedType ?? v.PresetValue.ResolvedType;
             return v.PresetValue is LiteralExpression lit
                 ? lit with { ResolvedType = resolvedType }
                 : v.PresetValue;

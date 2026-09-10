@@ -4,26 +4,26 @@ module BuilderExpansion
 ### the describe-only [BuilderQuery] module. Where BuilderQuery answers "what does this type look like?" at
 ### build time, BuilderExpansion LAYS DOWN CODE per member/case/arm of a type via the `expand` loop, folding
 ### the per-part handle projections to literals at monomorphization. (Suflae reflects at RUNTIME via
-### ObjectHacker instead; this module is RF-only comptime.)
+### ObjectHacker instead; this module is RF-only buildtime.)
 ###
 ### `import BuilderExpansion` is the opt-in that unlocks the `expand` construct and its reflection
 ### intrinsics. Like `import BuilderQuery`, it is a capability gate, not a symbol import: the intrinsics
 ### below are recognized by the compiler and FOLDED at build time (they have no runtime routine body — the
-### per-part handle `m` is a comptime-only value with no user-spellable type), so they are documented here
+### per-part handle `m` is a buildtime-only value with no user-spellable type), so they are documented here
 ### rather than declared as callable routines.
 ###
 ### ── The loop (a keyword; the ONLY reflection keyword) ─────────────────────────────────────────────
 ###   `expand <m> in <source>(T)` — unroll the body once per part of T, binding `m` to each part.
 ###
-### ── Sources (comptime member/case/arm sets; the thing `expand` iterates) ──────────────────────────
+### ── Sources (buildtime member/case/arm sets; the thing `expand` iterates) ──────────────────────────
 ###   `allmemvarof(T)`   — ALL member variables of a record/entity/tuple, declaration order (incl. secret).
 ###   `openmemvarof(T)`  — the OPEN ∪ POSTED (publicly readable) member variables only.
 ###   `caseof(T)`        — the cases of a `choice`/`flags`.
 ###   `branchof(T)`      — the arms of a `variant` (used inside a `when` to emit one clause per arm).
 ###
-### ── Accessors (read a comptime property off the active handle `m`, or a type) ──────────────────────
+### ── Accessors (read a buildtime property off the active handle `m`, or a type) ──────────────────────
 ###   `nameof(m) -> Text`          — the member/case/arm name as declared.
-###   `typeof(m) -> <typewise>`    — the member's type as a comptime typewise receiver.
+###   `typeof(m) -> <typewise>`    — the member's type as a buildtime typewise receiver.
 ###   `typeidof(m) -> U64`         — the stable compile-time type id of the member's type.
 ###   `orderof(m) -> U64`          — the member's declaration index.
 ###   `placeof(m) -> U64`          — the member's byte offset in the type's layout.

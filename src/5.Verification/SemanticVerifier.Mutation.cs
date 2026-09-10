@@ -1,4 +1,4 @@
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 /// <summary>
 /// Phase 5: Mutation inference for RazorForge.

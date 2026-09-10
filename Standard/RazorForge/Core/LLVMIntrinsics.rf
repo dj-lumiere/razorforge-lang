@@ -19,7 +19,7 @@ dangerous routine LLVM::store[T](address: Hijacked[T], value: T)
 
 ### A zero-initialized value of any type `T` — every field/element set to its zero bit pattern.
 ### `freeze` of `zeroinitializer` is a well-defined all-zero value for scalars, aggregates, and
-### pointers alike (a null pointer for `ptr`). Backs the comptime `blank[T]()` primitive used by the
+### pointers alike (a null pointer for `ptr`). Backs the buildtime `blank[T]()` primitive used by the
 ### SoA collections to start from a zeroed instance before filling their columns.
 ### :returns: A `T` with every byte zero.
 @llvm_ir("{result} = freeze {T} zeroinitializer")

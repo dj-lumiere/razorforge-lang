@@ -1,8 +1,8 @@
-using Compiler.Declaration;
-using Compiler.Targeting;
+using Builder.Declaration;
+using Builder.Targeting;
 using SyntaxTree;
 
-namespace Compiler.Lowering;
+namespace Builder.Lowering;
 
 /// <summary>
 /// Guarded context for Phase 8 postprocessing work.

@@ -1,11 +1,11 @@
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
-using Compiler.Verification.Scopes;
+using Builder.Verification.Enums;
+using Builder.Verification.Scopes;
 using SyntaxTree;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 partial class TypeRegistry
 {
@@ -20,19 +20,19 @@ partial class TypeRegistry
 
         // Type storage
         /// <summary>All registered types keyed by full name.</summary>
-        public Dictionary<string, TypeInfo> Types { get; init; } = null!;
+        public Dictionary<string, TypeSymbol> Types { get; init; } = null!;
 
         /// <summary>Generic-resolution cache keyed by instantiated full name.</summary>
-        public Dictionary<string, TypeInfo> Resolutions { get; init; } = null!;
+        public Dictionary<string, TypeSymbol> Resolutions { get; init; } = null!;
 
         /// <summary>Wrapper-type resolution cache (Owned/Retained/etc.) keyed by full name.</summary>
-        public Dictionary<string, WrapperTypeInfo> WrapperResolutions { get; init; } = null!;
+        public Dictionary<string, WrapperTypeSymbol> WrapperResolutions { get; init; } = null!;
 
         /// <summary>Entity specializations keyed by full name.</summary>
-        public Dictionary<string, TypeInfo> EntitySpecializations { get; init; } = null!;
+        public Dictionary<string, TypeSymbol> EntitySpecializations { get; init; } = null!;
 
         /// <summary>Types indexed by short (unqualified) name for import resolution.</summary>
-        public Dictionary<string, TypeInfo> TypesByShortName { get; init; } = null!;
+        public Dictionary<string, TypeSymbol> TypesByShortName { get; init; } = null!;
 
         // Routine storage — list-valued dicts need copied lists (not shared) so tests can extend them
         /// <summary>All routines keyed by RegistryKey.</summary>
@@ -107,13 +107,13 @@ partial class TypeRegistry
         return new StdlibSnapshot
         {
             Language = Language,
-            Types = new Dictionary<string, TypeInfo>(dictionary: _types),
-            Resolutions = new Dictionary<string, TypeInfo>(dictionary: _resolutions),
+            Types = new Dictionary<string, TypeSymbol>(dictionary: _types),
+            Resolutions = new Dictionary<string, TypeSymbol>(dictionary: _resolutions),
             WrapperResolutions =
-                new Dictionary<string, WrapperTypeInfo>(dictionary: _wrapperResolutions),
+                new Dictionary<string, WrapperTypeSymbol>(dictionary: _wrapperResolutions),
             EntitySpecializations =
-                new Dictionary<string, TypeInfo>(dictionary: _entitySpecializations),
-            TypesByShortName = new Dictionary<string, TypeInfo>(dictionary: _typesByShortName),
+                new Dictionary<string, TypeSymbol>(dictionary: _entitySpecializations),
+            TypesByShortName = new Dictionary<string, TypeSymbol>(dictionary: _typesByShortName),
             Routines = new Dictionary<string, RoutineInfo>(dictionary: _routines),
             RoutinesByQualifiedName =
                 new Dictionary<string, RoutineInfo>(dictionary: _routinesByQualifiedName),
@@ -182,27 +182,27 @@ partial class TypeRegistry
     /// short-name index) from a snapshot.</summary>
     private void RestoreTypeStorage(StdlibSnapshot snapshot)
     {
-        foreach (KeyValuePair<string, TypeInfo> kv in snapshot.Types)
+        foreach (KeyValuePair<string, TypeSymbol> kv in snapshot.Types)
         {
             _types[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, TypeInfo> kv in snapshot.Resolutions)
+        foreach (KeyValuePair<string, TypeSymbol> kv in snapshot.Resolutions)
         {
             _resolutions[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, WrapperTypeInfo> kv in snapshot.WrapperResolutions)
+        foreach (KeyValuePair<string, WrapperTypeSymbol> kv in snapshot.WrapperResolutions)
         {
             _wrapperResolutions[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, TypeInfo> kv in snapshot.EntitySpecializations)
+        foreach (KeyValuePair<string, TypeSymbol> kv in snapshot.EntitySpecializations)
         {
             _entitySpecializations[key: kv.Key] = kv.Value;
         }
 
-        foreach (KeyValuePair<string, TypeInfo> kv in snapshot.TypesByShortName)
+        foreach (KeyValuePair<string, TypeSymbol> kv in snapshot.TypesByShortName)
         {
             _typesByShortName[key: kv.Key] = kv.Value;
         }

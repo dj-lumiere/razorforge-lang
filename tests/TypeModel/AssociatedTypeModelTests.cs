@@ -17,17 +17,17 @@ public class AssociatedTypeModelTests
     [Fact]
     public void Entity_CreateInstance_SubstitutesAssociatedTypeBinding()
     {
-        var concrete = new RecordTypeInfo(name: "S64");
-        var paramT = new GenericParameterTypeInfo(name: "T");
+        var concrete = new RecordTypeSymbol(name: "S64");
+        var paramT = new GenericParameterTypeSymbol(name: "T");
 
-        var def = new EntityTypeInfo(name: "Box")
+        var def = new EntityTypeSymbol(name: "Box")
         {
             GenericParameters = ["T"],
             // relates SomeEmitter[T] as Iter  →  bind Iter to a type that mentions T.
-            AssociatedTypeBindings = new Dictionary<string, TypeInfo> { [key: "Iter"] = paramT }
+            AssociatedTypeBindings = new Dictionary<string, TypeSymbol> { [key: "Iter"] = paramT }
         };
 
-        var instance = (EntityTypeInfo)def.CreateInstance(typeArguments: [concrete]);
+        var instance = (EntityTypeSymbol)def.CreateInstance(typeArguments: [concrete]);
 
         Assert.True(condition: instance.AssociatedTypeBindings.ContainsKey(key: "Iter"));
         // T was substituted with the concrete argument.
@@ -41,16 +41,16 @@ public class AssociatedTypeModelTests
     [Fact]
     public void Protocol_CreateInstance_CarriesAssociatedTypeSlot()
     {
-        var concrete = new RecordTypeInfo(name: "Text");
-        var paramT = new GenericParameterTypeInfo(name: "T");
+        var concrete = new RecordTypeSymbol(name: "Text");
+        var paramT = new GenericParameterTypeSymbol(name: "T");
 
-        var def = new ProtocolTypeInfo(name: "Sequence")
+        var def = new ProtocolTypeSymbol(name: "Sequence")
         {
             GenericParameters = ["T"],
             AssociatedTypes = [new AssociatedTypeSlot(name: "Iter") { Constraint = paramT }]
         };
 
-        var instance = (ProtocolTypeInfo)def.CreateInstance(typeArguments: [concrete]);
+        var instance = (ProtocolTypeSymbol)def.CreateInstance(typeArguments: [concrete]);
 
         Assert.Single(collection: instance.AssociatedTypes);
         Assert.Equal(expected: "Iter", actual: instance.AssociatedTypes[index: 0].Name);
@@ -63,8 +63,8 @@ public class AssociatedTypeModelTests
     [Fact]
     public void Projection_RecordsBaseAndSlot()
     {
-        var paramS = new GenericParameterTypeInfo(name: "S");
-        var projection = new AssociatedProjectionTypeInfo(baseType: paramS, slotName: "Iter");
+        var paramS = new GenericParameterTypeSymbol(name: "S");
+        var projection = new AssociatedProjectionTypeSymbol(baseType: paramS, slotName: "Iter");
 
         Assert.Same(expected: paramS, actual: projection.Base);
         Assert.Equal(expected: "Iter", actual: projection.SlotName);
@@ -78,18 +78,18 @@ public class AssociatedTypeModelTests
     [Fact]
     public void SubstituteType_ResolvesProjection_WhenBaseBecomesConcreteWithBinding()
     {
-        var emitter = new RecordTypeInfo(name: "ListEmitter");
-        var concreteList = new EntityTypeInfo(name: "List")
+        var emitter = new RecordTypeSymbol(name: "ListEmitter");
+        var concreteList = new EntityTypeSymbol(name: "List")
         {
             AssociatedTypeBindings =
-                new Dictionary<string, TypeInfo> { [key: "Iter"] = emitter }
+                new Dictionary<string, TypeSymbol> { [key: "Iter"] = emitter }
         };
-        var projection = new AssociatedProjectionTypeInfo(
-            baseType: new GenericParameterTypeInfo(name: "S"),
+        var projection = new AssociatedProjectionTypeSymbol(
+            baseType: new GenericParameterTypeSymbol(name: "S"),
             slotName: "Iter");
 
-        var subs = new Dictionary<string, TypeInfo> { [key: "S"] = concreteList };
-        TypeInfo result = RecordTypeInfo.SubstituteType(type: projection, substitution: subs);
+        var subs = new Dictionary<string, TypeSymbol> { [key: "S"] = concreteList };
+        TypeSymbol result = RecordTypeSymbol.SubstituteType(type: projection, substitution: subs);
 
         Assert.Same(expected: emitter, actual: result);
     }
@@ -101,13 +101,13 @@ public class AssociatedTypeModelTests
     [Fact]
     public void SubstituteType_KeepsProjection_WhenBaseStillGeneric()
     {
-        var projection = new AssociatedProjectionTypeInfo(
-            baseType: new GenericParameterTypeInfo(name: "S"),
+        var projection = new AssociatedProjectionTypeSymbol(
+            baseType: new GenericParameterTypeSymbol(name: "S"),
             slotName: "Iter");
 
-        var subs = new Dictionary<string, TypeInfo>(); // no binding for S
-        TypeInfo result = RecordTypeInfo.SubstituteType(type: projection, substitution: subs);
+        var subs = new Dictionary<string, TypeSymbol>(); // no binding for S
+        TypeSymbol result = RecordTypeSymbol.SubstituteType(type: projection, substitution: subs);
 
-        Assert.IsType<AssociatedProjectionTypeInfo>(@object: result);
+        Assert.IsType<AssociatedProjectionTypeSymbol>(@object: result);
     }
 }

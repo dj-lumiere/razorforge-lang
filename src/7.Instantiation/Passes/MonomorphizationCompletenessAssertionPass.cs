@@ -2,12 +2,12 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Instantiation.Passes;
+namespace Builder.Instantiation.Passes;
 
 /// <summary>
 /// Track-C tripwire (C1). After GMP + all instantiated-body lowering, verifies that every
-/// FULLY-CONCRETE monomorphized body is free of residual generics: no <see cref="TypeInfo"/>
-/// containing a <see cref="GenericParameterTypeInfo"/>, no callee bound to a generic-definition
+/// FULLY-CONCRETE monomorphized body is free of residual generics: no <see cref="TypeSymbol"/>
+/// containing a <see cref="GenericParameterTypeSymbol"/>, no callee bound to a generic-definition
 /// owner, no unresolved const-generic identifier. If any survive, LLVM codegen would have to
 /// monomorphize / substitute at emit time — the exact thing Track C removes — so we throw LOUDLY
 /// here, naming the offending node/type, instead of leaking it into codegen.
@@ -133,7 +133,7 @@ internal static class MonomorphizationCompletenessAssertionPass
         }
     }
 
-    private static void AssertConcrete(TypeInfo type, string routine, string key,
+    private static void AssertConcrete(TypeSymbol type, string routine, string key,
         string where)
     {
         if (ContainsGenericParameter(type: type))
@@ -158,29 +158,29 @@ internal static class MonomorphizationCompletenessAssertionPass
     /// its type arguments. A bare generic DEFINITION used as a type label (<c>Maybe</c> with no
     /// arguments) is deliberately NOT flagged: it is not a substitutable parameter — codegen never
     /// monomorphizes it — and pre-existing type-label imprecision on some identifier nodes tags such
-    /// bare defs. C1 targets unsubstituted <see cref="GenericParameterTypeInfo"/> and generic-def
+    /// bare defs. C1 targets unsubstituted <see cref="GenericParameterTypeSymbol"/> and generic-def
     /// CALLEE owners (checked separately), not incompletely-labelled leaves.
     /// </summary>
-    private static bool ContainsGenericParameter(TypeInfo type)
+    private static bool ContainsGenericParameter(TypeSymbol type)
     {
-        if (type is GenericParameterTypeInfo)
+        if (type is GenericParameterTypeSymbol)
         {
             return true;
         }
 
-        // RoutineTypeInfo (`Routine[(T,), U]`) and TupleTypeInfo (`Tuple[T, Bool]`) carry their
+        // RoutineTypeSymbol (`Routine[(T,), U]`) and TupleTypeSymbol (`Tuple[T, Bool]`) carry their
         // component types in dedicated slots, NOT TypeArguments, so the recursion below would miss a
         // residual param nested inside them. A chained iterator emitter stores its projection as
         // `secret transform: Routine[(T,), U]`; `me.transform(item)`'s indirect return type is read
-        // straight off that RoutineTypeInfo at codegen — an unsubstituted `U` there would slip past
+        // straight off that RoutineTypeSymbol at codegen — an unsubstituted `U` there would slip past
         // C1 and only surface as a GetLlvmType crash. Recurse both slot kinds explicitly.
-        if (type is RoutineTypeInfo rt)
+        if (type is RoutineTypeSymbol rt)
         {
             return rt.ParameterTypes.Any(predicate: p => ContainsGenericParameter(type: p)) ||
                    rt.ReturnType != null && ContainsGenericParameter(type: rt.ReturnType);
         }
 
-        if (type is TupleTypeInfo tuple)
+        if (type is TupleTypeSymbol tuple)
         {
             return tuple.ElementTypes.Any(predicate: e => ContainsGenericParameter(type: e));
         }

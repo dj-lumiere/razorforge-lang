@@ -1,6 +1,6 @@
 using SyntaxTree;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Returns <c>true</c> on the first descendant that is an

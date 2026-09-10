@@ -3,8 +3,6 @@ using TypeModel.Types;
 
 namespace TypeModel.Symbols;
 
-using TypeSymbol = TypeInfo;
-
 /// <summary>
 /// A resolved decl-position <c>expand</c> column template captured on a generic record/entity
 /// definition. At instantiation the type registry materializes one <see cref="MemberVariableInfo"/>

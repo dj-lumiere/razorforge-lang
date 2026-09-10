@@ -1,11 +1,11 @@
 using SyntaxTree;
 using TypeModel.Symbols;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 /// <summary>
 /// Guarded call-classification logic used by both the semantic verifier (during SA) and
-/// <see cref="Compiler.Declaration.CallOverloadResolutionPass"/> (post-instantiation).
+/// <see cref="Builder.Declaration.CallOverloadResolutionPass"/> (post-instantiation).
 /// Centralised here so the two phases always agree on which <see cref="CallLoweringKind"/>
 /// a resolved routine maps to.
 /// </summary>

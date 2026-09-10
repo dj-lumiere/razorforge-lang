@@ -1,17 +1,17 @@
 using System.Text;
 using System.Text.Json;
-using Compiler.Diagnostics;
-using Compiler.Parser;
-using Compiler.Declaration;
-using Compiler.Tokenizer;
+using Builder.Diagnostics;
+using Builder.Parser;
+using Builder.Declaration;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.Verification;
+using Builder.Verification.Results;
 
-namespace Builder;
+namespace Builder.Execution;
 
 /// <summary>
 /// A Language Server Protocol server for RazorForge / Suflae, spoken over stdio (launched via
@@ -568,9 +568,9 @@ public static class LspServer
     /// <c>Retained[T]</c> is a storable hand-off, the <c>Viewing</c>/<c>Modifying</c> tokens are temporary
     /// access links. Null for ordinary value types.
     /// </summary>
-    private static string? OwnershipNote(TypeInfo type)
+    private static string? OwnershipNote(TypeSymbol type)
     {
-        if (type is EntityTypeInfo)
+        if (type is EntityTypeSymbol)
         {
             return
                 "🔒 **entity** — single owner. Hand it off with `steal` (a plain `=` is RF-S413); after " +
@@ -1052,7 +1052,7 @@ public static class LspServer
         Token? receiver = MemberReceiverToken(doc: doc, line0: line0, char0: char0);
         if (receiver != null)
         {
-            TypeInfo? receiverType = ReceiverType(doc: doc, receiver: receiver);
+            TypeSymbol? receiverType = ReceiverType(doc: doc, receiver: receiver);
             if (receiverType != null)
             {
                 AddMemberCompletions(doc: doc,
@@ -1102,7 +1102,7 @@ public static class LspServer
     /// <summary>Completions after a <c>receiver.</c>: the receiver type's member variables and applicable
     /// member routines (wired internals, file-private secrets, and specialized-receiver mismatches filtered).</summary>
     private static void AddMemberCompletions(DocState doc, List<Dictionary<string, object?>> items,
-        HashSet<string> seen, Token receiver, TypeInfo receiverType)
+        HashSet<string> seen, Token receiver, TypeSymbol receiverType)
     {
         // `secret` members are file-private — hide them from an outside `x.` completion, but show
         // them for `me.` (inside the type's own body they are accessible).
@@ -2470,7 +2470,7 @@ public static class LspServer
     /// <c>p.</c> may leave that node untyped — any same-named identifier's stamped variable binding or
     /// resolved type elsewhere in the file. Returns null only if the name has no known type at all.
     /// </summary>
-    private static TypeInfo? ReceiverType(DocState doc, Token receiver)
+    private static TypeSymbol? ReceiverType(DocState doc, Token receiver)
     {
         // `me.` → the enclosing type. Resolve it from the nearest routine DECLARED above the cursor in
         // THIS file that has an owner — robust even on a half-typed `me.` line where the `me` node itself
@@ -2499,7 +2499,7 @@ public static class LspServer
 
         // 1. The receiver identifier at exactly this position (NOT the enclosing MemberExpression, which
         //    shares the column but carries the MEMBER's type).
-        TypeInfo? exactType = idents.FirstOrDefault(predicate: e =>
+        TypeSymbol? exactType = idents.FirstOrDefault(predicate: e =>
                                          e.ResolvedType != null && e.Name == receiver.Text &&
                                          e.Location.Line == receiver.Line &&
                                          e.Location.Column == receiver.Column)
@@ -2510,7 +2510,7 @@ public static class LspServer
         }
 
         // 2. Fallback for a mid-edit line: the same name's binding (or any typed use) elsewhere.
-        TypeInfo? bindingType = idents
+        TypeSymbol? bindingType = idents
                                .FirstOrDefault(predicate: e =>
                                     e.Name == receiver.Text && e.ResolvedVariable != null)
                               ?.ResolvedVariable?.Type;
@@ -2531,7 +2531,7 @@ public static class LspServer
     /// must NOT be offered for an unrelated instantiation like <c>List[FaceDraw]</c>. A method whose
     /// receiver pattern is the bare generic (element is a generic parameter) applies to any instantiation.
     /// </summary>
-    private static bool ReceiverAcceptsMethod(RoutineInfo mr, TypeInfo receiverType)
+    private static bool ReceiverAcceptsMethod(RoutineInfo mr, TypeSymbol receiverType)
     {
         if (mr.MeType is not { TypeArguments: { Count: > 0 } meArgs } ||
             receiverType.TypeArguments is not { Count: > 0 } recvArgs ||
@@ -2545,7 +2545,7 @@ public static class LspServer
             // A generic-parameter slot in the receiver pattern (e.g. the `T` of `List[T]`) matches
             // anything. A CONCRETE pattern element (e.g. `Agent[V]`) requires the receiver's element to
             // be the same base type.
-            if (meArgs[index: i] is not GenericParameterTypeInfo &&
+            if (meArgs[index: i] is not GenericParameterTypeSymbol &&
                 meArgs[index: i].BareName != recvArgs[index: i].BareName)
             {
                 return false;
@@ -2555,13 +2555,13 @@ public static class LspServer
         return true;
     }
 
-    private static IEnumerable<(string Name, string Type)> MemberVariableSignatures(TypeInfo type,
+    private static IEnumerable<(string Name, string Type)> MemberVariableSignatures(TypeSymbol type,
         bool includeSecret)
     {
         IEnumerable<MemberVariableInfo> members = type switch
         {
-            EntityTypeInfo en => en.MemberVariables,
-            RecordTypeInfo re => re.MemberVariables,
+            EntityTypeSymbol en => en.MemberVariables,
+            RecordTypeSymbol re => re.MemberVariables,
             _ => Enumerable.Empty<MemberVariableInfo>()
         };
 
@@ -2830,10 +2830,10 @@ public static class LspServer
 
         try
         {
-            var tokenizer = new Tokenizer(source: text, fileName: fileName, language: lang);
+            var tokenizer = new Builder.Tokenizer.Tokenizer(source: text, fileName: fileName, language: lang);
             List<Token> tokens = tokenizer.Tokenize();
 
-            var parser = new Parser(tokens: tokens, language: lang, fileName: fileName);
+            var parser = new Builder.Parser.Parser(tokens: tokens, language: lang, fileName: fileName);
             SyntaxTree.Program program = parser.Parse();
 
             // Underline the whole token at the reported position, not a single caret column.

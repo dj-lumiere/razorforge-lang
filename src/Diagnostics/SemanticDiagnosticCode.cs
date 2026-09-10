@@ -1,4 +1,4 @@
-namespace Compiler.Diagnostics;
+namespace Builder.Diagnostics;
 
 /// <summary>
 /// Semantic diagnostic codes for RazorForge (RF-S prefix).
@@ -811,7 +811,7 @@ public enum SemanticDiagnosticCode
     CrashableObeyedByNonCrashableKind = 709,
 
     /// <summary>An <c>expand</c> template body applies a GATED wired-protocol operation (e.g. <c>eq</c>
-    /// via <c>==</c>, <c>cmp</c>, <c>hash</c>) to a comptime member value (<c>me.$nameof(m)</c>) without
+    /// via <c>==</c>, <c>cmp</c>, <c>hash</c>) to a buildtime member value (<c>me.$nameof(m)</c>) without
     /// the enclosing routine declaring the matching <c>needs P everywhere</c> gate — so nothing
     /// guarantees every member supports that operation. Add the gate (e.g. <c>needs Equatable
     /// everywhere</c>). Universal operations (represent/diagnose/serialize) need no gate.</summary>
@@ -821,7 +821,7 @@ public enum SemanticDiagnosticCode
     /// variables' type does not provide it. Names the culprit member.</summary>
     ExpandMemberVariableLacksWiredRoutine = 634,
 
-    /// <summary>A comptime <c>expand</c> statement is nested inside another <c>expand</c>. Expansion is
+    /// <summary>A buildtime <c>expand</c> statement is nested inside another <c>expand</c>. Expansion is
     /// single-level — a member walk cannot itself contain a member walk.</summary>
     NestedExpandNotAllowed = 635,
 

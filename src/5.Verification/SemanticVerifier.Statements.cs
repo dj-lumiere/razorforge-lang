@@ -1,13 +1,11 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 /// <summary>
 /// Phase 5: Statement analysis.
@@ -98,7 +96,7 @@ public sealed partial class SemanticVerifier
     private void AnalyzeFunctionBody(RoutineDeclaration routine)
     {
         // Opt-in-capability derive templates (`@overridable/@override routine T.eq/cmp()` with a
-        // bare generic-param owner) are comptime macros consumed ONLY by the wired per-type
+        // bare generic-param owner) are buildtime macros consumed ONLY by the wired per-type
         // synthesizer (WiredRoutinePass.CloneUniversalDeriveBody → post-GMP lowering resolves the
         // operators). Unlike represent/diagnose, they are NOT registered as live universal memberRoutines
         // (see StdlibLoader.Registration), so no GMP instance relies on the template body being
@@ -238,7 +236,7 @@ public sealed partial class SemanticVerifier
     {
         for (int pi = 0; pi < routineInfo.Parameters.Count; pi++)
         {
-            ParameterInfo param = routineInfo.Parameters[index: pi];
+            ParamInfo param = routineInfo.Parameters[index: pi];
             SourceLocation? paramLoc = pi < routine.Parameters.Count
                 ? routine.Parameters[index: pi].Location
                 : null;
@@ -357,14 +355,14 @@ public sealed partial class SemanticVerifier
             // Protocol-extension decls like `Iterable[Text].join` should have `me` typed as the
             // bracketed owner so the body's `for part in me` resolves `part` from
             // Iterable[Text]'s try_emit() return. Without this, `me` is the bare gen-def
-            // `Iterable` and body identifiers (parameters, loop vars) get ErrorTypeInfo.
-            // Only override for ProtocolTypeInfo: for records/entities like
+            // `Iterable` and body identifiers (parameters, loop vars) get ErrorTypeSymbol.
+            // Only override for ProtocolTypeSymbol: for records/entities like
             // `List[PQEntry[TPriority, TElement]]` the gen-param resolution must happen through
             // routine.GenericParameters, not via a bracketed-cache lookup that strips the params.
-            if (typeName.Contains(value: '[') && ownerType is ProtocolTypeInfo)
+            if (typeName.Contains(value: '[') && ownerType is ProtocolTypeSymbol)
             {
                 TypeSymbol? bracketed = _registry.LookupType(name: typeName);
-                if (bracketed is ProtocolTypeInfo)
+                if (bracketed is ProtocolTypeSymbol)
                 {
                     ownerType = bracketed;
                 }
@@ -372,7 +370,7 @@ public sealed partial class SemanticVerifier
 
             // Universal member routine (`routine T.represent()`): a bare owner name that resolves to no
             // registered type IS the generic parameter itself. Mirror the registration path
-            // (StdlibLoader.Registration: owner → GenericParameterTypeInfo when LookupType misses) so the
+            // (StdlibLoader.Registration: owner → GenericParameterTypeSymbol when LookupType misses) so the
             // body binds to the universal RoutineInfo (whose OwnerType is that generic param) and `T`
             // inside the body resolves as a parameter — instead of falling through to a first-wins
             // by-member-name match on some concrete type's same-named routine (e.g. BitArray.represent),
@@ -380,7 +378,7 @@ public sealed partial class SemanticVerifier
             if (ownerType == null && routine.OwnerName is { } bareOwner &&
                 !bareOwner.Contains(value: '['))
             {
-                ownerType = new GenericParameterTypeInfo(name: bareOwner);
+                ownerType = new GenericParameterTypeSymbol(name: bareOwner);
             }
 
             string extBaseName = ownerType != null
@@ -434,7 +432,7 @@ public sealed partial class SemanticVerifier
 
                                                              TypeSymbol resolved =
                                                                  ResolveType(typeExpr: p.Type);
-                                                             if (resolved is ErrorTypeInfo)
+                                                             if (resolved is ErrorTypeSymbol)
                                                              {
                                                                  return p.Type.Name ?? "";
                                                              }
@@ -466,7 +464,7 @@ public sealed partial class SemanticVerifier
             {
                 // Structured receiver from the parser (was: re-parse the owner substring of Name).
                 TypeSymbol resolvedOwner = ResolveType(typeExpr: ownerExpr);
-                if (resolvedOwner is not ErrorTypeInfo)
+                if (resolvedOwner is not ErrorTypeSymbol)
                 {
                     string ownerIdentity = RoutineInfo.GetTypeIdentity(type: resolvedOwner);
                     string concreteKey = $"{ownerIdentity}.{mName}#{paramSig}";
@@ -707,7 +705,7 @@ public sealed partial class SemanticVerifier
                 message:
                 $"Variable '{varDecl.Name}' requires either a type annotation or an initializer.",
                 location: varDecl.Location);
-            varType = ErrorTypeInfo.Instance;
+            varType = ErrorTypeSymbol.Instance;
         }
 
         // #16: Plain `var x: T` without an initializer is disallowed.
@@ -809,21 +807,21 @@ public sealed partial class SemanticVerifier
         // alias — excluded here, same as `a.copy()` or a creator call.
         // The store-less set is EXACTLY the entities: every value category (records, tuples, routines,
         // SIMD vectors, generic records) is copyable via an auto-derived bitwise or field-wise store, so
-        // `obeys Assignable` under-reports them — `EntityTypeInfo` is the precise predicate for "has no
-        // store of its own". (SF entity elements are `Roamed`, a record wrapper, not an `EntityTypeInfo`.)
+        // `obeys Assignable` under-reports them — `EntityTypeSymbol` is the precise predicate for "has no
+        // store of its own". (SF entity elements are `Roamed`, a record wrapper, not an `EntityTypeSymbol`.)
         // A tuple element access (`_t.item0`) is how `var (a, b) = expr` destructuring lowers: the tuple
         // is a CONSUMED temporary, so each element MOVES out — not a view of a persisting owner. Exclude it
-        // (Object is a TupleTypeInfo) so channel/pair destructuring of entity elements stays a legal move.
+        // (Object is a TupleTypeSymbol) so channel/pair destructuring of entity elements stays a legal move.
         bool isEntityViewInit = varDecl.Initializer is IdentifierExpression ||
                                 varDecl.Initializer is IndexExpression
                                 {
                                     Index: not RangeExpression
                                 } || varDecl.Initializer is MemberExpression
                                 {
-                                    Object.ResolvedType: not TupleTypeInfo
+                                    Object.ResolvedType: not TupleTypeSymbol
                                 };
         if (_registry.Language == Language.RazorForge && isEntityViewInit &&
-            varType is EntityTypeInfo)
+            varType is EntityTypeSymbol)
         {
             ReportError(code: SemanticDiagnosticCode.BareEntityAssignment,
                 message:
@@ -839,7 +837,7 @@ public sealed partial class SemanticVerifier
         // Variant copy prohibition: `var box2 = box1` is not allowed
         // Variants must be dismantled immediately with pattern matching
         // Binding from routine calls (`var result = make_shape()`) is allowed
-        if (varDecl.Initializer is IdentifierExpression && varType is VariantTypeInfo)
+        if (varDecl.Initializer is IdentifierExpression && varType is VariantTypeSymbol)
         {
             ReportError(code: SemanticDiagnosticCode.VariantCopyNotAllowed,
                 message:
@@ -946,7 +944,7 @@ public sealed partial class SemanticVerifier
             // An `Agent[T]` result dropped on the floor is the lazy-async footgun: a `suspended`/
             // `threaded` call only builds a recipe — dropping it means the routine BODY never runs
             // (in the old eager model it would have). Point at the verbs that actually start it.
-            if (exprType is RecordTypeInfo ag &&
+            if (exprType is RecordTypeSymbol ag &&
                 (ag.GenericDefinition?.Name ?? ag.Name) == "Agent")
             {
                 ReportWarning(code: SemanticWarningCode.AsyncAgentNeverLaunched,
@@ -1070,7 +1068,7 @@ public sealed partial class SemanticVerifier
         }
 
         // Check that RHS is a tuple with matching arity
-        if (rhsType is TupleTypeInfo tupleType &&
+        if (rhsType is TupleTypeSymbol tupleType &&
             tupleLhs.Elements.Count != tupleType.ElementTypes.Count)
         {
             ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,

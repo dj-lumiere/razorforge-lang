@@ -1,6 +1,6 @@
-using Compiler.Diagnostics;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.Diagnostics;
+using Builder.Verification;
+using Builder.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 

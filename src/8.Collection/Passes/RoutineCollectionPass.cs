@@ -1,13 +1,12 @@
-using Compiler.Desugaring;
-using Compiler.Lowering;
+using Builder.Desugaring;
+using Builder.Lowering;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using TypeInfo = TypeModel.Types.TypeInfo;
-using Compiler.Instantiation;
-using Compiler.Instantiation.Passes;
+using Builder.Instantiation;
+using Builder.Instantiation.Passes;
 
-namespace Compiler.Collection.Passes;
+namespace Builder.Collection.Passes;
 
 /// <summary>
 /// Stage ② of the demand-driven ("pull") codegen architecture:
@@ -148,7 +147,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
 
             MaterializeReachedStdlibBodies(programBodies: programBodies);
             // RESOLVE this round's built + materialized bodies BEFORE the next walk. A body materialized from a
-            // comptime-`expand`/SoA template reaches here with un-resolved member calls (`me.col[index]` →
+            // buildtime-`expand`/SoA template reaches here with un-resolved member calls (`me.col[index]` →
             // `Array[S64,4].getitem`); the post-loop CallOverloadResolutionPass resolves them, but by then the
             // walk is over — so the walk never Discovers `Array[S64,4].getitem` and it link-over-prunes. Resolve
             // per-round so the NEXT walk sees the resolved calls and seeds their definitions (the resolve-then-
@@ -162,7 +161,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
             roundResolver.RunOnBodiesWithOwners(
                 bodies: ctx.InstantiatedGenericBodies.Values.Select(selector: b =>
                     (b.Ast.Body, b.Info.OwnerType,
-                        (IReadOnlyList<ParameterInfo>?)b.Info.Parameters)));
+                        (IReadOnlyList<ParamInfo>?)b.Info.Parameters)));
             // Terminate only when a round adds NO new built instance, NO PDIL synth, AND NO new live key. The
             // live-key check is load-bearing: a reached NON-generic stdlib body (U64.represent, Text.create)
             // grows LiveRoutineKeys without incrementing `built`, and its callees are only discovered when the
@@ -191,7 +190,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
         // GenericClosurePass.LowerFreshBodies, so a GenericMemberRoutineCallExpression in them survives to
         // codegen (which hard-errors). Lower any remaining GMCE across the whole map here — idempotent on
         // already-lowered bodies. (Fixes the class, not one symbol.)
-        new Compiler.Desugaring.Passes.GenericCallLoweringPass(ctx: adapter)
+        new Builder.Desugaring.Passes.GenericCallLoweringPass(ctx: adapter)
            .RunOnInstantiatedGenericBodies(bodies: ctx.InstantiatedGenericBodies);
 
         // Classify (resolve call overloads / set LoweringKind) across EVERY collector-built body. With eager
@@ -211,7 +210,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
         var resolver = new Declaration.CallOverloadResolutionPass(ctx: classCtx);
         resolver.RunOnBodiesWithOwners(bodies: ctx.InstantiatedGenericBodies.Values.Select(
             selector: b => (b.Ast.Body, b.Info.OwnerType,
-                (IReadOnlyList<ParameterInfo>?)b.Info.Parameters)));
+                (IReadOnlyList<ParamInfo>?)b.Info.Parameters)));
         resolver.RunOnVariantBodies();
     }
 
@@ -296,7 +295,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
         ctx.InstantiatedGenericBodies[key: liveKey] = new MonomorphizedBody(
             Ast: WrapInSynthShellDecl(name: info.Name, body: body, info: info),
             Info: info,
-            TypeSubs: new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal),
+            TypeSubs: new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal),
             VariantStatus: null,
             VariantInnerType: null,
             IsSynthesized: false);
@@ -384,7 +383,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
         ctx.InstantiatedGenericBodies[key: synthInfo.RegistryKey] = new MonomorphizedBody(
             Ast: WrapInSynthShellDecl(name: synthInfo.Name, body: synthBody, info: synthInfo),
             Info: synthInfo,
-            TypeSubs: new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal),
+            TypeSubs: new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal),
             VariantStatus: null,
             VariantInnerType: null,
             IsSynthesized: true);
@@ -396,9 +395,9 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
     /// concrete owner instantiation, substituting generic parameters with concrete type arguments.
     /// </summary>
     private void MaterializeGenericOwnerSynthBodies(RoutineInfo synthInfo, Statement synthBody,
-        TypeInfo genericOwner, List<string> gParams, List<TypeInfo> concreteInstances)
+        TypeSymbol genericOwner, List<string> gParams, List<TypeSymbol> concreteInstances)
     {
-        foreach (TypeInfo candidateOwner in concreteInstances)
+        foreach (TypeSymbol candidateOwner in concreteInstances)
         {
             TryMaterializeForCandidate(synthInfo: synthInfo,
                 synthBody: synthBody,
@@ -415,7 +414,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
     /// demand walk, or already has a body in <c>InstantiatedGenericBodies</c>.
     /// </summary>
     private void TryMaterializeForCandidate(RoutineInfo synthInfo, Statement synthBody,
-        TypeInfo genericOwner, List<string> gParams, TypeInfo candidateOwner)
+        TypeSymbol genericOwner, List<string> gParams, TypeSymbol candidateOwner)
     {
         if (candidateOwner.IsGenericDefinition)
         {
@@ -432,11 +431,11 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
             return;
         }
 
-        TypeInfo? candidateGenDef = candidateOwner switch
+        TypeSymbol? candidateGenDef = candidateOwner switch
         {
-            RecordTypeInfo r => r.GenericDefinition,
-            EntityTypeInfo e => e.GenericDefinition,
-            WrapperTypeInfo w => ctx.Registry.LookupType(name: w.Name),
+            RecordTypeSymbol r => r.GenericDefinition,
+            EntityTypeSymbol e => e.GenericDefinition,
+            WrapperTypeSymbol w => ctx.Registry.LookupType(name: w.Name),
             _ => null
         };
         if (candidateGenDef == null || !ReferenceEquals(objA: candidateGenDef, objB: genericOwner))
@@ -470,7 +469,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
             return;
         }
 
-        var subs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
+        var subs = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal);
         for (int gi = 0; gi < gParams.Count; gi++)
         {
             subs[key: gParams[index: gi]] = tArgs[index: gi];
@@ -530,8 +529,8 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
                 continue;
             }
 
-            TypeInfo concreteInner = concreteWf.OwnerType.TypeArguments[index: 0];
-            var wfSubs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal)
+            TypeSymbol concreteInner = concreteWf.OwnerType.TypeArguments[index: 0];
+            var wfSubs = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal)
             {
                 [key: wrapperParamName] = concreteInner
             };

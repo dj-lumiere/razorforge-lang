@@ -1,8 +1,8 @@
-﻿using Compiler.Instantiation;
-using Compiler.Targeting;
+using Builder.Instantiation;
+using Builder.Targeting;
 using SyntaxTree;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Optional configuration for <see cref="LlvmEmitter"/>. Bundles the parameters that are

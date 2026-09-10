@@ -1,17 +1,17 @@
 using System.Diagnostics;
 using System.Text;
-using Compiler.LlvmEmit;
-using Compiler.Declaration;
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
-using Compiler.Parser;
-using Compiler.Targeting;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.LlvmEmit;
+using Builder.Declaration;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
+using Builder.Parser;
+using Builder.Targeting;
+using Builder.Verification;
+using Builder.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 
-namespace Builder;
+namespace Builder.Execution;
 
 /// <summary>
 /// Command-line entry point for the RazorForge compiler toolchain.
@@ -24,7 +24,7 @@ internal partial class Program
     private const string RazorForgeLanguageName = "RazorForge";
 
     /// <summary>Suflae's own version line — the <c>&lt;SuflaeVersion&gt;</c> PropertyGroup entry (via
-    /// <see cref="Compiler.Declaration.BuildInfo"/>). Bump it in the csproj, NOT here.</summary>
+    /// <see cref="Builder.Declaration.BuildInfo"/>). Bump it in the csproj, NOT here.</summary>
     private static string SuflaeVersion => BuildInfo.SuflaeVersion;
 
     /// <summary>True when the binary was invoked under a Suflae alias (<c>suflae</c>/<c>sf</c>)
@@ -353,7 +353,7 @@ internal partial class Program
                 string langDir = Path.Combine(path1: outDir, path2: lang.ToString());
                 string stampPath = Path.Combine(path1: langDir, path2: "stamp.txt");
                 string? hash =
-                    Compiler.Serialization.StdlibSnapshotCache.ComputeStdlibHash(language: lang);
+                    Builder.Serialization.StdlibSnapshotCache.ComputeStdlibHash(language: lang);
 
                 if (hash != null && File.Exists(path: stampPath) && File
                        .ReadAllText(path: stampPath)
@@ -373,7 +373,7 @@ internal partial class Program
                 }
 
                 IReadOnlyList<string> labels =
-                    Compiler.Serialization.ModularStdlibCache.Serialize(state: state,
+                    Builder.Serialization.ModularStdlibCache.Serialize(state: state,
                         dir: langDir);
                 if (hash != null)
                 {
@@ -849,7 +849,7 @@ internal partial class Program
 
     /// <summary>
     /// Returns the RazorForge compiler version string, preferring the <c>&lt;RazorForgeVersion&gt;</c>
-    /// PropertyGroup value (via <see cref="Compiler.Declaration.BuildInfo"/>), then the assembly
+    /// PropertyGroup value (via <see cref="Builder.Declaration.BuildInfo"/>), then the assembly
     /// informational version (e.g. "0.0.1-alpha"), stripping any "+commit" suffix and prefixing <c>v</c>.
     /// </summary>
     private static string GetVersionString()
@@ -919,7 +919,7 @@ internal partial class Program
             Language language = isSuflae
                 ? Language.Suflae
                 : Language.RazorForge;
-            var tokenizer = new Tokenizer(source: code, fileName: sourceFile, language: language);
+            var tokenizer = new Builder.Tokenizer.Tokenizer(source: code, fileName: sourceFile, language: language);
             List<Token> tokens = tokenizer.Tokenize();
 
             Console.WriteLine(value: $"Generated {tokens.Count} tokens:");
@@ -971,14 +971,14 @@ internal partial class Program
 
             // Tokenize
             Console.WriteLine(value: "=== TOKENIZATION ===");
-            var tokenizer = new Tokenizer(source: code, fileName: sourceFile, language: language);
+            var tokenizer = new Builder.Tokenizer.Tokenizer(source: code, fileName: sourceFile, language: language);
             List<Token> tokens = tokenizer.Tokenize();
             Console.WriteLine(value: $"Generated {tokens.Count} tokens");
 
             // Parse
             Console.WriteLine();
             Console.WriteLine(value: "=== PARSING ===");
-            var parser = new Parser(tokens: tokens, language: language, fileName: sourceFile);
+            var parser = new Builder.Parser.Parser(tokens: tokens, language: language, fileName: sourceFile);
             SyntaxTree.Program ast = parser.Parse();
             List<BuildWarning> warnings = parser.GetWarnings();
 
@@ -1144,14 +1144,14 @@ internal partial class Program
 
             // Tokenize
             Console.WriteLine(value: "=== TOKENIZATION ===");
-            var tokenizer = new Tokenizer(source: code, fileName: sourceFile, language: language);
+            var tokenizer = new Builder.Tokenizer.Tokenizer(source: code, fileName: sourceFile, language: language);
             List<Token> tokens = tokenizer.Tokenize();
             Console.WriteLine(value: $"Generated {tokens.Count} tokens");
 
             // Parse
             Console.WriteLine();
             Console.WriteLine(value: "=== PARSING ===");
-            var parser = new Parser(tokens: tokens, language: language, fileName: sourceFile);
+            var parser = new Builder.Parser.Parser(tokens: tokens, language: language, fileName: sourceFile);
             SyntaxTree.Program ast = parser.Parse();
             Console.WriteLine(value: $"Parsed {ast.Declarations.Count} declarations");
 
@@ -1198,7 +1198,7 @@ internal partial class Program
             // 9-2: instrument may-suspend routine bodies with cancellation push/pop markers
             // (no-op unless something reaches a coroutine suspend point). Mutates `ast` in place,
             // which is the same AST object codegen consumes below.
-            Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(programs:
+            Builder.Lowering.Passes.CancellationInstrumentationPass.Run(programs:
                 [(ast, ast.Location.FileName, "")],
                 instantiatedBodies: result.InstantiatedGenericBodies,
                 maySuspendKeys: result.MaySuspendRoutineKeys,
@@ -1683,7 +1683,7 @@ internal partial class Program
         // 9-2: instrument may-suspend routine bodies with cancellation push/pop markers
         // (no-op unless something reaches a coroutine suspend point). Mutates the userPrograms
         // ASTs in place — the same objects codegen consumes below.
-        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(programs: userPrograms,
+        Builder.Lowering.Passes.CancellationInstrumentationPass.Run(programs: userPrograms,
             instantiatedBodies: result.InstantiatedGenericBodies,
             maySuspendKeys: result.MaySuspendRoutineKeys,
             registry: result.Registry);
@@ -2010,7 +2010,7 @@ internal partial class Program
         SourceLocation loc0 = globals[index: 0].Loc;
 
         // 3) Build the __ModuleGlobals entity — one field per global (`name: Type`, no initializer).
-        var fieldDecls = new List<Declaration>(capacity: n);
+        var fieldDecls = new List<SyntaxTree.Declaration>(capacity: n);
         for (int i = 0; i < n; i++)
         {
             fieldDecls.Add(item: new VariableDeclaration(Name: globals[index: i].Name,
@@ -2333,7 +2333,7 @@ internal partial class Program
             case ExternalDeclaration e:
                 ScanLinkAnnotations(annotations: e.Annotations, libs: libs, seen: seen); break;
             case ExternalBlockDeclaration b:
-                foreach (Declaration d in b.Declarations)
+                foreach (SyntaxTree.Declaration d in b.Declarations)
                 {
                     VisitLinkDeclaration(node: d, libs: libs, seen: seen);
                 }

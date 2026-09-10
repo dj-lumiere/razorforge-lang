@@ -1,4 +1,4 @@
-namespace Compiler.Diagnostics;
+namespace Builder.Diagnostics;
 
 /// <summary>
 /// Semantic warning codes for RazorForge (RF-W prefix).

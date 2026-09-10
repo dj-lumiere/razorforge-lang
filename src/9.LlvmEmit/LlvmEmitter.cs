@@ -1,14 +1,14 @@
 using System.Linq;
 using System.Text;
-using Compiler.Instantiation;
-using Compiler.Declaration;
-using Compiler.Targeting;
+using Builder.Instantiation;
+using Builder.Declaration;
+using Builder.Targeting;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// LLVM IR code generator for RazorForge and Suflae.
@@ -149,12 +149,12 @@ public partial class LlvmEmitter
         new(comparer: StringComparer.Ordinal);
 
     /// <summary>Map of local variable names to their types for the current function.</summary>
-    private readonly Dictionary<string, TypeInfo> _localVariables = new();
+    private readonly Dictionary<string, TypeSymbol> _localVariables = new();
 
     /// <summary>Suflae module-level <c>global</c> variables: source name -&gt; (type, LLVM <c>@global</c>
     /// symbol). Populated by <see cref="GenerateGlobalVariables"/> before routine bodies are emitted;
     /// consulted by the identifier read / assignment / lvalue paths as a fallback after local lookup.</summary>
-    private readonly Dictionary<string, (TypeInfo Type, string Symbol)> _moduleGlobals = new();
+    private readonly Dictionary<string, (TypeSymbol Type, string Symbol)> _moduleGlobals = new();
 
     /// <summary>Map of source variable names to unique LLVM variable names (handles shadowing).</summary>
     private readonly Dictionary<string, string> _localVarLlvmNames = new();
@@ -173,11 +173,11 @@ public partial class LlvmEmitter
     private readonly List<(string Name, string LLVMAddr)> _localEntityVars = [];
 
     /// <summary>List of local record variables with RC wrapper fields for retain/release.</summary>
-    private readonly List<(string Name, string LLVMAddr, RecordTypeInfo RecordType)>
+    private readonly List<(string Name, string LLVMAddr, RecordTypeSymbol RecordType)>
         _localRcRecordVars = [];
 
     /// <summary>List of local variables whose type IS an RC wrapper (Retained[T], Guarded[T], etc.).</summary>
-    private readonly List<(string Name, string LLVMAddr, RecordTypeInfo RecordType)>
+    private readonly List<(string Name, string LLVMAddr, RecordTypeSymbol RecordType)>
         _localRetainedVars = [];
 
     /// <summary>Set of already-generated function definitions to avoid duplicates.</summary>
@@ -217,7 +217,7 @@ public partial class LlvmEmitter
     }
 
     /// <summary>The return type of the current function being generated.</summary>
-    private TypeInfo? _currentRoutineReturnType;
+    private TypeSymbol? _currentRoutineReturnType;
 
     /// <summary>Diagnostic-only: owner-qualified name of the routine currently being emitted.</summary>
     private string? _currentRoutineDiagName;
@@ -361,13 +361,13 @@ public partial class LlvmEmitter
     /// Looks up a type by name, trying the current routine's module-qualified name first,
     /// then falling back to the bare name. Mirrors SemanticVerifier.LookupTypeInCurrentModule.
     /// </summary>
-    private TypeInfo? LookupTypeInCurrentModule(string name)
+    private TypeSymbol? LookupTypeInCurrentModule(string name)
     {
         string? moduleName = _currentEmittingRoutine?.OwnerType?.Module ??
                              _currentEmittingRoutine?.Module;
         if (moduleName != null && !name.Contains(value: '.'))
         {
-            TypeInfo? qualified = _registry.LookupType(name: $"{moduleName}.{name}");
+            TypeSymbol? qualified = _registry.LookupType(name: $"{moduleName}.{name}");
             if (qualified != null)
             {
                 return qualified;
@@ -381,7 +381,7 @@ public partial class LlvmEmitter
     /// Gets the generic definition for a resolved generic type, regardless of concrete subtype.
     /// Returns null for non-generic or non-resolved types.
     /// </summary>
-    private static TypeInfo? GetGenericBase(TypeInfo type)
+    private static TypeSymbol? GetGenericBase(TypeSymbol type)
     {
         return GetGenericBaseStatic(type: type);
     }
@@ -389,13 +389,13 @@ public partial class LlvmEmitter
     /// <summary>
     /// Gets the generic definition for a resolved generic type.
     /// </summary>
-    internal static TypeInfo? GetGenericBaseStatic(TypeInfo type)
+    internal static TypeSymbol? GetGenericBaseStatic(TypeSymbol type)
     {
         return type switch
         {
-            RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition,
-            EntityTypeInfo { GenericDefinition: not null } e => e.GenericDefinition,
-            ProtocolTypeInfo { GenericDefinition: not null } p => p.GenericDefinition,
+            RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition,
+            EntityTypeSymbol { GenericDefinition: not null } e => e.GenericDefinition,
+            ProtocolTypeSymbol { GenericDefinition: not null } p => p.GenericDefinition,
             _ => null
         };
     }
@@ -404,13 +404,13 @@ public partial class LlvmEmitter
     /// Gets the generic definition's name for a resolved generic type.
     /// Returns null for non-generic or non-resolved types.
     /// </summary>
-    private static string? GetGenericBaseName(TypeInfo type)
+    private static string? GetGenericBaseName(TypeSymbol type)
     {
         return GetGenericBaseNameStatic(type: type);
     }
 
     /// <summary>Guarded helper for resolved-generic base-name lookups.</summary>
-    internal static string? GetGenericBaseNameStatic(TypeInfo type)
+    internal static string? GetGenericBaseNameStatic(TypeSymbol type)
     {
         return GetGenericBaseStatic(type: type)
           ?.Name;
@@ -519,9 +519,9 @@ public partial class LlvmEmitter
         GenerateEntityTypeDeclarations();
 
         // Generate crashable types (always entity semantics — heap-allocated error types)
-        foreach (TypeInfo type in _registry.GetTypesByCategory(category: TypeCategory.Crashable))
+        foreach (TypeSymbol type in _registry.GetTypesByCategory(category: TypeCategory.Crashable))
         {
-            if (type is CrashableTypeInfo crashable)
+            if (type is CrashableTypeSymbol crashable)
             {
                 GenerateCrashableType(crashable: crashable);
             }
@@ -530,9 +530,9 @@ public partial class LlvmEmitter
         GenerateRecordTypeDeclarations();
 
         // Generate variant types (tagged unions -> tag + payload record)
-        foreach (TypeInfo type in _registry.GetTypesByCategory(category: TypeCategory.Variant))
+        foreach (TypeSymbol type in _registry.GetTypesByCategory(category: TypeCategory.Variant))
         {
-            if (type is VariantTypeInfo { IsGenericDefinition: false } variant)
+            if (type is VariantTypeSymbol { IsGenericDefinition: false } variant)
             {
                 GenerateVariantType(variant: variant);
             }
@@ -542,11 +542,11 @@ public partial class LlvmEmitter
     /// <summary>Generates struct types for all concrete entity resolutions in the registry.</summary>
     private void GenerateEntityTypeDeclarations()
     {
-        foreach (TypeInfo type in _registry.GetTypesByCategory(category: TypeCategory.Entity))
+        foreach (TypeSymbol type in _registry.GetTypesByCategory(category: TypeCategory.Entity))
         {
             // Skip resolutions with unresolved generic parameters at any depth (e.g.
             // List[BTreeSetNode[T]] where T is nested inside a type argument).
-            if (type is EntityTypeInfo { IsGenericDefinition: false } entity &&
+            if (type is EntityTypeSymbol { IsGenericDefinition: false } entity &&
                 entity.TypeArguments?.Any(predicate: ContainsGenericParameter) != true)
             {
                 GenerateEntityType(entity: entity);
@@ -557,11 +557,11 @@ public partial class LlvmEmitter
     /// <summary>Generates struct types for all concrete record resolutions in the registry.</summary>
     private void GenerateRecordTypeDeclarations()
     {
-        foreach (TypeInfo type in _registry.GetTypesByCategory(category: TypeCategory.Record))
+        foreach (TypeSymbol type in _registry.GetTypesByCategory(category: TypeCategory.Record))
         {
-            if (type is RecordTypeInfo { IsGenericDefinition: false } record &&
+            if (type is RecordTypeSymbol { IsGenericDefinition: false } record &&
                 record.TypeArguments?.Any(predicate: t =>
-                    ContainsGenericParameter(type: t) || t is ErrorTypeInfo ||
+                    ContainsGenericParameter(type: t) || t is ErrorTypeSymbol ||
                     ContainsAbstractProjection(type: t)) != true)
             {
                 GenerateRecordType(record: record);
@@ -579,9 +579,9 @@ public partial class LlvmEmitter
     /// signature) is not emittable LLVM IR and must be skipped at the record-declaration sites.
     /// Kept separate from <see cref="ContainsGenericParameter"/> so routine emission is unaffected.
     /// </summary>
-    private static bool ContainsAbstractProjection(TypeInfo type)
+    private static bool ContainsAbstractProjection(TypeSymbol type)
     {
-        if (type is AssociatedProjectionTypeInfo)
+        if (type is AssociatedProjectionTypeSymbol)
         {
             return true;
         }
@@ -589,20 +589,20 @@ public partial class LlvmEmitter
         return type.TypeArguments?.Any(predicate: ContainsAbstractProjection) == true;
     }
 
-    private static bool ContainsGenericParameter(TypeInfo type)
+    private static bool ContainsGenericParameter(TypeSymbol type)
     {
-        // A comptime const-generic (`${…}` payload-size splice) that has FOLDED to a literal constant
+        // A buildtime const-generic (`${…}` payload-size splice) that has FOLDED to a literal constant
         // (e.g. the `128` width arg of UnpackedFloat[U128, U256, 128]) is concrete — it mangles to a fixed
         // value and its LLVM layout is fixed. Only a STILL-UNFOLDED one (an expression over an unresolved
         // type param) is non-concrete. Without distinguishing these, a folded-const instance is wrongly
         // treated as generic, so its routine declaration is SKIPPED while its call site still emits the
         // concrete mangled name → "use of undefined value" at LLVM parse (surfaced by the resident-JIT base).
-        if (type is ComptimeConstGenericTypeInfo cc)
+        if (type is BuildtimeConstGenericTypeSymbol cc)
         {
             return !cc.TryFold(resolveTypeParam: _ => null, pointerSize: 8, result: out _);
         }
 
-        if (type is GenericParameterTypeInfo or ErrorTypeInfo)
+        if (type is GenericParameterTypeSymbol or ErrorTypeSymbol)
         {
             return true;
         }
@@ -611,14 +611,14 @@ public partial class LlvmEmitter
         // unresolved generic parameter so that abstract protocol memberRoutine stubs are never declared.
         // Build-time dispatch: concrete implementers emit their own declarations; the abstract
         // stub with 'Me' in its signature is never valid LLVM IR.
-        if (type is ProtocolSelfTypeInfo)
+        if (type is ProtocolSelfTypeSymbol)
         {
             return true;
         }
 
         // Types annotated @llvm("...") always map to a fixed LLVM type regardless of type
         // arguments — treat as concrete (e.g. Hijacked[DictEntry[K,V]] -> ptr is valid LLVM IR).
-        if (type is RecordTypeInfo { BackendType: not null })
+        if (type is RecordTypeSymbol { BackendType: not null })
         {
             return false;
         }
@@ -654,14 +654,14 @@ public partial class LlvmEmitter
     /// </summary>
     private static bool SignatureHasUnresolvedGeneric(RoutineInfo r)
     {
-        if (r.ReturnType is TypeInfo rt && SignatureTypeIsUnresolved(t: rt))
+        if (r.ReturnType is TypeSymbol rt && SignatureTypeIsUnresolved(t: rt))
         {
             return true;
         }
 
-        foreach (ParameterInfo p in r.Parameters)
+        foreach (ParamInfo p in r.Parameters)
         {
-            if (p.Type is TypeInfo pt && SignatureTypeIsUnresolved(t: pt))
+            if (p.Type is TypeSymbol pt && SignatureTypeIsUnresolved(t: pt))
             {
                 return true;
             }
@@ -674,12 +674,12 @@ public partial class LlvmEmitter
     /// A signature type is unresolved (⇒ a template, not emittable) if it contains a generic parameter OR
     /// mentions the internal variadic const-generic marker <c>__Vararg</c>. The latter is checked BY NAME
     /// because a not-yet-arity-monomorphized <c>Array[T, __VarargN]</c> carries <c>__VarargN</c> as a plain
-    /// unresolved <see cref="TypeInfo"/> (not a <see cref="GenericParameterTypeInfo"/>), so
+    /// unresolved <see cref="TypeSymbol"/> (not a <see cref="GenericParameterTypeSymbol"/>), so
     /// <see cref="ContainsGenericParameter"/> misses it. A properly instantiated variadic (arity bound to a
     /// concrete number, e.g. <c>Array[Character, 3]</c>) does NOT mention <c>__Vararg</c>, so a concrete
     /// routine is never wrongly skipped. See VariadicParamDesugar (<c>__Vararg</c> prefix).
     /// </summary>
-    private static bool SignatureTypeIsUnresolved(TypeInfo t)
+    private static bool SignatureTypeIsUnresolved(TypeSymbol t)
     {
         if (ContainsGenericParameter(type: t))
         {
@@ -717,7 +717,7 @@ public partial class LlvmEmitter
                     continue;
                 }
 
-                TypeInfo? type = _registry.LookupVariable(name: g.Name)
+                TypeSymbol? type = _registry.LookupVariable(name: g.Name)
                                          ?.Type;
                 if (type == null)
                 {
@@ -781,8 +781,8 @@ public partial class LlvmEmitter
         HashSet<string> routinesWithBodies)
     {
         if (routine.IsGenericDefinition || HasErrorTypes(routine: routine) ||
-            routine.OwnerType is { IsGenericDefinition: true } or GenericParameterTypeInfo ||
-            routine.IsSynthesized || routine.OwnerType is ProtocolTypeInfo)
+            routine.OwnerType is { IsGenericDefinition: true } or GenericParameterTypeSymbol ||
+            routine.IsSynthesized || routine.OwnerType is ProtocolTypeSymbol)
         {
             return true;
         }
@@ -813,7 +813,7 @@ public partial class LlvmEmitter
         }
 
         // Check parameter types
-        foreach (ParameterInfo param in routine.Parameters)
+        foreach (ParamInfo param in routine.Parameters)
         {
             if (param.Type.Category == TypeCategory.Error)
             {
@@ -871,15 +871,15 @@ public partial class LlvmEmitter
                 continue;
             }
 
-            // A pseudo-instance whose const-generic arg is a still-symbolic comptime splice
-            // (`Array[U8, ${comptime}]` — an SoA/emittable column carrying the owner's own `N`): its `N`
+            // A pseudo-instance whose const-generic arg is a still-symbolic buildtime splice
+            // (`Array[U8, ${buildtime}]` — an SoA/emittable column carrying the owner's own `N`): its `N`
             // never folds, so emitting the SYNTHESIZED body (which bypasses ShouldSkipRoutineDefinition)
             // errors "Unknown identifier N". `IsGenericDefinition` misses it (it has concrete-looking type
-            // args), so also skip an owner carrying an unfolded comptime type arg. The real FOLDED instance
+            // args), so also skip an owner carrying an unfolded buildtime type arg. The real FOLDED instance
             // (`Array[U8, 63]`) still emits under its own key. Mirrors the seed guard in
             // GenericMonomorphizationPass.SeedLifecycleHooks.
             if (body.Info.OwnerType?.TypeArguments?.Any(
-                    predicate: a => a is ComptimeConstGenericTypeInfo) == true)
+                    predicate: a => a is BuildtimeConstGenericTypeSymbol) == true)
             {
                 continue;
             }
@@ -1491,9 +1491,9 @@ public partial class LlvmEmitter
 
     /// <summary>The forced stack-slot alignment for a value of <paramref name="type"/>, from a record's
     /// <c>@layout("align=N")</c>; null when the type has no forced alignment.</summary>
-    private static int? ForcedAllocaAlignment(TypeInfo type)
+    private static int? ForcedAllocaAlignment(TypeSymbol type)
     {
-        return type is RecordTypeInfo { ForcedAlignment: { } n }
+        return type is RecordTypeSymbol { ForcedAlignment: { } n }
             ? n
             : null;
     }

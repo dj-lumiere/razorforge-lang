@@ -6,7 +6,7 @@ namespace TypeModel.Types;
 /// Type information for first-class function types (lambdas, function references).
 /// Represents types like (S32, S32) -> S32 or () -> Bool.
 /// </summary>
-public sealed class RoutineTypeInfo : TypeInfo
+public sealed class RoutineTypeSymbol : TypeSymbol
 {
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.Routine;
@@ -31,10 +31,10 @@ public sealed class RoutineTypeInfo : TypeInfo
     }
 
     /// <summary>Parameter types for this function type.</summary>
-    public List<TypeInfo> ParameterTypes { get; }
+    public List<TypeSymbol> ParameterTypes { get; }
 
     /// <summary>Return type for this function type. Null means no return (None).</summary>
-    public TypeInfo? ReturnType { get; }
+    public TypeSymbol? ReturnType { get; }
 
     /// <summary>Whether this function type is failable (can throw/absent).</summary>
     public bool IsFailable { get; init; }
@@ -44,7 +44,7 @@ public sealed class RoutineTypeInfo : TypeInfo
     /// </summary>
     /// <param name="parameterTypes">The parameter types.</param>
     /// <param name="returnType">The return type (null for None/void).</param>
-    public RoutineTypeInfo(List<TypeInfo> parameterTypes, TypeInfo? returnType) : base(
+    public RoutineTypeSymbol(List<TypeSymbol> parameterTypes, TypeSymbol? returnType) : base(
         name: BuildName(parameterTypes: parameterTypes, returnType: returnType))
     {
         ParameterTypes = parameterTypes;
@@ -58,7 +58,7 @@ public sealed class RoutineTypeInfo : TypeInfo
     /// spelling: "()" for zero parameters (NOT "None", which in a parameter position parses as a
     /// single unit-typed parameter — a different type), "(T,)" for one, "(A, B)" for more.
     /// </summary>
-    private static string BuildName(List<TypeInfo> parameterTypes, TypeInfo? returnType)
+    private static string BuildName(List<TypeSymbol> parameterTypes, TypeSymbol? returnType)
     {
         string paramList = parameterTypes.Count switch
         {
@@ -78,7 +78,7 @@ public sealed class RoutineTypeInfo : TypeInfo
     /// </summary>
     /// <param name="other">The other function type to compare.</param>
     /// <returns>True if compatible, false otherwise.</returns>
-    public bool IsCompatibleWith(RoutineTypeInfo other)
+    public bool IsCompatibleWith(RoutineTypeSymbol other)
     {
         // Check parameter count
         if (ParameterTypes.Count != other.ParameterTypes.Count)
@@ -110,7 +110,7 @@ public sealed class RoutineTypeInfo : TypeInfo
     }
 
     /// <inheritdoc/>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         // FreeRoutine types don't have generic parameters in the traditional sense
         // But we might need to substitute type parameters in param/return types
@@ -118,32 +118,32 @@ public sealed class RoutineTypeInfo : TypeInfo
     }
 
     /// <summary>
-    /// Creates a new RoutineTypeInfo with substituted type parameters.
+    /// Creates a new RoutineTypeSymbol with substituted type parameters.
     /// </summary>
     /// <param name="substitution">Map from type parameter names to concrete types.</param>
-    /// <returns>A new RoutineTypeInfo with substituted types.</returns>
-    public RoutineTypeInfo Substitute(Dictionary<string, TypeInfo> substitution)
+    /// <returns>A new RoutineTypeSymbol with substituted types.</returns>
+    public RoutineTypeSymbol Substitute(Dictionary<string, TypeSymbol> substitution)
     {
         var substitutedParams = ParameterTypes
                                .Select(selector: p =>
                                     SubstituteType(type: p, substitution: substitution))
                                .ToList();
 
-        TypeInfo? substitutedReturn = ReturnType != null
+        TypeSymbol? substitutedReturn = ReturnType != null
             ? SubstituteType(type: ReturnType, substitution: substitution)
             : null;
 
-        return new RoutineTypeInfo(parameterTypes: substitutedParams,
+        return new RoutineTypeSymbol(parameterTypes: substitutedParams,
             returnType: substitutedReturn) { IsFailable = IsFailable };
     }
 
     /// <summary>
     /// Substitutes type parameters in a type.
     /// </summary>
-    private static TypeInfo SubstituteType(TypeInfo type,
-        Dictionary<string, TypeInfo> substitution)
+    private static TypeSymbol SubstituteType(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitution)
     {
-        if (substitution.TryGetValue(key: type.Name, value: out TypeInfo? substituted))
+        if (substitution.TryGetValue(key: type.Name, value: out TypeSymbol? substituted))
         {
             return substituted;
         }

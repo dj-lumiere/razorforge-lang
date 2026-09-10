@@ -7,7 +7,7 @@ namespace TypeModel.Types;
 /// Type information for protocols (interface/trait definitions).
 /// Protocols define contracts that types can implement via the `obeys` keyword.
 /// </summary>
-public sealed class ProtocolTypeInfo : TypeInfo
+public sealed class ProtocolTypeSymbol : TypeSymbol
 {
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.Protocol;
@@ -16,31 +16,31 @@ public sealed class ProtocolTypeInfo : TypeInfo
     public List<ProtocolMemberRoutineInfo> MemberRoutines { get; set; } = [];
 
     /// <summary>Parent protocols that this protocol extends.</summary>
-    public List<ProtocolTypeInfo> ParentProtocols { get; init; } = [];
+    public List<ProtocolTypeSymbol> ParentProtocols { get; init; } = [];
 
     /// <summary>
     /// Associated-type slots declared by this protocol via <c>relates Name obeys Constraint</c>.
-    /// Implementers bind these (see <see cref="EntityTypeInfo.AssociatedTypeBindings"/>).
+    /// Implementers bind these (see <see cref="EntityTypeSymbol.AssociatedTypeBindings"/>).
     /// </summary>
     public List<AssociatedTypeSlot> AssociatedTypes { get; set; } = [];
 
     /// <summary>
     /// For generic definitions, the original generic type this was resolved from.
     /// </summary>
-    public ProtocolTypeInfo? GenericDefinition { get; init; }
+    public ProtocolTypeSymbol? GenericDefinition { get; init; }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ProtocolTypeInfo"/> class.
+    /// Initializes a new instance of the <see cref="ProtocolTypeSymbol"/> class.
     /// </summary>
     /// <param name="name">The name of the protocol.</param>
-    public ProtocolTypeInfo(string name) : base(name: name)
+    public ProtocolTypeSymbol(string name) : base(name: name)
     {
     }
 
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">Thrown if this is not a generic definition.</exception>
     /// <exception cref="ArgumentException">Thrown if the number of type arguments doesn't match.</exception>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         if (!IsGenericDefinition)
         {
@@ -56,7 +56,7 @@ public sealed class ProtocolTypeInfo : TypeInfo
         }
 
         // Create type parameter substitution map
-        var substitution = new Dictionary<string, TypeInfo>();
+        var substitution = new Dictionary<string, TypeSymbol>();
         for (int i = 0; i < GenericParameters.Count; i++)
         {
             substitution[key: GenericParameters[index: i]] = typeArguments[index: i];
@@ -75,14 +75,14 @@ public sealed class ProtocolTypeInfo : TypeInfo
                                                                Mutation = m.Mutation,
                                                                ParameterTypes = m.ParameterTypes
                                                                   .Select(selector: t =>
-                                                                       RecordTypeInfo
+                                                                       RecordTypeSymbol
                                                                           .SubstituteType(type: t,
                                                                                substitution:
                                                                                substitution))
                                                                   .ToList(),
                                                                ParameterNames = m.ParameterNames,
                                                                ReturnType = m.ReturnType != null
-                                                                   ? RecordTypeInfo.SubstituteType(
+                                                                   ? RecordTypeSymbol.SubstituteType(
                                                                        type: m.ReturnType,
                                                                        substitution: substitution)
                                                                    : null,
@@ -97,7 +97,7 @@ public sealed class ProtocolTypeInfo : TypeInfo
                                                       .ToList();
 
         var substitutedParentProtocols = ParentProtocols.Select(selector: p =>
-                                                             (ProtocolTypeInfo)RecordTypeInfo
+                                                             (ProtocolTypeSymbol)RecordTypeSymbol
                                                                 .SubstituteType(type: p,
                                                                      substitution: substitution))
                                                         .ToList();
@@ -108,14 +108,14 @@ public sealed class ProtocolTypeInfo : TypeInfo
                                                         new AssociatedTypeSlot(name: s.Name)
                                                         {
                                                             Constraint = s.Constraint != null
-                                                                ? RecordTypeInfo.SubstituteType(
+                                                                ? RecordTypeSymbol.SubstituteType(
                                                                     type: s.Constraint,
                                                                     substitution: substitution)
                                                                 : null
                                                         })
                                                    .ToList();
 
-        return new ProtocolTypeInfo(name: resolvedName)
+        return new ProtocolTypeSymbol(name: resolvedName)
         {
             MemberRoutines = substitutedMemberRoutines,
             ParentProtocols = substitutedParentProtocols,

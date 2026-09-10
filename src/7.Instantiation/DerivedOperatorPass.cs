@@ -1,14 +1,13 @@
-using Compiler.Tokenizer;
-using Compiler.Declaration;
-using Compiler.Verification.Enums;
-using Compiler.Verification.Results;
+using Builder.Tokenizer;
+using Builder.Declaration;
+using Builder.Verification.Enums;
+using Builder.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using TypeSymbol = TypeModel.Types.TypeInfo;
 
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// Phase 2.6: Generates derived comparison operators from eq and cmp routines,
@@ -54,7 +53,7 @@ internal sealed class DerivedOperatorPass
                 continue;
             }
 
-            string title = CrashableTypeInfo.SynthesizeCrashTitle(typeName: type.Name);
+            string title = CrashableTypeSymbol.SynthesizeCrashTitle(typeName: type.Name);
             var titleBody = new ReturnStatement(Value: new LiteralExpression(Value: title,
                     LiteralType: TokenType.TextLiteral,
                     Location: _synthLoc),

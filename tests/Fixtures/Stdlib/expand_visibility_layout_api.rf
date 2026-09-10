@@ -2,7 +2,7 @@ module Tests/Stdlib/ExpandVisibilityLayoutApi
 import IO/Console
 import BuilderExpansion
 
-# Exercises the comptime member-reflection surfaces the other expand fixtures skip:
+# Exercises the buildtime member-reflection surfaces the other expand fixtures skip:
 #   * `openmemvarof(T)` vs `allmemvarof(T)` — the visibility filter. A `secret` member is present in
 #     allmemvarof but filtered from openmemvarof; crucially `orderof(m)` is the ORIGINAL declaration
 #     ordinal (computed before the filter), so the open list shows a gap (0, 2) where the secret field

@@ -11,7 +11,7 @@ namespace TypeModel.Types;
 public sealed class VariantMemberInfo
 {
     /// <summary>The member type, or null for the None state.</summary>
-    public TypeInfo? Type { get; }
+    public TypeSymbol? Type { get; }
 
     /// <summary>Whether this member is the None state.</summary>
     public bool IsNone => Type == null;
@@ -32,7 +32,7 @@ public sealed class VariantMemberInfo
     /// <summary>
     /// Creates a variant member for a real type.
     /// </summary>
-    public VariantMemberInfo(TypeInfo type)
+    public VariantMemberInfo(TypeSymbol type)
     {
         Type = type;
     }
@@ -56,7 +56,7 @@ public sealed class VariantMemberInfo
     /// <summary>
     /// Creates a copy with substituted type for generic resolution.
     /// </summary>
-    public VariantMemberInfo WithSubstitutedType(TypeInfo newType)
+    public VariantMemberInfo WithSubstitutedType(TypeSymbol newType)
     {
         return new VariantMemberInfo(type: newType) { Ordinal = Ordinal, Location = Location };
     }

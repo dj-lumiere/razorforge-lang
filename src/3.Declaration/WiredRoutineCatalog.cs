@@ -1,4 +1,4 @@
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// The views (consumer lists) a wired-routine concept can participate in. Each historical

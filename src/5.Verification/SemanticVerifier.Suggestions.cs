@@ -1,9 +1,7 @@
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 /// <summary>
 /// "Did you mean …?" suggestion support for name-resolution diagnostics
@@ -208,9 +206,9 @@ public sealed partial class SemanticVerifier
     {
         TypeSymbol? genericDef = type switch
         {
-            RecordTypeInfo record => record.GenericDefinition,
-            EntityTypeInfo entity => entity.GenericDefinition,
-            ProtocolTypeInfo protocol => protocol.GenericDefinition,
+            RecordTypeSymbol record => record.GenericDefinition,
+            EntityTypeSymbol entity => entity.GenericDefinition,
+            ProtocolTypeSymbol protocol => protocol.GenericDefinition,
             _ => null
         };
 
@@ -244,8 +242,8 @@ public sealed partial class SemanticVerifier
 
         List<MemberVariableInfo>? fields = type switch
         {
-            RecordTypeInfo record => record.MemberVariables,
-            EntityTypeInfo entity => entity.MemberVariables,
+            RecordTypeSymbol record => record.MemberVariables,
+            EntityTypeSymbol entity => entity.MemberVariables,
             _ => null
         };
 

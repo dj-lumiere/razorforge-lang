@@ -1,11 +1,11 @@
-using Compiler.Diagnostics;
-using Compiler.Declaration;
+using Builder.Diagnostics;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
-// Comptime `expand` safety gate (requirement: a GATED wired-protocol operation applied to a comptime
+// Buildtime `expand` safety gate (requirement: a GATED wired-protocol operation applied to a buildtime
 // member value `me.$nameof(m)` inside an expand template must be backed by the enclosing routine's
 // `needs P everywhere` gate — otherwise nothing guarantees every member supports it, and the unrolled
 // call would only fail deep in monomorphization/codegen). This turns that into a clean build error.
@@ -16,7 +16,7 @@ namespace Compiler.Verification;
 // everywhere`), this check auto-requires the gate with no code change here.
 public sealed partial class SemanticVerifier
 {
-    /// <summary>True while analyzing the body of a comptime <c>expand</c> statement. Expansion is
+    /// <summary>True while analyzing the body of a buildtime <c>expand</c> statement. Expansion is
     /// single-level, so a nested <c>expand</c> is rejected (RF-S635).</summary>
     private bool _inExpandBody;
 
@@ -58,7 +58,7 @@ public sealed partial class SemanticVerifier
     /// self-constraint (mirrors <c>ProtocolConformanceAnalyzer.ProtocolHasEverywhereSelfConstraint</c>).</summary>
     private bool ProtocolIsEverywhereGated(string protocol)
     {
-        return _registry.LookupType(name: protocol) is ProtocolTypeInfo p &&
+        return _registry.LookupType(name: protocol) is ProtocolTypeSymbol p &&
                p.GenericConstraints is { } cs &&
                cs.Any(predicate: c => c.ConstraintType == ConstraintKind.Everywhere);
     }
@@ -73,12 +73,12 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Requirement gate: a gated wired op (<paramref name="wiredName"/>) applied to a comptime member
+    /// Requirement gate: a gated wired op (<paramref name="wiredName"/>) applied to a buildtime member
     /// value inside an <c>expand</c> template requires the enclosing routine to declare <c>needs
     /// {Protocol} everywhere</c>. Universal ops pass unconditionally. Only ever reached for a
     /// <see cref="SpliceMemberExpression"/> receiver/operand, so it is inherently scoped to expand bodies.
     /// </summary>
-    private void EnforceComptimeMemberGate(string wiredName, SourceLocation location)
+    private void EnforceBuildtimeMemberGate(string wiredName, SourceLocation location)
     {
         if (!TryGetGatedProtocolForWired(wiredName: wiredName, protocol: out string protocol))
         {

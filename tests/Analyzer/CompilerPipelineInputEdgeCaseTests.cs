@@ -1,10 +1,10 @@
-using Compiler.LlvmEmit;
-using Compiler.Diagnostics;
-using Compiler.Targeting;
+using Builder.LlvmEmit;
+using Builder.Diagnostics;
+using Builder.Targeting;
 using SyntaxTree;
 using TypeModel.Enums;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.Verification;
+using Builder.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 

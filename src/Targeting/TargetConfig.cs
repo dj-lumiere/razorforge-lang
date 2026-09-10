@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Compiler.Targeting;
+namespace Builder.Targeting;
 
 /// <summary>Requested build optimization mode.</summary>
 public enum RfBuildMode

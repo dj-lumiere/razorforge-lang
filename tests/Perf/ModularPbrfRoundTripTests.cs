@@ -1,10 +1,10 @@
 using System.Text.RegularExpressions;
-using Compiler.Serialization;
-using Compiler.Tokenizer;
+using Builder.Serialization;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
-using Compiler.Verification;
-using Compiler.Verification.Results;
+using Builder.Verification;
+using Builder.Verification.Results;
 using Xunit.Abstractions;
 
 namespace RazorForge.Tests.Perf;
@@ -37,21 +37,21 @@ public sealed partial class ModularPbrfRoundTripTests
         List<Token> tokens =
             new Tokenizer(source: Trivial, fileName: "bench.rf", language: Language.RazorForge)
                .Tokenize();
-        return new Compiler.Parser.Parser(tokens: tokens,
+        return new Builder.Parser.Parser(tokens: tokens,
             language: Language.RazorForge,
             fileName: "bench.rf").Parse();
     }
 
     private static string Codegen(AnalysisResult r)
     {
-        Compiler.Lowering.Passes.CancellationInstrumentationPass.Run(
+        Builder.Lowering.Passes.CancellationInstrumentationPass.Run(
             programs: r.Registry.UserPrograms,
             instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys,
             registry: r.Registry);
-        var gen = new Compiler.LlvmEmit.LlvmEmitter(userPrograms: r.Registry.UserPrograms,
+        var gen = new Builder.LlvmEmit.LlvmEmitter(userPrograms: r.Registry.UserPrograms,
             registry: r.Registry,
-            options: new Compiler.LlvmEmit.LlvmEmitterOptions
+            options: new Builder.LlvmEmit.LlvmEmitterOptions
             {
                 StdlibPrograms = r.Registry.StdlibPrograms,
                 SynthesizedBodies = r.SynthesizedBodies,

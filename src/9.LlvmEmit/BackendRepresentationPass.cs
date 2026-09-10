@@ -1,12 +1,12 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Reflection;
-using Compiler.Declaration;
-using Compiler.Targeting;
+using Builder.Declaration;
+using Builder.Targeting;
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Computes <see cref="Expression.ResolvedRepr"/> for all backend-visible expressions
@@ -48,7 +48,7 @@ public sealed class BackendRepresentationPass
     /// </summary>
     private void Walk(ISyntaxTreeNode node)
     {
-        if (node is Expression { ResolvedType: { } resolvedType and not ErrorTypeInfo } expression
+        if (node is Expression { ResolvedType: { } resolvedType and not ErrorTypeSymbol } expression
             and not TypeExpression)
         {
             expression.ResolvedRepr = BackendReprResolver.Resolve(type: resolvedType,

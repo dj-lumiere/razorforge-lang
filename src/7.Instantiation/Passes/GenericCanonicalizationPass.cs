@@ -1,4 +1,4 @@
-namespace Compiler.Instantiation.Passes;
+namespace Builder.Instantiation.Passes;
 
 /// <summary>
 /// Future Phase 7 pass: normalize wrapper/entity-specialized generic resolutions so

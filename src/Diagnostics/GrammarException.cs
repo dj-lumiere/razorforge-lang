@@ -1,6 +1,6 @@
 using TypeModel.Enums;
 
-namespace Compiler.Diagnostics;
+namespace Builder.Diagnostics;
 
 /// <summary>
 /// Exception thrown for grammar (lexer/parser) errors in both RazorForge and Suflae.

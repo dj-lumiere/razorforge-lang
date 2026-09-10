@@ -1,8 +1,8 @@
 using TypeModel.Types;
 using SyntaxTree;
-using Compiler.Instantiation;
+using Builder.Instantiation;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Expands <see cref="CrashablePattern"/> clauses in <see cref="WhenStatement"/>s whose subject
@@ -12,7 +12,7 @@ namespace Compiler.Lowering.Passes;
 /// <para>
 /// Input:  <c>is Crashable e => body</c> -> matches any error in the carrier.<br/>
 /// Output: <c>is ParseError e => body</c>, <c>is NetworkError e => body</c>, ??
-///         (one clause per <see cref="CrashableTypeInfo"/> registered in the type registry)
+///         (one clause per <see cref="CrashableTypeSymbol"/> registered in the type registry)
 /// </para>
 ///
 /// <para>
@@ -39,7 +39,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     {
         var crashableTypes = ctx.Registry
                                 .GetAllTypes()
-                                .OfType<CrashableTypeInfo>()
+                                .OfType<CrashableTypeSymbol>()
                                 .ToList();
 
         // Nothing to expand if no crashable types are registered.
@@ -91,7 +91,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     {
         var crashableTypes = ctx.Registry
                                 .GetAllTypes()
-                                .OfType<CrashableTypeInfo>()
+                                .OfType<CrashableTypeSymbol>()
                                 .ToList();
         if (crashableTypes.Count == 0)
         {
@@ -110,7 +110,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
     }
 
     private void ExpandMemberList(List<SyntaxTree.Declaration> members,
-        List<CrashableTypeInfo> crashableTypes)
+        List<CrashableTypeSymbol> crashableTypes)
     {
         for (int j = 0; j < members.Count; j++)
         {
@@ -129,7 +129,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
 
     // === Statement walker =========================================================
 
-    private Statement ExpandStatement(Statement stmt, List<CrashableTypeInfo> crashableTypes)
+    private Statement ExpandStatement(Statement stmt, List<CrashableTypeSymbol> crashableTypes)
     {
         switch (stmt)
         {
@@ -172,7 +172,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         }
     }
 
-    private BlockStatement ExpandBlock(BlockStatement b, List<CrashableTypeInfo> crashableTypes)
+    private BlockStatement ExpandBlock(BlockStatement b, List<CrashableTypeSymbol> crashableTypes)
     {
         bool changed = false;
         var stmts = new List<Statement>(capacity: b.Statements.Count);
@@ -191,7 +191,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             : b;
     }
 
-    private IfStatement ExpandIf(IfStatement ifs, List<CrashableTypeInfo> crashableTypes)
+    private IfStatement ExpandIf(IfStatement ifs, List<CrashableTypeSymbol> crashableTypes)
     {
         Statement then = ExpandStatement(stmt: ifs.ThenStatement, crashableTypes: crashableTypes);
         Statement? elseS = ifs.ElseStatement != null
@@ -204,7 +204,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             : ifs;
     }
 
-    private WhileStatement ExpandWhile(WhileStatement w, List<CrashableTypeInfo> crashableTypes)
+    private WhileStatement ExpandWhile(WhileStatement w, List<CrashableTypeSymbol> crashableTypes)
     {
         Statement body = ExpandStatement(stmt: w.Body, crashableTypes: crashableTypes);
         Statement? elseB = w.ElseBranch != null
@@ -217,7 +217,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             : w;
     }
 
-    private EachStatement ExpandEach(EachStatement f, List<CrashableTypeInfo> crashableTypes)
+    private EachStatement ExpandEach(EachStatement f, List<CrashableTypeSymbol> crashableTypes)
     {
         Statement body = ExpandStatement(stmt: f.Body, crashableTypes: crashableTypes);
         Statement? elseB = f.ElseBranch != null
@@ -230,7 +230,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             : f;
     }
 
-    private UsingStatement ExpandUsing(UsingStatement u, List<CrashableTypeInfo> crashableTypes)
+    private UsingStatement ExpandUsing(UsingStatement u, List<CrashableTypeSymbol> crashableTypes)
     {
         Statement body = ExpandStatement(stmt: u.Body, crashableTypes: crashableTypes);
         Statement? fb = u.FallbackBody != null
@@ -244,7 +244,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
 
     // === WhenStatement expansion ==================================================
 
-    private WhenStatement ExpandWhen(WhenStatement when, List<CrashableTypeInfo> crashableTypes)
+    private WhenStatement ExpandWhen(WhenStatement when, List<CrashableTypeSymbol> crashableTypes)
     {
         // Only expand carrier-type subjects (Result/Lookup).
         // Subject-less when (Expression == null) is never a carrier -> just recurse.
@@ -421,15 +421,15 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
 
     /// <summary>
     /// Replaces one Crashable-shaped clause with N <see cref="TypePattern"/> clauses, one per
-    /// registered <see cref="CrashableTypeInfo"/>. Each arm gets its own deep-clone of the body where
+    /// registered <see cref="CrashableTypeSymbol"/>. Each arm gets its own deep-clone of the body where
     /// the bound name <c>err</c> is rewired to the concrete crashable type, so <c>err.crash_message()</c>
     /// etc. dispatches against a real memberRoutine instead of the bodyless protocol stub.
     /// </summary>
     private void ExpandCrashableClause(WhenClause clause, string? bangBindName,
-        SourceLocation bangLoc, List<CrashableTypeInfo> crashableTypes, List<WhenClause> expanded)
+        SourceLocation bangLoc, List<CrashableTypeSymbol> crashableTypes, List<WhenClause> expanded)
     {
         var emptySubs = new Dictionary<string, string>();
-        foreach (CrashableTypeInfo crashable in crashableTypes)
+        foreach (CrashableTypeSymbol crashable in crashableTypes)
         {
             var typeExpr = new TypeExpression(
                 Name: crashable.Name,
@@ -457,7 +457,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
 
     /// <summary>Recurses into clause bodies without changing the clauses themselves.</summary>
     private WhenStatement RecurseIntoClauses(WhenStatement when,
-        List<CrashableTypeInfo> crashableTypes)
+        List<CrashableTypeSymbol> crashableTypes)
     {
         bool changed = false;
         var clauses = new List<WhenClause>(capacity: when.Clauses.Count);
@@ -482,7 +482,7 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
 
     // === Type classification helpers =============================================
 
-    private static bool IsResultOrLookup(TypeInfo? type)
+    private static bool IsResultOrLookup(TypeSymbol? type)
     {
         if (type == null)
         {
@@ -493,14 +493,14 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         return baseName is "Result" or "Lookup";
     }
 
-    private static string GetCarrierBaseName(TypeInfo type)
+    private static string GetCarrierBaseName(TypeSymbol type)
     {
-        if (type is RecordTypeInfo { GenericDefinition: not null } r)
+        if (type is RecordTypeSymbol { GenericDefinition: not null } r)
         {
             return r.GenericDefinition.Name;
         }
 
-        if (type is EntityTypeInfo { GenericDefinition: not null } e)
+        if (type is EntityTypeSymbol { GenericDefinition: not null } e)
         {
             return e.GenericDefinition.Name;
         }

@@ -153,7 +153,7 @@ public record ExpandMemberTemplate(
     SourceLocation Location);
 
 /// <summary>
-/// A decl-position comptime member-generation directive inside a record/entity body:
+/// A decl-position buildtime member-generation directive inside a record/entity body:
 /// <c>expand m in allmemvarof(T)</c> followed by an indented block of <see cref="ExpandMemberTemplate"/>s.
 /// At instantiation (when the source type <c>T</c> is concrete) each template is materialized once per
 /// member of <c>T</c>, laying out struct-of-arrays column members (SplitArray/SplitList). Never survives

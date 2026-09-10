@@ -1,4 +1,4 @@
-namespace Compiler.Targeting;
+namespace Builder.Targeting;
 
 /// <summary>
 /// File-granularity conditional compilation for RazorForge. A <c>.rf</c> file may carry a leading

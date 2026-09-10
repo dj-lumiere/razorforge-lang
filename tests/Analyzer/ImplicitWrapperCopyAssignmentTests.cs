@@ -1,4 +1,4 @@
-using Compiler.Verification.Results;
+using Builder.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 
@@ -30,7 +30,7 @@ public class ImplicitWrapperCopyAssignmentTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy &&
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy &&
                 e.Message.Contains(value: "in assignment",
                     comparisonType: StringComparison.OrdinalIgnoreCase));
     }
@@ -54,7 +54,7 @@ public class ImplicitWrapperCopyAssignmentTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>Assignment of a trivially-Assignable record copies bitwise — no error.</summary>
@@ -76,7 +76,7 @@ public class ImplicitWrapperCopyAssignmentTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>Assigning a primitive value is a trivial copy — no error.</summary>
@@ -94,7 +94,7 @@ public class ImplicitWrapperCopyAssignmentTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>`b = a.track()` at the assignment site produces a fresh handle — accepted.</summary>
@@ -116,6 +116,6 @@ public class ImplicitWrapperCopyAssignmentTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 }

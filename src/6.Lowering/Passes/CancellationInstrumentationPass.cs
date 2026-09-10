@@ -1,9 +1,9 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// v0.2.0 Phase 9-2 (Mechanism C): inserts coroutine cancellation push/pop markers into the
@@ -102,7 +102,7 @@ public sealed class CancellationInstrumentationPass
         // Owner is the RENDERED receiver: a bracketed generic-def owner keys to null here and is skipped
         // (its instrumentation belongs on the monomorphized bodies), which the bare OwnerName would not
         // reproduce.
-        TypeInfo? owner = _registry.LookupType(name: decl.RenderedReceiver!);
+        TypeSymbol? owner = _registry.LookupType(name: decl.RenderedReceiver!);
         return owner == null
             ? null
             : _registry.LookupMemberRoutine(type: owner,

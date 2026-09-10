@@ -1,7 +1,6 @@
 using TypeModel.Types;
-using TypeInfo = TypeModel.Types.TypeInfo;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Single source of truth for the routines codegen inserts IMPLICITLY — with no surface AST call
@@ -25,8 +24,8 @@ internal static class ImplicitCallContract
     /// Only genuine no-AST-node insertions belong here — routines reached through a real (even
     /// synthesized) AST call are walked normally and must NOT be listed.
     /// </summary>
-    public static IEnumerable<(TypeInfo owner, string memberRoutineName)> ForLiveType(
-        TypeInfo liveType)
+    public static IEnumerable<(TypeSymbol owner, string memberRoutineName)> ForLiveType(
+        TypeSymbol liveType)
     {
         // Structured base-name classification (canonical helper — prefers the generic definition's
         // BareName, no ad-hoc bracket parsing). Returns null for anything that isn't an RC wrapper.
@@ -59,10 +58,10 @@ internal static class ImplicitCallContract
         // Display transparency: codegen re-resolves represent/diagnose on the Roamed handle to the
         // INNER value's, so the inner display routines must be live even when the inner type is only
         // ever reached through the wrapper (e.g. an SF entity local that is never held bare).
-        TypeInfo? inner = liveType switch
+        TypeSymbol? inner = liveType switch
         {
-            RecordTypeInfo { TypeArguments: { Count: >= 1 } ta } => ta[index: 0],
-            WrapperTypeInfo w => w.InnerType,
+            RecordTypeSymbol { TypeArguments: { Count: >= 1 } ta } => ta[index: 0],
+            WrapperTypeSymbol w => w.InnerType,
             _ => null
         };
         if (inner != null)

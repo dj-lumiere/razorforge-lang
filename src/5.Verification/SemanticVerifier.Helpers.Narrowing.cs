@@ -2,9 +2,7 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {
@@ -26,7 +24,7 @@ public sealed partial class SemanticVerifier
     /// arm-exclusion narrowing (`if x is A {} elseif x is B {} else { /* x is C */ }`).</summary>
     private sealed record VariantIsNarrowing(
         string VarName,
-        VariantTypeInfo Variant,
+        VariantTypeSymbol Variant,
         VariantMemberInfo Arm,
         bool Negated);
 
@@ -49,10 +47,10 @@ public sealed partial class SemanticVerifier
         // enclosing check, else its declared type. This lets nested narrowing compose: after
         // `if o is None` narrows `o` (Outer) to its sole remaining arm `Inner`, a further
         // `if o is S32` matches against `Inner`'s arms. Skip carriers (own narrowing path).
-        TypeInfo? subjectType = _registry.GetNarrowedType(name: id.Name) ?? _registry
+        TypeSymbol? subjectType = _registry.GetNarrowedType(name: id.Name) ?? _registry
            .LookupVariable(name: id.Name)
           ?.Type;
-        if (subjectType is not VariantTypeInfo variant || IsCarrierType(type: variant))
+        if (subjectType is not VariantTypeSymbol variant || IsCarrierType(type: variant))
         {
             return null;
         }
@@ -69,11 +67,11 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Resolves the variant arm a pattern FULLY matches (`is Arm`, `is Arm x`, `is Arm (a, b)`, or
     /// `is None`) to its <see cref="VariantMemberInfo"/> — by RESOLVED TYPE identity via
-    /// <see cref="VariantTypeInfo.FindMember"/>, NOT by parsing the type name — or null when the
+    /// <see cref="VariantTypeSymbol.FindMember"/>, NOT by parsing the type name — or null when the
     /// pattern is not a single-arm match. A <see cref="GuardPattern"/> returns null on purpose: a
     /// guarded arm does not fully cover its arm (the guard may be false), so it must not exclude it.
     /// </summary>
-    private VariantMemberInfo? ResolveVariantArm(Pattern pattern, VariantTypeInfo variant)
+    private VariantMemberInfo? ResolveVariantArm(Pattern pattern, VariantTypeSymbol variant)
     {
         // `is None` matches the payload-less None arm.
         if (IsNonePattern(pattern: pattern))
@@ -92,7 +90,7 @@ public sealed partial class SemanticVerifier
             return null;
         }
 
-        TypeInfo? armType = armExpr.ResolvedType ?? _registry.LookupType(name: armExpr.Name);
+        TypeSymbol? armType = armExpr.ResolvedType ?? _registry.LookupType(name: armExpr.Name);
         return armType == null
             ? null
             : variant.FindMember(type: armType);
@@ -315,7 +313,7 @@ public sealed partial class SemanticVerifier
             IfStatement { ElseStatement: not null } ifStmt =>
                 StatementAlwaysTerminates(statement: ifStmt.ThenStatement) &&
                 StatementAlwaysTerminates(statement: ifStmt.ElseStatement),
-            // A comptime arm-expansion `when` is provably exhaustive: `expand … branchof(T)` covers
+            // A buildtime arm-expansion `when` is provably exhaustive: `expand … branchof(T)` covers
             // every payload arm and any explicit clauses (e.g. `is None =>`) cover the rest. It
             // terminates iff every explicit clause body AND the arm template body terminate.
             WhenStatement { ArmExpansion: { } armExp } armWhen => armWhen.Clauses.All(
@@ -402,7 +400,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Returns true if the type is a fixed-width numeric type (excludes SAddr/UAddr).
     /// </summary>
-    private static bool IsFixedWidthNumericType(TypeInfo type)
+    private static bool IsFixedWidthNumericType(TypeSymbol type)
     {
         return FixedWidthNumericTypeNames.Contains(item: type.Name);
     }

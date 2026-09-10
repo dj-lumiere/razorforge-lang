@@ -7,25 +7,25 @@ namespace TypeModel.Types;
 /// This is a placeholder that represents the implementing type.
 /// Similar to 'Self' in Rust or 'Self' in Swift.
 /// </summary>
-public sealed class ProtocolSelfTypeInfo : TypeInfo
+public sealed class ProtocolSelfTypeSymbol : TypeSymbol
 {
     /// <summary>
     /// Singleton instance for the protocol self type.
     /// </summary>
-    public static readonly ProtocolSelfTypeInfo Instance = new();
+    public static readonly ProtocolSelfTypeSymbol Instance = new();
 
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.ProtocolSelf;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ProtocolSelfTypeInfo"/> class.
+    /// Initializes a new instance of the <see cref="ProtocolSelfTypeSymbol"/> class.
     /// </summary>
-    private ProtocolSelfTypeInfo() : base(name: "Me")
+    private ProtocolSelfTypeSymbol() : base(name: "Me")
     {
     }
 
     /// <inheritdoc/>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         throw new InvalidOperationException(
             message:

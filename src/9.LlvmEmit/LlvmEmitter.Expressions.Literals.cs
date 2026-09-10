@@ -1,18 +1,18 @@
 using System.Globalization;
 using System.Text;
-using Compiler.Tokenizer;
-using Compiler.Verification;
+using Builder.Tokenizer;
+using Builder.Verification;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 // D2 (DEFERRED): Text/Bytes literals still emit their backing arrays + carrier struct as constant
 // globals here rather than lowering to a `CreatorExpression` against the real stdlib Text/Bytes
 // `create`. Doing that fully requires D1's memberwise-create synthesis plus a compile-time
 // constant-aggregate argument path (the current stdlib `create` takes runtime args). As a partial
-// step, the carrier struct LAYOUT is now derived from the registered TypeInfo (BuildLiteralCarrierLayout)
+// step, the carrier struct LAYOUT is now derived from the registered TypeSymbol (BuildLiteralCarrierLayout)
 // instead of a hardcoded `{ ptr, i64, ptr }`.
 /// <summary>
 /// Expression code generation for literals and scalar literal helpers.
@@ -260,7 +260,7 @@ public partial class LlvmEmitter
 
     /// <summary>
     /// D2 (partial): derives the LLVM field-type layout of a literal-backed carrier record
-    /// (<c>Text</c> / <c>Bytes</c>) from its registered <see cref="RecordTypeInfo"/> rather than
+    /// (<c>Text</c> / <c>Bytes</c>) from its registered <see cref="RecordTypeSymbol"/> rather than
     /// hardcoding <c>{ ptr, i64, ptr }</c>. Returns the joined field-type string (e.g.
     /// <c>"ptr, i64, ptr"</c>) and the named struct type via <paramref name="structTypeName"/>.
     /// <para>DEFERRED: the values themselves (data ptr / count / null ctrl) are still positionally
@@ -272,9 +272,9 @@ public partial class LlvmEmitter
     private string BuildLiteralCarrierLayout(string carrierName, int expectedMemberVariables,
         out string structTypeName)
     {
-        TypeInfo? carrier = _registry.LookupType(name: carrierName) ??
+        TypeSymbol? carrier = _registry.LookupType(name: carrierName) ??
                             _registry.LookupType(name: $"Core.{carrierName}");
-        if (carrier is RecordTypeInfo record &&
+        if (carrier is RecordTypeSymbol record &&
             record.MemberVariables.Count == expectedMemberVariables)
         {
             structTypeName = GetRecordTypeName(record: record);
@@ -300,9 +300,9 @@ public partial class LlvmEmitter
     /// </summary>
     private string BuildLiteralCarrierValue(string carrierName, string dataName, long count)
     {
-        TypeInfo? carrier = _registry.LookupType(name: carrierName) ??
+        TypeSymbol? carrier = _registry.LookupType(name: carrierName) ??
                             _registry.LookupType(name: $"Core.{carrierName}");
-        if (carrier is RecordTypeInfo record && record.MemberVariables.Count > 0)
+        if (carrier is RecordTypeSymbol record && record.MemberVariables.Count > 0)
         {
             IEnumerable<string> parts = record.MemberVariables.Select(selector: mv =>
             {

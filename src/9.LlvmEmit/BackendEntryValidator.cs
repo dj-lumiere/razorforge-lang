@@ -1,14 +1,14 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Reflection;
-using Compiler.Diagnostics;
-using Compiler.Instantiation;
-using Compiler.Declaration;
-using Compiler.Verification.Results;
+using Builder.Diagnostics;
+using Builder.Instantiation;
+using Builder.Declaration;
+using Builder.Verification.Results;
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Validates that programs crossing the backend boundary no longer contain AST shapes that
@@ -56,7 +56,7 @@ public sealed class BackendEntryValidator
 
         // Routines whose owner is still a generic parameter are scaffolding for generic bodies
         // that get fully monomorphized at the call site -> they are never emitted standalone.
-        if (body.Info.OwnerType is GenericParameterTypeInfo)
+        if (body.Info.OwnerType is GenericParameterTypeSymbol)
         {
             return errors;
         }
@@ -103,7 +103,7 @@ public sealed class BackendEntryValidator
         TypeRegistry registry)
     {
         // Skip bodies of generic routine declarations: their expressions legitimately carry
-        // GenericParameterTypeInfo in ResolvedType (e.g. `me.tree[i]` on `me.tree: List[V]`
+        // GenericParameterTypeSymbol in ResolvedType (e.g. `me.tree[i]` on `me.tree: List[V]`
         // is typed V in the gen-def template). The monomorphized clones are validated
         // separately in the _instantiatedGenericBodies loop, so we don't lose coverage.
         if (node is RoutineDeclaration { GenericParameters: { Count: > 0 } })
@@ -152,7 +152,7 @@ public sealed class BackendEntryValidator
             !presetVar.IsPresettableAggregate &&
             // A name that ALSO resolves to a type is a constructor/type reference here, not a value use
             // of the preset (a `secret preset X` in another file does not shadow a local `record X`).
-            registry.LookupType(name: identifier.Name) is null or ErrorTypeInfo)
+            registry.LookupType(name: identifier.Name) is null or ErrorTypeSymbol)
         {
             // Aggregate (Array[T,N]) presets are intentionally NOT inlined — codegen lowers them to
             // a shared `@preset.*` constant global. Only scalar presets must be inlined before here.
@@ -246,7 +246,7 @@ public sealed class BackendEntryValidator
     {
         if (node is Expression
             {
-                ResolvedType: { } reprResolvedType and not ErrorTypeInfo, ResolvedRepr: null
+                ResolvedType: { } reprResolvedType and not ErrorTypeSymbol, ResolvedRepr: null
             } exprWithRepr and not TypeExpression)
         {
             error = new SemanticError(Code: SemanticDiagnosticCode.MissingBackendRepresentation,
@@ -294,9 +294,9 @@ public sealed class BackendEntryValidator
     /// <summary>
     /// Returns true when a type graph still contains generic placeholders that codegen cannot lay out.
     /// </summary>
-    private static bool ContainsUnresolvedBackendGeneric(TypeModel.Types.TypeInfo type)
+    private static bool ContainsUnresolvedBackendGeneric(TypeModel.Types.TypeSymbol type)
     {
-        if (type is GenericParameterTypeInfo or ProtocolSelfTypeInfo or ErrorTypeInfo)
+        if (type is GenericParameterTypeSymbol or ProtocolSelfTypeSymbol or ErrorTypeSymbol)
         {
             return true;
         }
@@ -314,10 +314,10 @@ public sealed class BackendEntryValidator
 
         return type switch
         {
-            WrapperTypeInfo wrapper => ContainsUnresolvedBackendGeneric(type: wrapper.InnerType),
-            TupleTypeInfo tuple => tuple.ElementTypes.Any(
+            WrapperTypeSymbol wrapper => ContainsUnresolvedBackendGeneric(type: wrapper.InnerType),
+            TupleTypeSymbol tuple => tuple.ElementTypes.Any(
                 predicate: ContainsUnresolvedBackendGeneric),
-            VariantTypeInfo variant => variant.Members.Any(predicate: member =>
+            VariantTypeSymbol variant => variant.Members.Any(predicate: member =>
                 member.Type != null && ContainsUnresolvedBackendGeneric(type: member.Type)),
             _ => false
         };

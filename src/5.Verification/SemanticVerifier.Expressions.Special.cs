@@ -1,11 +1,9 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {
@@ -21,7 +19,7 @@ public sealed partial class SemanticVerifier
             }
         }
 
-        return _registry.LookupType(name: "Text") ?? ErrorTypeInfo.Instance;
+        return _registry.LookupType(name: "Text") ?? ErrorTypeSymbol.Instance;
     }
 
     /// <summary>
@@ -117,7 +115,7 @@ public sealed partial class SemanticVerifier
         Dictionary<string, TypeSymbol> substitutions)
     {
         // Associated-type projection (`S/Iter`): substitute the base, then resolve via its binding.
-        if (type is AssociatedProjectionTypeInfo proj)
+        if (type is AssociatedProjectionTypeSymbol proj)
         {
             return SubstituteProjection(proj: proj, substitutions: substitutions);
         }
@@ -140,7 +138,7 @@ public sealed partial class SemanticVerifier
         }
 
         // Routine types: substitute inside parameter and return types.
-        if (type is RoutineTypeInfo routineType)
+        if (type is RoutineTypeSymbol routineType)
         {
             TypeSymbol? resolved =
                 SubstituteRoutineType(routineType: routineType, substitutions: substitutions);
@@ -151,7 +149,7 @@ public sealed partial class SemanticVerifier
         }
 
         // Tuple types: substitute inside element types.
-        if (type is TupleTypeInfo tupleType)
+        if (type is TupleTypeSymbol tupleType)
         {
             TypeSymbol? resolved =
                 SubstituteTupleType(tupleType: tupleType, substitutions: substitutions);
@@ -165,17 +163,17 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Substitutes through an <see cref="AssociatedProjectionTypeInfo"/>: substitutes the base,
+    /// Substitutes through an <see cref="AssociatedProjectionTypeSymbol"/>: substitutes the base,
     /// then resolves the associated binding if one is now available, or rebuilds the projection.
     /// Done at the call site so a member-routine return like <c>?EnumerateEmitter[T, S/Iter]</c>
     /// resolves to the CONCRETE emitter — otherwise reachability marks the unresolved-projection
     /// emitter's member routines and the concrete ones never generate.
     /// </summary>
-    private TypeSymbol SubstituteProjection(AssociatedProjectionTypeInfo proj,
+    private TypeSymbol SubstituteProjection(AssociatedProjectionTypeSymbol proj,
         Dictionary<string, TypeSymbol> substitutions)
     {
         TypeSymbol newBase = SubstituteWithMapping(type: proj.Base, substitutions: substitutions);
-        TypeInfo? bound = RecordTypeInfo.ProjectAssociatedBinding(baseType: newBase,
+        TypeSymbol? bound = RecordTypeSymbol.ProjectAssociatedBinding(baseType: newBase,
             slot: proj.SlotName);
         if (bound != null)
         {
@@ -184,7 +182,7 @@ public sealed partial class SemanticVerifier
 
         return ReferenceEquals(objA: newBase, objB: proj.Base)
             ? proj
-            : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: proj.SlotName);
+            : new AssociatedProjectionTypeSymbol(baseType: newBase, slotName: proj.SlotName);
     }
 
     /// <summary>
@@ -224,12 +222,12 @@ public sealed partial class SemanticVerifier
     /// target-typing lambda arguments. Returns the new routine type when any slot changed,
     /// or null when no substitution was needed.
     /// </summary>
-    private RoutineTypeInfo? SubstituteRoutineType(RoutineTypeInfo routineType,
+    private RoutineTypeSymbol? SubstituteRoutineType(RoutineTypeSymbol routineType,
         Dictionary<string, TypeSymbol> substitutions)
     {
-        var newParams = new List<TypeInfo>(capacity: routineType.ParameterTypes.Count);
+        var newParams = new List<TypeSymbol>(capacity: routineType.ParameterTypes.Count);
         bool anyChanged = false;
-        foreach (TypeInfo p in routineType.ParameterTypes)
+        foreach (TypeSymbol p in routineType.ParameterTypes)
         {
             TypeSymbol substituted = SubstituteWithMapping(type: p, substitutions: substitutions);
             newParams.Add(item: substituted);
@@ -239,7 +237,7 @@ public sealed partial class SemanticVerifier
             }
         }
 
-        TypeInfo? newReturn = routineType.ReturnType;
+        TypeSymbol? newReturn = routineType.ReturnType;
         if (newReturn != null)
         {
             TypeSymbol substitutedRet =
@@ -262,12 +260,12 @@ public sealed partial class SemanticVerifier
     /// Substitutes inside a tuple type's element types. Returns the new tuple type when any
     /// element changed, or null when no substitution was needed.
     /// </summary>
-    private TupleTypeInfo? SubstituteTupleType(TupleTypeInfo tupleType,
+    private TupleTypeSymbol? SubstituteTupleType(TupleTypeSymbol tupleType,
         Dictionary<string, TypeSymbol> substitutions)
     {
-        var newElems = new List<TypeInfo>(capacity: tupleType.ElementTypes.Count);
+        var newElems = new List<TypeSymbol>(capacity: tupleType.ElementTypes.Count);
         bool anyChanged = false;
-        foreach (TypeInfo el in tupleType.ElementTypes)
+        foreach (TypeSymbol el in tupleType.ElementTypes)
         {
             TypeSymbol substituted = SubstituteWithMapping(type: el, substitutions: substitutions);
             newElems.Add(item: substituted);
@@ -324,11 +322,11 @@ public sealed partial class SemanticVerifier
         // `steal <identifier>` (deadref'd, no hole) and `steal x.duplicate()` (a fresh owned rvalue
         // from a call — the operand is a CallExpression, not an aggregate-part read) stay legal. Tuple
         // element access (`_t.item0` from a `var (a, b) = …` destructure) is a consumed-temporary MOVE,
-        // not an aggregate-middle steal, so it is excluded (Object is a TupleTypeInfo).
+        // not an aggregate-middle steal, so it is excluded (Object is a TupleTypeSymbol).
         bool isAggregatePart = steal.Operand switch
         {
             IndexExpression => true,
-            MemberExpression m => m.Object.ResolvedType is not TupleTypeInfo,
+            MemberExpression m => m.Object.ResolvedType is not TupleTypeSymbol,
             _ => false
         };
         if (isAggregatePart)
@@ -353,13 +351,13 @@ public sealed partial class SemanticVerifier
         }
 
         // T is explicitly stealable — ownership transfer is its design purpose
-        bool isOwned = operandType is WrapperTypeInfo { Name: Declaration.RuntimeContract.Owned };
+        bool isOwned = operandType is WrapperTypeSymbol { Name: Declaration.RuntimeContract.Owned };
 
         // `steal` on a record is a no-op — records are value-typed and have no
         // ownership to transfer. Returning the operand type as-is lets stdlib
         // patterns like `return steal result` keep working when `result` is a
         // record (e.g. Text after the refcounted-record migration).
-        bool isRecord = operandType is RecordTypeInfo;
+        bool isRecord = operandType is RecordTypeSymbol;
 
         if (!isOwned && !isRecord && !IsRawEntityType(type: operandType))
         {
@@ -383,7 +381,7 @@ public sealed partial class SemanticVerifier
         // `steal` always produces an rvalue `T` — it consumes an lvalue binding and yields
         // an in-flight entity that must be re-bound (or consumed) at the use site.
         steal.IsInFlight = true;
-        if (isOwned && operandType is WrapperTypeInfo { InnerType: not null } owned)
+        if (isOwned && operandType is WrapperTypeSymbol { InnerType: not null } owned)
         {
             steal.ResolvedType = owned.InnerType;
             return owned.InnerType;
@@ -513,13 +511,13 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Creates a RoutineTypeInfo from a RoutineInfo for first-class routine references.
+    /// Creates a RoutineTypeSymbol from a RoutineInfo for first-class routine references.
     /// </summary>
     /// <param name="routine">The routine to create a type for.</param>
     /// <returns>The routine type representing this routine's signature.</returns>
-    private RoutineTypeInfo GetRoutineType(RoutineInfo routine)
+    private RoutineTypeSymbol GetRoutineType(RoutineInfo routine)
     {
-        // Extract parameter types from ParameterInfo
+        // Extract parameter types from ParamInfo
         var parameterTypes = routine.Parameters
                                     .Select(selector: p => p.Type)
                                     .ToList();

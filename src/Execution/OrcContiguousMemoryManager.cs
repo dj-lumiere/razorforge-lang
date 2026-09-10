@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using LLVMSharp.Interop;
 
-namespace Builder;
+namespace Builder.Execution;
 
 /// <summary>
 /// A JIT object-linking-layer memory manager that allocates every section of one linked object from a

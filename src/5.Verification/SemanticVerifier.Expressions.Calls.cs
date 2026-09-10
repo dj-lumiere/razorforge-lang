@@ -1,12 +1,10 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 public sealed partial class SemanticVerifier
 {
@@ -85,8 +83,8 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// The comptime metadata-reflection intrinsics (`nameof`/`orderof`/`typeof`/`typeidof`/`valueof`/
-    /// `placeof`/`sizeof`). Each reads a comptime property off the active `expand` handle (or, for
+    /// The buildtime metadata-reflection intrinsics (`nameof`/`orderof`/`typeof`/`typeidof`/`valueof`/
+    /// `placeof`/`sizeof`). Each reads a buildtime property off the active `expand` handle (or, for
     /// `sizeof`/`typeof`, a type). Folded off the unroll context at monomorphization; see
     /// <c>GenericAstRewriter.FoldMetadataIntrinsic</c>.
     /// </summary>
@@ -97,7 +95,7 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Analyzes a comptime metadata intrinsic call (`nameof(m)`, `sizeof(T)`, …). The argument is an
+    /// Analyzes a buildtime metadata intrinsic call (`nameof(m)`, `sizeof(T)`, …). The argument is an
     /// expand handle or a type name; either way its concrete value only exists at monomorphization, so
     /// the intrinsic types leniently (like the old dot-projection) and the real fold runs at instantiation.
     /// </summary>
@@ -105,19 +103,19 @@ public sealed partial class SemanticVerifier
     {
         return name switch
         {
-            "nameof" => _registry.LookupType(name: "Text") ?? ErrorTypeInfo.Instance,
+            "nameof" => _registry.LookupType(name: "Text") ?? ErrorTypeSymbol.Instance,
             "orderof" or "typeidof" or "placeof" or "sizeof" =>
-                _registry.LookupType(name: "U64") ?? ErrorTypeInfo.Instance,
+                _registry.LookupType(name: "U64") ?? ErrorTypeSymbol.Instance,
             // `visibilityof(m)` yields the member's OPEN/POSTED/SECRET visibility as the existing
             // `Visibility` choice (BuilderQuery), narrowed by `is SECRET` etc. at the use site. Resolve
             // through imports (Visibility lives in BuilderQuery, not Core) so the matched value is the
             // concrete choice type — that lets the `is SECRET` pattern bind the case directly instead of
             // resolving `SECRET` as a bare type via the cross-module short-name scan.
-            "visibilityof" => LookupTypeWithImports(name: "Visibility") ?? ErrorTypeInfo.Instance,
-            "valueof" => _registry.LookupType(name: "S32") ?? ErrorTypeInfo.Instance,
-            // `typeof(m)` in expression position is a comptime typewise receiver (deferred, like the
+            "visibilityof" => LookupTypeWithImports(name: "Visibility") ?? ErrorTypeSymbol.Instance,
+            "valueof" => _registry.LookupType(name: "S32") ?? ErrorTypeSymbol.Instance,
+            // `typeof(m)` in expression position is a buildtime typewise receiver (deferred, like the
             // old `${m.type}`): the real type only exists post-monomorph.
-            _ => ErrorTypeInfo.Instance
+            _ => ErrorTypeSymbol.Instance
         };
     }
 
@@ -246,7 +244,7 @@ public sealed partial class SemanticVerifier
         }
 
         int arity = group.Count;
-        var arityConst = new ConstGenericValueTypeInfo(literalText: arity.ToString(),
+        var arityConst = new ConstGenericValueTypeSymbol(literalText: arity.ToString(),
             value: arity,
             explicitTypeName: "U64");
         TypeSymbol arrayType = _registry.GetOrCreateResolution(genericDef: arrayDef,
@@ -272,7 +270,7 @@ public sealed partial class SemanticVerifier
     private TypeSymbol AnalyzeZeroArgConstruction(CallExpression call, TypeSymbol zeroArgType)
     {
         RoutineInfo? zeroCreate = _registry.LookupCreatorOverload(type: zeroArgType,
-            argTypes: new List<TypeInfo>());
+            argTypes: new List<TypeSymbol>());
         call.ConstructedType = zeroArgType;
         call.LoweringKind = ClassifyConstruction(type: zeroArgType,
             isCollectionLiteral: call.IsCollectionLiteral);
@@ -286,7 +284,7 @@ public sealed partial class SemanticVerifier
 
         call.IsInFlight = zeroCreate?.IsInFlightReturn ?? false;
         // Return the BARE entity type (NOT create's declared return, which for a Suflae entity is
-        // `Roamed[E]`): the SF entity-lowering pass keys on `ResolvedType is EntityTypeInfo` to
+        // `Roamed[E]`): the SF entity-lowering pass keys on `ResolvedType is EntityTypeSymbol` to
         // wrap a construction in `.roam()`, so a Roamed return type would divert it to the
         // arg-carrying-create path and drop the wrap. For an RF entity the two coincide.
         return zeroArgType;
@@ -295,15 +293,15 @@ public sealed partial class SemanticVerifier
     private TypeSymbol AnalyzeCallExpressionCore(CallExpression call,
         TypeSymbol? expectedType = null)
     {
-        // Comptime `expand` gate: a member-routine call on a comptime member value (me.$nameof(m).cmp()/
+        // Buildtime `expand` gate: a member-routine call on a buildtime member value (me.$nameof(m).cmp()/
         // .hash()/…) is a wired op — a GATED one (cmp/hash/…) needs the enclosing template's `needs P
         // everywhere` guarantee; a universal one (represent/serialize) passes freely.
         if (call.Callee is MemberExpression
             {
-                Object: SpliceMemberExpression, MemberName: var comptimeOp
+                Object: SpliceMemberExpression, MemberName: var buildtimeOp
             })
         {
-            EnforceComptimeMemberGate(wiredName: comptimeOp, location: call.Location);
+            EnforceBuildtimeMemberGate(wiredName: buildtimeOp, location: call.Location);
         }
 
         if (TryAnalyzeMetadataIntrinsicCall(call: call) is { } intrinsicResult)
@@ -328,7 +326,7 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
-    /// Intercepts comptime metadata intrinsic calls (`nameof(m)` / `sizeof(T)` / …) — a call
+    /// Intercepts buildtime metadata intrinsic calls (`nameof(m)` / `sizeof(T)` / …) — a call
     /// whose callee is one of the reserved `*of` names with a single argument. These have no
     /// RoutineInfo; they fold off the expand-unroll context at monomorphization.
     /// Returns the intrinsic's result type when matched, or null when the call is not an intrinsic.
@@ -356,7 +354,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Handles a dynamic (non-identifier, non-member) call expression — analyzes the callee and
     /// arguments, sets DynamicCall lowering kind, and returns the result type (unwrapping
-    /// RoutineTypeInfo to its return type).
+    /// RoutineTypeSymbol to its return type).
     /// </summary>
     private TypeSymbol AnalyzeDynamicCallExpression(CallExpression call)
     {
@@ -371,10 +369,10 @@ public sealed partial class SemanticVerifier
 
         call.LoweringKind = CallLoweringKind.DynamicCall;
 
-        if (calleeType is RoutineTypeInfo routineType)
+        if (calleeType is RoutineTypeSymbol routineType)
         {
             return routineType.ReturnType ??
-                   _registry.LookupType(name: NoneTypeName) ?? ErrorTypeInfo.Instance;
+                   _registry.LookupType(name: NoneTypeName) ?? ErrorTypeSymbol.Instance;
         }
 
         return calleeType;
@@ -408,7 +406,7 @@ public sealed partial class SemanticVerifier
         // directly (scan-independent). Variant/protocol construction and generic-def bare `T()`
         // have their own paths, so exclude them.
         if (callableType is { IsGenericDefinition: false } zeroArgType && routine == null &&
-            call.Arguments.Count == 0 && zeroArgType is not (VariantTypeInfo or ProtocolTypeInfo))
+            call.Arguments.Count == 0 && zeroArgType is not (VariantTypeSymbol or ProtocolTypeSymbol))
         {
             return AnalyzeZeroArgConstruction(call: call, zeroArgType: zeroArgType);
         }
@@ -454,7 +452,7 @@ public sealed partial class SemanticVerifier
         // lookup above is realm-blind (prefers the file's resolution realm), so inside an SF file
         // `RF::Core.List[T]()` would resolve to the SF-realm list and the SF wrapper's constructor
         // `return List[T](inner: RF::Core.List[T]())` would self-recurse. Swap to the qualified realm.
-        if (id.Realm is { } calleeRealm && callableType is TypeInfo calleeDef &&
+        if (id.Realm is { } calleeRealm && callableType is TypeSymbol calleeDef &&
             calleeDef.Realm != calleeRealm &&
             _registry.ReResolveInRealm(type: calleeDef, realm: calleeRealm) is { } realmDef)
         {
@@ -640,15 +638,15 @@ public sealed partial class SemanticVerifier
 
         TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
 
-        // Comptime expand-handle capability probe: `m.obeying(SomeProtocol)` -> Bool, folded at
+        // Buildtime expand-handle capability probe: `m.obeying(SomeProtocol)` -> Bool, folded at
         // monomorphization to the member type's conformance. The argument is a PROTOCOL name
         // (a type/protocol identifier, not a runtime value), so short-circuit before normal
         // argument analysis. The handle types leniently so an expand body typechecks before
         // monomorphization; any other call on it is a clear mistake.
-        if (AnalyzeComptimeHandleCall(call: call, member: member, objectType: objectType) is
-            { } resultAnalyzeComptimeHandleCall)
+        if (AnalyzeBuildtimeHandleCall(call: call, member: member, objectType: objectType) is
+            { } resultAnalyzeBuildtimeHandleCall)
         {
-            return resultAnalyzeComptimeHandleCall;
+            return resultAnalyzeBuildtimeHandleCall;
         }
 
         // iter / refer / control are dunder-private to their protocols — only the
@@ -724,31 +722,31 @@ public sealed partial class SemanticVerifier
     /// Early-exit type guard for member calls: rejects arithmetic operators on Choice and Flags
     /// types, and pre-checks nested grasping (detect before routine resolution since modify()
     /// may not resolve by concrete type name).
-    /// Returns <see cref="ErrorTypeInfo.Instance"/> on a hard error, null when the call may proceed.
+    /// Returns <see cref="ErrorTypeSymbol.Instance"/> on a hard error, null when the call may proceed.
     /// </summary>
-    private ErrorTypeInfo? ValidateMemberCallOperandType(CallExpression call, MemberExpression member,
+    private ErrorTypeSymbol? ValidateMemberCallOperandType(CallExpression call, MemberExpression member,
         TypeSymbol objectType)
     {
         // Choice types cannot use any operator wired memberRoutines
-        if (objectType is ChoiceTypeInfo && IsOperatorWired(name: member.MemberName))
+        if (objectType is ChoiceTypeSymbol && IsOperatorWired(name: member.MemberName))
         {
             ReportError(code: SemanticDiagnosticCode.ArithmeticOnChoiceType,
                 message:
                 $"Operator '{member.MemberName}' cannot be used with choice type '{objectType.Name}'. " +
                 "Choice types do not support operators. Use 'is' for case matching and regular member routines for additional behavior.",
                 location: call.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         // #134/#135: Flags types cannot use any operator wired memberRoutines
-        if (objectType is FlagsTypeInfo && IsOperatorWired(name: member.MemberName))
+        if (objectType is FlagsTypeSymbol && IsOperatorWired(name: member.MemberName))
         {
             ReportError(code: SemanticDiagnosticCode.ArithmeticOnFlagsType,
                 message:
                 $"Operator '{member.MemberName}' cannot be used with flags type '{objectType.Name}'. " +
                 "Use 'but' to remove flags and 'is'/'isnot' to test flags.",
                 location: call.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         // #137: Nested grasping detection — checked before memberRoutine resolution
@@ -905,7 +903,7 @@ public sealed partial class SemanticVerifier
     /// Returns a resolved type on success, null when the member name is not a type.
     /// </summary>
     private TypeSymbol? AnalyzeMemberChainConversion(CallExpression call, MemberExpression member,
-        TypeInfo objectType)
+        TypeSymbol objectType)
     {
         // #78: memberRoutine-chain constructor — "42".S32!() -> S32.create!(from: "42").
         // MemberName is bare; failability is carried structurally in member.IsFailable.
@@ -940,14 +938,14 @@ public sealed partial class SemanticVerifier
         // the concrete `Dict[Text, SerialValue].create!(from: sv)` is found instead of the def's
         // bare `Dict.create()` (which trips RF-S770 with 0 params).
         if (targetType is { IsGenericDefinition: true } && isFailable &&
-            objectType is VariantTypeInfo mcVariant)
+            objectType is VariantTypeSymbol mcVariant)
         {
             string mcBase = targetType.Name;
             VariantMemberInfo? mcArm = mcVariant.Members.FirstOrDefault(predicate: m =>
                 !m.IsNone && m.Type is not null && (m.Type switch
                 {
-                    EntityTypeInfo e => e.GenericDefinition?.Name,
-                    RecordTypeInfo r => r.GenericDefinition?.Name,
+                    EntityTypeSymbol e => e.GenericDefinition?.Name,
+                    RecordTypeSymbol r => r.GenericDefinition?.Name,
                     _ => null
                 } ?? m.Type.Name) == mcBase);
             if (mcArm?.Type is { } mcArmType)
@@ -1051,7 +1049,7 @@ public sealed partial class SemanticVerifier
         ValidateExclusiveTokenUniqueness(arguments: call.Arguments, location: call.Location);
 
         TypeSymbol returnType = routine.ReturnType ??
-                                _registry.LookupType(name: NoneTypeName) ?? ErrorTypeInfo.Instance;
+                                _registry.LookupType(name: NoneTypeName) ?? ErrorTypeSymbol.Instance;
         call.IsInFlight = routine.IsInFlightReturn;
 
         // A `threaded`/`suspended` module routine yields an `Agent[T]` handle, exactly like a bare
@@ -1106,14 +1104,14 @@ public sealed partial class SemanticVerifier
         return CallLoweringKind.DirectMemberRoutine;
     }
 
-    private static CallLoweringKind ClassifyConstruction(TypeInfo type, bool isCollectionLiteral)
+    private static CallLoweringKind ClassifyConstruction(TypeSymbol type, bool isCollectionLiteral)
     {
         if (isCollectionLiteral)
         {
             return CallLoweringKind.CollectionConstruction;
         }
 
-        return type is WrapperTypeInfo
+        return type is WrapperTypeSymbol
             ? CallLoweringKind.WrapperConstruction
             : CallLoweringKind.TypeConstructor;
     }
@@ -1137,9 +1135,9 @@ public sealed partial class SemanticVerifier
         // Map the receiver's generic parameter names to its bound type arguments. The names live on
         // the generic definition; the bindings on the resolved instance.
         List<string>? paramNames = receiverType.GenericParameters ??
-                                   (receiverType as RecordTypeInfo)?.GenericDefinition
+                                   (receiverType as RecordTypeSymbol)?.GenericDefinition
                                  ?.GenericParameters;
-        List<TypeInfo>? boundArgs = receiverType.TypeArguments;
+        List<TypeSymbol>? boundArgs = receiverType.TypeArguments;
         if (paramNames is not { Count: > 0 } || boundArgs is not { Count: > 0 })
         {
             return;
@@ -1159,7 +1157,7 @@ public sealed partial class SemanticVerifier
                 continue;
             }
 
-            TypeInfo bound = boundArgs[index: paramIndex];
+            TypeSymbol bound = boundArgs[index: paramIndex];
             string boundBase = bound.BareName;
             string boundShort = boundBase.Contains(value: '.')
                 ? boundBase[(boundBase.LastIndexOf(value: '.') + 1)..]
@@ -1184,7 +1182,7 @@ public sealed partial class SemanticVerifier
 
 
     private TypeSymbol? AnalyzeArgumentConstruction(CallExpression call, bool isFailableCall,
-        ref TypeInfo? callableType)
+        ref TypeSymbol? callableType)
     {
         if (callableType == null || call.Arguments.Count == 0)
         {
@@ -1200,8 +1198,8 @@ public sealed partial class SemanticVerifier
         // matching field names into named args before construction binding.
         List<MemberVariableInfo>? punFields = callableType switch
         {
-            EntityTypeInfo punEntity => punEntity.MemberVariables,
-            RecordTypeInfo punRecord => punRecord.MemberVariables,
+            EntityTypeSymbol punEntity => punEntity.MemberVariables,
+            RecordTypeSymbol punRecord => punRecord.MemberVariables,
             _ => null
         };
         if (punFields != null)
@@ -1263,7 +1261,7 @@ public sealed partial class SemanticVerifier
         // making codegen bit-reinterpret the variant. Treat it as a normal memberRoutine call and
         // route it through ResolvedRoutine below.
         bool isVariantArmExtractor = creator is
-            { IsCreator: true, IsFailable: true, Parameters: [{ Type: VariantTypeInfo }] };
+            { IsCreator: true, IsFailable: true, Parameters: [{ Type: VariantTypeSymbol }] };
 
         call.ConstructedType = callableType;
         call.LoweringKind = isVariantArmExtractor
@@ -1306,21 +1304,21 @@ public sealed partial class SemanticVerifier
     /// analyzed argument types to feed into creator overload resolution.
     /// </summary>
     private List<TypeSymbol> AnalyzeConstructorArguments(CallExpression call,
-        TypeInfo callableType)
+        TypeSymbol callableType)
     {
         // Variant construction auto-wraps the argument into the variant (e.g.
         // `Inner(7_s32)` -> Inner's S32 arm, `Inner(none)` -> Inner's None arm), so the
         // argument's contextual type is the variant itself. Without this, a bare `none`
         // argument has no expected type and errors S016.
-        TypeSymbol? variantArgContext = callableType is VariantTypeInfo
+        TypeSymbol? variantArgContext = callableType is VariantTypeSymbol
             ? callableType
             : null;
         var creatorArgTypes = new List<TypeSymbol>(capacity: call.Arguments.Count);
         int creatorPosIdx = 0;
         List<MemberVariableInfo>? ctorMemberVariables = callableType switch
         {
-            EntityTypeInfo entityCtor => entityCtor.MemberVariables,
-            RecordTypeInfo recordCtor => recordCtor.MemberVariables,
+            EntityTypeSymbol entityCtor => entityCtor.MemberVariables,
+            RecordTypeSymbol recordCtor => recordCtor.MemberVariables,
             _ => null
         };
         foreach (Expression arg in call.Arguments)
@@ -1346,7 +1344,7 @@ public sealed partial class SemanticVerifier
                 if (field is
                     {
                         IsNullable: false,
-                        Type: RecordTypeInfo
+                        Type: RecordTypeSymbol
                         {
                             GenericDefinition.Name: Declaration.RuntimeContract.Roamed
                         }
@@ -1394,13 +1392,13 @@ public sealed partial class SemanticVerifier
     /// generic type parameters for a concrete instantiation.
     /// </summary>
     private TypeSymbol? ResolveConstructorArgExpectedType(Expression arg, int posIdx,
-        TypeInfo callableType, List<MemberVariableInfo> ctorMemberVariables)
+        TypeSymbol callableType, List<MemberVariableInfo> ctorMemberVariables)
     {
         // Field-init constructor `T(field: value)` — the arg's expected type is the target
         // field's type, so a bare integer literal adapts to it (S64/…) instead of stalling
         // at the Suflae `Integer` default (RF escapes this only because its default IS S64).
         // BOTH entity and record targets do inline field-init construction, so both need
-        // this — gating on EntityTypeInfo alone left RECORD constructors (`Point(x: 1)`)
+        // this — gating on EntityTypeSymbol alone left RECORD constructors (`Point(x: 1)`)
         // with a null expected type → `1` stayed Integer → codegen `Integer`-into-`i64` /
         // pruned `Integer.from_literal`. Inferring the field type is the compiler's job.
         MemberVariableInfo? field = ResolveCtorField(arg: arg,
@@ -1440,14 +1438,14 @@ public sealed partial class SemanticVerifier
     /// <c>Dict!(from: sv)</c> resolves to the concrete <c>Dict[Text, SerialValue]</c> arm type
     /// instead of the bare generic definition.
     /// </summary>
-    private static void TryInferVariantArmCreatorType(ref TypeInfo callableType,
+    private static void TryInferVariantArmCreatorType(ref TypeSymbol callableType,
         bool isFailableCall, List<TypeSymbol> creatorArgTypes)
     {
         // Type-arg inference for a bare failable variant arm extractor: `Dict!(from: sv)`
         // where `Dict` is a generic definition and the single argument is a variant — adopt
         // the type args of the variant's arm whose generic base is `Dict`.
         if (!callableType.IsGenericDefinition || !isFailableCall ||
-            creatorArgTypes is not [VariantTypeInfo argVariant])
+            creatorArgTypes is not [VariantTypeSymbol argVariant])
         {
             return;
         }
@@ -1456,8 +1454,8 @@ public sealed partial class SemanticVerifier
         VariantMemberInfo? matchArm = argVariant.Members.FirstOrDefault(predicate: m =>
             !m.IsNone && m.Type is not null && (m.Type switch
             {
-                EntityTypeInfo e => e.GenericDefinition?.Name,
-                RecordTypeInfo r => r.GenericDefinition?.Name,
+                EntityTypeSymbol e => e.GenericDefinition?.Name,
+                RecordTypeSymbol r => r.GenericDefinition?.Name,
                 _ => null
             } ?? m.Type.Name) == baseName);
         if (matchArm?.Type is { } inferredArmType)
@@ -1479,7 +1477,7 @@ public sealed partial class SemanticVerifier
     /// (`Node`) never matches the unbound param `T` in the overload matcher, so this arity-only
     /// fallback seeds the creator before type-arg inference specializes the callableType.
     /// </summary>
-    private RoutineInfo? FallbackGenericDefCreatorByArity(TypeInfo callableType,
+    private RoutineInfo? FallbackGenericDefCreatorByArity(TypeSymbol callableType,
         List<TypeSymbol> creatorArgTypes)
     {
         if (!callableType.IsGenericDefinition)
@@ -1505,12 +1503,12 @@ public sealed partial class SemanticVerifier
     /// Null when the call is not a name-complete field-init (arity/name mismatch, positional, or a
     /// non-aggregate target) — so it never displaces a genuine by-type overload match.
     /// </summary>
-    private RoutineInfo? FallbackMemberwiseCreatorByFieldNames(TypeInfo callableType, CallExpression call)
+    private RoutineInfo? FallbackMemberwiseCreatorByFieldNames(TypeSymbol callableType, CallExpression call)
     {
         List<MemberVariableInfo>? fields = callableType switch
         {
-            EntityTypeInfo e => e.MemberVariables,
-            RecordTypeInfo r => r.MemberVariables,
+            EntityTypeSymbol e => e.MemberVariables,
+            RecordTypeSymbol r => r.MemberVariables,
             _ => null
         };
         if (fields is not { Count: > 0 } || call.Arguments.Count != fields.Count)
@@ -1550,14 +1548,14 @@ public sealed partial class SemanticVerifier
         {
             Kind = RoutineKind.Creator,
             OwnerType = callableType,
-            Parameters = fields.Select(selector: f => new ParameterInfo(name: f.Name, type: f.Type))
+            Parameters = fields.Select(selector: f => new ParamInfo(name: f.Name, type: f.Type))
                                .ToList(),
             ReturnType = callableType,
             IsSynthesized = true
         };
     }
 
-    private void TryInferGenericDefinitionCreatorType(ref TypeInfo callableType,
+    private void TryInferGenericDefinitionCreatorType(ref TypeSymbol callableType,
         RoutineInfo? creator, List<TypeSymbol> creatorArgTypes)
     {
         // Generic-def constructor routed through a user `create`: infer the wrapper's type args
@@ -1620,7 +1618,7 @@ public sealed partial class SemanticVerifier
         {
             Expression cArg = call.Arguments[index: ci];
             Expression cArgValue = cArg is NamedArgumentExpression cna ? cna.Value : cArg;
-            ParameterInfo? cParam;
+            ParamInfo? cParam;
             if (cArg is NamedArgumentExpression cNamed)
             {
                 cParam = creator.Parameters.FirstOrDefault(predicate: p => p.Name == cNamed.Name);
@@ -1630,9 +1628,9 @@ public sealed partial class SemanticVerifier
                 cParam = ci < creator.Parameters.Count ? creator.Parameters[index: ci] : null;
             }
 
-            if (cParam is { Type: EntityTypeInfo } &&
+            if (cParam is { Type: EntityTypeSymbol } &&
                 cArgValue is IdentifierExpression or MemberExpression &&
-                creatorArgTypes[index: ci] is EntityTypeInfo cArgEntity)
+                creatorArgTypes[index: ci] is EntityTypeSymbol cArgEntity)
             {
                 ReportError(code: SemanticDiagnosticCode.BareEntityAssignment,
                     message:
@@ -1680,7 +1678,7 @@ public sealed partial class SemanticVerifier
             RoutineInfo? variadicGeneric = _registry.LookupVariadicGenericOverload(name: callName);
             if (variadicGeneric != null)
             {
-                List<TypeInfo>? inferred =
+                List<TypeSymbol>? inferred =
                     InferGenericTypeArguments(genericRoutine: variadicGeneric,
                         arguments: call.Arguments);
                 routine = inferred != null
@@ -1714,7 +1712,7 @@ public sealed partial class SemanticVerifier
                 ? nai.Value
                 : call.Arguments[index: i];
             TypeSymbol argType = AnalyzeExpression(expression: actualArg);
-            if (argType != ErrorTypeInfo.Instance)
+            if (argType != ErrorTypeSymbol.Instance)
             {
                 resolvedArgTypes.Add(item: argType);
             }
@@ -1763,7 +1761,7 @@ public sealed partial class SemanticVerifier
             // (`none`, a bare literal) resolves here instead of prematurely erroring —
             // AnalyzeCallArguments re-checks with the correct per-binding type afterwards.
             TypeSymbol at = AnalyzeExpression(expression: argExpr, expectedType: pt);
-            if (at == ErrorTypeInfo.Instance)
+            if (at == ErrorTypeSymbol.Instance)
             {
                 continue;
             }
@@ -1792,7 +1790,7 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        List<TypeInfo>? inferred = InferGenericTypeArguments(genericRoutine: generic,
+        List<TypeSymbol>? inferred = InferGenericTypeArguments(genericRoutine: generic,
             arguments: call.Arguments);
         // Use GetOrCreateRoutineResolution so the monomorphisation lands
         // in `_routineResolutions`. CreateInstance alone produced a stray
@@ -1820,7 +1818,7 @@ public sealed partial class SemanticVerifier
         {
             Expression actual = arg is NamedArgumentExpression nai ? nai.Value : arg;
             TypeSymbol t = AnalyzeExpression(expression: actual);
-            if (t != ErrorTypeInfo.Instance)
+            if (t != ErrorTypeSymbol.Instance)
             {
                 arityArgTypes.Add(item: t);
             }
@@ -1860,7 +1858,7 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        List<TypeInfo>? inferred = InferGenericTypeArguments(genericRoutine: generic,
+        List<TypeSymbol>? inferred = InferGenericTypeArguments(genericRoutine: generic,
             arguments: call.Arguments);
 
         if (inferred == null)
@@ -1884,7 +1882,7 @@ public sealed partial class SemanticVerifier
     /// is found.
     /// </summary>
     private void TryInferFromGenericSiblings(CallExpression call, ref RoutineInfo generic,
-        ref List<TypeInfo>? inferred)
+        ref List<TypeSymbol>? inferred)
     {
         foreach (RoutineInfo sibling in _registry.GenericOverloadsByArity(
                      name: generic.Name,
@@ -1895,7 +1893,7 @@ public sealed partial class SemanticVerifier
                 continue;
             }
 
-            List<TypeInfo>? siblingInferred = InferGenericTypeArguments(genericRoutine: sibling,
+            List<TypeSymbol>? siblingInferred = InferGenericTypeArguments(genericRoutine: sibling,
                 arguments: call.Arguments);
             if (siblingInferred != null)
             {
@@ -1906,7 +1904,7 @@ public sealed partial class SemanticVerifier
         }
     }
 
-    private void InferFreeRoutineArguments(CallExpression call, TypeInfo? expectedType,
+    private void InferFreeRoutineArguments(CallExpression call, TypeSymbol? expectedType,
         ref RoutineInfo? routine)
     {
         if (routine is not { IsGenericDefinition: true } ||
@@ -1917,7 +1915,7 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        List<TypeInfo>? inferred = InferGenericTypeArguments(genericRoutine: routine,
+        List<TypeSymbol>? inferred = InferGenericTypeArguments(genericRoutine: routine,
             arguments: call.Arguments,
             expectedType: expectedType);
 
@@ -1973,7 +1971,7 @@ public sealed partial class SemanticVerifier
             routine.GenericParameters?.Count == routineExplicitTypeArgs.Count)
         {
             var resolvedTypeArguments =
-                new List<TypeInfo>(capacity: routineExplicitTypeArgs.Count);
+                new List<TypeSymbol>(capacity: routineExplicitTypeArgs.Count);
             foreach (TypeExpression ta in routineExplicitTypeArgs)
             {
                 resolvedTypeArguments.Add(item: ResolveType(typeExpr: ta));
@@ -2006,7 +2004,7 @@ public sealed partial class SemanticVerifier
     }
 
     private void ResolveExplicitConstructorTypeArguments(CallExpression call,
-        ref TypeInfo? callableType)
+        ref TypeSymbol? callableType)
     {
         if (callableType != null && call.TypeArguments is { Count: > 0 } typeArguments)
         {
@@ -2027,16 +2025,16 @@ public sealed partial class SemanticVerifier
         }
     }
 
-    private ErrorTypeInfo? AnalyzeUnresolvedMemberFieldCall(CallExpression call,
-        MemberExpression member, TypeInfo objectType, bool isFailableMemberRoutineCall,
+    private ErrorTypeSymbol? AnalyzeUnresolvedMemberFieldCall(CallExpression call,
+        MemberExpression member, TypeSymbol objectType, bool isFailableMemberRoutineCall,
         string callLookupName)
     {
-        if (objectType is EntityTypeInfo or RecordTypeInfo)
+        if (objectType is EntityTypeSymbol or RecordTypeSymbol)
         {
             List<MemberVariableInfo> receiverFields = objectType switch
             {
-                EntityTypeInfo e => e.MemberVariables,
-                RecordTypeInfo r => r.MemberVariables,
+                EntityTypeSymbol e => e.MemberVariables,
+                RecordTypeSymbol r => r.MemberVariables,
                 _ => []
             };
             MemberVariableInfo? namedField =
@@ -2044,7 +2042,7 @@ public sealed partial class SemanticVerifier
 
             // A Routine-typed field is the only legitimate "member routine == null" member call:
             // it is invoked indirectly through the stored closure pointer.
-            if (namedField is not { Type: RoutineTypeInfo })
+            if (namedField is not { Type: RoutineTypeSymbol })
             {
                 // #151: a common (static) routine invoked on an instance reaches here because instance
                 // overload resolution excludes common routines. Report the precise static/instance
@@ -2059,7 +2057,7 @@ public sealed partial class SemanticVerifier
                         message:
                         $"Common routine '{commonMatch.Name}' must be called on the type '{objectType.Name}', not on an instance.",
                         location: call.Location);
-                    return ErrorTypeInfo.Instance;
+                    return ErrorTypeSymbol.Instance;
                 }
 
                 string hint;
@@ -2084,15 +2082,15 @@ public sealed partial class SemanticVerifier
                     message:
                     $"No routine '{member.MemberName}()' is defined on '{objectType.Name}'.{hint}",
                     location: call.Location);
-                return ErrorTypeInfo.Instance;
+                return ErrorTypeSymbol.Instance;
             }
         }
 
         return null;
     }
 
-    private TypeSymbol? AnalyzeMemberConversion(CallExpression call, TypeInfo objectType,
-        string potentialTypeName, string creatorName, TypeInfo? targetType)
+    private TypeSymbol? AnalyzeMemberConversion(CallExpression call, TypeSymbol objectType,
+        string potentialTypeName, string creatorName, TypeSymbol? targetType)
     {
         if (targetType == null)
         {
@@ -2147,10 +2145,10 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Validates the resolved member-conversion creator: checks that it has exactly one non-me
     /// parameter, that the call passes no extra arguments, and that the object type is assignable
-    /// to the creator parameter type. Returns <see cref="ErrorTypeInfo.Instance"/> on failure,
+    /// to the creator parameter type. Returns <see cref="ErrorTypeSymbol.Instance"/> on failure,
     /// null on success.
     /// </summary>
-    private ErrorTypeInfo? ValidateMemberConversionCreator(CallExpression call, TypeInfo objectType,
+    private ErrorTypeSymbol? ValidateMemberConversionCreator(CallExpression call, TypeSymbol objectType,
         string potentialTypeName, RoutineInfo creator)
     {
         var nonMeParams = creator.Parameters
@@ -2164,7 +2162,7 @@ public sealed partial class SemanticVerifier
                 $"member routine-chain constructor '{potentialTypeName}' requires exactly one non-'me' parameter, " +
                 $"but 'create' has {nonMeParams.Count}.",
                 location: call.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         if (call.Arguments.Count > 0)
@@ -2174,7 +2172,7 @@ public sealed partial class SemanticVerifier
                 $"member routine-chain constructor '{potentialTypeName}' takes no additional arguments — " +
                 "the object itself is the argument.",
                 location: call.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         // Type-check the object expression against the constructor parameter.
@@ -2190,14 +2188,14 @@ public sealed partial class SemanticVerifier
                 $"Type '{objectType.Name}' has no conversion to '{potentialTypeName}': " +
                 $"no '{potentialTypeName}.create(from: {objectType.Name})' is defined.",
                 location: call.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         return null;
     }
 
     private TypeSymbol? AnalyzeResolvedMemberCall(CallExpression call, MemberExpression member,
-        TypeInfo objectType, TypeInfo dispatchType, RoutineInfo? memberRoutine)
+        TypeSymbol objectType, TypeSymbol dispatchType, RoutineInfo? memberRoutine)
     {
         if (memberRoutine == null)
         {
@@ -2214,7 +2212,7 @@ public sealed partial class SemanticVerifier
             ReportError(code: SemanticDiagnosticCode.BuilderQueryImportRequired,
                 message: $"'{memberRoutine.Name}()' requires 'import BuilderQuery'.",
                 location: call.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         TrackFailableMemberRoutineCall(memberRoutine: memberRoutine, location: call.Location);
@@ -2258,7 +2256,7 @@ public sealed partial class SemanticVerifier
         // per-arity body. (Mirrors the free-routine path: pack → infer → analyze.)
         if (didPackVariadic && memberRoutine.IsGenericDefinition)
         {
-            List<TypeInfo>? variadicArgs = InferMemberRoutineGenericTypeArguments(
+            List<TypeSymbol>? variadicArgs = InferMemberRoutineGenericTypeArguments(
                 genericMemberRoutine: memberRoutine,
                 arguments: call.Arguments,
                 receiverType: dispatchType);
@@ -2277,7 +2275,7 @@ public sealed partial class SemanticVerifier
 
         if (memberRoutine.IsGenericDefinition)
         {
-            List<TypeInfo>? inferredMemberRoutineTypeArgs =
+            List<TypeSymbol>? inferredMemberRoutineTypeArgs =
                 InferMemberRoutineGenericTypeArguments(genericMemberRoutine: memberRoutine,
                     arguments: call.Arguments,
                     receiverType: dispatchType);
@@ -2346,7 +2344,7 @@ public sealed partial class SemanticVerifier
     /// and preset-variable mutation prohibition.
     /// </summary>
     private void ValidateMemberCallMutability(CallExpression call, MemberExpression member,
-        TypeInfo objectType, TypeInfo dispatchType, RoutineInfo memberRoutine)
+        TypeSymbol objectType, TypeSymbol dispatchType, RoutineInfo memberRoutine)
     {
         if (!ReferenceEquals(objA: dispatchType, objB: objectType) &&
             IsReadOnlyTransparentProtocol(type: objectType) && !memberRoutine.IsReadOnly)
@@ -2398,7 +2396,7 @@ public sealed partial class SemanticVerifier
     /// during iteration, initonly-record grasp warning, and Channel send deadref marking.
     /// </summary>
     private void ValidateMemberCallSemantics(CallExpression call, MemberExpression member,
-        TypeInfo objectType, RoutineInfo memberRoutine)
+        TypeSymbol objectType, RoutineInfo memberRoutine)
     {
         ValidateMemberCallOperatorSemantics(call: call,
             member: member,
@@ -2426,7 +2424,7 @@ public sealed partial class SemanticVerifier
 
         // #47: .grasp() on @initonly record warns — record is frozen after construction
         // Check if the variable holding the record is @initonly bound
-        if (member.MemberName == ModifyMemberRoutineName && objectType is RecordTypeInfo &&
+        if (member.MemberName == ModifyMemberRoutineName && objectType is RecordTypeSymbol &&
             member.Object is IdentifierExpression graspTarget)
         {
             VariableInfo? targetVar = _registry.LookupVariable(name: graspTarget.Name);
@@ -2453,7 +2451,7 @@ public sealed partial class SemanticVerifier
     /// (operators other than add/sub do not allow it).
     /// </summary>
     private void ValidateMemberCallOperatorSemantics(CallExpression call, MemberExpression member,
-        TypeInfo objectType, RoutineInfo memberRoutine)
+        TypeSymbol objectType, RoutineInfo memberRoutine)
     {
         // #68: Real-to-Complex promotion — only add/sub allow float↔complex cross-type
         if (!IsOperatorWired(name: member.MemberName) ||
@@ -2481,7 +2479,7 @@ public sealed partial class SemanticVerifier
     /// inherited type-equality constraints, and multi-threaded access-token using requirement.
     /// </summary>
     private void ValidateMemberCallTokenSemantics(CallExpression call, MemberExpression member,
-        TypeInfo objectType, RoutineInfo memberRoutine)
+        TypeSymbol objectType, RoutineInfo memberRoutine)
     {
         ValidateAccessTokenViewModifyRules(call: call, member: member, objectType: objectType);
 
@@ -2545,14 +2543,14 @@ public sealed partial class SemanticVerifier
     /// view-downgrade prohibition on Modifying/Amending tokens.
     /// </summary>
     private void ValidateAccessTokenViewModifyRules(CallExpression call, MemberExpression member,
-        TypeInfo objectType)
+        TypeSymbol objectType)
     {
         // #12: Partial access rule — entity.field.view() is not allowed
         if (member.MemberName is "view" or ModifyMemberRoutineName &&
             member.Object is MemberExpression innerMember)
         {
-            TypeSymbol innerObjectType = innerMember.Object.ResolvedType ?? ErrorTypeInfo.Instance;
-            if (innerObjectType is EntityTypeInfo)
+            TypeSymbol innerObjectType = innerMember.Object.ResolvedType ?? ErrorTypeSymbol.Instance;
+            if (innerObjectType is EntityTypeSymbol)
             {
                 ReportError(code: SemanticDiagnosticCode.PartialAccessOnEntity,
                     message:
@@ -2598,27 +2596,27 @@ public sealed partial class SemanticVerifier
     /// ProtocolSelf "Me" placeholder, and obeys-constraint protocol params for generic-param
     /// dispatch types. Falls back to <c>None</c> when the routine declares no return type.
     /// </summary>
-    private TypeSymbol SubstituteMemberReturnType(RoutineInfo memberRoutine, TypeInfo dispatchType)
+    private TypeSymbol SubstituteMemberReturnType(RoutineInfo memberRoutine, TypeSymbol dispatchType)
     {
         TypeSymbol? callReturnType = memberRoutine.ReturnType;
         if (callReturnType == null)
         {
-            return _registry.LookupType(name: NoneTypeName) ?? ErrorTypeInfo.Instance;
+            return _registry.LookupType(name: NoneTypeName) ?? ErrorTypeSymbol.Instance;
         }
 
         var substitutions = new Dictionary<string, TypeSymbol>();
 
-        // GenericParameterTypeInfo owner -> map param name to receiver type
-        if (memberRoutine.OwnerType is GenericParameterTypeInfo genParamOwner)
+        // GenericParameterTypeSymbol owner -> map param name to receiver type
+        if (memberRoutine.OwnerType is GenericParameterTypeSymbol genParamOwner)
         {
             substitutions[key: genParamOwner.Name] = dispatchType;
         }
 
         // Protocol owner -> map protocol generic params to receiver's type args
-        if (memberRoutine.OwnerType is ProtocolTypeInfo protoOwner && dispatchType is
+        if (memberRoutine.OwnerType is ProtocolTypeSymbol protoOwner && dispatchType is
                 { IsGenericResolution: true, TypeArguments: not null })
         {
-            ProtocolTypeInfo protoGenDef = protoOwner.GenericDefinition ?? protoOwner;
+            ProtocolTypeSymbol protoGenDef = protoOwner.GenericDefinition ?? protoOwner;
             if (protoGenDef.GenericParameters is { Count: > 0 })
             {
                 for (int i = 0;
@@ -2648,8 +2646,8 @@ public sealed partial class SemanticVerifier
         // bound by the branches above. Bind each obeys-constraint protocol's params from
         // the constraint's type args (`Iterable[S64]` ⇒ T=S64) so a return type like
         // `Iterator[T]` resolves to `Iterator[S64]` instead of leaking the element param
-        // into the monomorphized body (`GenericParameterTypeInfo 'T' reached GetLlvmType`).
-        if (dispatchType is GenericParameterTypeInfo dispatchParam)
+        // into the monomorphized body (`GenericParameterTypeSymbol 'T' reached GetLlvmType`).
+        if (dispatchType is GenericParameterTypeSymbol dispatchParam)
         {
             BindObeyingConstraintSubstitutions(dispatchParam: dispatchParam,
                 substitutions: substitutions);
@@ -2670,7 +2668,7 @@ public sealed partial class SemanticVerifier
     /// type arguments, for a dispatch type that is a generic parameter (e.g.
     /// <c>__T0 obeys Iterable[S64]</c> → T = S64).
     /// </summary>
-    private void BindObeyingConstraintSubstitutions(GenericParameterTypeInfo dispatchParam,
+    private void BindObeyingConstraintSubstitutions(GenericParameterTypeSymbol dispatchParam,
         Dictionary<string, TypeSymbol> substitutions)
     {
         foreach (GenericConstraintDeclaration gc in ActiveConstraintsFor(
@@ -2696,13 +2694,13 @@ public sealed partial class SemanticVerifier
         foreach (TypeExpression ce in constraintTypes)
         {
             TypeSymbol resolvedConstraint = _typeResolver.ResolveType(typeExpr: ce);
-            if (resolvedConstraint is not ProtocolTypeInfo rcProto ||
+            if (resolvedConstraint is not ProtocolTypeSymbol rcProto ||
                 rcProto.TypeArguments is not { Count: > 0 } cArgs)
             {
                 continue;
             }
 
-            ProtocolTypeInfo rcDef = rcProto.GenericDefinition ?? rcProto;
+            ProtocolTypeSymbol rcDef = rcProto.GenericDefinition ?? rcProto;
             if (rcDef.GenericParameters is not { Count: > 0 } cParams)
             {
                 continue;
@@ -2716,7 +2714,7 @@ public sealed partial class SemanticVerifier
     }
 
     private void SelectMemberOverloadByArgumentTypes(CallExpression call, string callLookupName,
-        TypeInfo dispatchType, ref RoutineInfo? memberRoutine, bool ambiguousSeed)
+        TypeSymbol dispatchType, ref RoutineInfo? memberRoutine, bool ambiguousSeed)
     {
         if (memberRoutine is not { IsGenericDefinition: false } || call.Arguments.Count == 0)
         {
@@ -2754,7 +2752,7 @@ public sealed partial class SemanticVerifier
     /// error-typed args.
     /// </summary>
     private List<TypeSymbol> ResolveMemberCallArgTypes(CallExpression call,
-        RoutineInfo memberRoutine, TypeInfo dispatchType)
+        RoutineInfo memberRoutine, TypeSymbol dispatchType)
     {
         var resolvedArgTypes = new List<TypeSymbol>(capacity: call.Arguments.Count);
         int posIdx = 0;
@@ -2774,7 +2772,7 @@ public sealed partial class SemanticVerifier
 
             TypeSymbol argType = AnalyzeExpression(expression: actualArg,
                 expectedType: expectedParamType);
-            if (argType != ErrorTypeInfo.Instance)
+            if (argType != ErrorTypeSymbol.Instance)
             {
                 resolvedArgTypes.Add(item: argType);
             }
@@ -2794,7 +2792,7 @@ public sealed partial class SemanticVerifier
     {
         if (arg is NamedArgumentExpression namedArg)
         {
-            ParameterInfo? p = memberRoutine.Parameters.FirstOrDefault(predicate: pp =>
+            ParamInfo? p = memberRoutine.Parameters.FirstOrDefault(predicate: pp =>
                 pp.Name == namedArg.Name);
             return p?.Type;
         }
@@ -2805,7 +2803,7 @@ public sealed partial class SemanticVerifier
     }
 
     private void SynthesizeMemberVariantOnDemand(CallExpression call,
-        bool isFailableMemberRoutineCall, string callLookupName, TypeInfo dispatchType,
+        bool isFailableMemberRoutineCall, string callLookupName, TypeSymbol dispatchType,
         ref RoutineInfo? memberRoutine, ref bool ambiguousSeed)
     {
         if (memberRoutine == null)
@@ -2847,9 +2845,9 @@ public sealed partial class SemanticVerifier
     }
 
     private void ResolveConstrainedMemberRoutine(bool isFailableMemberRoutineCall,
-        string callLookupName, TypeInfo dispatchType, ref RoutineInfo? memberRoutine)
+        string callLookupName, TypeSymbol dispatchType, ref RoutineInfo? memberRoutine)
     {
-        if (memberRoutine == null && dispatchType is GenericParameterTypeInfo genParam)
+        if (memberRoutine == null && dispatchType is GenericParameterTypeSymbol genParam)
         {
             var constraints = ActiveConstraintsFor(paramName: genParam.Name)
                .ToList();
@@ -2869,8 +2867,8 @@ public sealed partial class SemanticVerifier
         }
     }
 
-    private void ResolveTransparentMemberRoutine(TypeInfo objectType,
-        bool isFailableMemberRoutineCall, string callLookupName, ref TypeInfo dispatchType,
+    private void ResolveTransparentMemberRoutine(TypeSymbol objectType,
+        bool isFailableMemberRoutineCall, string callLookupName, ref TypeSymbol dispatchType,
         ref RoutineInfo? memberRoutine)
     {
         if (memberRoutine == null &&
@@ -2889,7 +2887,7 @@ public sealed partial class SemanticVerifier
         }
     }
 
-    private ErrorTypeInfo? ValidateDirectWiredMemberCall(CallExpression call,
+    private ErrorTypeSymbol? ValidateDirectWiredMemberCall(CallExpression call,
         MemberExpression member)
     {
         if ((member.MemberName == "iter" || member.MemberName == "access" ||
@@ -2904,27 +2902,27 @@ public sealed partial class SemanticVerifier
                 message:
                 $"member routine '{member.MemberName}' is internal to the compiler — {hint}",
                 location: call.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         return null;
     }
 
-    private TypeSymbol? AnalyzeComptimeHandleCall(CallExpression call, MemberExpression member,
-        TypeInfo objectType)
+    private TypeSymbol? AnalyzeBuildtimeHandleCall(CallExpression call, MemberExpression member,
+        TypeSymbol objectType)
     {
-        if (objectType is ComptimeHandleTypeInfo)
+        if (objectType is BuildtimeHandleTypeSymbol)
         {
             if (member.MemberName == "obeying" && call.Arguments is [IdentifierExpression])
             {
-                return _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
+                return _registry.LookupType(name: "Bool") ?? ErrorTypeSymbol.Instance;
             }
 
             ReportError(code: SemanticDiagnosticCode.MemberNotFound,
-                message: $"Comptime expand handle has no call '{member.MemberName}(...)'. " +
+                message: $"Buildtime expand handle has no call '{member.MemberName}(...)'. " +
                          "Available: 'obeying(Protocol)' -> Bool.",
                 location: call.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         return null;
@@ -2947,7 +2945,7 @@ public sealed partial class SemanticVerifier
                 ambiguous: out bool ambiguous);
             if (ambiguous)
             {
-                return ErrorTypeInfo.Instance;
+                return ErrorTypeSymbol.Instance;
             }
 
             if (modRoutine is { OwnerType: null })
@@ -2973,7 +2971,7 @@ public sealed partial class SemanticVerifier
 
         if (CheckUnresolvableGenericRoutine(call: call, routine: routine))
         {
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         call.ResolvedRoutine = routine;
@@ -2993,7 +2991,7 @@ public sealed partial class SemanticVerifier
 
         TypeSymbol returnType = routine.ReturnType ??
                                 _registry.LookupType(name: NoneTypeName) ??
-                                ErrorTypeInfo.Instance;
+                                ErrorTypeSymbol.Instance;
         call.IsInFlight = routine.IsInFlightReturn;
         return returnType;
     }
@@ -3006,7 +3004,7 @@ public sealed partial class SemanticVerifier
             RoutineInfo? variadicGeneric = _registry.LookupVariadicGenericOverload(name: callName);
             if (variadicGeneric != null)
             {
-                List<TypeInfo>? inferred =
+                List<TypeSymbol>? inferred =
                     InferGenericTypeArguments(genericRoutine: variadicGeneric,
                         arguments: call.Arguments);
                 routine = inferred != null
@@ -3033,7 +3031,7 @@ public sealed partial class SemanticVerifier
                 : call.Arguments[index: 0];
         TypeSymbol firstArgTypeImport = AnalyzeExpression(expression: firstArgImport);
         TypeSymbol firstParamTypeImport = routine.Parameters[index: 0].Type;
-        if (firstArgTypeImport == ErrorTypeInfo.Instance ||
+        if (firstArgTypeImport == ErrorTypeSymbol.Instance ||
             firstArgTypeImport.FullName == firstParamTypeImport.FullName ||
             IsAssignableTo(source: firstArgTypeImport, target: firstParamTypeImport))
         {
@@ -3049,7 +3047,7 @@ public sealed partial class SemanticVerifier
                     ? naiImport.Value
                     : call.Arguments[index: i];
             TypeSymbol argTypeImport = AnalyzeExpression(expression: actualArgImport);
-            if (argTypeImport != ErrorTypeInfo.Instance)
+            if (argTypeImport != ErrorTypeSymbol.Instance)
             {
                 resolvedArgTypesImport.Add(item: argTypeImport);
             }
@@ -3076,7 +3074,7 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        List<TypeInfo>? inferredImport = InferGenericTypeArguments(genericRoutine: genericImport,
+        List<TypeSymbol>? inferredImport = InferGenericTypeArguments(genericRoutine: genericImport,
             arguments: call.Arguments);
         if (inferredImport == null)
         {
@@ -3092,7 +3090,7 @@ public sealed partial class SemanticVerifier
         call.ResolvedRoutine = routine;
     }
 
-    private void InferFallbackFreeTypeArguments(CallExpression call, TypeInfo? expectedType,
+    private void InferFallbackFreeTypeArguments(CallExpression call, TypeSymbol? expectedType,
         ref RoutineInfo? routine)
     {
         if (routine is not { IsGenericDefinition: true } ||
@@ -3103,7 +3101,7 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        List<TypeInfo>? inferredImportGen = InferGenericTypeArguments(genericRoutine: routine,
+        List<TypeSymbol>? inferredImportGen = InferGenericTypeArguments(genericRoutine: routine,
             arguments: call.Arguments,
             expectedType: expectedType);
 
@@ -3133,7 +3131,7 @@ public sealed partial class SemanticVerifier
     /// return-type-only generic may need a contextual type to bind its parameters.
     /// </summary>
     private void TryInferFromGenericSiblingsWithExpected(CallExpression call,
-        TypeInfo? expectedType, ref RoutineInfo generic, ref List<TypeInfo>? inferred)
+        TypeSymbol? expectedType, ref RoutineInfo generic, ref List<TypeSymbol>? inferred)
     {
         foreach (RoutineInfo sibling in _registry.GenericOverloadsByArity(
                      name: generic.Name,
@@ -3144,7 +3142,7 @@ public sealed partial class SemanticVerifier
                 continue;
             }
 
-            List<TypeInfo>? siblingInferred = InferGenericTypeArguments(
+            List<TypeSymbol>? siblingInferred = InferGenericTypeArguments(
                 genericRoutine: sibling,
                 arguments: call.Arguments,
                 expectedType: expectedType);
@@ -3178,7 +3176,7 @@ public sealed partial class SemanticVerifier
     }
 
     private TypeSymbol? AnalyzeNamedTypeConstruction(CallExpression call, IdentifierExpression id,
-        TypeInfo? type)
+        TypeSymbol? type)
     {
         if (type == null)
         {
@@ -3209,7 +3207,7 @@ public sealed partial class SemanticVerifier
             }
 
             // Entity types can only be constructed via create — no fallback
-            if (type is EntityTypeInfo)
+            if (type is EntityTypeSymbol)
             {
                 ReportError(code: SemanticDiagnosticCode.TypeNotCallable,
                     message:
@@ -3231,21 +3229,21 @@ public sealed partial class SemanticVerifier
     /// the matching field type as the contextual expected type for literal adaptation and generic
     /// binding. Returns the list of analyzed argument types.
     /// </summary>
-    private List<TypeSymbol> AnalyzeNamedTypeConstructionArgs(CallExpression call, TypeInfo type)
+    private List<TypeSymbol> AnalyzeNamedTypeConstructionArgs(CallExpression call, TypeSymbol type)
     {
         // Analyze all arguments once before branching. Variant construction auto-wraps
         // the argument into the variant, so its contextual type is the variant itself
         // (lets a bare `none` argument resolve to the variant's None arm).
-        TypeSymbol? variantArgContext = type is VariantTypeInfo ? type : null;
+        TypeSymbol? variantArgContext = type is VariantTypeSymbol ? type : null;
         // Both entity AND record targets do inline field-init construction here — gating on
-        // EntityTypeInfo alone left a RECORD constructor's arg with a null expected type, so
+        // EntityTypeSymbol alone left a RECORD constructor's arg with a null expected type, so
         // a bare `1` reset to the Suflae `Integer` default (this is the SECOND, final ctor
         // block: it re-analyzes and would clobber the first block's conformance → the record
         // literal ended up Integer → codegen `Integer`-into-`i64` / pruned from_literal).
         List<MemberVariableInfo>? ctorMemberVariables = type switch
         {
-            EntityTypeInfo entityCtorType => entityCtorType.MemberVariables,
-            RecordTypeInfo recordCtorType => recordCtorType.MemberVariables,
+            EntityTypeSymbol entityCtorType => entityCtorType.MemberVariables,
+            RecordTypeSymbol recordCtorType => recordCtorType.MemberVariables,
             _ => null
         };
         var argTypes = new List<TypeSymbol>();
@@ -3278,14 +3276,14 @@ public sealed partial class SemanticVerifier
     /// error) and the related recommendation (2 fields → named preferred, warning).
     /// </summary>
     private void ValidateConstructorArgumentNaming(CallExpression call, IdentifierExpression id,
-        TypeInfo type)
+        TypeSymbol type)
     {
         // S510: Type creators with 3+ fields require all named arguments.
         // W258: For 2 fields, naming is recommended but only emits a warning.
         int memberCount = type switch
         {
-            EntityTypeInfo e => e.MemberVariables.Count,
-            RecordTypeInfo r => r.MemberVariables.Count,
+            EntityTypeSymbol e => e.MemberVariables.Count,
+            RecordTypeSymbol r => r.MemberVariables.Count,
             _ => 0
         };
         if (memberCount >= 3)
@@ -3326,7 +3324,7 @@ public sealed partial class SemanticVerifier
 
         if (CheckUnresolvableGenericRoutine(call: call, routine: routine))
         {
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         call.ResolvedRoutine = routine;
@@ -3347,7 +3345,7 @@ public sealed partial class SemanticVerifier
 
         TypeSymbol returnType = routine.ReturnType ??
                                 _registry.LookupType(name: NoneTypeName) ??
-                                ErrorTypeInfo.Instance;
+                                ErrorTypeSymbol.Instance;
         call.IsInFlight = routine.IsInFlightReturn;
 
         return WrapAsyncReturnType(call: call, routine: routine, returnType: returnType);

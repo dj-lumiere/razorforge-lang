@@ -1,9 +1,7 @@
 using TypeModel.Enums;
 using TypeModel.Types;
 
-namespace Compiler.Declaration;
-
-using TypeInfo = TypeInfo;
+namespace Builder.Declaration;
 
 public sealed partial class TypeRegistry
 {
@@ -14,7 +12,7 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="type">The type to validate.</param>
     /// <returns>True if the type is allowed for the current language, false otherwise.</returns>
-    public bool IsTypeAllowedForLanguage(TypeInfo type)
+    public bool IsTypeAllowedForLanguage(TypeSymbol type)
     {
         // Memory wrapper types are RazorForge only
         if (IsMemoryWrapperType(typeName: type.Name) && Language == Language.Suflae)

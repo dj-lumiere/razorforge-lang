@@ -2,12 +2,10 @@ using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
-using Compiler.Verification.Scopes;
+using Builder.Verification.Enums;
+using Builder.Verification.Scopes;
 
-namespace Compiler.Declaration;
-
-using TypeInfo = TypeInfo;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Central registry for all type information in a RazorForge/Suflae program.
@@ -19,7 +17,7 @@ public sealed partial class TypeRegistry
     /// Ambient registry reference for static helpers that need to route generic resolutions
     /// through <see cref="GetOrCreateResolution"/> (to pick up entity specializations) but
     /// have no direct registry access — notably the static Substitute* memberRoutines on
-    /// <see cref="RoutineInfo"/> and <see cref="RecordTypeInfo"/>. Set by the constructor.
+    /// <see cref="RoutineInfo"/> and <see cref="RecordTypeSymbol"/>. Set by the constructor.
     /// [ThreadStatic] so parallel test runs each get their own Ambient without cross-contamination.
     /// </summary>
     [ThreadStatic]
@@ -45,9 +43,9 @@ public sealed partial class TypeRegistry
     /// The AMBIENT realm of the compilation — the world-line a bare (unqualified) type name resolves to:
     /// <c>"RF"</c> for a RazorForge compile, <c>"SF"</c> for a Suflae compile. A compilation-global
     /// constant (like <see cref="Language"/>): types of this realm key BARE (realm-free
-    /// <see cref="TypeInfo.FullName"/>) so the whole name-resolution hot path stays realm-blind; only the
+    /// <see cref="TypeSymbol.FullName"/>) so the whole name-resolution hot path stays realm-blind; only the
     /// NON-ambient (bridged via <c>RF::</c>/<c>SF::</c>) realm gets a realm-marked
-    /// <see cref="TypeInfo.RealmQualifiedName"/> registry key. Settable so stdlib bodies of each realm are
+    /// <see cref="TypeSymbol.RealmQualifiedName"/> registry key. Settable so stdlib bodies of each realm are
     /// analyzed under their own realm — see SemanticVerifier.AnalyzeStdlibBodies. Defaults to <c>"RF"</c>.
     /// </summary>
     public string AmbientRealm { get; set; } = "RF";
@@ -75,17 +73,17 @@ public sealed partial class TypeRegistry
     #region Type Storage
 
     /// <summary>All registered types by their full name.</summary>
-    private readonly Dictionary<string, TypeInfo> _types = new();
+    private readonly Dictionary<string, TypeSymbol> _types = new();
 
     /// <summary>Generic type resolutions cache.</summary>
-    private readonly Dictionary<string, TypeInfo> _resolutions = new();
+    private readonly Dictionary<string, TypeSymbol> _resolutions = new();
 
     /// <summary>
-    /// Queue of EntityTypeInfo/RecordTypeInfo instances registered after GMP tracking began.
+    /// Queue of EntityTypeSymbol/RecordTypeSymbol instances registered after GMP tracking began.
     /// Populated by <see cref="GetOrCreateResolution"/> only while tracking is active.
     /// Drained by GMP's fixed-point loop to process types discovered during body rewriting.
     /// </summary>
-    private Queue<TypeInfo>? _gmpDiscoveryQueue;
+    private Queue<TypeSymbol>? _gmpDiscoveryQueue;
 
     /// <summary>
     /// Set to true while <c>AnalyzeStdlibBodies</c> runs.
@@ -95,30 +93,30 @@ public sealed partial class TypeRegistry
     private bool _stdlibAnalysisActive;
 
     /// <summary>
-    /// Per-registry "created during stdlib analysis, defer until reached" set, keyed by <see cref="TypeInfo"/>
+    /// Per-registry "created during stdlib analysis, defer until reached" set, keyed by <see cref="TypeSymbol"/>
     /// REFERENCE identity. This is PER-BUILD state and deliberately lives on the registry, NOT on the shared
-    /// <see cref="TypeInfo"/> objects: a warm compile restores the same <see cref="TypeInfo"/> instances from a
+    /// <see cref="TypeSymbol"/> objects: a warm compile restores the same <see cref="TypeSymbol"/> instances from a
     /// captured <see cref="StdlibSnapshot"/> across many builds, so a mutable lazy flag on the object would
     /// leak one build's materialization into the next (the warm/cold define-set divergence). Keying the flag
     /// here means each build's relazy/materialize churn stays isolated to its own registry and the shared
     /// snapshot graph is never mutated.
     /// </summary>
-    private readonly HashSet<TypeInfo> _stdlibLazyTypes = new(comparer: ReferenceEqualityComparer.Instance);
+    private readonly HashSet<TypeSymbol> _stdlibLazyTypes = new(comparer: ReferenceEqualityComparer.Instance);
 
     /// <summary>Whether <paramref name="type"/> is currently deferred as stdlib-lazy in THIS registry.</summary>
-    public bool IsStdlibLazy(TypeInfo type)
+    public bool IsStdlibLazy(TypeSymbol type)
     {
         return _stdlibLazyTypes.Contains(item: type);
     }
 
     /// <summary>Marks <paramref name="type"/> stdlib-lazy in this registry. Returns true if newly added.</summary>
-    public bool MarkStdlibLazy(TypeInfo type)
+    public bool MarkStdlibLazy(TypeSymbol type)
     {
         return _stdlibLazyTypes.Add(item: type);
     }
 
     /// <summary>Clears the stdlib-lazy mark on <paramref name="type"/> in this registry. Returns true if it was set.</summary>
-    public bool ClearStdlibLazy(TypeInfo type)
+    public bool ClearStdlibLazy(TypeSymbol type)
     {
         return _stdlibLazyTypes.Remove(item: type);
     }
@@ -137,16 +135,16 @@ public sealed partial class TypeRegistry
         _liveConcreteTypes = liveTypes;
     }
 
-    /// <summary>Enables GMP discovery tracking. After this call, newly created EntityTypeInfo/
-    /// RecordTypeInfo instances are pushed to the discovery queue.</summary>
+    /// <summary>Enables GMP discovery tracking. After this call, newly created EntityTypeSymbol/
+    /// RecordTypeSymbol instances are pushed to the discovery queue.</summary>
     public void StartGmpDiscoveryTracking()
     {
-        _gmpDiscoveryQueue = new Queue<TypeInfo>();
+        _gmpDiscoveryQueue = new Queue<TypeSymbol>();
     }
 
     /// <summary>Drains and returns all types discovered since the last drain (or since tracking
     /// started). Returns empty if tracking is not active.</summary>
-    public List<TypeInfo> DrainGmpDiscoveryQueue()
+    public List<TypeSymbol> DrainGmpDiscoveryQueue()
     {
         if (_gmpDiscoveryQueue == null || _gmpDiscoveryQueue.Count == 0)
         {
@@ -176,14 +174,14 @@ public sealed partial class TypeRegistry
     /// Clears the stdlib-lazy mark on <paramref name="type"/> and enqueues it
     /// to the GMP discovery queue if applicable. No-op if already materialized.
     /// </summary>
-    private void MaterializeIfLazy(TypeInfo type)
+    private void MaterializeIfLazy(TypeSymbol type)
     {
         if (!ClearStdlibLazy(type: type))
         {
             return;
         }
 
-        if (_gmpDiscoveryQueue == null || type is not (EntityTypeInfo or RecordTypeInfo) ||
+        if (_gmpDiscoveryQueue == null || type is not (EntityTypeSymbol or RecordTypeSymbol) ||
             !IsFullyConcrete(t: type))
         {
             return;
@@ -204,7 +202,7 @@ public sealed partial class TypeRegistry
     /// Always true for non-generic types and generic definitions; for concrete generic instances,
     /// requires the type to have been included in the live set by TypeLivenessPass.
     /// </summary>
-    private bool IsConcreteTypeLive(TypeInfo t)
+    private bool IsConcreteTypeLive(TypeSymbol t)
     {
         return _liveConcreteTypes == null || t.IsGenericDefinition || t.TypeArguments == null ||
                t.TypeArguments.Count == 0 || _liveConcreteTypes.Contains(item: t.FullName);
@@ -217,17 +215,17 @@ public sealed partial class TypeRegistry
     /// <see cref="GetOrCreateWrapperType"/> and <see cref="GetOrCreateResolution"/> produce
     /// the same FullName-based key (e.g., "Hijacked[Core.Byte]").
     /// </summary>
-    private readonly Dictionary<string, WrapperTypeInfo> _wrapperResolutions = new();
+    private readonly Dictionary<string, WrapperTypeSymbol> _wrapperResolutions = new();
 
     /// <summary>
     /// Entity-type specializations of constrained generics, keyed by bare type name.
     /// When a generic has two layout variants — one for record types and one for entity types
     /// (e.g. <c>Maybe[T] needs T is EntityType</c>) — the entity layout is stored here.
     /// <see cref="GetOrCreateResolution"/> consults this table when a type argument is an
-    /// <see cref="EntityTypeInfo"/> so it can pick the correct struct layout
+    /// <see cref="EntityTypeSymbol"/> so it can pick the correct struct layout
     /// (e.g. <c>{ Hijacked[T] }</c> for <c>Maybe[Text]</c> instead of <c>{ Bool, T }</c>).
     /// </summary>
-    private readonly Dictionary<string, TypeInfo> _entitySpecializations = new();
+    private readonly Dictionary<string, TypeSymbol> _entitySpecializations = new();
 
     /// <summary>Whether Core module has been loaded from stdlib.</summary>
     private bool _coreModuleLoaded;
@@ -265,7 +263,7 @@ public sealed partial class TypeRegistry
 
     /// <summary>
     /// Injects a pre-built module resolver so SA-phase import loading shares the
-    /// <see cref="Compiler.Declaration.BuildDriver"/> index (stdlib pre-scan, project files,
+    /// <see cref="Builder.Declaration.BuildDriver"/> index (stdlib pre-scan, project files,
     /// and manifest <c>[target] library</c> roots). Without this, <see cref="LoadModule"/>
     /// lazily builds a blind resolver that can only probe the filesystem by path-name
     /// convention — which misses modules whose file name differs from their declared name
@@ -382,7 +380,7 @@ public sealed partial class TypeRegistry
     /// Lazy cache for bare-name type lookups (e.g., "List" -> Collections.List).
     /// Populated on first miss in <see cref="LookupType(string)"/> to amortize the O(N) scan.
     /// </summary>
-    private readonly Dictionary<string, TypeInfo> _typesByShortName = new();
+    private readonly Dictionary<string, TypeSymbol> _typesByShortName = new();
 
     #endregion
 
@@ -724,15 +722,15 @@ public sealed partial class TypeRegistry
         // LoadCoreModule's RegisterProgramRoutines processes Maybe[T].unwrap etc., it calls
         // LookupType("Maybe") and gets this shell (FullName="Maybe"), causing those memberRoutines to
         // be keyed under "Maybe" in _routinesByOwner rather than "Core.Maybe".
-        RegisterType(type: new RecordTypeInfo(name: "Maybe")
+        RegisterType(type: new RecordTypeSymbol(name: "Maybe")
         {
             GenericParameters = ["T"], Module = "Core", CarrierKind = CarrierKind.Maybe
         });
-        RegisterType(type: new RecordTypeInfo(name: "Result")
+        RegisterType(type: new RecordTypeSymbol(name: "Result")
         {
             GenericParameters = ["T"], Module = "Core", CarrierKind = CarrierKind.Result
         });
-        RegisterType(type: new RecordTypeInfo(name: "Lookup")
+        RegisterType(type: new RecordTypeSymbol(name: "Lookup")
         {
             GenericParameters = ["T"], Module = "Core", CarrierKind = CarrierKind.Lookup
         });
@@ -748,24 +746,24 @@ public sealed partial class TypeRegistry
     /// Registers the entity-type specialization of a constrained generic
     /// (e.g. <c>record Maybe[T] needs T is EntityType</c>).
     /// When <see cref="GetOrCreateResolution"/> is asked to resolve this generic with an
-    /// <see cref="EntityTypeInfo"/> argument it will use this specialization instead of the
+    /// <see cref="EntityTypeSymbol"/> argument it will use this specialization instead of the
     /// primary (record-type) definition, ensuring the correct struct layout.
     /// </summary>
     /// <param name="type">The entity-specialization type definition.</param>
-    public void RegisterEntitySpecialization(TypeInfo type)
+    public void RegisterEntitySpecialization(TypeSymbol type)
     {
         _entitySpecializations[key: type.Name] = type;
     }
 
     /// <summary>
-    /// The registry key for a type: the realm-free <see cref="TypeInfo.FullName"/> when the type belongs to
+    /// The registry key for a type: the realm-free <see cref="TypeSymbol.FullName"/> when the type belongs to
     /// the ambient realm (the common case — keeps the name-resolution hot path realm-blind), or the
-    /// realm-marked <see cref="TypeInfo.RealmQualifiedName"/> when it is a BRIDGED (non-ambient) realm type,
+    /// realm-marked <see cref="TypeSymbol.RealmQualifiedName"/> when it is a BRIDGED (non-ambient) realm type,
     /// so a bridged <c>RF::Core.List</c> never collides with the ambient <c>Core.List</c> when both
     /// world-lines coexist in one compilation. When <see cref="AmbientRealm"/> is the default <c>"RF"</c> and
-    /// every type is <c>Realm="RF"</c>, this is exactly <see cref="TypeInfo.FullName"/> (no behavior change).
+    /// every type is <c>Realm="RF"</c>, this is exactly <see cref="TypeSymbol.FullName"/> (no behavior change).
     /// </summary>
-    internal string RealmRegistryKey(TypeInfo type)
+    internal string RealmRegistryKey(TypeSymbol type)
     {
         return type.Realm == AmbientRealm
             ? type.FullName
@@ -790,7 +788,7 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="type">The type to register.</param>
     /// <exception cref="InvalidOperationException">Thrown if the type is already registered.</exception>
-    public void RegisterType(TypeInfo type)
+    public void RegisterType(TypeSymbol type)
     {
         string key = RealmRegistryKey(type: type);
 
@@ -808,7 +806,7 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="oldType">The old type to replace.</param>
     /// <param name="newType">The new type to register.</param>
-    public void UpdateType(TypeInfo oldType, TypeInfo newType)
+    public void UpdateType(TypeSymbol oldType, TypeSymbol newType)
     {
         string key = RealmRegistryKey(type: oldType);
         if (_types.ContainsKey(key: key))
@@ -823,20 +821,20 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="recordName">The name of the record to update.</param>
     /// <param name="protocols">The resolved protocol types.</param>
-    public void UpdateRecordProtocols(string recordName, List<TypeInfo> protocols)
+    public void UpdateRecordProtocols(string recordName, List<TypeSymbol> protocols)
     {
-        if (!_types.TryGetValue(key: recordName, value: out TypeInfo? type))
+        if (!_types.TryGetValue(key: recordName, value: out TypeSymbol? type))
         {
             return;
         }
 
-        if (type is not RecordTypeInfo record)
+        if (type is not RecordTypeSymbol record)
         {
             return;
         }
 
         // Mutate the protocol list in place to preserve the concrete subclass (Choice/Flags — and
-        // Variant while it was a RecordTypeInfo subclass). ImplementedProtocols is settable, so this
+        // Variant while it was a RecordTypeSymbol subclass). ImplementedProtocols is settable, so this
         // is visible to any holder of the existing instance.
         record.ImplementedProtocols = protocols;
         _typesByShortName.Remove(key: record.Name);
@@ -850,12 +848,12 @@ public sealed partial class TypeRegistry
     public void UpdateRecordMemberVariables(string recordName,
         List<MemberVariableInfo> memberVariables)
     {
-        if (!_types.TryGetValue(key: recordName, value: out TypeInfo? type))
+        if (!_types.TryGetValue(key: recordName, value: out TypeSymbol? type))
         {
             return;
         }
 
-        if (type is not RecordTypeInfo record)
+        if (type is not RecordTypeSymbol record)
         {
             return;
         }
@@ -880,12 +878,12 @@ public sealed partial class TypeRegistry
     public void UpdateEntityMemberVariables(string entityName,
         List<MemberVariableInfo> memberVariables)
     {
-        if (!_types.TryGetValue(key: entityName, value: out TypeInfo? type))
+        if (!_types.TryGetValue(key: entityName, value: out TypeSymbol? type))
         {
             return;
         }
 
-        if (type is not EntityTypeInfo entity)
+        if (type is not EntityTypeSymbol entity)
         {
             return;
         }
@@ -905,14 +903,14 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="entityName">The name of the entity to update.</param>
     /// <param name="protocols">The resolved protocol types.</param>
-    public void UpdateEntityProtocols(string entityName, List<TypeInfo> protocols)
+    public void UpdateEntityProtocols(string entityName, List<TypeSymbol> protocols)
     {
-        if (!_types.TryGetValue(key: entityName, value: out TypeInfo? type))
+        if (!_types.TryGetValue(key: entityName, value: out TypeSymbol? type))
         {
             return;
         }
 
-        if (type is not EntityTypeInfo entity)
+        if (type is not EntityTypeSymbol entity)
         {
             return;
         }
@@ -924,13 +922,13 @@ public sealed partial class TypeRegistry
     public void UpdateCrashableMemberVariables(string typeName,
         List<MemberVariableInfo> memberVariables)
     {
-        if (!_types.TryGetValue(key: typeName, value: out TypeInfo? type) ||
-            type is not CrashableTypeInfo crashable)
+        if (!_types.TryGetValue(key: typeName, value: out TypeSymbol? type) ||
+            type is not CrashableTypeSymbol crashable)
         {
             return;
         }
 
-        var updated = new CrashableTypeInfo(name: crashable.Name)
+        var updated = new CrashableTypeSymbol(name: crashable.Name)
         {
             MemberVariables = memberVariables,
             ImplementedProtocols = crashable.ImplementedProtocols,
@@ -943,15 +941,15 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>Updates a crashable type's implemented protocols.</summary>
-    public void UpdateCrashableProtocols(string typeName, List<TypeInfo> protocols)
+    public void UpdateCrashableProtocols(string typeName, List<TypeSymbol> protocols)
     {
-        if (!_types.TryGetValue(key: typeName, value: out TypeInfo? type) ||
-            type is not CrashableTypeInfo crashable)
+        if (!_types.TryGetValue(key: typeName, value: out TypeSymbol? type) ||
+            type is not CrashableTypeSymbol crashable)
         {
             return;
         }
 
-        var updated = new CrashableTypeInfo(name: crashable.Name)
+        var updated = new CrashableTypeSymbol(name: crashable.Name)
         {
             MemberVariables = crashable.MemberVariables,
             ImplementedProtocols = protocols,
@@ -968,19 +966,19 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="choiceName">The name of the choice to update.</param>
     /// <param name="protocols">The resolved protocol types.</param>
-    public void UpdateChoiceProtocols(string choiceName, List<TypeInfo> protocols)
+    public void UpdateChoiceProtocols(string choiceName, List<TypeSymbol> protocols)
     {
-        if (!_types.TryGetValue(key: choiceName, value: out TypeInfo? type))
+        if (!_types.TryGetValue(key: choiceName, value: out TypeSymbol? type))
         {
             return;
         }
 
-        if (type is not ChoiceTypeInfo choice)
+        if (type is not ChoiceTypeSymbol choice)
         {
             return;
         }
 
-        var updatedChoice = new ChoiceTypeInfo(name: choice.Name)
+        var updatedChoice = new ChoiceTypeSymbol(name: choice.Name)
         {
             Cases = choice.Cases,
             ImplementedProtocols = protocols,
@@ -999,19 +997,19 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="flagsName">The name of the flags type to update.</param>
     /// <param name="protocols">The resolved protocol types.</param>
-    public void UpdateFlagsProtocols(string flagsName, List<TypeInfo> protocols)
+    public void UpdateFlagsProtocols(string flagsName, List<TypeSymbol> protocols)
     {
-        if (!_types.TryGetValue(key: flagsName, value: out TypeInfo? type))
+        if (!_types.TryGetValue(key: flagsName, value: out TypeSymbol? type))
         {
             return;
         }
 
-        if (type is not FlagsTypeInfo flags)
+        if (type is not FlagsTypeSymbol flags)
         {
             return;
         }
 
-        var updatedFlags = new FlagsTypeInfo(name: flags.Name)
+        var updatedFlags = new FlagsTypeSymbol(name: flags.Name)
         {
             Members = flags.Members,
             ImplementedProtocols = protocols,
@@ -1029,19 +1027,19 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="protocolName">The name of the protocol to update.</param>
     /// <param name="parentProtocols">The resolved parent protocol types.</param>
-    public void UpdateProtocolParents(string protocolName, List<ProtocolTypeInfo> parentProtocols)
+    public void UpdateProtocolParents(string protocolName, List<ProtocolTypeSymbol> parentProtocols)
     {
-        if (!_types.TryGetValue(key: protocolName, value: out TypeInfo? type))
+        if (!_types.TryGetValue(key: protocolName, value: out TypeSymbol? type))
         {
             return;
         }
 
-        if (type is not ProtocolTypeInfo protocol)
+        if (type is not ProtocolTypeSymbol protocol)
         {
             return;
         }
 
-        var updatedProtocol = new ProtocolTypeInfo(name: protocol.Name)
+        var updatedProtocol = new ProtocolTypeSymbol(name: protocol.Name)
         {
             MemberRoutines = protocol.MemberRoutines,
             ParentProtocols = parentProtocols,
@@ -1065,18 +1063,18 @@ public sealed partial class TypeRegistry
     /// <param name="cases">The resolved choice cases.</param>
     public void UpdateChoiceCases(string choiceName, List<ChoiceCaseInfo> cases)
     {
-        if (!_types.TryGetValue(key: choiceName, value: out TypeInfo? type))
+        if (!_types.TryGetValue(key: choiceName, value: out TypeSymbol? type))
         {
             return;
         }
 
-        if (type is not ChoiceTypeInfo choice)
+        if (type is not ChoiceTypeSymbol choice)
         {
             return;
         }
 
         // Create updated choice with cases
-        var updatedChoice = new ChoiceTypeInfo(name: choice.Name)
+        var updatedChoice = new ChoiceTypeSymbol(name: choice.Name)
         {
             Cases = cases,
             UnderlyingType = choice.UnderlyingType,
@@ -1096,17 +1094,17 @@ public sealed partial class TypeRegistry
     /// </summary>
     public void UpdateFlagsMembers(string flagsName, List<FlagsMemberInfo> members)
     {
-        if (!_types.TryGetValue(key: flagsName, value: out TypeInfo? type))
+        if (!_types.TryGetValue(key: flagsName, value: out TypeSymbol? type))
         {
             return;
         }
 
-        if (type is not FlagsTypeInfo flags)
+        if (type is not FlagsTypeSymbol flags)
         {
             return;
         }
 
-        var updated = new FlagsTypeInfo(name: flags.Name)
+        var updated = new FlagsTypeSymbol(name: flags.Name)
         {
             Members = members,
             Visibility = flags.Visibility,
@@ -1123,11 +1121,11 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="caseName">The name of the choice case to look up.</param>
     /// <returns>A tuple of the choice type and case info if found, null otherwise.</returns>
-    public (ChoiceTypeInfo ChoiceType, ChoiceCaseInfo CaseInfo)? LookupChoiceCase(string caseName)
+    public (ChoiceTypeSymbol ChoiceType, ChoiceCaseInfo CaseInfo)? LookupChoiceCase(string caseName)
     {
-        foreach (TypeInfo type in _types.Values)
+        foreach (TypeSymbol type in _types.Values)
         {
-            if (type is ChoiceTypeInfo choiceType)
+            if (type is ChoiceTypeSymbol choiceType)
             {
                 ChoiceCaseInfo? caseInfo =
                     choiceType.Cases.FirstOrDefault(predicate: c => c.Name == caseName);
@@ -1144,11 +1142,11 @@ public sealed partial class TypeRegistry
     /// <summary>
     /// Looks up a type by name IN A SPECIFIC REALM — the realm-aware sibling of <see cref="LookupType(string)"/>.
     /// The ambient realm keys bare (delegates to the realm-blind lookup); a bridged realm is keyed by
-    /// <see cref="TypeInfo.RealmQualifiedName"/> (<c>{realm}::{FullName}</c>), so this reaches the SF-realm
+    /// <see cref="TypeSymbol.RealmQualifiedName"/> (<c>{realm}::{FullName}</c>), so this reaches the SF-realm
     /// <c>Core.List</c> even while the RazorForge-realm <c>Core.List</c> occupies the bare key (and vice
     /// versa). Returns null when no type of that realm is registered (caller decides whether to fall back).
     /// </summary>
-    public TypeInfo? LookupType(string name, string realm)
+    public TypeSymbol? LookupType(string name, string realm)
     {
         if (realm == AmbientRealm)
         {
@@ -1157,14 +1155,14 @@ public sealed partial class TypeRegistry
 
         // Bridged realm: registered under the realm-marked key. Try the name as given, and — for a bare
         // name whose ambient hit reveals the module-qualified FullName — the realm-prefixed FullName.
-        if (_types.TryGetValue(key: $"{realm}::{name}", value: out TypeInfo? direct))
+        if (_types.TryGetValue(key: $"{realm}::{name}", value: out TypeSymbol? direct))
         {
             return direct;
         }
 
         return LookupTypeInAmbient(name: name) is { } ambient &&
                _types.TryGetValue(key: $"{realm}::{ambient.FullName}",
-                   value: out TypeInfo? viaFull)
+                   value: out TypeSymbol? viaFull)
             ? viaFull
             : null;
     }
@@ -1176,12 +1174,12 @@ public sealed partial class TypeRegistry
     /// file (resolution realm SF, ambient RF) a bare name that has an SF-realm (bridged) type resolves to
     /// it first, else falls through to the RF-realm type.
     /// </summary>
-    public TypeInfo? LookupType(string name)
+    public TypeSymbol? LookupType(string name)
     {
-        TypeInfo? hit = LookupTypeInAmbient(name: name);
+        TypeSymbol? hit = LookupTypeInAmbient(name: name);
         if (ResolutionRealm != AmbientRealm && hit != null &&
             _types.TryGetValue(key: $"{ResolutionRealm}::{hit.FullName}",
-                value: out TypeInfo? preferred))
+                value: out TypeSymbol? preferred))
         {
             return preferred;
         }
@@ -1193,16 +1191,16 @@ public sealed partial class TypeRegistry
     /// Looks up a type by name in the AMBIENT realm only (the realm-blind workhorse). Callers that must
     /// honor the per-file <see cref="ResolutionRealm"/> use <see cref="LookupType(string)"/> instead.
     /// </summary>
-    private TypeInfo? LookupTypeInAmbient(string name)
+    private TypeSymbol? LookupTypeInAmbient(string name)
     {
         // Try exact match first
-        if (_types.TryGetValue(key: name, value: out TypeInfo? type))
+        if (_types.TryGetValue(key: name, value: out TypeSymbol? type))
         {
             return type;
         }
 
         // Try resolution cache
-        if (_resolutions.TryGetValue(key: name, value: out TypeInfo? resolution))
+        if (_resolutions.TryGetValue(key: name, value: out TypeSymbol? resolution))
         {
             if (!_stdlibAnalysisActive)
             {
@@ -1233,11 +1231,11 @@ public sealed partial class TypeRegistry
     /// Re-resolves <paramref name="type"/> into the <paramref name="realm"/> world-line — the mechanism
     /// behind an explicit <c>RF::</c>/<c>SF::</c> qualifier. Name resolution is realm-blind and always yields
     /// the AMBIENT-realm type (keyed bare); this swaps it to the bridged realm's equivalent, which the
-    /// registry keys by <see cref="TypeInfo.RealmQualifiedName"/> (<c>{realm}::{FullName}</c>). Returns null
+    /// registry keys by <see cref="TypeSymbol.RealmQualifiedName"/> (<c>{realm}::{FullName}</c>). Returns null
     /// when no such bridged type is registered (caller keeps the ambient resolution — for a pure-ambient
     /// compile this path is never meaningfully hit, so behavior is unchanged).
     /// </summary>
-    public TypeInfo? ReResolveInRealm(TypeInfo type, string realm)
+    public TypeSymbol? ReResolveInRealm(TypeSymbol type, string realm)
     {
         if (type.Realm == realm)
         {
@@ -1246,11 +1244,11 @@ public sealed partial class TypeRegistry
 
         // A generic RESOLUTION (e.g. List[T]): find the target-realm generic DEFINITION (keyed
         // `{realm}::{def.FullName}`) and re-resolve the same arguments against it.
-        TypeInfo? genericDef = type switch
+        TypeSymbol? genericDef = type switch
         {
-            EntityTypeInfo { GenericDefinition: { } gd } => gd,
-            RecordTypeInfo { GenericDefinition: { } gd } => gd,
-            ProtocolTypeInfo { GenericDefinition: { } gd } => gd,
+            EntityTypeSymbol { GenericDefinition: { } gd } => gd,
+            RecordTypeSymbol { GenericDefinition: { } gd } => gd,
+            ProtocolTypeSymbol { GenericDefinition: { } gd } => gd,
             _ => null
         };
         if (genericDef != null && type.TypeArguments is { Count: > 0 } args)
@@ -1258,7 +1256,7 @@ public sealed partial class TypeRegistry
             // The target realm's DEFINITION is keyed BARE when it is the ambient realm (RF types under an
             // RF-ambient compile), or `{realm}::`-marked when bridged. Using the ambient (bare) lookup for
             // the ambient case is what lets `RF::Core.List` reach the RF-realm list (keyed bare `Core.List`).
-            TypeInfo? tDef;
+            TypeSymbol? tDef;
             if (realm == AmbientRealm)
             {
                 tDef = LookupTypeInAmbient(name: genericDef.FullName);
@@ -1266,7 +1264,7 @@ public sealed partial class TypeRegistry
             else
             {
                 tDef = _types.TryGetValue(key: $"{realm}::{genericDef.FullName}",
-                    value: out TypeInfo? d)
+                    value: out TypeSymbol? d)
                     ? d
                     : null;
             }
@@ -1282,7 +1280,7 @@ public sealed partial class TypeRegistry
             return LookupTypeInAmbient(name: type.FullName);
         }
 
-        return _types.TryGetValue(key: $"{realm}::{type.FullName}", value: out TypeInfo? t)
+        return _types.TryGetValue(key: $"{realm}::{type.FullName}", value: out TypeSymbol? t)
             ? t
             : null;
     }
@@ -1293,23 +1291,23 @@ public sealed partial class TypeRegistry
     /// <param name="genericDef">The generic type definition.</param>
     /// <param name="typeArguments">The type arguments for resolution.</param>
     /// <returns>The resolved type (cached if already created).</returns>
-    public TypeInfo GetOrCreateResolution(TypeInfo genericDef, List<TypeInfo> typeArguments)
+    public TypeSymbol GetOrCreateResolution(TypeSymbol genericDef, List<TypeSymbol> typeArguments)
     {
         // Don't create or store instances where SA failed to resolve a type argument.
-        // Storing ErrorTypeInfo-keyed instances produces broken concrete types that crash codegen.
-        if (typeArguments.Any(predicate: t => t is ErrorTypeInfo))
+        // Storing ErrorTypeSymbol-keyed instances produces broken concrete types that crash codegen.
+        if (typeArguments.Any(predicate: t => t is ErrorTypeSymbol))
         {
             return genericDef;
         }
 
         // Primary key uses FullName for each type argument (e.g. "Hijacked[Core.Byte]").
         // A short-name alias (e.g. "Hijacked[Byte]") is stored as a backward-compatible fallback.
-        // Both keys map to the same TypeInfo, so AllConcreteGenericInstances uses .Distinct()
+        // Both keys map to the same TypeSymbol, so AllConcreteGenericInstances uses .Distinct()
         // to avoid double-processing. Wrapper types are stored in _wrapperResolutions (not here)
         // to prevent key collisions at the FullName level.
         string fullKey =
             $"{genericDef.Name}[{string.Join(separator: ", ", values: typeArguments.Select(selector: t => t.FullName))}]";
-        // WrapperTypeInfo.Name is bare ("Owned") without inner type args, so using Name alone
+        // WrapperTypeSymbol.Name is bare ("Owned") without inner type args, so using Name alone
         // collapses "Maybe[X]" and "Maybe[Y]" to the same shortKey "Maybe[Owned]".
         // GetShortName expands wrappers to "Wrapper[Inner.Name]" to keep shortKeys distinct.
         string shortKey =
@@ -1340,15 +1338,15 @@ public sealed partial class TypeRegistry
         // If an entity-type specialization exists for this generic and the first type argument
         // is an entity type, use that specialization instead of the primary (record-type) definition.
         // This ensures e.g. Maybe[Text] gets { Hijacked[T] } layout instead of { Bool, T }.
-        TypeInfo bestDef = genericDef;
-        if (typeArguments.Count > 0 && typeArguments[index: 0] is EntityTypeInfo &&
+        TypeSymbol bestDef = genericDef;
+        if (typeArguments.Count > 0 && typeArguments[index: 0] is EntityTypeSymbol &&
             _entitySpecializations.TryGetValue(key: genericDef.Name,
-                value: out TypeInfo? entitySpec))
+                value: out TypeSymbol? entitySpec))
         {
             bestDef = entitySpec;
         }
 
-        TypeInfo resolved = bestDef.CreateInstance(typeArguments: typeArguments);
+        TypeSymbol resolved = bestDef.CreateInstance(typeArguments: typeArguments);
         // Decl-position expand: materialize struct-of-arrays column members from the generic def's
         // templates (one per member of the concrete source type). Appends real member variables so the
         // SoA layout falls out of ordinary record layout.
@@ -1362,14 +1360,14 @@ public sealed partial class TypeRegistry
             _resolutions[key: moduleFullKey] = resolved;
         }
 
-        if (!_resolutions.TryGetValue(key: fullKey, value: out TypeInfo? bareOccupant) ||
+        if (!_resolutions.TryGetValue(key: fullKey, value: out TypeSymbol? bareOccupant) ||
             ResolutionGenericDefMatches(resolved: bareOccupant, genericDef: genericDef))
         {
             _resolutions[key: fullKey] = resolved;
         }
 
         if (fullKey != shortKey &&
-            (!_resolutions.TryGetValue(key: shortKey, value: out TypeInfo? shortOccupant) ||
+            (!_resolutions.TryGetValue(key: shortKey, value: out TypeSymbol? shortOccupant) ||
              ResolutionGenericDefMatches(resolved: shortOccupant, genericDef: genericDef)))
         {
             _resolutions[key: shortKey] = resolved;
@@ -1397,9 +1395,9 @@ public sealed partial class TypeRegistry
     /// self-nesting (a type arg whose FullName contains the outer bare base name, e.g.
     /// <c>Hijacked[Hijacked[Text]]</c>, would recurse unboundedly).
     /// </summary>
-    private void EnqueueDiscoveredResolution(TypeInfo resolved)
+    private void EnqueueDiscoveredResolution(TypeSymbol resolved)
     {
-        if (_gmpDiscoveryQueue != null && resolved is EntityTypeInfo or RecordTypeInfo &&
+        if (_gmpDiscoveryQueue != null && resolved is EntityTypeSymbol or RecordTypeSymbol &&
             IsFullyConcrete(t: resolved))
         {
             string bareBaseName = resolved.BareName;
@@ -1420,11 +1418,11 @@ public sealed partial class TypeRegistry
     /// accepted when the cached resolution's generic definition (and, for the short alias, its type args)
     /// match the request. Returns null when no matching cached resolution exists.
     /// </summary>
-    private TypeInfo? TryGetCachedResolution(string fullKey, string shortKey,
-        string? moduleFullKey, TypeInfo genericDef, List<TypeInfo> typeArguments)
+    private TypeSymbol? TryGetCachedResolution(string fullKey, string shortKey,
+        string? moduleFullKey, TypeSymbol genericDef, List<TypeSymbol> typeArguments)
     {
         if (moduleFullKey != null &&
-            _resolutions.TryGetValue(key: moduleFullKey, value: out TypeInfo? existing))
+            _resolutions.TryGetValue(key: moduleFullKey, value: out TypeSymbol? existing))
         {
             if (!_stdlibAnalysisActive)
             {
@@ -1474,13 +1472,13 @@ public sealed partial class TypeRegistry
     /// type). The struct-of-arrays layout of <c>SplitArray[T, N]</c>/<c>SplitList[T]</c> then falls out
     /// of ordinary record layout — no bespoke codegen.
     /// </summary>
-    private static void ExpandSoAColumns(TypeInfo genericDef, TypeInfo resolved,
-        List<TypeInfo> typeArguments)
+    private static void ExpandSoAColumns(TypeSymbol genericDef, TypeSymbol resolved,
+        List<TypeSymbol> typeArguments)
     {
         (List<MemberExpandTemplateInfo> templates, List<string>? genericParams) = genericDef switch
         {
-            RecordTypeInfo r => (r.ExpandTemplates, r.GenericParameters),
-            EntityTypeInfo e => (e.ExpandTemplates, e.GenericParameters),
+            RecordTypeSymbol r => (r.ExpandTemplates, r.GenericParameters),
+            EntityTypeSymbol e => (e.ExpandTemplates, e.GenericParameters),
             _ => ([], null)
         };
         if (templates.Count == 0 || genericParams == null)
@@ -1489,7 +1487,7 @@ public sealed partial class TypeRegistry
         }
 
         // Base substitution: each generic parameter -> its concrete argument.
-        var baseSubs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
+        var baseSubs = new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal);
         for (int i = 0; i < genericParams.Count && i < typeArguments.Count; i++)
         {
             baseSubs[key: genericParams[index: i]] = typeArguments[index: i];
@@ -1497,8 +1495,8 @@ public sealed partial class TypeRegistry
 
         List<MemberVariableInfo> target = resolved switch
         {
-            RecordTypeInfo r => r.MemberVariables,
-            EntityTypeInfo e => e.MemberVariables,
+            RecordTypeSymbol r => r.MemberVariables,
+            EntityTypeSymbol e => e.MemberVariables,
             _ => null!
         };
         if (target == null)
@@ -1510,15 +1508,15 @@ public sealed partial class TypeRegistry
         {
             // The concrete source type whose members become columns (the T in `allmemvarof(T)`).
             if (!baseSubs.TryGetValue(key: template.SourceParamName,
-                    value: out TypeInfo? sourceType))
+                    value: out TypeSymbol? sourceType))
             {
                 continue;
             }
 
             List<MemberVariableInfo> sourceMembers = sourceType switch
             {
-                RecordTypeInfo r => r.MemberVariables,
-                EntityTypeInfo e => e.MemberVariables,
+                RecordTypeSymbol r => r.MemberVariables,
+                EntityTypeSymbol e => e.MemberVariables,
                 _ => []
             };
 
@@ -1526,13 +1524,13 @@ public sealed partial class TypeRegistry
             {
                 // Per-field substitution: the `${m.type}` placeholder binds to this field's type.
                 var subs =
-                    new Dictionary<string, TypeInfo>(dictionary: baseSubs,
+                    new Dictionary<string, TypeSymbol>(dictionary: baseSubs,
                         comparer: StringComparer.Ordinal)
                     {
                         [key: MemberExpandTemplateInfo.ColumnPlaceholderName] = field.Type
                     };
-                TypeInfo columnType =
-                    RecordTypeInfo.SubstituteType(type: template.ColumnTypeTemplate,
+                TypeSymbol columnType =
+                    RecordTypeSymbol.SubstituteType(type: template.ColumnTypeTemplate,
                         substitution: subs);
                 target.Add(
                     item: new MemberVariableInfo(name: template.NamePrefix + field.Name,
@@ -1550,9 +1548,9 @@ public sealed partial class TypeRegistry
     /// so a same-short-name type from a DIFFERENT module (e.g. two modules' <c>Counter</c>) is not
     /// mistaken for the requested one.
     /// </summary>
-    private static bool ResolutionTypeArgsMatch(TypeInfo resolved, List<TypeInfo> typeArguments)
+    private static bool ResolutionTypeArgsMatch(TypeSymbol resolved, List<TypeSymbol> typeArguments)
     {
-        List<TypeInfo>? actual = resolved.TypeArguments;
+        List<TypeSymbol>? actual = resolved.TypeArguments;
         if (actual == null || actual.Count != typeArguments.Count)
         {
             return false;
@@ -1578,13 +1576,13 @@ public sealed partial class TypeRegistry
     /// no-op; it only bites on genuine cross-module name collisions. Falls back to bare-name equality
     /// when the cached instance records no definition (older/aliased instances).
     /// </summary>
-    private static bool ResolutionGenericDefMatches(TypeInfo resolved, TypeInfo genericDef)
+    private static bool ResolutionGenericDefMatches(TypeSymbol resolved, TypeSymbol genericDef)
     {
-        TypeInfo? resolvedDef = resolved switch
+        TypeSymbol? resolvedDef = resolved switch
         {
-            EntityTypeInfo e => e.GenericDefinition,
-            RecordTypeInfo r => r.GenericDefinition,
-            ProtocolTypeInfo p => p.GenericDefinition,
+            EntityTypeSymbol e => e.GenericDefinition,
+            RecordTypeSymbol r => r.GenericDefinition,
+            ProtocolTypeSymbol p => p.GenericDefinition,
             _ => null
         };
         // Realm must ALSO match: `FullName`/`BareName` are realm-FREE, so a Suflae-realm `Core.List[S32]`
@@ -1601,7 +1599,7 @@ public sealed partial class TypeRegistry
     /// Returns null if the type has not been resolved yet.
     /// Use this in passes that must not create new concrete type instances as a side effect.
     /// </summary>
-    public TypeInfo? TryGetResolution(TypeInfo genericDef, List<TypeInfo> typeArguments)
+    public TypeSymbol? TryGetResolution(TypeSymbol genericDef, List<TypeSymbol> typeArguments)
     {
         string fullKey =
             $"{genericDef.Name}[{string.Join(separator: ", ", values: typeArguments.Select(selector: t => t.FullName))}]";
@@ -1614,7 +1612,7 @@ public sealed partial class TypeRegistry
             ? $"{realmPrefix}{genericDef.FullName}[{string.Join(separator: ", ", values: typeArguments.Select(selector: t => t.FullName))}]"
             : null;
         if (moduleFullKey != null &&
-            _resolutions.TryGetValue(key: moduleFullKey, value: out TypeInfo? existing))
+            _resolutions.TryGetValue(key: moduleFullKey, value: out TypeSymbol? existing))
         {
             return existing;
         }
@@ -1640,7 +1638,7 @@ public sealed partial class TypeRegistry
         }
 
         // Wrapper types (Hijacked, Retained, etc.) are stored in _wrapperResolutions, not _resolutions.
-        if (_wrapperResolutions.TryGetValue(key: fullKey, value: out WrapperTypeInfo? wrapper))
+        if (_wrapperResolutions.TryGetValue(key: fullKey, value: out WrapperTypeSymbol? wrapper))
         {
             return wrapper;
         }
@@ -1659,17 +1657,17 @@ public sealed partial class TypeRegistry
     /// Refreshes stale cached entity resolutions whose member variable list is incomplete.
     /// Called after pass 1c updates a generic entity definition with its full member list.
     /// </summary>
-    public void RefreshEntityResolutions(EntityTypeInfo genericDef)
+    public void RefreshEntityResolutions(EntityTypeSymbol genericDef)
     {
-        foreach (TypeInfo resolution in _resolutions.Values)
+        foreach (TypeSymbol resolution in _resolutions.Values)
         {
-            if (resolution is EntityTypeInfo entityRes &&
+            if (resolution is EntityTypeSymbol entityRes &&
                 entityRes.GenericDefinition == genericDef &&
                 entityRes.MemberVariables.Count < genericDef.MemberVariables.Count &&
                 entityRes.TypeArguments != null)
             {
                 var fresh =
-                    (EntityTypeInfo)genericDef.CreateInstance(
+                    (EntityTypeSymbol)genericDef.CreateInstance(
                         typeArguments: entityRes.TypeArguments);
                 entityRes.MemberVariables = fresh.MemberVariables;
             }
@@ -1682,17 +1680,17 @@ public sealed partial class TypeRegistry
     /// (e.g. Maybe[T], Result[T]) with its full member list. Mirrors
     /// <see cref="RefreshEntityResolutions"/>.
     /// </summary>
-    public void RefreshRecordResolutions(RecordTypeInfo genericDef)
+    public void RefreshRecordResolutions(RecordTypeSymbol genericDef)
     {
-        foreach (TypeInfo resolution in _resolutions.Values)
+        foreach (TypeSymbol resolution in _resolutions.Values)
         {
-            if (resolution is RecordTypeInfo recordRes &&
+            if (resolution is RecordTypeSymbol recordRes &&
                 recordRes.GenericDefinition == genericDef &&
                 recordRes.MemberVariables.Count < genericDef.MemberVariables.Count &&
                 recordRes.TypeArguments != null)
             {
                 var fresh =
-                    (RecordTypeInfo)genericDef.CreateInstance(
+                    (RecordTypeSymbol)genericDef.CreateInstance(
                         typeArguments: recordRes.TypeArguments);
                 recordRes.MemberVariables = fresh.MemberVariables;
             }
@@ -1711,7 +1709,7 @@ public sealed partial class TypeRegistry
     /// <see cref="RefreshRecordResolutions"/> by rebuilding memberRoutines in place so existing references
     /// (e.g. a collection's ImplementedProtocols) also see the fix.
     /// </summary>
-    public void RefreshProtocolResolutions(ProtocolTypeInfo genericDef)
+    public void RefreshProtocolResolutions(ProtocolTypeSymbol genericDef)
     {
         if (!genericDef.IsGenericDefinition)
         {
@@ -1721,14 +1719,14 @@ public sealed partial class TypeRegistry
         // Snapshot: CreateInstance below can register a NEW resolution (e.g. the protocol member's own
         // return/param instantiations), mutating _resolutions mid-enumeration. A generic literal protocol
         // with a variadic member (`ListLiteral[T].from_literal`) makes this reliably reachable.
-        foreach (TypeInfo resolution in _resolutions.Values.ToList())
+        foreach (TypeSymbol resolution in _resolutions.Values.ToList())
         {
-            if (resolution is ProtocolTypeInfo protoRes &&
+            if (resolution is ProtocolTypeSymbol protoRes &&
                 protoRes.GenericDefinition == genericDef && protoRes.TypeArguments != null &&
                 IsProtocolResolutionStale(instance: protoRes, genericDef: genericDef))
             {
                 var fresh =
-                    (ProtocolTypeInfo)genericDef.CreateInstance(
+                    (ProtocolTypeSymbol)genericDef.CreateInstance(
                         typeArguments: protoRes.TypeArguments);
                 protoRes.MemberRoutines = fresh.MemberRoutines;
             }
@@ -1739,8 +1737,8 @@ public sealed partial class TypeRegistry
     /// A cached protocol instance is stale if any of its memberRoutines is missing or has a different
     /// parameter arity than the (just re-filled) generic definition's matching memberRoutine.
     /// </summary>
-    private static bool IsProtocolResolutionStale(ProtocolTypeInfo instance,
-        ProtocolTypeInfo genericDef)
+    private static bool IsProtocolResolutionStale(ProtocolTypeSymbol instance,
+        ProtocolTypeSymbol genericDef)
     {
         foreach (ProtocolMemberRoutineInfo defMemberRoutine in genericDef.MemberRoutines)
         {
@@ -1759,11 +1757,11 @@ public sealed partial class TypeRegistry
     }
 
     /// Short name for a type argument used in the shortKey of GetOrCreateResolution / TryGetResolution.
-    /// WrapperTypeInfo.Name is bare ("Owned") without inner args, so we expand it recursively to
+    /// WrapperTypeSymbol.Name is bare ("Owned") without inner args, so we expand it recursively to
     /// "InnerName" to prevent shortKey collisions across different inner types.
-    private static string GetShortName(TypeInfo t)
+    private static string GetShortName(TypeSymbol t)
     {
-        return t is WrapperTypeInfo wt
+        return t is WrapperTypeSymbol wt
             ? $"{wt.Name}[{GetShortName(t: wt.InnerType)}]"
             : t.Name;
     }
@@ -1776,8 +1774,8 @@ public sealed partial class TypeRegistry
     /// <param name="returnType">The return type (null for None/void).</param>
     /// <param name="isFailable">Whether the function can throw/absent.</param>
     /// <returns>The cached or newly created function type.</returns>
-    public RoutineTypeInfo GetOrCreateRoutineType(List<TypeInfo> parameterTypes,
-        TypeInfo? returnType, bool isFailable = false)
+    public RoutineTypeSymbol GetOrCreateRoutineType(List<TypeSymbol> parameterTypes,
+        TypeSymbol? returnType, bool isFailable = false)
     {
         // Build the signature key
         string paramList = string.Join(separator: ", ",
@@ -1789,15 +1787,15 @@ public sealed partial class TypeRegistry
         string key = $"({paramList}) -> {returnName}{failableSuffix}";
 
         // Check cache
-        if (_resolutions.TryGetValue(key: key, value: out TypeInfo? existing) &&
-            existing is RoutineTypeInfo routineType)
+        if (_resolutions.TryGetValue(key: key, value: out TypeSymbol? existing) &&
+            existing is RoutineTypeSymbol routineType)
         {
             return routineType;
         }
 
         // Create and cache
         var newType =
-            new RoutineTypeInfo(parameterTypes: parameterTypes, returnType: returnType)
+            new RoutineTypeSymbol(parameterTypes: parameterTypes, returnType: returnType)
             {
                 IsFailable = isFailable
             };
@@ -1809,7 +1807,7 @@ public sealed partial class TypeRegistry
         // Text. Registering the per-type memberRoutine lets the universal serialize walk over a routine-typed
         // member (`entity Callback { f: Routine[...] }`) resolve; the BODY is the zero-field
         // BuildSerializeBody path, synthesized in WiredRoutinePass's routine-type loop.
-        TypeInfo? routineSerialValue = LookupType(name: "SerialValue");
+        TypeSymbol? routineSerialValue = LookupType(name: "SerialValue");
         if (routineSerialValue != null)
         {
             RegisterRoutine(routine: new RoutineInfo(name: RuntimeContract.Serialize)
@@ -1854,7 +1852,7 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="elementTypes">The types of each element in the tuple.</param>
     /// <returns>The cached or newly created tuple type.</returns>
-    public TupleTypeInfo GetOrCreateTupleType(List<TypeInfo> elementTypes)
+    public TupleTypeSymbol GetOrCreateTupleType(List<TypeSymbol> elementTypes)
     {
         // Build the cache key
         string typeList = string.Join(separator: ", ",
@@ -1862,14 +1860,14 @@ public sealed partial class TypeRegistry
         string key = $"Tuple[{typeList}]";
 
         // Check cache
-        if (_resolutions.TryGetValue(key: key, value: out TypeInfo? existing) &&
-            existing is TupleTypeInfo tupleType)
+        if (_resolutions.TryGetValue(key: key, value: out TypeSymbol? existing) &&
+            existing is TupleTypeSymbol tupleType)
         {
             return tupleType;
         }
 
         // Create and cache
-        var newType = new TupleTypeInfo(elementTypes: elementTypes);
+        var newType = new TupleTypeSymbol(elementTypes: elementTypes);
         _resolutions[key: key] = newType;
 
         RegisterTupleDisplayRoutines(newType: newType);
@@ -1884,8 +1882,8 @@ public sealed partial class TypeRegistry
 
     /// <summary>Registers a synthesized readonly zero-arg member routine <paramref name="name"/> on
     /// <paramref name="owner"/> returning <paramref name="returnType"/>, with optional parameters.</summary>
-    private void RegisterSynthesizedMemberRoutine(string name, TypeInfo owner, TypeInfo returnType,
-        List<ParameterInfo>? parameters = null)
+    private void RegisterSynthesizedMemberRoutine(string name, TypeSymbol owner, TypeSymbol returnType,
+        List<ParamInfo>? parameters = null)
     {
         RegisterRoutine(routine: new RoutineInfo(name: name)
         {
@@ -1902,9 +1900,9 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>Auto-registers <c>TupleType.represent()</c> / <c>diagnose()</c> when Text is available.</summary>
-    private void RegisterTupleDisplayRoutines(TupleTypeInfo newType)
+    private void RegisterTupleDisplayRoutines(TupleTypeSymbol newType)
     {
-        TypeInfo? textType = LookupType(name: "Text");
+        TypeSymbol? textType = LookupType(name: "Text");
         if (textType != null)
         {
             RegisterSynthesizedMemberRoutine(name: RuntimeContract.Display.Represent,
@@ -1921,13 +1919,13 @@ public sealed partial class TypeRegistry
     /// derivation iff all components support it). Component types whose owners haven't opted into
     /// Equatable simply won't have eq registered, so the tuple won't either.
     /// </summary>
-    private void RegisterTupleEqualityRoutines(TupleTypeInfo newType, List<TypeInfo> elementTypes)
+    private void RegisterTupleEqualityRoutines(TupleTypeSymbol newType, List<TypeSymbol> elementTypes)
     {
-        TypeInfo? boolType = LookupType(name: "Bool");
+        TypeSymbol? boolType = LookupType(name: "Bool");
         if (boolType != null && elementTypes.All(predicate: et =>
                 LookupMemberRoutine(type: et, memberRoutineName: "eq") != null))
         {
-            var youParam = new ParameterInfo(name: "you", type: newType);
+            var youParam = new ParamInfo(name: "you", type: newType);
             RegisterSynthesizedMemberRoutine(name: "eq",
                 owner: newType,
                 returnType: boolType,
@@ -1940,9 +1938,9 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>Auto-registers <c>hash</c> if ALL element types support hash.</summary>
-    private void RegisterTupleHashRoutine(TupleTypeInfo newType, List<TypeInfo> elementTypes)
+    private void RegisterTupleHashRoutine(TupleTypeSymbol newType, List<TypeSymbol> elementTypes)
     {
-        TypeInfo? u64Type = LookupType(name: "U64");
+        TypeSymbol? u64Type = LookupType(name: "U64");
         if (u64Type != null && elementTypes.All(predicate: et =>
                 LookupMemberRoutine(type: et, memberRoutineName: "hash") != null))
         {
@@ -1956,11 +1954,11 @@ public sealed partial class TypeRegistry
     /// unserializable elements (unlike a record), so gate on the elements. Generic-parameter elements
     /// (<c>Tuple[U64, T]</c>) are excluded — the body clones per CONCRETE instantiation (RF-S959).
     /// </summary>
-    private void RegisterTupleSerializeRoutine(TupleTypeInfo newType, List<TypeInfo> elementTypes)
+    private void RegisterTupleSerializeRoutine(TupleTypeSymbol newType, List<TypeSymbol> elementTypes)
     {
-        TypeInfo? serialValueType = LookupType(name: "SerialValue");
+        TypeSymbol? serialValueType = LookupType(name: "SerialValue");
         if (serialValueType != null && elementTypes.All(predicate: et =>
-                et is not GenericParameterTypeInfo && (et is RoutineTypeInfo ||
+                et is not GenericParameterTypeSymbol && (et is RoutineTypeSymbol ||
                                                        LookupMemberRoutine(type: et,
                                                            memberRoutineName: RuntimeContract
                                                               .Serialize) != null)))
@@ -1978,7 +1976,7 @@ public sealed partial class TypeRegistry
     /// two scopes' teardown. Generic-parameter elements are not Assignable here, so store is registered
     /// per CONCRETE instantiation (like serialize).
     /// </summary>
-    private void RegisterTupleStoreRoutine(TupleTypeInfo newType, List<TypeInfo> elementTypes)
+    private void RegisterTupleStoreRoutine(TupleTypeSymbol newType, List<TypeSymbol> elementTypes)
     {
         if (elementTypes.All(predicate: et =>
                 CanAutoDeriveAssignable(type: et) ||
@@ -1991,15 +1989,15 @@ public sealed partial class TypeRegistry
 
     /// <summary>Auto-registers <c>cmp</c> plus the derived <c>lt/le/gt/ge</c> operators if ALL element
     /// types support cmp.</summary>
-    private void RegisterTupleComparisonRoutines(TupleTypeInfo newType,
-        List<TypeInfo> elementTypes)
+    private void RegisterTupleComparisonRoutines(TupleTypeSymbol newType,
+        List<TypeSymbol> elementTypes)
     {
-        TypeInfo? boolType = LookupType(name: "Bool");
-        TypeInfo? comparisonSignType = LookupType(name: "ComparisonSign");
+        TypeSymbol? boolType = LookupType(name: "Bool");
+        TypeSymbol? comparisonSignType = LookupType(name: "ComparisonSign");
         if (boolType != null && comparisonSignType != null && elementTypes.All(predicate: et =>
                 LookupMemberRoutine(type: et, memberRoutineName: "cmp") != null))
         {
-            var youParam = new ParameterInfo(name: "you", type: newType);
+            var youParam = new ParamInfo(name: "you", type: newType);
             RegisterSynthesizedMemberRoutine(name: "cmp",
                 owner: newType,
                 returnType: comparisonSignType,
@@ -2030,7 +2028,7 @@ public sealed partial class TypeRegistry
     /// <param name="innerType">The type being wrapped.</param>
     /// <param name="isReadOnly">Whether this is a read-only wrapper (Viewing, Consulting).</param>
     /// <returns>The cached or newly created wrapper type.</returns>
-    public WrapperTypeInfo GetOrCreateWrapperType(string wrapperName, TypeInfo innerType,
+    public WrapperTypeSymbol GetOrCreateWrapperType(string wrapperName, TypeSymbol innerType,
         bool isReadOnly)
     {
         // Build the cache key using the inner type's FullName for uniqueness.
@@ -2039,7 +2037,7 @@ public sealed partial class TypeRegistry
         string key = $"{wrapperName}[{innerType.FullName}]";
 
         // Check cache
-        if (_wrapperResolutions.TryGetValue(key: key, value: out WrapperTypeInfo? wrapperType))
+        if (_wrapperResolutions.TryGetValue(key: key, value: out WrapperTypeSymbol? wrapperType))
         {
             if (!_stdlibAnalysisActive)
             {
@@ -2050,7 +2048,7 @@ public sealed partial class TypeRegistry
         }
 
         // Create and cache — all wrapper types live in Core
-        var newType = new WrapperTypeInfo(wrapperName: wrapperName,
+        var newType = new WrapperTypeSymbol(wrapperName: wrapperName,
             innerType: innerType,
             isReadOnly: isReadOnly) { Module = "Core" };
         _wrapperResolutions[key: key] = newType;
@@ -2069,7 +2067,7 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="type">The type to check.</param>
     /// <returns>True if the type is a value type, false otherwise.</returns>
-    public static bool IsValueType(TypeInfo type)
+    public static bool IsValueType(TypeSymbol type)
     {
         return type.Category switch
         {
@@ -2085,7 +2083,7 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="category">The category of types to retrieve.</param>
     /// <returns>An enumerable of all types in the specified category.</returns>
-    public IEnumerable<TypeInfo> GetTypesByCategory(TypeCategory category)
+    public IEnumerable<TypeSymbol> GetTypesByCategory(TypeCategory category)
     {
         return _types.Values
                      .Concat(second: _resolutions.Values)
@@ -2102,7 +2100,7 @@ public sealed partial class TypeRegistry
     public int MaterializeAllLazyStdlibTypes()
     {
         int n = 0;
-        foreach (TypeInfo t in _resolutions.Values
+        foreach (TypeSymbol t in _resolutions.Values
                                            .Distinct()
                                            .ToList())
         {
@@ -2128,7 +2126,7 @@ public sealed partial class TypeRegistry
     {
         int n = 0;
 
-        void Relazy(TypeInfo t)
+        void Relazy(TypeSymbol t)
         {
             if (!IsStdlibLazy(type: t) && t.TypeArguments is { Count: > 0 } && IsFullyConcrete(t: t))
             {
@@ -2137,14 +2135,14 @@ public sealed partial class TypeRegistry
             }
         }
 
-        foreach (TypeInfo t in _resolutions.Values
+        foreach (TypeSymbol t in _resolutions.Values
                                            .Distinct()
                                            .ToList())
         {
             Relazy(t: t);
         }
 
-        foreach (TypeInfo t in _wrapperResolutions.Values
+        foreach (TypeSymbol t in _wrapperResolutions.Values
                                                   .Distinct()
                                                   .ToList())
         {
@@ -2158,17 +2156,17 @@ public sealed partial class TypeRegistry
     /// All concrete (non-generic-definition) entity and record instances created during semantic analysis,
     /// filtered to live (reachable) types and excluding stdlib-lazy deferred instances. Examples: <c>List[S64]</c>,
     /// <c>Maybe[Text]</c>. Used by <c>GenericMonomorphizationPass</c> to enumerate which member-routine bodies
-    /// need rewriting. Deduplicated by reference because the dual-index scheme stores the same <see cref="TypeInfo"/>
+    /// need rewriting. Deduplicated by reference because the dual-index scheme stores the same <see cref="TypeSymbol"/>
     /// under both the full and short keys.
     /// </summary>
-    public IEnumerable<TypeInfo> AllConcreteGenericInstances =>
+    public IEnumerable<TypeSymbol> AllConcreteGenericInstances =>
         _resolutions.Values
                     .Where(predicate: t =>
-                         t is EntityTypeInfo or RecordTypeInfo &&
+                         t is EntityTypeSymbol or RecordTypeSymbol &&
                          t is { IsGenericDefinition: false, TypeArguments: { Count: > 0 } args } &&
                          args.All(predicate: IsFullyConcrete) && IsConcreteTypeLive(t: t) &&
                          !IsStdlibLazy(type: t))
-                    .Distinct(); // dual-index stores the same TypeInfo under two keys; deduplicate by reference.
+                    .Distinct(); // dual-index stores the same TypeSymbol under two keys; deduplicate by reference.
 
     /// <summary>
     /// All concrete generic instances, bypassing the liveness filter.
@@ -2176,25 +2174,25 @@ public sealed partial class TypeRegistry
     /// monomorphization itself (e.g. ListEmitter[Byte] discovered while rewriting List[Byte].iter).
     /// Wrapper types are excluded to prevent runaway growth for self-wrapping families.
     /// </summary>
-    public IEnumerable<TypeInfo> AllConcreteGenericInstancesUnfiltered =>
+    public IEnumerable<TypeSymbol> AllConcreteGenericInstancesUnfiltered =>
         _resolutions.Values
                     .Where(predicate: t =>
-                         t is EntityTypeInfo or RecordTypeInfo &&
+                         t is EntityTypeSymbol or RecordTypeSymbol &&
                          t is { IsGenericDefinition: false, TypeArguments: { Count: > 0 } args } &&
                          args.All(predicate: IsFullyConcrete) && !IsStdlibLazy(type: t))
                     .Distinct();
 
     /// <summary>
-    /// Returns true when a type argument is fully concrete — no GenericParameterTypeInfo,
-    /// ErrorTypeInfo, or None at any nesting depth.
+    /// Returns true when a type argument is fully concrete — no GenericParameterTypeSymbol,
+    /// ErrorTypeSymbol, or None at any nesting depth.
     /// </summary>
-    private static bool IsFullyConcrete(TypeInfo t)
+    private static bool IsFullyConcrete(TypeSymbol t)
     {
         // An unresolved associated-type projection (`S/Iter`) or protocol self (`Me`/ProtocolSelf)
         // is NOT concrete — both must be resolved to a concrete type during monomorphization before
         // they can be instantiated/codegen'd.
-        if (t is GenericParameterTypeInfo or ErrorTypeInfo or AssociatedProjectionTypeInfo
-            or ProtocolSelfTypeInfo)
+        if (t is GenericParameterTypeSymbol or ErrorTypeSymbol or AssociatedProjectionTypeSymbol
+            or ProtocolSelfTypeSymbol)
         {
             return false;
         }
@@ -2221,11 +2219,11 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>
-    /// Returns all concrete WrapperTypeInfo instances (e.g. Hijacked[RetainController])
+    /// Returns all concrete WrapperTypeSymbol instances (e.g. Hijacked[RetainController])
     /// whose type argument is fully resolved (no generic parameters or error types).
     /// Used by eager wrapper-forwarder synthesis.
     /// </summary>
-    public IEnumerable<WrapperTypeInfo> AllConcreteWrapperInstances =>
+    public IEnumerable<WrapperTypeSymbol> AllConcreteWrapperInstances =>
         _wrapperResolutions.Values
                            .Where(predicate: t =>
                                 t.TypeArguments is { Count: > 0 } args &&
@@ -2240,7 +2238,7 @@ public sealed partial class TypeRegistry
     /// during stdlib analysis but never reached the liveness walk (e.g. as a field type of an
     /// iterator entity referenced indirectly via represent/diagnose).
     /// </summary>
-    public IEnumerable<WrapperTypeInfo> AllConcreteWrapperInstancesUnfiltered =>
+    public IEnumerable<WrapperTypeSymbol> AllConcreteWrapperInstancesUnfiltered =>
         _wrapperResolutions.Values
                            .Where(predicate: t =>
                                 t.TypeArguments is { Count: > 0 } args &&
@@ -2251,15 +2249,15 @@ public sealed partial class TypeRegistry
     /// Gets all types that can have memberRoutines (records, entities, choices, flags).
     /// </summary>
     /// <returns>An enumerable of all types that can have memberRoutines.</returns>
-    public IEnumerable<TypeInfo> GetTypesWithMemberRoutines()
+    public IEnumerable<TypeSymbol> GetTypesWithMemberRoutines()
     {
-        IEnumerable<TypeInfo> namedTypes = _types.Values.Where(predicate: t =>
+        IEnumerable<TypeSymbol> namedTypes = _types.Values.Where(predicate: t =>
             t.Category is TypeCategory.Record or TypeCategory.Entity or TypeCategory.Choice
                 or TypeCategory.Flags or TypeCategory.Crashable or TypeCategory.Variant);
 
         // Include tuple types from resolutions cache
-        IEnumerable<TypeInfo> tupleTypes =
-            _resolutions.Values.Where(predicate: t => t is TupleTypeInfo);
+        IEnumerable<TypeSymbol> tupleTypes =
+            _resolutions.Values.Where(predicate: t => t is TupleTypeSymbol);
 
         // Materialize: callers (e.g. WiredRoutinePass wired-body synthesis) register new resolutions
         // WHILE iterating this, which would invalidate a lazy enumerator over the live `_types`/
@@ -2271,12 +2269,12 @@ public sealed partial class TypeRegistry
     /// <summary>Concrete routine types from the resolutions cache (structural — never in <c>_types</c>).
     /// WiredRoutinePass iterates these to synthesize their wired bodies (serialize) regardless of the
     /// GetAllRoutines liveness filter, mirroring the tuple path.</summary>
-    public IEnumerable<TypeInfo> GetResolvedRoutineTypes()
+    public IEnumerable<TypeSymbol> GetResolvedRoutineTypes()
     // Materialized: like GetTypesWithMemberRoutines, wired-body synthesis registers resolutions while
     // iterating this, which would invalidate a lazy enumerator over the live `_resolutions`.
     {
     return _resolutions.Values
-                       .Where(predicate: t => t is RoutineTypeInfo { IsGenericDefinition: false })
+                       .Where(predicate: t => t is RoutineTypeSymbol { IsGenericDefinition: false })
                        .ToList();
     }
 
@@ -2284,7 +2282,7 @@ public sealed partial class TypeRegistry
     /// Gets all registered types.
     /// </summary>
     /// <returns>An enumerable of all types.</returns>
-    public IEnumerable<TypeInfo> GetAllTypes()
+    public IEnumerable<TypeSymbol> GetAllTypes()
     {
         return _types.Values;
     }
@@ -2294,21 +2292,21 @@ public sealed partial class TypeRegistry
     /// For generic implementing types, resolves the concrete type against the protocol's type arguments.
     /// This is the authoritative implementer list; codegen should read this instead of scanning all types.
     /// </summary>
-    public List<TypeInfo> GetProtocolImplementors(ProtocolTypeInfo protocol)
+    public List<TypeSymbol> GetProtocolImplementors(ProtocolTypeSymbol protocol)
     {
-        ProtocolTypeInfo protocolDef = protocol.GenericDefinition ?? protocol;
+        ProtocolTypeSymbol protocolDef = protocol.GenericDefinition ?? protocol;
         string protocolBaseName = protocolDef.Name;
 
-        var result = new List<TypeInfo>();
+        var result = new List<TypeSymbol>();
         var seen = new HashSet<string>();
 
-        IEnumerable<TypeInfo> candidates = GetTypesByCategory(category: TypeCategory.Entity)
+        IEnumerable<TypeSymbol> candidates = GetTypesByCategory(category: TypeCategory.Entity)
                                           .Concat(second: GetTypesByCategory(
                                                category: TypeCategory.Record))
                                           .Concat(second: GetTypesByCategory(
                                                category: TypeCategory.Crashable));
 
-        foreach (TypeInfo type in candidates)
+        foreach (TypeSymbol type in candidates)
         {
             if (type.IsGenericDefinition && protocol.TypeArguments == null)
             {
@@ -2320,7 +2318,7 @@ public sealed partial class TypeRegistry
                 continue;
             }
 
-            List<TypeInfo>? implemented = GetImplementedProtocols(type: type);
+            List<TypeSymbol>? implemented = GetImplementedProtocols(type: type);
             if (implemented == null)
             {
                 continue;
@@ -2337,30 +2335,30 @@ public sealed partial class TypeRegistry
     }
 
     // Returns the implemented-protocols list for an entity or record; null for other type kinds.
-    private static List<TypeInfo>? GetImplementedProtocols(TypeInfo type)
+    private static List<TypeSymbol>? GetImplementedProtocols(TypeSymbol type)
     {
         return type switch
         {
-            EntityTypeInfo e => e.ImplementedProtocols,
-            RecordTypeInfo r => r.ImplementedProtocols,
+            EntityTypeSymbol e => e.ImplementedProtocols,
+            RecordTypeSymbol r => r.ImplementedProtocols,
             _ => null
         };
     }
 
     // Scans the implemented-protocol list of a candidate type and adds a matching implementor
     // (concrete, generic-bound, or bare) to result when the protocol base name matches.
-    private void TryAddImplementor(ProtocolTypeInfo protocol, string protocolBaseName,
-        TypeInfo type, List<TypeInfo> implemented, List<TypeInfo> result)
+    private void TryAddImplementor(ProtocolTypeSymbol protocol, string protocolBaseName,
+        TypeSymbol type, List<TypeSymbol> implemented, List<TypeSymbol> result)
     {
-        foreach (TypeInfo impl in implemented)
+        foreach (TypeSymbol impl in implemented)
         {
-            string implBaseName = (impl as ProtocolTypeInfo)?.GenericDefinition?.Name ?? impl.Name;
+            string implBaseName = (impl as ProtocolTypeSymbol)?.GenericDefinition?.Name ?? impl.Name;
             if (implBaseName != protocolBaseName)
             {
                 continue;
             }
 
-            TypeInfo? toAdd = ResolveImplementorMatch(protocol: protocol, type: type, impl: impl);
+            TypeSymbol? toAdd = ResolveImplementorMatch(protocol: protocol, type: type, impl: impl);
             if (toAdd != null)
             {
                 result.Add(item: toAdd);
@@ -2371,8 +2369,8 @@ public sealed partial class TypeRegistry
 
     // Resolves which concrete type to add for a protocol-base-name match: null when the match
     // fails type-argument or binding checks (caller should skip this impl and continue).
-    private TypeInfo? ResolveImplementorMatch(ProtocolTypeInfo protocol, TypeInfo type,
-        TypeInfo impl)
+    private TypeSymbol? ResolveImplementorMatch(ProtocolTypeSymbol protocol, TypeSymbol type,
+        TypeSymbol impl)
     {
         if (!type.IsGenericDefinition && protocol.TypeArguments is { Count: > 0 } &&
             impl.TypeArguments is { Count: > 0 })
@@ -2394,7 +2392,7 @@ public sealed partial class TypeRegistry
     /// True when a concrete implementer's <c>obeys Proto[...]</c> type arguments match the queried
     /// protocol's type arguments positionally by fully-qualified name (equal arity required).
     /// </summary>
-    private static bool ProtocolTypeArgsMatch(ProtocolTypeInfo protocol, TypeInfo impl)
+    private static bool ProtocolTypeArgsMatch(ProtocolTypeSymbol protocol, TypeSymbol impl)
     {
         if (protocol.TypeArguments!.Count != impl.TypeArguments!.Count)
         {
@@ -2419,10 +2417,10 @@ public sealed partial class TypeRegistry
     /// bindable — e.g. <c>entity BitArrayIterator[N] obeys Iterator[Bool]</c> leaves N unbound, so the
     /// obeyer surfaces only via real <c>BitArrayIterator[8]</c>-style instantiations elsewhere.
     /// </summary>
-    private TypeInfo? TryBindGenericImplementor(ProtocolTypeInfo protocol, TypeInfo type,
-        TypeInfo impl)
+    private TypeSymbol? TryBindGenericImplementor(ProtocolTypeSymbol protocol, TypeSymbol type,
+        TypeSymbol impl)
     {
-        ProtocolTypeInfo protoDef2 = protocol.GenericDefinition ?? protocol;
+        ProtocolTypeSymbol protoDef2 = protocol.GenericDefinition ?? protocol;
         if (protoDef2.GenericParameters is not { Count: > 0 } ||
             type.GenericParameters is not { Count: > 0 } ||
             impl.TypeArguments is not { Count: > 0 })
@@ -2434,11 +2432,11 @@ public sealed partial class TypeRegistry
         // own generic parameter (e.g. `obeys Iterator[T]` with obeyer param `T`),
         // bind that obeyer-param to the protocol's concrete arg in the same slot.
         // Concrete entries in impl.TypeArguments (e.g. `Bool`) contribute no binding.
-        var obeyerBindings = new Dictionary<string, TypeInfo>();
+        var obeyerBindings = new Dictionary<string, TypeSymbol>();
         int slots = Math.Min(val1: impl.TypeArguments.Count, val2: protocol.TypeArguments!.Count);
         for (int slot = 0; slot < slots; slot++)
         {
-            if (impl.TypeArguments[index: slot] is GenericParameterTypeInfo gp &&
+            if (impl.TypeArguments[index: slot] is GenericParameterTypeSymbol gp &&
                 type.GenericParameters.Contains(item: gp.Name))
             {
                 obeyerBindings[key: gp.Name] = protocol.TypeArguments[index: slot];
@@ -2505,7 +2503,7 @@ public sealed partial class TypeRegistry
     /// <param name="location">Source location for error reporting; stored on the variable for
     /// diagnostics that need to point back to the declaration site.</param>
     /// <returns>True if successful, false if already declared in this scope.</returns>
-    public bool DeclareVariable(string name, TypeInfo type, bool isPreset = false,
+    public bool DeclareVariable(string name, TypeSymbol type, bool isPreset = false,
         Expression? presetValue = null, bool isNullable = false, bool isGlobal = false,
         SourceLocation? location = null)
     {
@@ -2531,7 +2529,7 @@ public sealed partial class TypeRegistry
     /// <param name="module">The module this preset belongs to.</param>
     /// <param name="value">The value.</param>
     /// <param name="isSecret">Whether the preset is file-private (secret).</param>
-    public void RegisterPreset(string name, TypeInfo type, string? module = null,
+    public void RegisterPreset(string name, TypeSymbol type, string? module = null,
         Expression? value = null, bool isSecret = false)
     {
         var variable = new VariableInfo(name: name, type: type)
@@ -2572,7 +2570,7 @@ public sealed partial class TypeRegistry
     /// across files within the same module. Mirrors <see cref="RegisterPreset"/> but the global is
     /// modifiable and NOT a preset (so it is not inlined; codegen gives it real <c>@global</c> storage).
     /// </summary>
-    public void RegisterGlobal(string name, TypeInfo type, string? module = null,
+    public void RegisterGlobal(string name, TypeSymbol type, string? module = null,
         bool isSecret = false)
     {
         var variable = new VariableInfo(name: name, type: type)
@@ -2603,7 +2601,7 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="name">The variable name to narrow.</param>
     /// <param name="narrowedType">The narrowed type.</param>
-    public void NarrowVariable(string name, TypeInfo narrowedType)
+    public void NarrowVariable(string name, TypeSymbol narrowedType)
     {
         _currentScope.NarrowVariable(name: name, narrowedType: narrowedType);
     }
@@ -2613,7 +2611,7 @@ public sealed partial class TypeRegistry
     /// </summary>
     /// <param name="name">The variable name to look up.</param>
     /// <returns>The narrowed type if found, null otherwise.</returns>
-    public TypeInfo? GetNarrowedType(string name)
+    public TypeSymbol? GetNarrowedType(string name)
     {
         return _currentScope.GetNarrowedType(name: name);
     }

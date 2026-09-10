@@ -4,7 +4,7 @@ using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// ABI boundary coercion for struct-record values crossing a call boundary.
@@ -78,28 +78,28 @@ public partial class LlvmEmitter
     /// SSE/FP-classified (and may be homogeneous-float aggregates), which Phase 3 handles; integer
     /// coercion would place them in the wrong register file. Left <see cref="AbiKind.Direct"/> here.
     /// </summary>
-    private bool StructHasFloatField(TypeInfo type)
+    private bool StructHasFloatField(TypeSymbol type)
     {
-        if (type is not RecordTypeInfo { MemberVariables: { } members })
+        if (type is not RecordTypeSymbol { MemberVariables: { } members })
         {
             return false;
         }
 
         return members.Any(predicate: m =>
             GetLlvmType(type: m.Type) is "half" or LlvmFloat or LlvmDouble or "fp128" ||
-            m.Type is RecordTypeInfo { BackendType: null } && StructHasFloatField(type: m.Type));
+            m.Type is RecordTypeSymbol { BackendType: null } && StructHasFloatField(type: m.Type));
     }
 
     /// <summary>
     /// A value type that crosses a call boundary BY VALUE and is therefore in scope for ABI
     /// coercion: a struct record with no <c>@llvm</c> backend and no carrier kind (Result/Lookup/
     /// Maybe are codegen-owned and handled by their own paths). Tuples qualify — they are
-    /// <c>RecordTypeInfo</c> with item0..itemN fields. Excludes <c>@llvm</c> scalar/aggregate
+    /// <c>RecordTypeSymbol</c> with item0..itemN fields. Excludes <c>@llvm</c> scalar/aggregate
     /// records, entities, wrappers, protocols, and generic definitions.
     /// </summary>
-    private static bool IsByValueStructRecord(TypeInfo type)
+    private static bool IsByValueStructRecord(TypeSymbol type)
     {
-        return type is RecordTypeInfo
+        return type is RecordTypeSymbol
         {
             BackendType: null, IsGenericDefinition: false, CarrierKind: CarrierKind.None
         };
@@ -122,7 +122,7 @@ public partial class LlvmEmitter
     /// Coercion reinterprets the struct's bytes as the ABI register form (via a stack round-trip),
     /// placing each chunk in the correct register file (Phase 3 adds the SSE/FP + HFA classes).
     /// </summary>
-    private AbiPassing AbiClassify(TypeInfo type)
+    private AbiPassing AbiClassify(TypeSymbol type)
     {
         if (!IsByValueStructRecord(type: type))
         {
@@ -168,7 +168,7 @@ public partial class LlvmEmitter
 
     // SysV x86-64 per-eightbyte INTEGER/SSE classification for a float-bearing struct: ≤ 8 bytes → one
     // classified chunk; 9–16 → a classified pair; > 16 → Indirect.
-    private AbiPassing ClassifySysVFloatStruct(TypeInfo type, int size)
+    private AbiPassing ClassifySysVFloatStruct(TypeSymbol type, int size)
     {
         if (size > 16)
         {
@@ -212,19 +212,19 @@ public partial class LlvmEmitter
     /// <summary>
     /// Flattens a by-value struct into its scalar leaf fields — <c>(byte offset, byte size, llvm type)</c>
     /// each — recursing through nested by-value structs/tuples and replicating the record layout formula
-    /// (<see cref="RecordTypeInfo.SizeBytes"/>: each member padded to its natural
-    /// <see cref="TypeInfo.Alignment"/>). Feeds the per-eightbyte SSE/INTEGER classification and the HFA test.
+    /// (<see cref="RecordTypeSymbol.SizeBytes"/>: each member padded to its natural
+    /// <see cref="TypeSymbol.Alignment"/>). Feeds the per-eightbyte SSE/INTEGER classification and the HFA test.
     /// </summary>
-    private void CollectLeafMemberVariables(TypeInfo type, int baseOffset,
+    private void CollectLeafMemberVariables(TypeSymbol type, int baseOffset,
         List<(int Off, int Size, string Llvm)> leaves)
     {
-        if (IsByValueStructRecord(type: type) && type is RecordTypeInfo
+        if (IsByValueStructRecord(type: type) && type is RecordTypeSymbol
             {
                 MemberVariables: { } members
             })
         {
             int size = 0;
-            foreach (TypeInfo mvType in members.Select(selector: mv => mv.Type))
+            foreach (TypeSymbol mvType in members.Select(selector: mv => mv.Type))
             {
                 int memberSize = GetTypeSize(type: mvType);
                 int alignment = mvType.Alignment(pointerSize: _pointerSizeBytes);
@@ -298,7 +298,7 @@ public partial class LlvmEmitter
     /// floating-point type (float/double/half). On success <paramref name="coerce"/> is <c>[N x elem]</c>,
     /// which the AArch64 backend passes in N consecutive SIMD/FP registers.
     /// </summary>
-    private bool TryClassifyHfa(TypeInfo type, out string coerce)
+    private bool TryClassifyHfa(TypeSymbol type, out string coerce)
     {
         coerce = "";
         var leaves = new List<(int Off, int Size, string Llvm)>();
@@ -331,7 +331,7 @@ public partial class LlvmEmitter
     /// (the <see cref="AbiKind.Indirect"/> return form). Async variants return carriers
     /// (Result/Lookup/i1) through their own lowering and are never plain-sret.
     /// </summary>
-    private bool ReturnsViaSret(RoutineInfo routine, TypeInfo? overrideReturnType = null)
+    private bool ReturnsViaSret(RoutineInfo routine, TypeSymbol? overrideReturnType = null)
     {
         // Async routines (suspended/threaded) hand their result back through their own ABI — the
         // Task[T] result cell / continuation, NOT a plain sret pointer. Forcing sret here breaks the
@@ -351,7 +351,7 @@ public partial class LlvmEmitter
         // overrideReturnType lets a CALL SITE classify by the SUBSTITUTED return type when the carried
         // routine is a UNIVERSAL derive (OwnerType = generic param), whose raw ReturnType is still `T`.
         // Classifying the raw `T` would trip GetLlvmType; the concrete call/callee use the substituted type.
-        TypeInfo? rt = overrideReturnType ?? routine.ReturnType;
+        TypeSymbol? rt = overrideReturnType ?? routine.ReturnType;
         return rt != null && AbiClassify(type: rt)
            .Kind == AbiKind.Indirect;
     }
@@ -418,7 +418,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// A type whose store is trivial — a plain bitwise duplicate is sound, with no managed
     /// <c>store</c> to bump a refcount and no managed <c>destroy</c> to balance. Decided by the
-    /// SAME oracle the copy-lowering and teardown passes use: <see cref="Compiler.Declaration.TypeRegistry.GetLifecycle(TypeModel.Types.TypeInfo)"/>
+    /// SAME oracle the copy-lowering and teardown passes use: <see cref="Builder.Declaration.TypeRegistry.GetLifecycle(TypeSymbol)"/>
     /// returns a non-null <c>Store</c> exactly when the type (or, recursively, a field of it) is a
     /// managed leaf like <c>Text</c>/<c>Decimal</c>; a null <c>Store</c> means trivially Assignable.
     /// Tuples and composite records are handled by the recursion inside GetLifecycle.
@@ -430,7 +430,7 @@ public partial class LlvmEmitter
     /// races that injected store: trivially-Assignable args get no <c>store</c>, so byval is the only
     /// duplication and it is sound.
     /// </summary>
-    private bool IsTriviallyAssignableRecord(TypeInfo type)
+    private bool IsTriviallyAssignableRecord(TypeSymbol type)
     {
         return _registry.GetLifecycle(type: type)
                         .Store == null;
@@ -447,7 +447,7 @@ public partial class LlvmEmitter
     /// at that boundary mismatches the worker's value-typed parameter. Callers consult this only AFTER
     /// excluding by-ref receivers (<c>me</c>) and thread-shareable args.
     /// </summary>
-    private bool ParameterPassedByval(RoutineInfo routine, TypeInfo paramType)
+    private bool ParameterPassedByval(RoutineInfo routine, TypeSymbol paramType)
     {
         return !routine.IsAsync && AbiClassify(type: paramType)
            .Kind == AbiKind.Indirect && IsTriviallyAssignableRecord(type: paramType);
@@ -461,7 +461,7 @@ public partial class LlvmEmitter
     /// copy-lowering pass already balances any managed <c>store</c>/<c>destroy</c>). Excludes async
     /// routines, whose workers receive args through their own cell/closure handoff.
     /// </summary>
-    private string? ParameterCoerceType(RoutineInfo routine, TypeInfo paramType)
+    private string? ParameterCoerceType(RoutineInfo routine, TypeSymbol paramType)
     {
         if (routine.IsAsync)
         {
@@ -479,7 +479,7 @@ public partial class LlvmEmitter
     /// reinterprets the struct argument value into its ABI integer form and rewrites the argument.
     /// Returns true (with <paramref name="newValue"/>/<paramref name="newType"/> set) when applied.
     /// </summary>
-    private bool TryCoerceArgToRegister(StringBuilder sb, string argValue, TypeInfo parameterType,
+    private bool TryCoerceArgToRegister(StringBuilder sb, string argValue, TypeSymbol parameterType,
         RoutineInfo callee, out string newValue, out string newType)
     {
         newValue = argValue;
@@ -505,8 +505,8 @@ public partial class LlvmEmitter
     /// /<paramref name="newType"/> set) when it applied; false to leave the argument unchanged.
     /// The alloca goes in the entry block; the store is emitted at the call site.
     /// </summary>
-    private bool TryCoerceArgToByval(StringBuilder sb, string argValue, TypeInfo actualType,
-        TypeInfo parameterType, RoutineInfo callee, out string newValue,
+    private bool TryCoerceArgToByval(StringBuilder sb, string argValue, TypeSymbol actualType,
+        TypeSymbol parameterType, RoutineInfo callee, out string newValue,
         out string newType)
     {
         newValue = argValue;

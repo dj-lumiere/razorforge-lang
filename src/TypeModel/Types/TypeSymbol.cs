@@ -6,7 +6,7 @@ namespace TypeModel.Types;
 /// <summary>
 /// Base class for all type information in the TypeRegistry.
 /// </summary>
-public abstract class TypeInfo
+public abstract class TypeSymbol
 {
     /// <summary>The name of the type (e.g., "S32", "List", "Point").</summary>
     public string Name { get; }
@@ -24,7 +24,7 @@ public abstract class TypeInfo
     public bool IsGenericDefinition => GenericParameters is { Count: > 0 };
 
     /// <summary>For resolved generics, the type arguments used.</summary>
-    public List<TypeInfo>? TypeArguments { get; init; }
+    public List<TypeSymbol>? TypeArguments { get; init; }
 
     /// <summary>Whether this is a resolved generic type.</summary>
     public bool IsGenericResolution => TypeArguments is { Count: > 0 };
@@ -135,7 +135,7 @@ public abstract class TypeInfo
     /// Drops the baked <c>[typeargs]</c> suffix from a type/routine name STRING (e.g. "List[Core.S64]"
     /// → "List"). This is the ONE place the generic-arg suffix is parsed off a name; prefer the
     /// structural <see cref="TypeArguments"/> / <see cref="BareName"/> over calling this. Use it only
-    /// for raw name/registry-key strings that have no live <see cref="TypeInfo"/> to read
+    /// for raw name/registry-key strings that have no live <see cref="TypeSymbol"/> to read
     /// <see cref="BareName"/> from — never re-implement <c>name.IndexOf('[')</c> inline.
     /// </summary>
     public static string StripTypeArgs(string name)
@@ -150,7 +150,7 @@ public abstract class TypeInfo
     /// Returns the substring inside the outermost <c>[...]</c> of a type/routine name STRING
     /// (e.g. "Accessing[SortedSet[T]]" → "SortedSet[T]", "Dict[K, V]" → "K, V"), or <c>null</c> when the
     /// name carries no non-empty bracket suffix. Companion to <see cref="StripTypeArgs"/> for raw
-    /// name/registry-key strings that have no live <see cref="TypeInfo"/> to read
+    /// name/registry-key strings that have no live <see cref="TypeSymbol"/> to read
     /// <see cref="TypeArguments"/> from — never re-implement the <c>IndexOf('[')</c> /
     /// <c>LastIndexOf(']')</c> locate inline.
     /// </summary>
@@ -195,10 +195,10 @@ public abstract class TypeInfo
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="TypeInfo"/> class.
+    /// Initializes a new instance of the <see cref="TypeSymbol"/> class.
     /// </summary>
     /// <param name="name">The type name.</param>
-    protected TypeInfo(string name)
+    protected TypeSymbol(string name)
     {
         Name = name;
     }
@@ -206,7 +206,7 @@ public abstract class TypeInfo
     /// <summary>
     /// Creates a resolved version of this generic type with the given type arguments.
     /// </summary>
-    public abstract TypeInfo CreateInstance(List<TypeInfo> typeArguments);
+    public abstract TypeSymbol CreateInstance(List<TypeSymbol> typeArguments);
 
     /// <summary>
     /// Size in bytes of a value of this type at runtime (for allocation, GEP element strides,
@@ -222,7 +222,7 @@ public abstract class TypeInfo
     /// <summary>
     /// Natural (ABI) alignment in bytes of a value of this type — the C-ABI alignment the emitted LLVM
     /// type is laid out at. The default is <c>min(SizeBytes, 16)</c>, correct for every pointer-shaped or
-    /// scalar kind (a scalar's alignment equals its size, capped at 16). <see cref="RecordTypeInfo"/>
+    /// scalar kind (a scalar's alignment equals its size, capped at 16). <see cref="RecordTypeSymbol"/>
     /// overrides it: a composite's alignment is the MAX of its members' alignments (NOT its total size),
     /// so a nested struct — whose size can exceed its alignment — pads its parent correctly. Using size as
     /// a proxy for alignment (the old formula) over-aligns nested aggregates and diverges from the LLVM /
@@ -249,7 +249,7 @@ public abstract class TypeInfo
     /// when a record without a direct backend type is substituted into another record's
     /// backend template (e.g. <c>Array[63, Text]</c> → <c>[63 x { ptr, i64, ptr }]</c>).
     /// Struct literals apply the same per-field alignment + final natural-alignment rule
-    /// that <see cref="RecordTypeInfo.SizeBytes"/> uses.
+    /// that <see cref="RecordTypeSymbol.SizeBytes"/> uses.
     /// </summary>
     public static int SizeOfLlvmType(string llvmType, int pointerSize)
     {
@@ -304,7 +304,7 @@ public abstract class TypeInfo
     }
 
     // Size of an inline LLVM struct literal body (fields already stripped of the outer braces).
-    // Applies the same per-field alignment + final natural-alignment rule as RecordTypeInfo.SizeBytes.
+    // Applies the same per-field alignment + final natural-alignment rule as RecordTypeSymbol.SizeBytes.
     private static int SizeOfLlvmStructLiteral(string inner, int pointerSize)
     {
         int size = 0;

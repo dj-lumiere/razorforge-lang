@@ -1,10 +1,10 @@
-using Compiler.Instantiation;
-using Compiler.Instantiation.Passes;
-using Compiler.Declaration;
-using Compiler.Targeting;
+using Builder.Instantiation;
+using Builder.Instantiation.Passes;
+using Builder.Declaration;
+using Builder.Targeting;
 using SyntaxTree;
 
-namespace Compiler.Desugaring;
+namespace Builder.Desugaring;
 
 /// <summary>
 /// Guarded context for all desugaring passes.

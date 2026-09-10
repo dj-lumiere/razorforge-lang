@@ -1,12 +1,10 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 /// <summary>
 /// Phase 3 &amp; 4: Declaration collection and type body resolution.
@@ -359,7 +357,7 @@ public sealed partial class SemanticVerifier
         // `BitArray[N]` — those lower to a single constant global. Heap collections (List/Set/Dict/
         // CircularList/...) would rebuild the whole collection on every use (the fun_bench OOM class), so
         // reject them. Non-collection presets (scalars, constructor calls like `C64(...)`) are fine.
-        if (preset.Value is ListLiteralExpression && presetType is not ErrorTypeInfo)
+        if (preset.Value is ListLiteralExpression && presetType is not ErrorTypeSymbol)
         {
             string baseName = presetType.BareName;
             if (baseName is not ("Array" or "BitArray"))
@@ -415,7 +413,7 @@ public sealed partial class SemanticVerifier
 
         call.LoweringKind = presetType switch
         {
-            RecordTypeInfo { BackendType: not null } => CallLoweringKind.TypeConstructor,
+            RecordTypeSymbol { BackendType: not null } => CallLoweringKind.TypeConstructor,
             _ => call.LoweringKind
         };
     }
@@ -423,18 +421,18 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Rejects records that contain themselves by value (directly or transitively) — such a
     /// record would need infinite storage, and the recursive size computation
-    /// (<c>RecordTypeInfo.SizeBytes</c>) would otherwise stack-overflow the compiler. Entities,
+    /// (<c>RecordTypeSymbol.SizeBytes</c>) would otherwise stack-overflow the compiler. Entities,
     /// wrappers, and <c>@llvm</c>-backed records are pointer-sized, so they break the cycle.
     /// </summary>
     /// <returns><c>true</c> if any self-containing value record was found (and reported).</returns>
     internal bool ValidateNoRecursiveValueRecords()
     {
         bool found = false;
-        foreach (TypeInfo t in _registry.GetAllTypes()
+        foreach (TypeSymbol t in _registry.GetAllTypes()
                                         .ToList())
         {
-            if (t is not RecordTypeInfo { BackendType: null, IsGenericDefinition: false } rec ||
-                rec is TupleTypeInfo)
+            if (t is not RecordTypeSymbol { BackendType: null, IsGenericDefinition: false } rec ||
+                rec is TupleTypeSymbol)
             {
                 continue;
             }
@@ -469,11 +467,11 @@ public sealed partial class SemanticVerifier
     /// only inline value-aggregate fields (records/tuples). Pointer-shaped types (entities,
     /// <c>@llvm</c>-backed records, wrappers) stop the walk — they don't contribute inline storage.
     /// </summary>
-    private static bool ValueAggregateReaches(RecordTypeInfo target, TypeInfo current,
+    private static bool ValueAggregateReaches(RecordTypeSymbol target, TypeSymbol current,
         HashSet<string> seen)
     {
         // Only inline value aggregates (plain records / tuples) propagate the cycle.
-        if (current is not RecordTypeInfo { BackendType: null } rec)
+        if (current is not RecordTypeSymbol { BackendType: null } rec)
         {
             return false;
         }
@@ -496,7 +494,7 @@ public sealed partial class SemanticVerifier
 
     private void CollectRecordDeclaration(RecordDeclaration record)
     {
-        var typeInfo = new RecordTypeInfo(name: record.Name)
+        var typeInfo = new RecordTypeSymbol(name: record.Name)
         {
             GenericParameters = record.GenericParameters,
             GenericConstraints = record.GenericConstraints,
@@ -522,19 +520,19 @@ public sealed partial class SemanticVerifier
                 location: record.Location);
         }
 
-        ApplyLayoutAnnotations(typeInfo: typeInfo, record: record);
+        ApplyLayoutAnnotations(typeSymbol: typeInfo, record: record);
 
         TryRegisterType(type: typeInfo, location: record.Location);
     }
 
     /// <summary>
-    /// Applies C-ABI layout control from <c>@layout("...")</c> annotations to <paramref name="typeInfo"/>.
+    /// Applies C-ABI layout control from <c>@layout("...")</c> annotations to <paramref name="typeSymbol"/>.
     /// Recognized arguments: <c>C</c> (natural layout, a no-op documentation marker), <c>packed</c>
-    /// (<see cref="RecordTypeInfo.IsPacked"/>), and <c>align=N</c> (<see cref="RecordTypeInfo.ForcedAlignment"/>,
+    /// (<see cref="RecordTypeSymbol.IsPacked"/>), and <c>align=N</c> (<see cref="RecordTypeSymbol.ForcedAlignment"/>,
     /// N a positive power of two). Multiple annotations compose (e.g. <c>packed</c> + <c>align=16</c>).
     /// Reports <see cref="SemanticDiagnosticCode.InvalidLayoutAnnotation"/> for anything else.
     /// </summary>
-    private void ApplyLayoutAnnotations(RecordTypeInfo typeInfo, RecordDeclaration record)
+    private void ApplyLayoutAnnotations(RecordTypeSymbol typeSymbol, RecordDeclaration record)
     {
         if (record.Annotations is not { } annotations)
         {
@@ -557,12 +555,12 @@ public sealed partial class SemanticVerifier
                     // intent and locks against future field reordering.
                     break;
                 case "packed":
-                    typeInfo.IsPacked = true;
+                    typeSymbol.IsPacked = true;
                     break;
                 default:
                     if (arg.StartsWith(value: "align="))
                     {
-                        ApplyAlignLayout(typeInfo: typeInfo,
+                        ApplyAlignLayout(typeSymbol: typeSymbol,
                             spec: arg["align=".Length..],
                             record: record);
                     }
@@ -608,11 +606,11 @@ public sealed partial class SemanticVerifier
     /// The full power-of-two range is needed — a C-union byte blob (natural alignment 1) forces its
     /// members' alignment (2/4/8/16), while 16/32/64 cover SSE/AVX/cache-line and page alignment goes up to
     /// 4096. Non-powers-of-two, 1, and huge values are rejected.</summary>
-    private void ApplyAlignLayout(RecordTypeInfo typeInfo, string spec, RecordDeclaration record)
+    private void ApplyAlignLayout(RecordTypeSymbol typeSymbol, string spec, RecordDeclaration record)
     {
         if (int.TryParse(s: spec, result: out int n) && n >= 2 && n <= 4096 && (n & n - 1) == 0)
         {
-            typeInfo.ForcedAlignment = n;
+            typeSymbol.ForcedAlignment = n;
             return;
         }
 
@@ -642,7 +640,7 @@ public sealed partial class SemanticVerifier
 
     private void CollectEntityDeclaration(EntityDeclaration entity)
     {
-        var typeInfo = new EntityTypeInfo(name: entity.Name)
+        var typeInfo = new EntityTypeSymbol(name: entity.Name)
         {
             GenericParameters = entity.GenericParameters,
             GenericConstraints = entity.GenericConstraints,
@@ -656,7 +654,7 @@ public sealed partial class SemanticVerifier
 
     private void CollectChoiceDeclaration(ChoiceDeclaration choice)
     {
-        var typeInfo = new ChoiceTypeInfo(name: choice.Name)
+        var typeInfo = new ChoiceTypeSymbol(name: choice.Name)
         {
             Visibility = choice.Visibility,
             Location = choice.Location,
@@ -668,7 +666,7 @@ public sealed partial class SemanticVerifier
 
     private void CollectFlagsDeclaration(FlagsDeclaration flags)
     {
-        var typeInfo = new FlagsTypeInfo(name: flags.Name)
+        var typeInfo = new FlagsTypeSymbol(name: flags.Name)
         {
             Visibility = flags.Visibility,
             Location = flags.Location,
@@ -680,7 +678,7 @@ public sealed partial class SemanticVerifier
 
     private void CollectCrashableDeclaration(CrashableDeclaration crashable)
     {
-        var typeInfo = new CrashableTypeInfo(name: crashable.Name)
+        var typeInfo = new CrashableTypeSymbol(name: crashable.Name)
         {
             Visibility = crashable.Visibility,
             Location = crashable.Location,
@@ -698,7 +696,7 @@ public sealed partial class SemanticVerifier
 
     private void CollectVariantDeclaration(VariantDeclaration variant)
     {
-        var typeInfo = new VariantTypeInfo(name: variant.Name)
+        var typeInfo = new VariantTypeSymbol(name: variant.Name)
         {
             GenericParameters = variant.GenericParameters,
             GenericConstraints = variant.GenericConstraints,
@@ -711,7 +709,7 @@ public sealed partial class SemanticVerifier
 
     private void CollectProtocolDeclaration(ProtocolDeclaration protocol)
     {
-        var typeInfo = new ProtocolTypeInfo(name: protocol.Name)
+        var typeInfo = new ProtocolTypeSymbol(name: protocol.Name)
         {
             GenericParameters = protocol.GenericParameters,
             GenericConstraints = protocol.GenericConstraints,
@@ -752,7 +750,7 @@ public sealed partial class SemanticVerifier
         foreach (Parameter p in routine.Parameters)
         {
             if (p.Type is { Realm: "RF" } pType &&
-                ResolveType(typeExpr: pType) is EntityTypeInfo pe)
+                ResolveType(typeExpr: pType) is EntityTypeSymbol pe)
             {
                 ReportError(code: SemanticDiagnosticCode.SuflaeBareRfEntityInSignature,
                     message:
@@ -765,7 +763,7 @@ public sealed partial class SemanticVerifier
         // A constructor's return is the freshly-built entity the CALLER takes ownership of, not a
         // by-value hand-off of an already-live object, so it is exempt (mirrors the invariant's carve-out).
         if (kind != RoutineKind.Creator && routine.ReturnType is { Realm: "RF" } rType &&
-            ResolveType(typeExpr: rType) is EntityTypeInfo re)
+            ResolveType(typeExpr: rType) is EntityTypeSymbol re)
         {
             ReportError(code: SemanticDiagnosticCode.SuflaeBareRfEntityInSignature,
                 message: $"The return type is a bare RazorForge entity '{re.Name}' (via 'RF::')." +
@@ -866,8 +864,8 @@ public sealed partial class SemanticVerifier
         // structured GenericParameters, never into Name for a non-member routine), so it is looked up
         // directly with no generic-suffix strip.
         TypeSymbol? ctorOwner = LookupTypeWithImports(name: routine.Name);
-        if (ctorOwner is EntityTypeInfo or RecordTypeInfo or ChoiceTypeInfo or FlagsTypeInfo
-            or VariantTypeInfo or CrashableTypeInfo)
+        if (ctorOwner is EntityTypeSymbol or RecordTypeSymbol or ChoiceTypeSymbol or FlagsTypeSymbol
+            or VariantTypeSymbol or CrashableTypeSymbol)
         {
             return (RoutineKind.Creator, ctorOwner, RoutineInfo.CreatorName);
         }
@@ -884,7 +882,7 @@ public sealed partial class SemanticVerifier
         RoutineKind kind, TypeSymbol? ownerType, string routineName)
     {
         // Validate that choice types cannot define any operator wired member routines
-        if (ownerType is ChoiceTypeInfo && kind == RoutineKind.MemberRoutine &&
+        if (ownerType is ChoiceTypeSymbol && kind == RoutineKind.MemberRoutine &&
             IsOperatorWired(name: routineName))
         {
             ReportError(code: SemanticDiagnosticCode.ArithmeticOnChoiceType,
@@ -895,7 +893,7 @@ public sealed partial class SemanticVerifier
         }
 
         // #135: Flags types cannot define any operator wired member routines
-        if (ownerType is FlagsTypeInfo && kind == RoutineKind.MemberRoutine &&
+        if (ownerType is FlagsTypeSymbol && kind == RoutineKind.MemberRoutine &&
             IsOperatorWired(name: routineName))
         {
             ReportError(code: SemanticDiagnosticCode.FlagsCustomOperatorNotAllowed,
@@ -1037,8 +1035,8 @@ public sealed partial class SemanticVerifier
         // Get the list of implemented protocols for this type
         List<TypeSymbol>? implementedProtocols = type switch
         {
-            RecordTypeInfo record => record.ImplementedProtocols,
-            EntityTypeInfo entity => entity.ImplementedProtocols,
+            RecordTypeSymbol record => record.ImplementedProtocols,
+            EntityTypeSymbol entity => entity.ImplementedProtocols,
             _ => null
         };
 
@@ -1050,7 +1048,7 @@ public sealed partial class SemanticVerifier
         // Check each protocol — skip protocols added by implicit marker conformance
         foreach (TypeSymbol protocol in implementedProtocols)
         {
-            if (protocol is not ProtocolTypeInfo protoInfo)
+            if (protocol is not ProtocolTypeSymbol protoInfo)
             {
                 continue;
             }
@@ -1124,8 +1122,8 @@ public sealed partial class SemanticVerifier
         // names like "T" / "Owned[S64]"; the allowlist keys on the generic-def name.
         string obeyerBaseName = type switch
         {
-            RecordTypeInfo { GenericDefinition: { } def } => def.Name,
-            EntityTypeInfo { GenericDefinition: { } def } => def.Name,
+            RecordTypeSymbol { GenericDefinition: { } def } => def.Name,
+            EntityTypeSymbol { GenericDefinition: { } def } => def.Name,
             _ => type.BareName
         };
 
@@ -1137,7 +1135,7 @@ public sealed partial class SemanticVerifier
 
         foreach (TypeSymbol protocol in implementedProtocols)
         {
-            if (protocol is not ProtocolTypeInfo protoInfo)
+            if (protocol is not ProtocolTypeSymbol protoInfo)
             {
                 continue;
             }
@@ -1149,7 +1147,7 @@ public sealed partial class SemanticVerifier
                 continue;
             }
 
-            if (!IsMarkerProtocolTransitive(protoInfo: protoInfo))
+            if (!IsMarkerProtocolTransitive(protoSymbol: protoInfo))
             {
                 continue;
             }
@@ -1168,9 +1166,9 @@ public sealed partial class SemanticVerifier
         }
     }
 
-    private bool IsMarkerProtocolTransitive(ProtocolTypeInfo protoInfo)
+    private bool IsMarkerProtocolTransitive(ProtocolTypeSymbol protoSymbol)
     {
-        string baseName = (protoInfo.GenericDefinition ?? protoInfo).BareName;
+        string baseName = (protoSymbol.GenericDefinition ?? protoSymbol).BareName;
         if (_markerProtocolNames.Contains(item: baseName))
         {
             return true;
@@ -1179,13 +1177,13 @@ public sealed partial class SemanticVerifier
         // Check parents (Controlling[T] obeys Accessing[T] — flagging a type declaring obeys
         // Controlling[T] also catches the transitive Accessing case).
         return _markerProtocolNames.Any(predicate: marker =>
-            CheckParentProtocols(proto: protoInfo, targetName: marker));
+            CheckParentProtocols(proto: protoSymbol, targetName: marker));
     }
 
     /// <summary>
     /// Validates that a type implements all member routines required by a protocol.
     /// </summary>
-    private void ValidateProtocolMemberRoutines(TypeSymbol type, ProtocolTypeInfo protocol)
+    private void ValidateProtocolMemberRoutines(TypeSymbol type, ProtocolTypeSymbol protocol)
     {
         foreach (ProtocolMemberRoutineInfo requiredMemberRoutine in protocol.MemberRoutines)
         {
@@ -1195,7 +1193,7 @@ public sealed partial class SemanticVerifier
         }
 
         // Also check parent protocols
-        foreach (ProtocolTypeInfo parentProtocol in protocol.ParentProtocols)
+        foreach (ProtocolTypeSymbol parentProtocol in protocol.ParentProtocols)
         {
             ValidateProtocolMemberRoutines(type: type, protocol: parentProtocol);
         }
@@ -1206,7 +1204,7 @@ public sealed partial class SemanticVerifier
     /// implementation: skips defaulted / auto-derived-variant requirements, reports a missing
     /// implementation, an illegal innate override, or a mutation-contract violation.
     /// </summary>
-    private void ValidateRequiredProtocolMemberRoutine(TypeSymbol type, ProtocolTypeInfo protocol,
+    private void ValidateRequiredProtocolMemberRoutine(TypeSymbol type, ProtocolTypeSymbol protocol,
         ProtocolMemberRoutineInfo requiredMemberRoutine)
     {
         // Skip member routines with default implementations

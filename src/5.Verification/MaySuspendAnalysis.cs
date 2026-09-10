@@ -1,6 +1,6 @@
 using TypeModel.Symbols;
 
-namespace Compiler.Verification;
+namespace Builder.Verification;
 
 /// <summary>
 /// The may-suspend effect analysis — the instrumentation gate for v0.2.0 coroutine

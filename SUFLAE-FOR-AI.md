@@ -105,10 +105,10 @@ When unsure, consult ground truth in the repo:
 9. **Keyword set = RazorForge's, minus the RF-only reserved words.** The shared
    keyword inventory is RAZORFORGE-FOR-AI §16; Suflae does NOT reserve the
    RF-only ones: `steal` `danger` `dangerous` `threaded`, and `expand` — the single
-   comptime-reflection keyword. The reflection *sources* (`openmemvarof`
+   buildtime-reflection keyword. The reflection *sources* (`openmemvarof`
    `allmemvarof` `branchof` `caseof`) and the `*of` accessors (`nameof`/`typeof`/
-   `valueof`/…) are NOT reserved keywords — they are comptime builtin intrinsics
-   gated behind RF's `import BuilderExpansion`. Comptime reflection is RF's model;
+   `valueof`/…) are NOT reserved keywords — they are buildtime builtin intrinsics
+   gated behind RF's `import BuilderExpansion`. Buildtime reflection is RF's model;
    SF's is the runtime ObjectHacker, not yet shipped. **`everywhere` IS shared** —
    it is the protocol-model structural-conferral gate (`needs P everywhere`, a
    sibling of `needs`/`obeys`/`protocol`), not a reflection construct.

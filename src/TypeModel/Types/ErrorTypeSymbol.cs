@@ -6,7 +6,7 @@ namespace TypeModel.Types;
 /// Singleton error type used when type resolution fails.
 /// This is a builder-internal sentinel, not a real user-visible type.
 /// </summary>
-public sealed class ErrorTypeInfo : TypeInfo
+public sealed class ErrorTypeSymbol : TypeSymbol
 {
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.Error;
@@ -14,15 +14,15 @@ public sealed class ErrorTypeInfo : TypeInfo
     /// <summary>
     /// Singleton instance of the error type.
     /// </summary>
-    public static readonly ErrorTypeInfo Instance = new();
+    public static readonly ErrorTypeSymbol Instance = new();
 
-    private ErrorTypeInfo() : base(name: "<error>")
+    private ErrorTypeSymbol() : base(name: "<error>")
     {
     }
 
     /// <inheritdoc/>
     /// <returns>Always returns this instance.</returns>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         return this;
     }

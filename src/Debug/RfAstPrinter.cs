@@ -1,8 +1,8 @@
 using System.Text;
-using Compiler.Instantiation;
-using Compiler.Tokenizer;
-using Compiler.Declaration;
-using Compiler.Verification.Enums;
+using Builder.Instantiation;
+using Builder.Tokenizer;
+using Builder.Declaration;
+using Builder.Verification.Enums;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
@@ -112,7 +112,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
             foreach (ISyntaxTreeNode node in prog.Declarations)
             {
                 if (node is PassDeclaration or ModuleDeclaration or ImportDeclaration ||
-                    IsGenericTemplate(d: node) || node is not Declaration decl)
+                    IsGenericTemplate(d: node) || node is not SyntaxTree.Declaration decl)
                 {
                     continue;
                 }
@@ -160,7 +160,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
 
     /// <summary>Routes one top-level declaration into the correct output bucket (presets, type defs,
     /// member/free routines, or the entry point).</summary>
-    private void BucketDeclaration(ProgramBuckets buckets, Declaration decl)
+    private void BucketDeclaration(ProgramBuckets buckets, SyntaxTree.Declaration decl)
     {
         switch (decl)
         {
@@ -249,7 +249,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     }
 
     /// <summary>The bare declared name of a type declaration node (for grouping memberRoutines under it).</summary>
-    private static string NodeTypeName(Declaration decl)
+    private static string NodeTypeName(SyntaxTree.Declaration decl)
     {
         return decl switch
         {
@@ -745,7 +745,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     /// unambiguous form. Falls back to bare positional when no routine/parameter is known.</summary>
     private string RenderArgs(IEnumerable<Expression> args, RoutineInfo? routine)
     {
-        List<ParameterInfo>? parms = routine?.Parameters;
+        List<ParamInfo>? parms = routine?.Parameters;
         return string.Join(separator: ", ",
             values: args.Select(selector: (a, i) =>
             {
@@ -805,9 +805,9 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         // baked in) so type references match the qualified call/decl names. Skip const-generic values
         // (their "type" is just the literal) and unresolved/splice types.
         if (node.ResolvedType is { } rt &&
-            rt is not ConstGenericValueTypeInfo and not ComptimeConstGenericTypeInfo
-                and not GenericParameterTypeInfo && node.SpliceHandle == null &&
-            node.ComptimeValue == null)
+            rt is not ConstGenericValueTypeSymbol and not BuildtimeConstGenericTypeSymbol
+                and not GenericParameterTypeSymbol && node.SpliceHandle == null &&
+            node.BuildtimeValue == null)
         {
             return rt.FullName;
         }
@@ -1422,7 +1422,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     /// <inheritdoc/>
     public string VisitExpandStatement(ExpandStatement node)
     {
-        // Comptime unroll loop — never survives to codegen (unrolled at monomorphization), but a
+        // Buildtime unroll loop — never survives to codegen (unrolled at monomorphization), but a
         // generic definition still carries it. Round-trips as `expand h in openmemvarof(T)`.
         string source = node.SourceKind switch
         {
@@ -1538,7 +1538,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     /// raw AST type expressions when resolution has not run.</summary>
     private (string ReturnStr, string ParamsStr) BuildSignatureStrings(RoutineDeclaration node)
     {
-        // Prefer resolved TypeInfo (module-qualified) for the signature's parameter/return types.
+        // Prefer resolved TypeSymbol (module-qualified) for the signature's parameter/return types.
         // The AST TypeExpressions in a signature carry no ResolvedType.
         if (node.ResolvedInfo is { } sig)
         {
@@ -1762,7 +1762,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     /// Prints a type declaration header followed by its members indented one level.
     /// Returns just the header line when the member list is empty.
     /// </summary>
-    private string PrintTypeDecl(string header, List<Declaration> members,
+    private string PrintTypeDecl(string header, List<SyntaxTree.Declaration> members,
         IEnumerable<string>? annotations = null)
     {
         var sb = new StringBuilder();
@@ -1776,7 +1776,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         }
         else
         {
-            foreach (Declaration m in members)
+            foreach (SyntaxTree.Declaration m in members)
             {
                 // Member-variable declarations print as fields (`secret name: Type`), never with `var`.
                 sb.AppendLine(value: m is VariableDeclaration field
@@ -1906,7 +1906,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
                                     // Capability-default templates on a bare param (e.g. `routine T.eq`) carry no ResolvedInfo,
                                     // but any un-monomorphized template still holds an expand/splice in its body — a definitive
                                     // marker that codegen never emits this as-is (only its per-type expansions).
-                                    || BodyHasComptimeExpansion(body: r.Body),
+                                    || BodyHasBuildtimeExpansion(body: r.Body),
             RecordDeclaration rec => rec.GenericParameters is { Count: > 0 },
             EntityDeclaration ent => ent.GenericParameters is { Count: > 0 },
             VariantDeclaration v => v.GenericParameters is { Count: > 0 },
@@ -1924,9 +1924,9 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
                ri.Parameters.Any(predicate: p => ContainsGenericParameter(type: p.Type));
     }
 
-    /// <summary>True if a routine body still contains a comptime <c>expand</c> unroll or a
+    /// <summary>True if a routine body still contains a buildtime <c>expand</c> unroll or a
     /// <c>${…}</c> splice — i.e. it is an un-monomorphized template, never emitted verbatim.</summary>
-    private static bool BodyHasComptimeExpansion(Statement body)
+    private static bool BodyHasBuildtimeExpansion(Statement body)
     {
         bool found = false;
         AstWalker.Walk(root: body,
@@ -1943,15 +1943,15 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
 
     /// <summary>Replicates <c>LlvmEmitter.ContainsGenericParameter</c> so the dump's drop-set
     /// matches codegen's emit-set exactly.</summary>
-    private static bool ContainsGenericParameter(TypeInfo type)
+    private static bool ContainsGenericParameter(TypeSymbol type)
     {
-        if (type is GenericParameterTypeInfo or ErrorTypeInfo or ProtocolSelfTypeInfo
-            or ComptimeConstGenericTypeInfo)
+        if (type is GenericParameterTypeSymbol or ErrorTypeSymbol or ProtocolSelfTypeSymbol
+            or BuildtimeConstGenericTypeSymbol)
         {
             return true;
         }
 
-        if (type is RecordTypeInfo { BackendType: not null })
+        if (type is RecordTypeSymbol { BackendType: not null })
         {
             return false;
         }

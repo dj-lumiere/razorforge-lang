@@ -1,9 +1,9 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Instantiation.Passes;
+namespace Builder.Instantiation.Passes;
 
 /// <summary>
 /// Lowers the cycle-collector hook intrinsics <c>&lt;entity&gt;.roam_trace_ref()</c> /
@@ -260,8 +260,8 @@ internal sealed class RoamHookRefLoweringPass
             return null;
         }
 
-        TypeInfo? recv = member.Object.ResolvedType;
-        if (recv is not EntityTypeInfo ent)
+        TypeSymbol? recv = member.Object.ResolvedType;
+        if (recv is not EntityTypeSymbol ent)
         {
             return null;
         }
@@ -276,8 +276,8 @@ internal sealed class RoamHookRefLoweringPass
         }
 
         // A routine-value reference: bare name + ResolvedRoutine (codegen's pre-resolved path).
-        // ResolvedType is the matching RoutineTypeInfo so the closure ABI is materialized correctly.
-        RoutineTypeInfo routineType = _registry.GetOrCreateRoutineType(parameterTypes: impl
+        // ResolvedType is the matching RoutineTypeSymbol so the closure ABI is materialized correctly.
+        RoutineTypeSymbol routineType = _registry.GetOrCreateRoutineType(parameterTypes: impl
                .Parameters
                .Select(selector: p => p.Type)
                .ToList(),

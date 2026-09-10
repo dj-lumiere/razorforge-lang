@@ -1,7 +1,7 @@
 using System.Text;
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 
-namespace Compiler.Tokenizer;
+namespace Builder.Tokenizer;
 
 /// <summary>
 /// Partial class containing string and character literal scanning memberRoutines for the unified tokenizer.

@@ -1,9 +1,9 @@
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Types;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Loads the standard library based on module declarations.
@@ -632,12 +632,12 @@ public sealed partial class StdlibLoader
     }
 
     /// <summary>
-    /// Resolves a type expression to a <see cref="TypeInfo"/> using the current generic and module context.
-    /// Handles splice handles, comptime values, the <c>Me</c> placeholder, associated-type projections,
+    /// Resolves a type expression to a <see cref="TypeSymbol"/> using the current generic and module context.
+    /// Handles splice handles, buildtime values, the <c>Me</c> placeholder, associated-type projections,
     /// generic parameters, const-generic literals, routine types, and parameterized types. Returns null
     /// when the expression cannot be resolved (forward reference or unknown type).
     /// </summary>
-    private static TypeInfo? ResolveSimpleType(TypeRegistry registry, TypeExpression? typeExpr,
+    private static TypeSymbol? ResolveSimpleType(TypeRegistry registry, TypeExpression? typeExpr,
         List<string>? genericParams = null, string? moduleName = null)
     {
         if (typeExpr == null)
@@ -645,7 +645,7 @@ public sealed partial class StdlibLoader
             return null;
         }
 
-        // Comptime type-position splice `${m.type}` in a stdlib decl-position expand column template
+        // Buildtime type-position splice `${m.type}` in a stdlib decl-position expand column template
         // (e.g. `Hijacked[${m.type}]` in `SplitList[T]`). Resolve to the synthetic per-field placeholder,
         // mirroring TypeResolver.ResolveTypeCore; the registry substitutes each concrete field's type at
         // instantiation (ExpandSoAColumns). Without this the stdlib registration path — which does NOT go
@@ -653,18 +653,18 @@ public sealed partial class StdlibLoader
         // (SplitList) gets no columns.
         if (typeExpr.SpliceHandle != null)
         {
-            return new GenericParameterTypeInfo(name: TypeModel.Symbols.MemberExpandTemplateInfo
+            return new GenericParameterTypeSymbol(name: TypeModel.Symbols.MemberExpandTemplateInfo
                                                                .ColumnPlaceholderName);
         }
 
-        // Comptime VALUE-position splice used as a const-generic argument, e.g. the carrier payload
+        // Buildtime VALUE-position splice used as a const-generic argument, e.g. the carrier payload
         // size `Array[U8, ${max(T.data_size().byte_size(), 8)}]`. Resolve to a symbolic
-        // ComptimeConstGenericTypeInfo; RoutineInfo/RecordTypeInfo.SubstituteType fold it at
+        // BuildtimeConstGenericTypeSymbol; RoutineInfo/RecordTypeSymbol.SubstituteType fold it at
         // monomorphization. Without this the stdlib registration path returns null and the whole field
         // (Result/Lookup `payload`) is silently dropped from the record's member list.
-        if (typeExpr.ComptimeValue != null)
+        if (typeExpr.BuildtimeValue != null)
         {
-            return new ComptimeConstGenericTypeInfo(comptimeExpr: typeExpr.ComptimeValue);
+            return new BuildtimeConstGenericTypeSymbol(buildtimeExpr: typeExpr.BuildtimeValue);
         }
 
         string typeName = typeExpr.Name;
@@ -674,15 +674,15 @@ public sealed partial class StdlibLoader
         // Without this, Me falls through to the type lookup, returns null, and nulls the whole signature type.
         if (typeName == "Me")
         {
-            return ProtocolSelfTypeInfo.Instance;
+            return ProtocolSelfTypeSymbol.Instance;
         }
 
         // Associated-type projection `Base/Slot` (e.g. `S/Iter`): the base is an in-scope generic
-        // parameter or `Me`. Produce a deferred AssociatedProjectionTypeInfo that monomorphization
+        // parameter or `Me`. Produce a deferred AssociatedProjectionTypeSymbol that monomorphization
         // resolves through the base's binding once the base is concrete.
         if (typeName.Contains(value: '/'))
         {
-            TypeInfo? projection = ResolveAssociatedProjection(
+            TypeSymbol? projection = ResolveAssociatedProjection(
                 typeName: typeName,
                 genericParams: genericParams);
             if (projection != null)
@@ -694,17 +694,17 @@ public sealed partial class StdlibLoader
         // Generic parameter name (T, K, V) -> placeholder for substitution
         if (genericParams?.Contains(value: typeName) == true)
         {
-            return new GenericParameterTypeInfo(name: typeName);
+            return new GenericParameterTypeSymbol(name: typeName);
         }
 
         // Const generic literal (e.g., 16, 8u64) used as a type argument (e.g., Array[T, 16])
-        ConstGenericValueTypeInfo? constGeneric = ResolveConstGenericLiteral(typeName: typeName);
+        ConstGenericValueTypeSymbol? constGeneric = ResolveConstGenericLiteral(typeName: typeName);
         if (constGeneric != null)
         {
             return constGeneric;
         }
 
-        // Routine type: Routine[(T, T), Bool] -> RoutineTypeInfo
+        // Routine type: Routine[(T, T), Bool] -> RoutineTypeSymbol
         if (typeName == "Routine" && typeExpr.GenericArguments?.Count == 2)
         {
             return ResolveRoutineType(registry: registry,
@@ -716,7 +716,7 @@ public sealed partial class StdlibLoader
         // Parameterized type like List[Character], Dict[Text, S32]
         if (typeExpr.GenericArguments is { Count: > 0 })
         {
-            TypeInfo? parameterized = ResolveParameterizedType(registry: registry,
+            TypeSymbol? parameterized = ResolveParameterizedType(registry: registry,
                 typeExpr: typeExpr,
                 typeName: typeName,
                 genericParams: genericParams,
@@ -737,32 +737,32 @@ public sealed partial class StdlibLoader
 
     /// <summary>
     /// Resolves a slash-segmented associated-type projection like <c>S/Iter</c> into a chain of
-    /// <see cref="AssociatedProjectionTypeInfo"/> nodes. The first segment must be <c>Me</c> or an
+    /// <see cref="AssociatedProjectionTypeSymbol"/> nodes. The first segment must be <c>Me</c> or an
     /// in-scope generic parameter; returns null otherwise (the caller falls through to other resolution
     /// paths).
     /// </summary>
-    private static TypeInfo? ResolveAssociatedProjection(string typeName,
+    private static TypeSymbol? ResolveAssociatedProjection(string typeName,
         List<string>? genericParams)
     {
         string[] segments = typeName.Split(separator: '/');
-        TypeInfo? projBase;
+        TypeSymbol? projBase;
         if (segments[0] == "Me")
         {
-            projBase = ProtocolSelfTypeInfo.Instance;
+            projBase = ProtocolSelfTypeSymbol.Instance;
         }
         else if (genericParams != null && genericParams.Contains(value: segments[0]))
         {
-            projBase = new GenericParameterTypeInfo(name: segments[0]);
+            projBase = new GenericParameterTypeSymbol(name: segments[0]);
         }
         else
         {
             return null;
         }
 
-        TypeInfo current = projBase;
+        TypeSymbol current = projBase;
         for (int i = 1; i < segments.Length; i++)
         {
-            current = new AssociatedProjectionTypeInfo(baseType: current, slotName: segments[i]);
+            current = new AssociatedProjectionTypeSymbol(baseType: current, slotName: segments[i]);
         }
 
         return current;
@@ -772,11 +772,11 @@ public sealed partial class StdlibLoader
     /// Resolves a const-generic literal type argument: a bare integer (16), or a typed suffix
     /// ("16u64", "8s32", …). Returns null when <paramref name="typeName"/> is not a numeric literal.
     /// </summary>
-    private static ConstGenericValueTypeInfo? ResolveConstGenericLiteral(string typeName)
+    private static ConstGenericValueTypeSymbol? ResolveConstGenericLiteral(string typeName)
     {
         if (long.TryParse(s: typeName, result: out long constValue))
         {
-            return new ConstGenericValueTypeInfo(literalText: typeName,
+            return new ConstGenericValueTypeSymbol(literalText: typeName,
                 value: constValue,
                 explicitTypeName: null);
         }
@@ -793,7 +793,7 @@ public sealed partial class StdlibLoader
                     comparisonType: StringComparison.OrdinalIgnoreCase) &&
                 long.TryParse(s: typeName[..^suffix.Length], result: out long suffixVal))
             {
-                return new ConstGenericValueTypeInfo(literalText: typeName,
+                return new ConstGenericValueTypeSymbol(literalText: typeName,
                     value: suffixVal,
                     explicitTypeName: suffixType);
             }
@@ -803,23 +803,23 @@ public sealed partial class StdlibLoader
     }
 
     /// <summary>
-    /// Resolves a <c>Routine[(T, T), Bool]</c> type expression into a RoutineTypeInfo. Parameter types
+    /// Resolves a <c>Routine[(T, T), Bool]</c> type expression into a RoutineTypeSymbol. Parameter types
     /// live in the first arg's GenericArguments (parsed as Tuple). Returns null when a parameter type
     /// fails to resolve.
     /// </summary>
-    private static RoutineTypeInfo? ResolveRoutineType(TypeRegistry registry,
+    private static RoutineTypeSymbol? ResolveRoutineType(TypeRegistry registry,
         TypeExpression typeExpr, List<string>? genericParams, string? moduleName)
     {
         TypeExpression paramTupleExpr = typeExpr.GenericArguments![index: 0];
         TypeExpression returnTypeExpr = typeExpr.GenericArguments[index: 1];
 
         // Parameter types live in the first arg's GenericArguments (parsed as Tuple)
-        var paramTypes = new List<TypeInfo>();
+        var paramTypes = new List<TypeSymbol>();
         if (paramTupleExpr is { Name: "Tuple", GenericArguments: not null })
         {
             foreach (TypeExpression paramTypeExpr in paramTupleExpr.GenericArguments)
             {
-                TypeInfo? pt = ResolveSimpleType(registry: registry,
+                TypeSymbol? pt = ResolveSimpleType(registry: registry,
                     typeExpr: paramTypeExpr,
                     genericParams: genericParams,
                     moduleName: moduleName);
@@ -833,7 +833,7 @@ public sealed partial class StdlibLoader
         }
         else
         {
-            TypeInfo? pt = ResolveSimpleType(registry: registry,
+            TypeSymbol? pt = ResolveSimpleType(registry: registry,
                 typeExpr: paramTupleExpr,
                 genericParams: genericParams,
                 moduleName: moduleName);
@@ -845,7 +845,7 @@ public sealed partial class StdlibLoader
             paramTypes.Add(item: pt);
         }
 
-        TypeInfo? returnType = ResolveSimpleType(registry: registry,
+        TypeSymbol? returnType = ResolveSimpleType(registry: registry,
             typeExpr: returnTypeExpr,
             genericParams: genericParams,
             moduleName: moduleName);
@@ -861,7 +861,7 @@ public sealed partial class StdlibLoader
     /// when this method took responsibility for the expression; sets it to false to signal the caller
     /// should fall through to the bare/own-module lookup.
     /// </summary>
-    private static TypeInfo? ResolveParameterizedType(TypeRegistry registry,
+    private static TypeSymbol? ResolveParameterizedType(TypeRegistry registry,
         TypeExpression typeExpr, string typeName, List<string>? genericParams,
         string? moduleName, out bool resolved)
     {
@@ -870,7 +870,7 @@ public sealed partial class StdlibLoader
                 or RuntimeContract.Viewing or RuntimeContract.Modifying or RuntimeContract.Retained
                 or RuntimeContract.Tracked or RuntimeContract.Guarded or RuntimeContract.Witnessed)
         {
-            TypeInfo? wrapperInner = ResolveSimpleType(registry: registry,
+            TypeSymbol? wrapperInner = ResolveSimpleType(registry: registry,
                 typeExpr: typeExpr.GenericArguments[index: 0],
                 genericParams: genericParams,
                 moduleName: moduleName);
@@ -898,7 +898,7 @@ public sealed partial class StdlibLoader
         // `-> List[T]` return) must resolve to `Suflae.List`, not the auto-imported `Core.List`
         // (LookupType's Core-prefix fast path). A dotted/RF::-qualified `Core.List` misses the
         // `Suflae.Core.List` probe and correctly falls back to the RazorForge `Core.List`.
-        TypeInfo? genericDef = (moduleName != null
+        TypeSymbol? genericDef = (moduleName != null
             ? registry.LookupType(name: $"{moduleName}.{typeName}")
             : null) ?? registry.LookupType(name: typeName);
         if (genericDef is { IsGenericDefinition: true } && genericDef.GenericParameters!.Count ==
@@ -920,13 +920,13 @@ public sealed partial class StdlibLoader
     /// Resolves a <c>Tuple[..]</c> type expression by resolving each element type argument.
     /// Returns null when any element type fails to resolve (forward reference).
     /// </summary>
-    private static TupleTypeInfo? ResolveTupleType(TypeRegistry registry, TypeExpression typeExpr,
+    private static TupleTypeSymbol? ResolveTupleType(TypeRegistry registry, TypeExpression typeExpr,
         List<string>? genericParams, string? moduleName)
     {
-        var elemTypes = new List<TypeInfo>();
+        var elemTypes = new List<TypeSymbol>();
         foreach (TypeExpression argExpr in typeExpr.GenericArguments!)
         {
-            TypeInfo? argType = ResolveSimpleType(registry: registry,
+            TypeSymbol? argType = ResolveSimpleType(registry: registry,
                 typeExpr: argExpr,
                 genericParams: genericParams,
                 moduleName: moduleName);
@@ -938,7 +938,7 @@ public sealed partial class StdlibLoader
             elemTypes.Add(item: argType);
         }
 
-        return new TupleTypeInfo(elementTypes: elemTypes);
+        return new TupleTypeSymbol(elementTypes: elemTypes);
     }
 
     /// <summary>
@@ -946,14 +946,14 @@ public sealed partial class StdlibLoader
     /// by resolving each type argument and calling <see cref="TypeRegistry.GetOrCreateResolution"/>.
     /// Returns null when any argument fails to resolve (forward reference).
     /// </summary>
-    private static TypeInfo? ResolveGenericDefinitionType(TypeRegistry registry,
-        TypeExpression typeExpr, TypeInfo genericDef, List<string>? genericParams,
+    private static TypeSymbol? ResolveGenericDefinitionType(TypeRegistry registry,
+        TypeExpression typeExpr, TypeSymbol genericDef, List<string>? genericParams,
         string? moduleName)
     {
-        var typeArgs = new List<TypeInfo>();
+        var typeArgs = new List<TypeSymbol>();
         foreach (TypeExpression argExpr in typeExpr.GenericArguments!)
         {
-            TypeInfo? argType = ResolveSimpleType(registry: registry,
+            TypeSymbol? argType = ResolveSimpleType(registry: registry,
                 typeExpr: argExpr,
                 genericParams: genericParams,
                 moduleName: moduleName);

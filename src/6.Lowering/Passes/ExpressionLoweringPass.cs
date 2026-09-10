@@ -1,9 +1,9 @@
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Lowers high-level expression constructs to simpler ANF-style statement+expression forms.
@@ -415,7 +415,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             IsPatternExpression ipe => LowerIsPatternExpression(ipe: ipe),
             // -- Step 1i: logical not -> ConditionalExpression ----------------------
             // Lowers "not x" to a conditional: true branch yields false, false branch yields true.
-            // BitwiseNot (~) on FlagsTypeInfo stays as UnaryExpression for OperatorLoweringPass.
+            // BitwiseNot (~) on FlagsTypeSymbol stays as UnaryExpression for OperatorLoweringPass.
             UnaryExpression { Operator: UnaryOperator.Not } notExpr => LowerLogicalNot(
                 notExpr: notExpr),
             UnaryExpression unary => LowerGenericUnary(unary: unary, expr: expr),
@@ -473,8 +473,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     private static (List<Statement> Hoisted, Expression Expr) LowerNarrowedIdentifier(
         IdentifierExpression narrowedId)
     {
-        TypeInfo declared = narrowedId.NarrowedFrom!;
-        TypeInfo target = narrowedId.ResolvedType!;
+        TypeSymbol declared = narrowedId.NarrowedFrom!;
+        TypeSymbol target = narrowedId.ResolvedType!;
         SourceLocation nloc = narrowedId.Location;
 
         IdentifierExpression rawRead()
@@ -485,7 +485,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             };
         }
 
-        CarrierPayloadExpression extractStep(Expression carrier, TypeInfo step)
+        CarrierPayloadExpression extractStep(Expression carrier, TypeSymbol step)
         {
             return new CarrierPayloadExpression(Carrier: carrier,
                 ConcreteType: TypeInfoToExpr(type: step, loc: nloc),
@@ -495,12 +495,12 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // Non-carrier variant: extract along the arm path — which may be NESTED, e.g. an
         // `Outer` narrowed to `Inner` then to `Inner`'s arm `S32` yields Outer -> Inner -> S32
         // (each level a field-1 payload load).
-        if (declared is VariantTypeInfo variant && !IsMaybeRecord(type: declared) &&
+        if (declared is VariantTypeSymbol variant && !IsMaybeRecord(type: declared) &&
             !IsResultOrLookup(type: declared) &&
             FindVariantArmPath(from: variant, target: target) is { } path)
         {
             Expression acc = rawRead();
-            foreach (TypeInfo step in path)
+            foreach (TypeSymbol step in path)
             {
                 acc = extractStep(carrier: acc, step: step);
             }
@@ -520,23 +520,23 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         {
             // Step 1b: none-coalescing (??) -> temp + when-statement
             { Operator: BinaryOperator.NoneCoalesce } => LowerNoneCoalesce(binary: bin),
-            // Step 1e: flags combination (and/but on FlagsTypeInfo) -> bitwise op
+            // Step 1e: flags combination (and/but on FlagsTypeSymbol) -> bitwise op
             {
                 Operator: BinaryOperator.And or BinaryOperator.But,
-                Left.ResolvedType: FlagsTypeInfo
+                Left.ResolvedType: FlagsTypeSymbol
             } => LowerFlagsCombination(binary: bin),
             // Step 1f-2: variant type test (x is T / x isnot T) -> type_id compare
             {
                 Operator: BinaryOperator.Is or BinaryOperator.IsNot,
-                Left.ResolvedType: VariantTypeInfo
+                Left.ResolvedType: VariantTypeSymbol
             } => LowerVariantIsExpression(bin: bin),
             // Step 1f-3: choice discriminant test -> S32 equality
             {
                 Operator: BinaryOperator.Is or BinaryOperator.IsNot,
-                Left.ResolvedType: ChoiceTypeInfo ct
+                Left.ResolvedType: ChoiceTypeSymbol ct
             } => LowerChoiceIsExpression(bin: bin, choiceType: ct),
             // Step 1g: boolean And -> short-circuit ConditionalExpression
-            { Operator: BinaryOperator.And, Left.ResolvedType: not FlagsTypeInfo } =>
+            { Operator: BinaryOperator.And, Left.ResolvedType: not FlagsTypeSymbol } =>
                 LowerBooleanAnd(bin: bin),
             // Step 1h: boolean Or -> short-circuit ConditionalExpression
             { Operator: BinaryOperator.Or } => LowerBooleanOr(bin: bin),
@@ -829,7 +829,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     {
         (List<Statement> h, Expression loweredValue) = LowerExpr(expr: namedArg.Value);
         hoisted.AddRange(collection: h);
-        TypeInfo? paramType = callRoutine?.Parameters
+        TypeSymbol? paramType = callRoutine?.Parameters
                                           .FirstOrDefault(predicate: p => p.Name == namedArg.Name)
                                          ?.Type;
         Expression wrappedValue = TryWrapVariantArm(targetType: paramType, init: loweredValue) ??
@@ -845,7 +845,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     {
         (List<Statement> h, Expression lowered) = LowerExpr(expr: arg);
         hoisted.AddRange(collection: h);
-        TypeInfo? paramType = callRoutine != null && posArgIdx < callRoutine.Parameters.Count
+        TypeSymbol? paramType = callRoutine != null && posArgIdx < callRoutine.Parameters.Count
             ? callRoutine.Parameters[index: posArgIdx].Type
             : null;
         return TryWrapVariantArm(targetType: paramType, init: lowered) ?? lowered;
@@ -856,7 +856,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         Expression expr)
     {
         // Fold choice case member access (e.g. Direction.NORTH, someVar.NORTH) -> int literal
-        if (mem.Object.ResolvedType is ChoiceTypeInfo choiceType)
+        if (mem.Object.ResolvedType is ChoiceTypeSymbol choiceType)
         {
             ChoiceCaseInfo? caseInfo =
                 choiceType.Cases.FirstOrDefault(predicate: c => c.Name == mem.MemberName);
@@ -870,7 +870,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         }
 
         // Fold flags member access (e.g. Perms.READ) -> bitmask literal
-        if (mem.Object.ResolvedType is FlagsTypeInfo flagsType)
+        if (mem.Object.ResolvedType is FlagsTypeSymbol flagsType)
         {
             FlagsMemberInfo? memberInfo =
                 flagsType.Members.FirstOrDefault(predicate: m => m.Name == mem.MemberName);
@@ -944,7 +944,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // rewriter concretizes the `me` IDENTIFIER but not the conditional node it feeds). A
         // generic-definition record lowers to `ptr` (GetLlvmType), mistyping the `_cif` slot —
         // so fall through to a branch type that the rewriter DID concretize.
-        TypeInfo? resultType = FirstConcrete(cond.ResolvedType,
+        TypeSymbol? resultType = FirstConcrete(cond.ResolvedType,
             cond.TrueExpression.ResolvedType,
             cond.FalseExpression.ResolvedType);
         if (resultType == null)
@@ -1010,11 +1010,11 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             elems.Add(item: lowered);
         }
 
-        if (tuple.ResolvedType is not TupleTypeInfo tupleType)
+        if (tuple.ResolvedType is not TupleTypeSymbol tupleType)
         {
             throw new InvalidOperationException(
                 message:
-                $"TupleLiteralExpression has no resolved TupleTypeInfo at {tuple.Location}.");
+                $"TupleLiteralExpression has no resolved TupleTypeSymbol at {tuple.Location}.");
         }
 
         var memberVars = new List<(string Name, Expression Value)>(capacity: elems.Count);
@@ -1042,7 +1042,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             return ([], expr);
         }
 
-        TypeInfo? resultType = whenExpr.ResolvedType;
+        TypeSymbol? resultType = whenExpr.ResolvedType;
         string tempName = NextTempName(prefix: "wres");
         SourceLocation loc = whenExpr.Location;
 
@@ -1117,7 +1117,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // Fold bare flag-context identifiers (e.g. a bare `READ` in a flags test)
         // -> bitmask literal. SA stamps ResolvedFlagsBit when it resolves a bare
         // identifier against a flag context.
-        if (id.ResolvedFlagsBit is int bit && id.ResolvedType is FlagsTypeInfo)
+        if (id.ResolvedFlagsBit is int bit && id.ResolvedType is FlagsTypeSymbol)
         {
             return ([],
                 new LiteralExpression(Value: 1UL << bit,
@@ -1126,7 +1126,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         }
 
         // Fold standalone choice case identifiers (e.g. ME_SMALL) -> int literal
-        (ChoiceTypeInfo ChoiceType, ChoiceCaseInfo CaseInfo)? choiceCase =
+        (ChoiceTypeSymbol ChoiceType, ChoiceCaseInfo CaseInfo)? choiceCase =
             ctx.Registry.LookupChoiceCase(caseName: id.Name);
         if (choiceCase != null)
         {
@@ -1190,7 +1190,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     private static CreatorExpression? TryRewriteVariantCallConstruction(CallExpression call,
         List<Expression> args)
     {
-        if (call is not { ConstructedType: VariantTypeInfo callVariant, ResolvedRoutine: null } ||
+        if (call is not { ConstructedType: VariantTypeSymbol callVariant, ResolvedRoutine: null } ||
             args.Count != 1)
         {
             return null;
@@ -1235,7 +1235,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// OR-folds the bit positions of <paramref name="flagNames"/> into a mask against
     /// <paramref name="flagsType"/>. Unknown names contribute nothing.
     /// </summary>
-    private static ulong FlagMaskFor(FlagsTypeInfo flagsType, IEnumerable<string>? flagNames)
+    private static ulong FlagMaskFor(FlagsTypeSymbol flagsType, IEnumerable<string>? flagNames)
     {
         ulong mask = 0;
         if (flagNames == null)
@@ -1265,9 +1265,9 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     {
         (List<Statement> subjH, Expression loweredSubj) = LowerExpr(expr: flagsTest.Subject);
         SourceLocation loc = flagsTest.Location;
-        TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
-        if (loweredSubj.ResolvedType is not FlagsTypeInfo flagsType || u64Type == null ||
+        TypeSymbol? u64Type = ctx.Registry.LookupType(name: "U64");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
+        if (loweredSubj.ResolvedType is not FlagsTypeSymbol flagsType || u64Type == null ||
             boolType == null)
         {
             return (subjH, flagsTest with { Subject = loweredSubj });
@@ -1352,7 +1352,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// of 1 (built via <c>T.from_literal("1")</c> for record element types, else a raw S64 literal).
     /// Appends any hoisted statements from lowering an explicit step to <paramref name="hoisted"/>.
     /// </summary>
-    private Expression LowerRangeStep(RangeExpression range, TypeInfo? elemType,
+    private Expression LowerRangeStep(RangeExpression range, TypeSymbol? elemType,
         SourceLocation loc, ref List<Statement> hoisted)
     {
         if (range.Step != null)
@@ -1409,8 +1409,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         (List<Statement> endH, Expression loweredEnd) = LowerExpr(expr: range.End);
         List<Statement> hoisted = Concat(a: startH, b: endH);
         SourceLocation loc = range.Location;
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
-        TypeInfo? elemType = loweredStart.ResolvedType ?? loweredEnd.ResolvedType;
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? elemType = loweredStart.ResolvedType ?? loweredEnd.ResolvedType;
 
         Expression stepExpr = LowerRangeStep(range: range,
             elemType: elemType,
@@ -1427,7 +1427,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // uses the concrete Range[T] definition instead of the generic definition.
         // Prefer the type arg from the resolved Range[T] type, then fall back to
         // the inferred element type from the start/end sub-expressions.
-        TypeInfo? resolvedElem = range.ResolvedType?.TypeArguments is { Count: > 0 }
+        TypeSymbol? resolvedElem = range.ResolvedType?.TypeArguments is { Count: > 0 }
             ? range.ResolvedType.TypeArguments[index: 0]
             : elemType;
 
@@ -1461,10 +1461,10 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// </summary>
     private (List<Statement> Hoisted, Expression Expr) LowerListLiteral(ListLiteralExpression list)
     {
-        TypeInfo? resolvedType = list.ResolvedType;
+        TypeSymbol? resolvedType = list.ResolvedType;
         // Unwrap transparent ownership wrappers (T, Retained[T], Tracked[T]) so that
         // Owned[List[S64]] uses "List" as baseName, not "Owned".
-        TypeInfo? listType = UnwrapOwnershipWrapper(type: resolvedType) ?? resolvedType;
+        TypeSymbol? listType = UnwrapOwnershipWrapper(type: resolvedType) ?? resolvedType;
         SourceLocation loc = list.Location;
 
         string baseName = GetCollectionBaseName(type: listType) ?? "List";
@@ -1566,7 +1566,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// </summary>
     private (List<Statement> Hoisted, Expression Expr) LowerSetLiteral(SetLiteralExpression set)
     {
-        TypeInfo? resolvedType = set.ResolvedType;
+        TypeSymbol? resolvedType = set.ResolvedType;
         SourceLocation loc = set.Location;
         if (resolvedType == null)
         {
@@ -1576,7 +1576,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // Unwrap Owned/Retained/Tracked so the temp var holds the inner collection (Set/SortedSet/
         // SecureSet/...) instead of the wrapper. Without this, MakeCollectionAddCall resolves
         // `.add` against Owned[…] (which has no add) and codegen throws "no resolved member routine".
-        TypeInfo setType = UnwrapOwnershipWrapper(type: resolvedType) ?? resolvedType;
+        TypeSymbol setType = UnwrapOwnershipWrapper(type: resolvedType) ?? resolvedType;
         string baseName = GetCollectionBaseName(type: setType) ?? "Set";
 
         // A SetLiteral-conforming type lowers to `Type.from_literal(a, b, c)`.
@@ -1626,7 +1626,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// </summary>
     private (List<Statement> Hoisted, Expression Expr) LowerDictLiteral(DictLiteralExpression dict)
     {
-        TypeInfo? resolvedType = dict.ResolvedType;
+        TypeSymbol? resolvedType = dict.ResolvedType;
         SourceLocation loc = dict.Location;
         if (resolvedType == null)
         {
@@ -1634,7 +1634,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         }
 
         // Unwrap Owned/Retained/Tracked — see LowerSetLiteral for the rationale.
-        TypeInfo dictType = UnwrapOwnershipWrapper(type: resolvedType) ?? resolvedType;
+        TypeSymbol dictType = UnwrapOwnershipWrapper(type: resolvedType) ?? resolvedType;
         string baseName = GetCollectionBaseName(type: dictType) ?? "Dict";
 
         // A DictLiteral-conforming type lowers to `Type.from_literal(DictEntry(k, v), …)`.
@@ -1714,7 +1714,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         (List<Statement> valH, Expression loweredVal) = LowerExpr(expr: dictEntry.Value);
         List<Statement> hoisted = Concat(a: keyH, b: valH);
 
-        TypeInfo? entryType = dictEntry.ResolvedType;
+        TypeSymbol? entryType = dictEntry.ResolvedType;
         if (entryType == null)
         {
             if (ReferenceEquals(objA: loweredKey, objB: dictEntry.Key) &&
@@ -1757,8 +1757,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             return null;
         }
 
-        TypeInfo? targetType = varType.ResolvedType;
-        TypeInfo? initType = init.ResolvedType;
+        TypeSymbol? targetType = varType.ResolvedType;
+        TypeSymbol? initType = init.ResolvedType;
         if (initType is null)
         {
             return null;
@@ -1771,7 +1771,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             return wrapped;
         }
 
-        if (targetType is VariantTypeInfo)
+        if (targetType is VariantTypeSymbol)
         {
             return null; // variant target, but not a wrappable arm
         }
@@ -1818,7 +1818,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// resolved field type is <c>Maybe[T]</c> and the value is a bare <c>T</c> (not already a Maybe,
     /// not the <c>none</c> literal), box it into <c>Maybe[T](present: true, value: value)</c>. Returns
     /// null otherwise. Mirrors <see cref="TryWrapCarrier"/> but keys off the target member's resolved
-    /// TypeInfo rather than a declared TypeExpression — replaces the hand-built { i1, T } insertvalue
+    /// TypeSymbol rather than a declared TypeExpression — replaces the hand-built { i1, T } insertvalue
     /// that codegen used to emit at the member store (D3).
     /// </summary>
     private CreatorExpression? TryWrapMemberMaybe(Expression target, Expression value)
@@ -1828,7 +1828,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             return null;
         }
 
-        TypeInfo? fieldType = member.ResolvedType;
+        TypeSymbol? fieldType = member.ResolvedType;
         if (fieldType is null || CarrierBaseName(type: fieldType) != MaybeTypeName)
         {
             return null;
@@ -1846,7 +1846,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         }
 
         // Already a Maybe carrier — no wrap.
-        TypeInfo? valueType = value.ResolvedType;
+        TypeSymbol? valueType = value.ResolvedType;
         if (valueType != null && CarrierBaseName(type: valueType) == MaybeTypeName)
         {
             return null;
@@ -1875,9 +1875,9 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// variant (passthrough — including a different variant that is itself an arm must still wrap),
     /// or it matches no arm. Guarded by the declaration auto-wrap and the call-argument auto-wrap.
     /// </summary>
-    private static CreatorExpression? TryWrapVariantArm(TypeInfo? targetType, Expression init)
+    private static CreatorExpression? TryWrapVariantArm(TypeSymbol? targetType, Expression init)
     {
-        if (targetType is not VariantTypeInfo variant)
+        if (targetType is not VariantTypeSymbol variant)
         {
             return null;
         }
@@ -1890,7 +1890,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
                 : null;
         }
 
-        TypeInfo? initType = init.ResolvedType;
+        TypeSymbol? initType = init.ResolvedType;
         if (initType is null || initType.FullName == variant.FullName)
         {
             return null;
@@ -1908,7 +1908,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         return MakeVariantArmCreator(variant: variant, armName: armName, init: init);
     }
 
-    private static CreatorExpression MakeVariantArmCreator(VariantTypeInfo variant, string armName,
+    private static CreatorExpression MakeVariantArmCreator(VariantTypeSymbol variant, string armName,
         Expression init)
     {
         return new CreatorExpression(TypeName: variant.Name,
@@ -1917,7 +1917,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             Location: init.Location) { ResolvedType = variant, ConstructedType = variant };
     }
 
-    private static VariantMemberInfo? FindVariantMember(VariantTypeInfo variant, TypeInfo initType)
+    private static VariantMemberInfo? FindVariantMember(VariantTypeSymbol variant, TypeSymbol initType)
     {
         foreach (VariantMemberInfo m in variant.Members)
         {
@@ -1948,12 +1948,12 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             : name;
     }
 
-    private static string CarrierBaseName(TypeInfo type)
+    private static string CarrierBaseName(TypeSymbol type)
     {
         string raw = type switch
         {
-            RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
-            EntityTypeInfo { GenericDefinition: not null } e => e.GenericDefinition.Name,
+            RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition.Name,
+            EntityTypeSymbol { GenericDefinition: not null } e => e.GenericDefinition.Name,
             _ => type.Name
         };
         return LastNameSegment(name: raw);
@@ -1961,9 +1961,9 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 
     // --- Collection lowering helpers ----------------------------------------------
 
-    private static TypeInfo? UnwrapOwnershipWrapper(TypeInfo? type)
+    private static TypeSymbol? UnwrapOwnershipWrapper(TypeSymbol? type)
     {
-        if (type is WrapperTypeInfo
+        if (type is WrapperTypeSymbol
             {
                 Name: Declaration.RuntimeContract.Owned or Declaration.RuntimeContract.Retained
                 or Declaration.RuntimeContract.Tracked
@@ -1973,10 +1973,10 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         }
 
         // T / Retained[T] / Tracked[T] are declared as `record T` in stdlib, so
-        // they surface as RecordTypeInfo, not WrapperTypeInfo. CheckAndAdvance by base name + single
+        // they surface as RecordTypeSymbol, not WrapperTypeSymbol. CheckAndAdvance by base name + single
         // TypeArgument and return the inner collection so downstream lowering sees the actual
         // base (BitList, SortedSet, …) instead of the Owned envelope.
-        if (type is RecordTypeInfo { TypeArguments: { Count: 1 } recArgs } rec &&
+        if (type is RecordTypeSymbol { TypeArguments: { Count: 1 } recArgs } rec &&
             (rec.GenericDefinition?.Name is Declaration.RuntimeContract.Owned
                  or Declaration.RuntimeContract.Retained or Declaration.RuntimeContract.Tracked ||
              GetCollectionBaseName(type: rec) is Declaration.RuntimeContract.Owned
@@ -1988,7 +1988,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         return null;
     }
 
-    private static string GetCollectionBaseName(TypeInfo? type)
+    private static string GetCollectionBaseName(TypeSymbol? type)
     {
         if (type == null)
         {
@@ -1997,13 +1997,13 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 
         return type switch
         {
-            EntityTypeInfo { GenericDefinition: not null } e => e.GenericDefinition.Name,
-            RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
+            EntityTypeSymbol { GenericDefinition: not null } e => e.GenericDefinition.Name,
+            RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition.Name,
             _ => type.BareName
         };
     }
 
-    private static CreatorExpression MakeZeroArgCreator(TypeInfo collectionType, string baseName,
+    private static CreatorExpression MakeZeroArgCreator(TypeSymbol collectionType, string baseName,
         SourceLocation loc)
     {
         List<TypeExpression>? typeArgs = collectionType.TypeArguments?.Count > 0
@@ -2018,7 +2018,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             Location: loc) { ResolvedType = collectionType, ConstructedType = collectionType };
     }
 
-    private DiscardStatement MakeCollectionAddCall(Expression receiver, TypeInfo receiverType,
+    private DiscardStatement MakeCollectionAddCall(Expression receiver, TypeSymbol receiverType,
         string memberRoutineName, List<Expression> args, SourceLocation loc)
     {
         RoutineInfo? memberRoutine = ctx.Registry.LookupMemberRoutine(type: receiverType,
@@ -2060,16 +2060,16 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// static builder. `from_literal` is a `common` routine (no `me`), so its single parameter is the Array.
     /// </summary>
     private static CallExpression MakeFromLiteralCall(RoutineInfo builder,
-        List<Expression> arrayElements, TypeInfo? literalResultType, SourceLocation loc)
+        List<Expression> arrayElements, TypeSymbol? literalResultType, SourceLocation loc)
     {
-        TypeInfo arrayType = builder.Parameters[index: 0].Type; // Array[E, K]
+        TypeSymbol arrayType = builder.Parameters[index: 0].Type; // Array[E, K]
         var arrayLit =
             new ListLiteralExpression(Elements: arrayElements, ElementType: null, Location: loc)
             {
                 ResolvedType = arrayType
             };
 
-        TypeInfo? ownerType = builder.OwnerType;
+        TypeSymbol? ownerType = builder.OwnerType;
         var typeRef =
             new IdentifierExpression(Name: GetCollectionBaseName(type: ownerType), Location: loc)
             {
@@ -2086,7 +2086,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     /// <summary>Builds a `DictEntry[K, V](key: k, value: v)` record construction for a dict-literal pair.</summary>
-    private static CreatorExpression MakeDictEntry(TypeInfo entryType, Expression key,
+    private static CreatorExpression MakeDictEntry(TypeSymbol entryType, Expression key,
         Expression value, SourceLocation loc)
     {
         List<TypeExpression>? typeArgs = entryType.TypeArguments is { Count: > 0 } eargs
@@ -2115,8 +2115,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         bool isNot = bin.Operator == BinaryOperator.IsNot;
         SourceLocation loc = bin.Location;
 
-        TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? u64Type = ctx.Registry.LookupType(name: "U64");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
         if (u64Type == null || boolType == null)
         {
             return (leftH, bin with { Left = loweredLeft });
@@ -2141,7 +2141,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         }
         else
         {
-            TypeInfo? targetType = ctx.Registry.LookupType(name: typeName) ??
+            TypeSymbol? targetType = ctx.Registry.LookupType(name: typeName) ??
                                    (bin.Right is IdentifierExpression rid
                                        ? rid.ResolvedType
                                        : null) ?? (bin.Right is TypeExpression rte
@@ -2179,15 +2179,15 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// <c>S32.ne</c> (icmp eq/ne i32). This keeps the <c>is</c> operator out of codegen.
     /// </summary>
     private (List<Statement> Hoisted, Expression Expr) LowerChoiceIsExpression(
-        BinaryExpression bin, ChoiceTypeInfo choiceType)
+        BinaryExpression bin, ChoiceTypeSymbol choiceType)
     {
         (List<Statement> leftH, Expression loweredLeft) = LowerExpr(expr: bin.Left);
         (List<Statement> rightH, Expression loweredRight) = LowerExpr(expr: bin.Right);
         bool isNot = bin.Operator == BinaryOperator.IsNot;
         SourceLocation loc = bin.Location;
 
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
-        TypeInfo? underlying = choiceType.UnderlyingType ?? ctx.Registry.LookupType(name: "S32");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? underlying = choiceType.UnderlyingType ?? ctx.Registry.LookupType(name: "S32");
         List<Statement> hoisted = Concat(a: leftH, b: rightH);
         if (boolType == null || underlying == null)
         {
@@ -2223,7 +2223,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// </summary>
     private (List<Statement> Hoisted, Expression Expr) LowerBooleanAnd(BinaryExpression bin)
     {
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
         if (boolType == null)
         {
             return ([], bin);
@@ -2254,7 +2254,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// </summary>
     private (List<Statement> Hoisted, Expression Expr) LowerBooleanOr(BinaryExpression bin)
     {
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
         if (boolType == null)
         {
             return ([], bin);
@@ -2281,12 +2281,12 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// <summary>
     /// 1i. Lowers logical not to <see cref="ConditionalExpression"/>:
     /// <c>not x</c> -> <c>if x { _cif = false } else { _cif = true }</c>.
-    /// FlagsTypeInfo bitwise-not (<c>~</c>) is lowered to <c>bitnot()</c> by
+    /// FlagsTypeSymbol bitwise-not (<c>~</c>) is lowered to <c>bitnot()</c> by
     /// <see cref="OperatorLoweringPass"/> and never reaches this path.
     /// </summary>
     private (List<Statement> Hoisted, Expression Expr) LowerLogicalNot(UnaryExpression notExpr)
     {
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
         if (boolType == null)
         {
             return ([], notExpr);
@@ -2331,7 +2331,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         (List<Statement> rightH, Expression loweredRight) = LowerExpr(expr: binary.Right);
         List<Statement> hoisted = Concat(a: leftH, b: rightH);
 
-        var flagsType = (FlagsTypeInfo)binary.Left.ResolvedType!;
+        var flagsType = (FlagsTypeSymbol)binary.Left.ResolvedType!;
 
         Expression lowered;
         if (binary.Operator == BinaryOperator.And)
@@ -2375,15 +2375,15 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// <c>store</c> dispatch carries any per-field semantics (e.g. retains on
     /// <c>Retained[T]</c> fields) that a field-by-field constructor rebuild would skip.
     /// SA gates this in <c>AnalyzeWithExpression</c> (base type must obey Assignable).
-    /// Only handles simple (non-nested, non-index) updates on RecordTypeInfo.
+    /// Only handles simple (non-nested, non-index) updates on RecordTypeSymbol.
     /// </summary>
     private (List<Statement> Hoisted, Expression Expr) LowerWithExpression(WithExpression withExpr)
     {
         (List<Statement> baseHoisted, Expression loweredBase) = LowerExpr(expr: withExpr.Base);
         SourceLocation loc = withExpr.Location;
 
-        TypeInfo? baseType = withExpr.Base.ResolvedType;
-        if (baseType is not RecordTypeInfo recordType)
+        TypeSymbol? baseType = withExpr.Base.ResolvedType;
+        if (baseType is not RecordTypeSymbol recordType)
         {
             // Not a record -- pass through unchanged.
             if (ReferenceEquals(objA: loweredBase, objB: withExpr.Base) && baseHoisted.Count == 0)
@@ -2422,7 +2422,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 
     // Hoists the with-base to a temp var if it isn't already a trivial identifier (avoid double-eval),
     // returning the reference to use for the base.
-    private Expression HoistWithBase(Expression loweredBase, TypeInfo baseType, SourceLocation loc,
+    private Expression HoistWithBase(Expression loweredBase, TypeSymbol baseType, SourceLocation loc,
         List<Statement> hoisted)
     {
         if (loweredBase is IdentifierExpression)
@@ -2463,8 +2463,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     // Builds `var with_copy = baseRef.assign(); with_copy.field = value; …` returning the copy ref.
-    private IdentifierExpression BuildWithCopy(Expression baseRef, TypeInfo baseType,
-        RecordTypeInfo recordType, List<(string Field, Expression Value)> loweredOverrides,
+    private IdentifierExpression BuildWithCopy(Expression baseRef, TypeSymbol baseType,
+        RecordTypeSymbol recordType, List<(string Field, Expression Value)> loweredOverrides,
         SourceLocation loc, List<Statement> hoisted)
     {
         // var with_copy = baseRef.assign()
@@ -2509,15 +2509,15 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     private (List<Statement> Hoisted, Expression Expr) LowerIsPatternExpression(
         IsPatternExpression ipe)
     {
-        TypeInfo? operandType = ipe.Expression.ResolvedType;
+        TypeSymbol? operandType = ipe.Expression.ResolvedType;
         bool isNoneCheck = ipe.Pattern is NonePattern or TypePattern { Type.Name: "None" };
         bool isNoneTypeCheck = ipe.Pattern is TypePattern { Type.Name: NoneTypeName };
 
         // Lower the operand expression first.
         (List<Statement> hoisted, Expression loweredExpr) = LowerExpr(expr: ipe.Expression);
 
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
-        TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? u64Type = ctx.Registry.LookupType(name: "U64");
 
         // Maybe[T record]: x is None -> not x.present; x isnot None -> x.present
         if (isNoneCheck && IsMaybeRecord(type: operandType))
@@ -2567,12 +2567,12 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     // Dispatches TypePattern-based is/isnot checks for Variant, Choice, Flags, and Entity operands.
     // Returns null when no arm matched (caller falls through to the pass-through path).
     private (List<Statement> Hoisted, Expression Expr)? TryLowerTypedIsPattern(
-        IsPatternExpression ipe, TypePattern tp, TypeInfo? operandType,
-        Expression loweredExpr, TypeInfo? u64Type, TypeInfo? boolType,
+        IsPatternExpression ipe, TypePattern tp, TypeSymbol? operandType,
+        Expression loweredExpr, TypeSymbol? u64Type, TypeSymbol? boolType,
         List<Statement> hoisted)
     {
-        // D-AST-11: user VariantTypeInfo -- x is T -> x.type_id == FNV-1a(T.FullName)
-        if (operandType is VariantTypeInfo)
+        // D-AST-11: user VariantTypeSymbol -- x is T -> x.type_id == FNV-1a(T.FullName)
+        if (operandType is VariantTypeSymbol)
         {
             (bool matched, (List<Statement> Hoisted, Expression Expr) result) =
                 LowerVariantIsPattern(ipe: ipe,
@@ -2590,7 +2590,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // Choice type: `c is CASE` -> `c == CASE_value`; `c isnot CASE` -> `c != CASE_value`.
         // ChoiceType is backed by an integer (default i32) with each case having a discrete
         // ComputedValue; comparison lowers to a direct integer eq/ne against the case constant.
-        if (operandType is ChoiceTypeInfo choiceType)
+        if (operandType is ChoiceTypeSymbol choiceType)
         {
             (bool matched, (List<Statement> Hoisted, Expression Expr) result) =
                 LowerChoiceIsPattern(ipe: ipe,
@@ -2606,7 +2606,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         }
 
         // Flags type: `p is FLAG` -> `(p & mask) != 0`; `p isnot FLAG` -> `(p & mask) == 0`
-        if (operandType is FlagsTypeInfo flagsType2)
+        if (operandType is FlagsTypeSymbol flagsType2)
         {
             (bool matched, (List<Statement> Hoisted, Expression Expr) result) =
                 LowerFlagsIsPattern(ipe: ipe,
@@ -2624,7 +2624,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // BUILDTIME-decidable — same type = always true, different = always false. Fold to a Bool literal
         // so codegen never sees an entity type-test (the old "optimistic match" hack disappears). A
         // protocol/Unknown operand carries a runtime type_id and is handled by its own path, not here.
-        if (operandType is EntityTypeInfo)
+        if (operandType is EntityTypeSymbol)
         {
             return TryLowerEntityIsPattern(ipe: ipe,
                 tp: tp,
@@ -2639,11 +2639,11 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     // Entity `x is T`: fold to a Bool literal since RF entities have no subtyping.
     // Returns null when the target is not a concrete entity (falls through to pass-through path).
     private (List<Statement> Hoisted, Expression Expr)? TryLowerEntityIsPattern(
-        IsPatternExpression ipe, TypePattern tp, TypeInfo operandType,
-        List<Statement> hoisted, TypeInfo? boolType)
+        IsPatternExpression ipe, TypePattern tp, TypeSymbol operandType,
+        List<Statement> hoisted, TypeSymbol? boolType)
     {
-        TypeInfo? target = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
-        if (target is not EntityTypeInfo)
+        TypeSymbol? target = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
+        if (target is not EntityTypeSymbol)
         {
             return null;
         }
@@ -2661,7 +2661,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 
     // Maybe[T record]: x is None -> not x.present; x isnot None -> x.present
     private (List<Statement> Hoisted, Expression Expr) LowerMaybeAbsenceCheck(
-        IsPatternExpression ipe, Expression loweredExpr, TypeInfo? boolType,
+        IsPatternExpression ipe, Expression loweredExpr, TypeSymbol? boolType,
         List<Statement> hoisted)
     {
         var presentAccess = new MemberExpression(
@@ -2684,7 +2684,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 
     // x.type_id == 0_u64 (or != for isnot).
     private static BinaryExpression MakeTypeIdZeroCompare(Expression loweredExpr, bool isNegated,
-        SourceLocation loc, TypeInfo? u64Type, TypeInfo? boolType)
+        SourceLocation loc, TypeSymbol? u64Type, TypeSymbol? boolType)
     {
         var typeIdAccess = new MemberExpression(
             Object: loweredExpr,
@@ -2703,13 +2703,13 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             Location: loc) { ResolvedType = boolType };
     }
 
-    // D-AST-11: user VariantTypeInfo -- x is T -> x.type_id == FNV-1a(T.FullName).
+    // D-AST-11: user VariantTypeSymbol -- x is T -> x.type_id == FNV-1a(T.FullName).
     // Returns Matched=false when the target type is unresolvable (caller falls through).
     private (bool Matched, (List<Statement> Hoisted, Expression Expr) Result)
         LowerVariantIsPattern(IsPatternExpression ipe, TypePattern tp, Expression loweredExpr,
-            TypeInfo? u64Type, TypeInfo? boolType, List<Statement> hoisted)
+            TypeSymbol? u64Type, TypeSymbol? boolType, List<Statement> hoisted)
     {
-        TypeInfo? targetType = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
+        TypeSymbol? targetType = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
         // None: type_id == 0
         if (tp.Type.Name == NoneTypeName || targetType?.Name == NoneTypeName)
         {
@@ -2750,8 +2750,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     // Choice type: `c is CASE` -> `c == CASE_value`; `c isnot CASE` -> `c != CASE_value`.
     // Returns Matched=false when the case name doesn't resolve (caller falls through).
     private (bool Matched, (List<Statement> Hoisted, Expression Expr) Result) LowerChoiceIsPattern(
-        IsPatternExpression ipe, TypePattern choiceTp, ChoiceTypeInfo choiceType,
-        Expression loweredExpr, TypeInfo? boolType, List<Statement> hoisted)
+        IsPatternExpression ipe, TypePattern choiceTp, ChoiceTypeSymbol choiceType,
+        Expression loweredExpr, TypeSymbol? boolType, List<Statement> hoisted)
     {
         // Pattern name may be qualified (`Color.RED`) from f-string holes or bare (`RED`)
         // from when-clause arms. CheckAndAdvance on the trailing segment either way.
@@ -2766,7 +2766,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             predicate: c => c.Name == choiceCaseName);
         if (choiceCase != null && boolType != null)
         {
-            TypeInfo underlying =
+            TypeSymbol underlying =
                 choiceType.UnderlyingType ?? ctx.Registry.LookupType(name: "S32")!;
             var caseLit = new LiteralExpression(
                 Value: (long)choiceCase.ComputedValue,
@@ -2787,11 +2787,11 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     // Flags type: `p is FLAG` -> `(p & mask) != 0`; `p isnot FLAG` -> `(p & mask) == 0`.
     // Returns Matched=false when U64/Bool are unresolvable (caller falls through).
     private (bool Matched, (List<Statement> Hoisted, Expression Expr) Result) LowerFlagsIsPattern(
-        IsPatternExpression ipe, TypePattern flagsTp, FlagsTypeInfo flagsType2,
+        IsPatternExpression ipe, TypePattern flagsTp, FlagsTypeSymbol flagsType2,
         Expression loweredExpr, List<Statement> hoisted)
     {
-        TypeInfo? u64Type2 = ctx.Registry.LookupType(name: "U64");
-        TypeInfo? boolType2 = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? u64Type2 = ctx.Registry.LookupType(name: "U64");
+        TypeSymbol? boolType2 = ctx.Registry.LookupType(name: "Bool");
         if (u64Type2 == null || boolType2 == null)
         {
             return (false, default);
@@ -2875,7 +2875,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             }
 
             string tempName = NextTempName(prefix: "cmp_mid");
-            TypeInfo? midType = mid.ResolvedType;
+            TypeSymbol? midType = mid.ResolvedType;
 
             var varDecl = new VariableDeclaration(Name: tempName,
                 Type: midType != null
@@ -2894,7 +2894,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         }
 
         // Build pairwise comparisons, chained with 'and'.
-        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeSymbol? boolType = ctx.Registry.LookupType(name: "Bool");
 
         Expression result = new BinaryExpression(Left: operands[index: 0],
             Operator: chain.Operators[index: 0],
@@ -2931,8 +2931,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     private (List<Statement> Hoisted, Expression Expr) LowerNoneCoalesce(BinaryExpression binary)
     {
         SourceLocation loc = binary.Location;
-        TypeInfo? carrierType = binary.Left.ResolvedType;
-        TypeInfo? valueType = binary.ResolvedType; // T = the inner type
+        TypeSymbol? carrierType = binary.Left.ResolvedType;
+        TypeSymbol? valueType = binary.ResolvedType; // T = the inner type
 
         // Skip hoisting if types are unknown (e.g., unanalyzed stdlib bodies).
         if (carrierType == null || valueType == null)
@@ -3006,8 +3006,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         OptionalMemberExpression optMember)
     {
         SourceLocation loc = optMember.Location;
-        TypeInfo? carrierType = optMember.Object.ResolvedType;
-        TypeInfo? resultType = optMember.ResolvedType; // Maybe[PropType]
+        TypeSymbol? carrierType = optMember.Object.ResolvedType;
+        TypeSymbol? resultType = optMember.ResolvedType; // Maybe[PropType]
 
         // Skip hoisting if types are unknown (e.g., unanalyzed stdlib bodies).
         if (carrierType == null || resultType == null)
@@ -3038,11 +3038,11 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         Expression omRef = MakeRef(name: omName, resolvedType: resultType, loc: loc);
 
         // Inner type for member access
-        TypeInfo? innerType = carrierType?.TypeArguments?[0];
+        TypeSymbol? innerType = carrierType?.TypeArguments?[0];
         Expression valRef = MakeRef(name: valName, resolvedType: innerType, loc: loc);
 
         // val.prop
-        TypeInfo? propType = resultType?.TypeArguments?[0];
+        TypeSymbol? propType = resultType?.TypeArguments?[0];
         var memberAccess =
             new MemberExpression(Object: valRef, MemberName: optMember.MemberName, Location: loc)
             {
@@ -3097,7 +3097,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     /// <summary>Adds <c>var name = initializer</c> to <paramref name="hoisted"/>.</summary>
-    private static void AddTempVar(List<Statement> hoisted, string name, TypeInfo? typeHint,
+    private static void AddTempVar(List<Statement> hoisted, string name, TypeSymbol? typeHint,
         Expression initializer, SourceLocation loc)
     {
         var decl = new VariableDeclaration(Name: name,
@@ -3116,10 +3116,10 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// a hoisted result temp from a conditional/when whose own ResolvedType may carry a stale generic
     /// self-type even when a branch was concretized during monomorphization.
     /// </summary>
-    private static TypeInfo? FirstConcrete(params TypeInfo?[] candidates)
+    private static TypeSymbol? FirstConcrete(params TypeSymbol?[] candidates)
     {
-        TypeInfo? firstNonNull = null;
-        foreach (TypeInfo? c in candidates)
+        TypeSymbol? firstNonNull = null;
+        foreach (TypeSymbol? c in candidates)
         {
             if (c == null)
             {
@@ -3136,7 +3136,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         return firstNonNull;
     }
 
-    private static void AddTempVarUninit(List<Statement> hoisted, string name, TypeInfo? typeHint,
+    private static void AddTempVarUninit(List<Statement> hoisted, string name, TypeSymbol? typeHint,
         SourceLocation loc)
     {
         if (typeHint == null)
@@ -3161,7 +3161,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// <summary>
     /// Creates an <see cref="IdentifierExpression"/> for a synthetic temp variable.
     /// </summary>
-    private static IdentifierExpression MakeRef(string name, TypeInfo? resolvedType,
+    private static IdentifierExpression MakeRef(string name, TypeSymbol? resolvedType,
         SourceLocation loc)
     {
         return new IdentifierExpression(Name: name, Location: loc) { ResolvedType = resolvedType };
@@ -3171,7 +3171,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// Returns true if <paramref name="type"/> is <c>Maybe[T]</c> where T is a record/value type
     /// (the two-field variant with <c>present</c> and <c>value</c> fields).
     /// </summary>
-    private static bool IsMaybeRecord(TypeInfo? type)
+    private static bool IsMaybeRecord(TypeSymbol? type)
     {
         if (type == null)
         {
@@ -3180,7 +3180,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 
         string baseName = type switch
         {
-            RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
+            RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition.Name,
             _ => type.Name
         };
         if (baseName != MaybeTypeName)
@@ -3204,7 +3204,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// (e.g. <c>[Inner, S32]</c> for an <c>Outer</c> whose <c>Inner</c> arm holds <c>S32</c>).
     /// Returns null when unreachable. Arms are distinct types, so the path is unique.
     /// </summary>
-    private static List<TypeInfo>? FindVariantArmPath(VariantTypeInfo from, TypeInfo target)
+    private static List<TypeSymbol>? FindVariantArmPath(VariantTypeSymbol from, TypeSymbol target)
     {
         foreach (VariantMemberInfo member in from.Members)
         {
@@ -3218,7 +3218,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
                 return [armType];
             }
 
-            if (armType is VariantTypeInfo sub && FindVariantArmPath(from: sub, target: target) is
+            if (armType is VariantTypeSymbol sub && FindVariantArmPath(from: sub, target: target) is
                     { } rest)
             {
                 rest.Insert(index: 0, item: armType);
@@ -3230,7 +3230,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     /// <summary>Returns true if the type is <c>Result[T]</c> or <c>Lookup[T]</c>.</summary>
-    private static bool IsResultOrLookup(TypeInfo? type)
+    private static bool IsResultOrLookup(TypeSymbol? type)
     {
         if (type == null)
         {
@@ -3239,7 +3239,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
 
         string baseName = type switch
         {
-            RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
+            RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition.Name,
             _ => type.Name
         };
         return baseName is "Result" or "Lookup";
@@ -3249,12 +3249,12 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// Returns the appropriate absence pattern for the carrier:
     /// <c>NonePattern</c> for Maybe[T], <c>TypePattern("None")</c> for Result/Lookup.
     /// </summary>
-    private static Pattern MakeAbsencePattern(TypeInfo? carrierType, SourceLocation loc)
+    private static Pattern MakeAbsencePattern(TypeSymbol? carrierType, SourceLocation loc)
     {
         // Maybe is identified by name prefix
         string? baseName = carrierType switch
         {
-            RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
+            RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition.Name,
             _ => carrierType?.Name
         };
 
@@ -3272,16 +3272,16 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     /// <summary>
-    /// Converts a <see cref="TypeInfo"/> to a <see cref="TypeExpression"/> suitable for
+    /// Converts a <see cref="TypeSymbol"/> to a <see cref="TypeExpression"/> suitable for
     /// use as a variable type annotation in a synthetic <see cref="VariableDeclaration"/>.
     /// </summary>
-    private static TypeExpression TypeInfoToExpr(TypeInfo type, SourceLocation loc)
+    private static TypeExpression TypeInfoToExpr(TypeSymbol type, SourceLocation loc)
     {
         // For generic resolutions, use the base definition name (not the resolved "Maybe[S64]").
         string baseName = type switch
         {
-            RecordTypeInfo { GenericDefinition: not null } r => r.GenericDefinition.Name,
-            EntityTypeInfo { GenericDefinition: not null } e => e.GenericDefinition.Name,
+            RecordTypeSymbol { GenericDefinition: not null } r => r.GenericDefinition.Name,
+            EntityTypeSymbol { GenericDefinition: not null } e => e.GenericDefinition.Name,
             _ => type.IsGenericResolution
                 ? type.BareName
                 : type.Name
@@ -3293,7 +3293,7 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
                   .ToList()
             : null;
 
-        // Carry the already-resolved TypeInfo so codegen uses it directly instead of re-resolving the
+        // Carry the already-resolved TypeSymbol so codegen uses it directly instead of re-resolving the
         // bare name via the cross-module short-name scan. ONLY for a fully-concrete type — annotating an
         // unsubstituted generic parameter would trip the Track-C monomorphization-completeness guard.
         return new TypeExpression(Name: baseName, GenericArguments: args, Location: loc)
@@ -3307,10 +3307,10 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     /// <summary>True when <paramref name="type"/> is (or transitively contains) an unsubstituted
     /// generic parameter / protocol-self — such a type must NOT be frozen onto a synthesized
     /// TypeExpression's ResolvedType (the monomorphizer would fail its completeness check).</summary>
-    private static bool TypeContainsGenericParameter(TypeInfo type)
+    private static bool TypeContainsGenericParameter(TypeSymbol type)
     {
-        return type is GenericParameterTypeInfo or ProtocolSelfTypeInfo
-                   or ComptimeConstGenericTypeInfo ||
+        return type is GenericParameterTypeSymbol or ProtocolSelfTypeSymbol
+                   or BuildtimeConstGenericTypeSymbol ||
                (type.TypeArguments?.Any(predicate: TypeContainsGenericParameter) ?? false);
     }
 

@@ -1,9 +1,9 @@
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Lowers domain-specific literal tokens to equivalent record constructor expressions
@@ -27,23 +27,23 @@ internal sealed class LiteralLoweringPass : AstRewriter
 
     // Arbitrary-precision literal lowering: `123n`/`3.14dn` -> Integer/Decimal.from_literal(text:"...").
     private const string FromLiteralRoutine = "from_literal";
-    private readonly TypeInfo? _integerType;
-    private readonly TypeInfo? _textType;
+    private readonly TypeSymbol? _integerType;
+    private readonly TypeSymbol? _textType;
 
     private readonly RoutineInfo? _integerFromLiteral;
 
     // Imaginary literal lowering: `4.0j64` -> C64(real: 0.0_f64, imag: 4.0_f64), etc.
-    private readonly TypeInfo? _c32Type;
-    private readonly TypeInfo? _c64Type;
-    private readonly TypeInfo? _c128Type;
-    private readonly TypeInfo? _complexType;
-    private readonly TypeInfo? _f32Type;
-    private readonly TypeInfo? _f64Type;
+    private readonly TypeSymbol? _c32Type;
+    private readonly TypeSymbol? _c64Type;
+    private readonly TypeSymbol? _c128Type;
+    private readonly TypeSymbol? _complexType;
+    private readonly TypeSymbol? _f32Type;
+    private readonly TypeSymbol? _f64Type;
 
-    private readonly TypeInfo? _f128Type;
+    private readonly TypeSymbol? _f128Type;
 
     // `jn` imaginary literals build a Complex whose components are arbitrary-precision Real.
-    private readonly TypeInfo? _realType;
+    private readonly TypeSymbol? _realType;
 
     private readonly RoutineInfo? _realFromLiteral;
 
@@ -52,10 +52,10 @@ internal sealed class LiteralLoweringPass : AstRewriter
     // running CallOverloadResolutionPass (which is what otherwise fills a creator's ResolvedType) lowers a
     // comparison like `'a' < 'b'` to an UNRESOLVED `.lt` call (LoweringKind=Unknown, no ResolvedRoutine) —
     // which then hard-errors at codegen. Stamping the type here makes the operand type flow deterministically.
-    private readonly TypeInfo? _characterType;
-    private readonly TypeInfo? _byteType;
-    private readonly TypeInfo? _byteSizeType;
-    private readonly TypeInfo? _durationType;
+    private readonly TypeSymbol? _characterType;
+    private readonly TypeSymbol? _byteType;
+    private readonly TypeSymbol? _byteSizeType;
+    private readonly TypeSymbol? _durationType;
 
     /// <summary>
     /// Initializes a new instance with the dependencies required for its compiler phase.
@@ -338,8 +338,8 @@ internal sealed class LiteralLoweringPass : AstRewriter
 
     /// <summary>Builds <c>&lt;CType&gt;(real: 0&lt;suffix&gt;, imag: &lt;mag&gt;&lt;suffix&gt;)</c> for a
     /// fixed-width imaginary literal, where the components are float literals of <paramref name="compLit"/>.</summary>
-    private static CreatorExpression MakeComplexCreator(string typeName, TypeInfo type, string mag,
-        TokenType compLit, TypeInfo? compType, SourceLocation loc)
+    private static CreatorExpression MakeComplexCreator(string typeName, TypeSymbol type, string mag,
+        TokenType compLit, TypeSymbol? compType, SourceLocation loc)
     {
         var real =
             new LiteralExpression(Value: "0.0", LiteralType: compLit, Location: loc)
@@ -362,7 +362,7 @@ internal sealed class LiteralLoweringPass : AstRewriter
     /// (<c>n</c>/<c>dn</c>) literal. The suffix and digit-group underscores are stripped; the bare
     /// digit string is materialized at runtime by the infallible <c>from_literal</c> constructor.
     /// </summary>
-    private CallExpression MakeFromLiteralCall(string raw, string suffix, TypeInfo type,
+    private CallExpression MakeFromLiteralCall(string raw, string suffix, TypeSymbol type,
         RoutineInfo fromLiteral, SourceLocation loc)
     {
         string digits =

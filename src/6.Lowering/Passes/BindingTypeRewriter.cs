@@ -1,9 +1,9 @@
 using SyntaxTree;
 using TypeModel.Types;
 using TypeModel.Symbols;
-using Compiler.Declaration;
+using Builder.Declaration;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Walks a (deep-cloned) statement and rewires every reference to a specific
@@ -19,17 +19,17 @@ namespace Compiler.Lowering.Passes;
 internal sealed class BindingTypeRewriter : ISyntaxTreeVisitor<bool>
 {
     private readonly string _bindingName;
-    private readonly TypeInfo _concreteType;
+    private readonly TypeSymbol _concreteType;
     private readonly TypeRegistry _registry;
 
-    private BindingTypeRewriter(string bindingName, TypeInfo concreteType, TypeRegistry registry)
+    private BindingTypeRewriter(string bindingName, TypeSymbol concreteType, TypeRegistry registry)
     {
         _bindingName = bindingName;
         _concreteType = concreteType;
         _registry = registry;
     }
 
-    public static void Apply(Statement body, string bindingName, TypeInfo concreteType,
+    public static void Apply(Statement body, string bindingName, TypeSymbol concreteType,
         TypeRegistry registry)
     {
         var v = new BindingTypeRewriter(bindingName: bindingName,

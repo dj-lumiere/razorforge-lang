@@ -2,7 +2,7 @@ using System.Text;
 using SyntaxTree;
 using TypeModel.Symbols;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Declaration code generation for synthesized runtime-support routines.

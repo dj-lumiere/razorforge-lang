@@ -1,13 +1,11 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 using System.Text;
-using Compiler.Instantiation;
+using Builder.Instantiation;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 /// <summary>
 /// Phase 5: Error handling variant support.
@@ -228,7 +226,7 @@ public sealed partial class SemanticVerifier
     /// Returns null when the name has no reserved prefix, no failable base exists, or the base was not
     /// recorded as a deferred variant base (e.g. <c>@crash_only</c>, which generates no variants).
     /// </summary>
-    internal RoutineInfo? TrySynthesizeVariantOnDemand(TypeInfo dispatchType, string variantName)
+    internal RoutineInfo? TrySynthesizeVariantOnDemand(TypeSymbol dispatchType, string variantName)
     {
         if (!TrySplitVariantName(variantName: variantName, baseName: out string baseName))
         {
@@ -442,7 +440,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Generates the bodies of all on-demand-synthesized variants (the demand-driven replacement for
     /// ErrorHandlingVariantPass.TransformPendingBodies, which now only builds `emit` bodies). Each body is
-    /// built via <see cref="Compiler.Instantiation.ErrorHandlingVariantPass.GenerateVariantBody"/>; its broad-propagation
+    /// built via <see cref="Builder.Instantiation.ErrorHandlingVariantPass.GenerateVariantBody"/>; its broad-propagation
     /// rewrite re-looks-up inner failable calls, whose on-demand hook enqueues MORE bases — so this drains
     /// until the queue is empty (transitive closure). Skips variants whose body is already present (a warm
     /// restore or the eager `emit` path).
@@ -543,7 +541,7 @@ public sealed partial class SemanticVerifier
     /// (only registered), so <c>_routineBodies</c> would otherwise contain only user-side
     /// failable routines. Downstream passes need stdlib bodies too:
     /// <see cref="ErrorHandlingVariantPass"/> for failable iterators (e.g.
-    /// <c>ListEmitter[T].emit!</c>) and <see cref="Compiler.Instantiation.Passes.ProtocolDefaultImplLoweringPass"/>
+    /// <c>ListEmitter[T].emit!</c>) and <see cref="Builder.Instantiation.Passes.ProtocolDefaultImplLoweringPass"/>
     /// for protocol-extension routines (e.g. <c>Iterable[Text].join</c>).
     /// Called before RunPhase4GlobalDesugaring() so the bodies are visible to both phases.
     /// </summary>
@@ -718,11 +716,11 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void CheckOverridableDeriveMarkers()
     {
-        foreach (TypeInfo type in _registry.GetTypesWithMemberRoutines())
+        foreach (TypeSymbol type in _registry.GetTypesWithMemberRoutines())
         {
             // Templates live in the derive-template store keyed on a `T` placeholder, never as member
-            // routines, so a GenericParameterTypeInfo owner cannot appear here — but guard anyway.
-            if (type is GenericParameterTypeInfo)
+            // routines, so a GenericParameterTypeSymbol owner cannot appear here — but guard anyway.
+            if (type is GenericParameterTypeSymbol)
             {
                 continue;
             }
@@ -740,7 +738,7 @@ public sealed partial class SemanticVerifier
     /// collides with a non-opt-in auto-derive template that <paramref name="type"/> actually receives
     /// but is not marked <c>@override</c>. Skips synthesized routines and opt-in derives.
     /// </summary>
-    private void CheckRoutineForOverridableDeriveCollision(TypeInfo type, RoutineInfo routine)
+    private void CheckRoutineForOverridableDeriveCollision(TypeSymbol type, RoutineInfo routine)
     {
         if (routine.IsSynthesized)
         {
@@ -796,7 +794,7 @@ public sealed partial class SemanticVerifier
 
     private static bool LooksLikeGenericParamArg(string ownerTypeName)
     {
-        if (TypeInfo.ExtractTypeArgsString(name: ownerTypeName) is not { } inside)
+        if (TypeSymbol.ExtractTypeArgsString(name: ownerTypeName) is not { } inside)
         {
             return false;
         }
@@ -872,7 +870,7 @@ public sealed partial class SemanticVerifier
         // under the bracketed-owner bucket (FullName = "Core.Iterable[Text]"). Try the
         // bracketed form first, falling back to the gen-def name. Both lookups can succeed
         // on different types: prefer the one that actually has the candidate memberRoutine.
-        string bareLookupName = TypeInfo.StripTypeArgs(name: ownerTypeName);
+        string bareLookupName = TypeSymbol.StripTypeArgs(name: ownerTypeName);
 
         // Own-module + own-REALM FIRST: a member decl `routine List[T].add_last` in an SF-realm
         // `Standard/Suflae/…` file owns the SF-realm `Core.List`, not the RazorForge-realm one that
@@ -1050,15 +1048,15 @@ public sealed partial class SemanticVerifier
             return typeExpr.Name;
         }
 
-        // `Routine[(params), ret]`: RoutineTypeInfo.Name renders the parameter-list tuple
+        // `Routine[(params), ret]`: RoutineTypeSymbol.Name renders the parameter-list tuple
         // PARENTHESIZED — `(T,)` for one element, `(A, B)` for several — and the return type
-        // directly, NOT as `Tuple[...]` (see RoutineTypeInfo.BuildName). The AST instead parses
+        // directly, NOT as `Tuple[...]` (see RoutineTypeSymbol.BuildName). The AST instead parses
         // the param-list as a generic `Tuple[...]`. Render the Routine form to match exactly, so
         // lambda-taking protocol-extension memberRoutines (Iterable[T].where/select/accumulate/...) match
         // their registered RoutineInfo signature; otherwise their bodies aren't collected and
         // ProtocolDefaultImplLoweringPass can't synthesize per-implementer instances → "undefined
         // symbol" at codegen. Scoped to the Routine param-list ONLY — a standalone `Tuple[...]`
-        // parameter keeps its `Tuple[...]` rendering (which matches TupleTypeInfo.Name).
+        // parameter keeps its `Tuple[...]` rendering (which matches TupleTypeSymbol.Name).
         if (typeExpr.Name == "Routine" && typeExpr.GenericArguments.Count == 2)
         {
             TypeExpression paramTupleExpr = typeExpr.GenericArguments[index: 0];
@@ -1073,7 +1071,7 @@ public sealed partial class SemanticVerifier
             }
             else
             {
-                // 0-parameter routine type: RoutineTypeInfo.BuildName renders "None".
+                // 0-parameter routine type: RoutineTypeSymbol.BuildName renders "None".
                 paramList = GetAstMatchTypeName(typeExpr: paramTupleExpr);
             }
 

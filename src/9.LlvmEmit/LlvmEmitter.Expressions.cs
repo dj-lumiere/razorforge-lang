@@ -4,7 +4,7 @@ using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Expression code generation: allocation, member variable access, memberRoutine calls, operators.
@@ -89,7 +89,7 @@ public partial class LlvmEmitter
             EmitLine(sb: sb, line: $"  {boundPtr} = call ptr @rf_allocate_dynamic(i64 {size})");
             for (int i = 0; i < captures.Count; i++)
             {
-                (string capName, TypeInfo capType) = captures[index: i];
+                (string capName, TypeSymbol capType) = captures[index: i];
                 string capLlvm = GetLlvmType(type: capType);
                 string llvmName =
                     _localVarLlvmNames.GetValueOrDefault(key: capName, defaultValue: capName);
@@ -385,7 +385,7 @@ public partial class LlvmEmitter
             }
 
             string v = EmitExpression(sb: sb, expr: arguments[index: i]);
-            TypeInfo actual = GetExpressionType(expr: arguments[index: i]) ??
+            TypeSymbol actual = GetExpressionType(expr: arguments[index: i]) ??
                               routine.Parameters[index: i].Type;
             (string cv, string _) = CoerceCallArgumentToParameter(sb: sb,
                 argValue: v,
@@ -436,7 +436,7 @@ public partial class LlvmEmitter
         // Build the Agent[T] record value (kind THREAD): { kind=1, coro=null, agent=task_handle,
         // deadline (zero), has_deadline (false), spawned }. Fields: kind@0 (AgentKind choice -> i32),
         // coro@1 (CPtr, stays null), agent@2 (Address -> i64), deadline@3, has_deadline@4, spawned@5.
-        TypeInfo agentType = _registry.GetOrCreateResolution(
+        TypeSymbol agentType = _registry.GetOrCreateResolution(
             genericDef: _registry.LookupType(name: "Agent")!,
             typeArguments: [routine.ReturnType!]);
         string recLlvm = GetLlvmType(type: agentType);
@@ -479,7 +479,7 @@ public partial class LlvmEmitter
         for (int i = 0; i < n; i++)
         {
             string v = EmitExpression(sb: sb, expr: arguments[index: i]);
-            TypeInfo actual = GetExpressionType(expr: arguments[index: i]) ??
+            TypeSymbol actual = GetExpressionType(expr: arguments[index: i]) ??
                               routine.Parameters[index: i].Type;
             (string cv, string _) = CoerceCallArgumentToParameter(sb: sb,
                 argValue: v,
@@ -539,7 +539,7 @@ public partial class LlvmEmitter
 
         // Build Agent[T] (kind CORO): { kind=0, coro: CPtr@1 (ptr), agent: Address@2 (i64) }. kind
         // stays 0 (CORO) from the zeroinitializer; coro and the result block fill fields 1 and 2.
-        TypeInfo agentType = _registry.GetOrCreateResolution(
+        TypeSymbol agentType = _registry.GetOrCreateResolution(
             genericDef: _registry.LookupType(name: "Agent")!,
             typeArguments: [routine.ReturnType!]);
         string recLlvm = GetLlvmType(type: agentType);
@@ -566,7 +566,7 @@ public partial class LlvmEmitter
         RoutineInfo? destroy = routine.ReturnType is { } rt
             ? _registry.LookupMemberRoutineOverload(type: rt,
                 memberRoutineName: "destroy",
-                argTypes: new List<TypeInfo>())
+                argTypes: new List<TypeSymbol>())
             : null;
         bool needsDiscard = destroy != null && routine.ReturnType != null;
 
@@ -687,8 +687,8 @@ public partial class LlvmEmitter
     private string EmitIdentifier(StringBuilder sb, IdentifierExpression identifier)
     {
         // Const generic value: the monomorphizer baked the numeric value onto the identifier's
-        // ResolvedType (ConstGenericValueTypeInfo) — read it off the node, not a codegen-time map.
-        if (identifier.ResolvedType is ConstGenericValueTypeInfo constVal)
+        // ResolvedType (ConstGenericValueTypeSymbol) — read it off the node, not a codegen-time map.
+        if (identifier.ResolvedType is ConstGenericValueTypeSymbol constVal)
         {
             return constVal.Value.ToString();
         }
@@ -724,7 +724,7 @@ public partial class LlvmEmitter
             return EmitPreResolvedRoutineValue(sb: sb, preResolved: preResolved);
         }
 
-        if (identifier.ResolvedType is RoutineTypeInfo routineType && TryResolveRoutineReference(
+        if (identifier.ResolvedType is RoutineTypeSymbol routineType && TryResolveRoutineReference(
                 name: identifier.Name,
                 routineType: routineType,
                 routine: out RoutineInfo? routine))
@@ -746,11 +746,11 @@ public partial class LlvmEmitter
         }
 
         // Look up the variable in local variables first
-        if (!_localVariables.TryGetValue(key: identifier.Name, value: out TypeInfo? varType))
+        if (!_localVariables.TryGetValue(key: identifier.Name, value: out TypeSymbol? varType))
         {
             // Suflae module-level `global`: load from its `@global` symbol.
             if (_moduleGlobals.TryGetValue(key: identifier.Name,
-                    value: out (TypeInfo Type, string Symbol) gslot))
+                    value: out (TypeSymbol Type, string Symbol) gslot))
             {
                 string gLlvmType = GetLlvmType(type: gslot.Type);
                 string gTmp = NextTemp();
@@ -796,7 +796,7 @@ public partial class LlvmEmitter
     /// <summary>
     /// Attempts to resolve routine reference and reports whether it succeeded.
     /// </summary>
-    private bool TryResolveRoutineReference(string name, RoutineTypeInfo routineType,
+    private bool TryResolveRoutineReference(string name, RoutineTypeSymbol routineType,
         out RoutineInfo? routine)
     {
         routine = null;
@@ -923,7 +923,7 @@ public partial class LlvmEmitter
     {
         string local = ((IdentifierExpression)call.Arguments[index: 0]).Name;
         if (!_localVarLlvmNames.TryGetValue(key: local, value: out string? unique) ||
-            !_localVariables.TryGetValue(key: local, value: out TypeInfo? type))
+            !_localVariables.TryGetValue(key: local, value: out TypeSymbol? type))
         {
             return
                 ""; // not a tracked local (e.g. a param) — leave untracked (first-cut limitation)
@@ -931,7 +931,7 @@ public partial class LlvmEmitter
 
         RoutineInfo? destroy = _registry.LookupMemberRoutineOverload(type: type,
             memberRoutineName: "destroy",
-            argTypes: new List<TypeInfo>());
+            argTypes: new List<TypeSymbol>());
         if (destroy == null)
         {
             return "";
@@ -941,7 +941,7 @@ public partial class LlvmEmitter
         string mangled = MangleRoutineName(routine: destroy);
 
         string valuePtr;
-        if (type is EntityTypeInfo)
+        if (type is EntityTypeSymbol)
         {
             valuePtr = NextTemp();
             EmitLine(sb: sb, line: $"  {valuePtr} = load ptr, ptr %{unique}.addr");
@@ -984,8 +984,8 @@ public partial class LlvmEmitter
     /// <summary>
     /// Emit backend scalar cast as part of this compiler phase.
     /// </summary>
-    private string EmitBackendScalarCast(StringBuilder sb, string value, TypeInfo? sourceType,
-        TypeInfo targetType)
+    private string EmitBackendScalarCast(StringBuilder sb, string value, TypeSymbol? sourceType,
+        TypeSymbol targetType)
     {
         string targetLlvm = GetLlvmType(type: targetType);
         string sourceLlvm = sourceType != null
@@ -1050,8 +1050,8 @@ public partial class LlvmEmitter
     /// LLVM types (both already known to be non-ptr and not equal). The signedness comes from the
     /// RazorForge <paramref name="sourceType"/>/<paramref name="targetType"/>.
     /// </summary>
-    private string EmitScalarWidthOrFloatCast(StringBuilder sb, string value, TypeInfo? sourceType,
-        TypeInfo targetType, string sourceLlvm, string targetLlvm)
+    private string EmitScalarWidthOrFloatCast(StringBuilder sb, string value, TypeSymbol? sourceType,
+        TypeSymbol targetType, string sourceLlvm, string targetLlvm)
     {
         bool sourceIsFloat =
             sourceLlvm is "half" or FloatTypeName or DoubleTypeName or Fp128TypeName;
@@ -1121,7 +1121,7 @@ public partial class LlvmEmitter
 
     /// <summary>Emits an integer-to-float cast (uitofp or sitofp) based on source signedness.</summary>
     private static void EmitIntToFloatCast(StringBuilder sb, string result, string value,
-        string sourceLlvm, string targetLlvm, TypeInfo? sourceType)
+        string sourceLlvm, string targetLlvm, TypeSymbol? sourceType)
     {
         bool sourceUnsigned = IsUnsignedIntegerType(type: sourceType);
         string op = sourceUnsigned
@@ -1357,11 +1357,11 @@ public partial class LlvmEmitter
     {
         // Wired unary operators lower to member calls upstream (and throw here if they leak). The
         // arms that remain are fundamental: Steal (pure passthrough) and flags BitwiseNot below —
-        // BitwiseNot on FlagsTypeInfo is intentionally left unlowered by OperatorLoweringPass
+        // BitwiseNot on FlagsTypeSymbol is intentionally left unlowered by OperatorLoweringPass
         // (flags have no bitnot body to avoid synthesizer recursion). Emit `xor x, -1` directly
         // on the underlying integer type, mirroring EmitFlagsBitwiseOp.
         if (unary.Operator == UnaryOperator.BitwiseNot &&
-            GetExpressionType(expr: unary.Operand) is FlagsTypeInfo flagsType)
+            GetExpressionType(expr: unary.Operand) is FlagsTypeSymbol flagsType)
         {
             string operand = EmitExpression(sb: sb, expr: unary.Operand);
             string llvmType = GetLlvmType(type: flagsType);
@@ -1388,12 +1388,12 @@ public partial class LlvmEmitter
     /// Resolves generic type parameters in a member's type using the owner's type arguments.
     /// Builds a substitution map from the owner and delegates to SubstituteTypeParams.
     /// </summary>
-    private TypeInfo ResolveGenericMemberType(TypeInfo memberType, TypeInfo ownerType)
+    private TypeSymbol ResolveGenericMemberType(TypeSymbol memberType, TypeSymbol ownerType)
     {
-        TypeInfo? ownerGenericDef = ownerType switch
+        TypeSymbol? ownerGenericDef = ownerType switch
         {
-            RecordTypeInfo r => r.GenericDefinition,
-            EntityTypeInfo e => e.GenericDefinition,
+            RecordTypeSymbol r => r.GenericDefinition,
+            EntityTypeSymbol e => e.GenericDefinition,
             _ => null
         };
         if (ownerGenericDef?.GenericParameters == null || ownerType.TypeArguments == null)
@@ -1401,7 +1401,7 @@ public partial class LlvmEmitter
             return memberType;
         }
 
-        var subs = new Dictionary<string, TypeInfo>();
+        var subs = new Dictionary<string, TypeSymbol>();
         for (int i = 0;
              i < ownerGenericDef.GenericParameters.Count && i < ownerType.TypeArguments.Count;
              i++)
@@ -1434,11 +1434,11 @@ public partial class LlvmEmitter
         // Spill the carrier value to a temp alloca first.
         string carrierVal = EmitExpression(sb: sb, expr: payload.Carrier);
 
-        TypeInfo carrierType = payload.Carrier.ResolvedType!;
+        TypeSymbol carrierType = payload.Carrier.ResolvedType!;
         // Both a Result/Lookup/Maybe carrier and a general user variant store their payload at field 1
         // ({ tag/flag, payload }); pick the right aggregate LLVM type for each.
         string carrierLlvmType =
-            carrierType is VariantTypeInfo variant && !IsCarrierType(type: carrierType)
+            carrierType is VariantTypeSymbol variant && !IsCarrierType(type: carrierType)
                 ? GetVariantTypeName(variant: variant)
                 : GetCarrierLlvmType(type: carrierType);
 
@@ -1446,7 +1446,7 @@ public partial class LlvmEmitter
         EmitLine(sb: sb, line: $"  {spillAddr} = alloca {carrierLlvmType}");
         EmitLine(sb: sb, line: $"  store {carrierLlvmType} {carrierVal}, ptr {spillAddr}");
 
-        TypeInfo? concreteType = payload.ResolvedType ?? payload.ConcreteType.ResolvedType ??
+        TypeSymbol? concreteType = payload.ResolvedType ?? payload.ConcreteType.ResolvedType ??
             _registry.LookupType(name: payload.ConcreteType.Name);
 
         string payloadPtr = NextTemp();
@@ -1455,7 +1455,7 @@ public partial class LlvmEmitter
             $"  {payloadPtr} = getelementptr {carrierLlvmType}, ptr {spillAddr}, i32 0, i32 1");
 
         string loadType;
-        if (concreteType is EntityTypeInfo or CrashableTypeInfo)
+        if (concreteType is EntityTypeSymbol or CrashableTypeSymbol)
         {
             loadType = "ptr";
         }
@@ -1489,7 +1489,7 @@ public partial class LlvmEmitter
     {
         // Spill the carrier value so we can GEP its type_id (field 0) and payload entity ptr (field 1).
         string carrierVal = EmitExpression(sb: sb, expr: dispatch.Carrier);
-        TypeInfo carrierType = dispatch.Carrier.ResolvedType!;
+        TypeSymbol carrierType = dispatch.Carrier.ResolvedType!;
         string carrierLlvmType = GetCarrierLlvmType(type: carrierType);
 
         string spillAddr = NextTemp();
@@ -1519,9 +1519,9 @@ public partial class LlvmEmitter
         // these members live per reached crashable, so codegen and the collector agree on the same set.
         var arms = new List<(long id, RoutineInfo routine, string mangled, string label)>();
         string? retLlvm = null;
-        foreach (TypeInfo t in _registry.GetTypesByCategory(category: TypeCategory.Crashable))
+        foreach (TypeSymbol t in _registry.GetTypesByCategory(category: TypeCategory.Crashable))
         {
-            if (t is not CrashableTypeInfo crashable)
+            if (t is not CrashableTypeSymbol crashable)
             {
                 continue;
             }

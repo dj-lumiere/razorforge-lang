@@ -1,6 +1,6 @@
 using TypeModel.Types;
 
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// Result of analyzing throw/absent keywords in a failable function body.
@@ -17,5 +17,5 @@ public sealed class ErrorHandlingAnalysis
     /// Concrete crashable types directly thrown in this body (from <c>throw</c> statements
     /// whose expression has a resolved type). Does not include types thrown by called routines.
     /// </summary>
-    public HashSet<TypeInfo> ThrownTypes { get; } = [];
+    public HashSet<TypeSymbol> ThrownTypes { get; } = [];
 }

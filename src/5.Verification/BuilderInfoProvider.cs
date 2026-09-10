@@ -1,28 +1,26 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
+using Builder.Verification.Enums;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 /// <summary>
 /// Bundles the resolved carrier types needed by <see cref="BuilderInfoProvider.RegisterRoutinesOnType"/>.
 /// All members are nullable: a missing type simply suppresses the corresponding routine group.
 /// </summary>
 public readonly record struct BuilderQueryTypeSet(
-    TypeInfo? TextType,
-    TypeInfo? BoolType,
-    TypeInfo? U64Type,
-    TypeInfo? S64Type,
-    TypeInfo? ListTextType,
-    TypeInfo? ListFieldInfoType,
-    TypeInfo? ListProtocolInfoType,
-    TypeInfo? ListRoutineInfoType,
-    TypeInfo? ByteSizeType = null);
+    TypeSymbol? TextType,
+    TypeSymbol? BoolType,
+    TypeSymbol? U64Type,
+    TypeSymbol? S64Type,
+    TypeSymbol? ListTextType,
+    TypeSymbol? ListFieldInfoType,
+    TypeSymbol? ListProtocolInfoType,
+    TypeSymbol? ListRoutineInfoType,
+    TypeSymbol? ByteSizeType = null);
 
 /// <summary>
 /// Central authority for BuilderQuery routine registration and import-gating.
@@ -387,7 +385,7 @@ public static class BuilderInfoProvider
         {
             Kind = RoutineKind.MemberRoutine,
             OwnerType = owner,
-            Parameters = [new ParameterInfo(name: paramName, type: paramType)],
+            Parameters = [new ParamInfo(name: paramName, type: paramType)],
             ReturnType = returnType,
             IsFailable = false,
             DeclaredMutation = MutationCategory.Readonly,

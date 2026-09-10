@@ -1,6 +1,6 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 
-namespace Compiler.Tokenizer;
+namespace Builder.Tokenizer;
 
 /// <summary>
 /// Partial class containing numeric literal scanning memberRoutines for the unified tokenizer.

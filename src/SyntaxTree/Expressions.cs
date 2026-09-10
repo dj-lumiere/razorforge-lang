@@ -1,4 +1,4 @@
-using Compiler.Tokenizer;
+using Builder.Tokenizer;
 using TypeModel.Reprs;
 using TypeModel.Symbols;
 using TypeModel.Types;
@@ -32,7 +32,7 @@ public abstract record Expression(SourceLocation Location) : SyntaxTreeNode(Loca
     /// This is null before semantic analysis and populated during type checking.
     /// Code generators should use this instead of re-inferring types.
     /// </summary>
-    public TypeInfo? ResolvedType { get; set; }
+    public TypeSymbol? ResolvedType { get; set; }
 
     /// <summary>
     /// For a collection literal (`[..]`/`{..}`) whose resolved type `obeys ListLiteral/SetLiteral/
@@ -71,7 +71,7 @@ public abstract record Expression(SourceLocation Location) : SyntaxTreeNode(Loca
     /// reads into a payload extraction (<see cref="CarrierPayloadExpression"/>). Null for ordinary
     /// (non-narrowed) reads.
     /// </summary>
-    public TypeInfo? NarrowedFrom { get; set; }
+    public TypeSymbol? NarrowedFrom { get; set; }
 }
 
 #endregion
@@ -256,7 +256,7 @@ public record IdentifierExpression(string Name, SourceLocation Location, string?
     /// codegen materializes it as a closure directly, skipping name-based lookup. Used for
     /// references a lowering pass constructs (e.g. an unbound member-routine reference for a cycle-
     /// collector trace/free hook), where the bare name cannot be resolved by lookup because it needs
-    /// the owner type. <see cref="Expression.ResolvedType"/> must be the matching <c>RoutineTypeInfo</c>.
+    /// the owner type. <see cref="Expression.ResolvedType"/> must be the matching <c>RoutineTypeSymbol</c>.
     /// </summary>
     public RoutineInfo? ResolvedRoutine { get; set; }
 
@@ -282,7 +282,7 @@ public record IdentifierExpression(string Name, SourceLocation Location, string?
     public VariableInfo? ResolvedVariable { get; set; }
 
     /// <summary>
-    /// Set by <see cref="Compiler.Lowering.Passes.TemporaryTeardownPass"/> on the synthetic temp
+    /// Set by <see cref="Builder.Lowering.Passes.TemporaryTeardownPass"/> on the synthetic temp
     /// identifier it introduces as the tail of a lowered managed-leaf reassignment
     /// (<c>target = __rv</c>). It marks, STRUCTURALLY (not by parsing the <c>__rv_</c> name), that this
     /// reassignment is already the pass's OWN output — so a second run over the same body (the
@@ -448,7 +448,7 @@ public record CallExpression(
     /// The target type being constructed or converted to, when this call-like node represents
     /// construction rather than a plain routine/memberRoutine invocation.
     /// </summary>
-    public TypeInfo? ConstructedType { get; set; }
+    public TypeSymbol? ConstructedType { get; set; }
 
     /// <summary>
     /// When true, this call is a collection literal constructor (e.g., List(1, 2, 3), Set(1, 2, 3)).
@@ -552,7 +552,7 @@ public record CreatorExpression(
     /// <summary>
     /// The fully resolved type constructed by this creator, when known.
     /// </summary>
-    public TypeInfo? ConstructedType { get; set; }
+    public TypeSymbol? ConstructedType { get; set; }
 
     /// <summary>
     /// When the creator's named arguments match a `create(named:)` overload (rather than
@@ -633,12 +633,12 @@ public enum SpliceKind
     /// <summary>Member-selector position (<c>x.${...}</c>): the inner must fold to a field NAME (Text).</summary>
     Selector,
 
-    /// <summary>Expression position (<c>${...}</c>): a general comptime value splice.</summary>
+    /// <summary>Expression position (<c>${...}</c>): a general buildtime value splice.</summary>
     Value
 }
 
 /// <summary>
-/// A comptime splice <c>${expr}</c> in expression position. The inner expression is a projection
+/// A buildtime splice <c>${expr}</c> in expression position. The inner expression is a projection
 /// of an <see cref="ExpandStatement"/> handle (e.g. <c>m.name</c>). Never survives monomorphization.
 /// </summary>
 /// <param name="Inner">The spliced projection expression.</param>
@@ -655,7 +655,7 @@ public record SpliceExpression(Expression Inner, SpliceKind RequiredKind, Source
 }
 
 /// <summary>
-/// A member access whose selector is a comptime splice: <c>x.${m.name}</c>. Kept structurally
+/// A member access whose selector is a buildtime splice: <c>x.${m.name}</c>. Kept structurally
 /// distinct from a plain <see cref="MemberExpression"/> so the monomorphizer knows to fold the
 /// splice to a concrete field name and rewrite this to a real member access — a plain
 /// <see cref="MemberExpression"/> is never touched by the expander.
@@ -924,8 +924,8 @@ public record Parameter(
 /// <param name="Location">Source location information</param>
 /// <param name="IsRvalue">True if this type was written with the `T` prefix mark (entity rvalue, return-position only). SA enforces position validity.</param>
 /// <param name="Realm">Optional cross-language realm qualifier (e.g. <c>"RF"</c>); null = ambient realm of the file.</param>
-/// <param name="SpliceHandle">Comptime type-position splice handle name (e.g. from <c>$typeof(m)</c>); null for ordinary types.</param>
-/// <param name="ComptimeValue">Comptime const-generic expression for a value type-arg slot; null for ordinary type-args.</param>
+/// <param name="SpliceHandle">Buildtime type-position splice handle name (e.g. from <c>$typeof(m)</c>); null for ordinary types.</param>
+/// <param name="BuildtimeValue">Buildtime const-generic expression for a value type-arg slot; null for ordinary type-args.</param>
 /// <remarks>
 /// Type expression patterns:
 /// <list type="bullet">
@@ -944,15 +944,15 @@ public record TypeExpression(
     // RazorForge/bare realm (the resolver skips Suflae's entity->Roamed lowering for it); null = the
     // ambient realm of the file. Only "RF" is wired for now (Suflae wrappers holding a bare RF entity).
     string? Realm = null,
-    // Comptime type-position splice: when non-null this whole type IS the `${handle.type}` projection
+    // Buildtime type-position splice: when non-null this whole type IS the `${handle.type}` projection
     // of an expand handle (e.g. `${m.type}` in `Array[${m.type}, N]`). At expansion it resolves to the
     // current member/arm's static type. Null for an ordinary written type.
     string? SpliceHandle = null,
-    // Comptime VALUE-position splice used as a const-generic argument: `${max(T.data_size().byte_size(), 8)}`
+    // Buildtime VALUE-position splice used as a const-generic argument: `${max(T.data_size().byte_size(), 8)}`
     // in `Array[U8, ${...}]`. When non-null this type-arg is a const-generic whose integer value is the
     // monomorph-time fold of this expression (see GenericAstRewriter / RewriteContext.TypeSubs). Distinct
-    // from SpliceHandle, which is a TYPE splice; this is a comptime scalar. Null for ordinary type-args.
-    Expression? ComptimeValue = null) : Expression(Location: Location)
+    // from SpliceHandle, which is a TYPE splice; this is a buildtime scalar. Null for ordinary type-args.
+    Expression? BuildtimeValue = null) : Expression(Location: Location)
 {
     /// <summary>
     /// Conditional-conformance conditions from an <c>obeys P onlyif (cond, …)</c> clause: this generic
@@ -1009,7 +1009,7 @@ public record TypeConversionExpression(
     /// <summary>
     /// The fully resolved conversion target type, when known.
     /// </summary>
-    public TypeInfo? ConstructedType { get; set; }
+    public TypeSymbol? ConstructedType { get; set; }
 }
 
 #endregion
@@ -1068,7 +1068,7 @@ public record GenericMemberRoutineCallExpression(
     /// <summary>
     /// The target type being constructed by this generic call, when applicable.
     /// </summary>
-    public TypeInfo? ConstructedType { get; set; }
+    public TypeSymbol? ConstructedType { get; set; }
 }
 
 /// <summary>

@@ -1,12 +1,12 @@
-using Compiler.Instantiation;
-using Compiler.Tokenizer;
-using Compiler.Declaration;
-using Compiler.Desugaring;
+using Builder.Instantiation;
+using Builder.Tokenizer;
+using Builder.Declaration;
+using Builder.Desugaring;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Global pass that folds compile-time-constant BuilderQuery per-type calls to literal
@@ -96,15 +96,15 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     }
 
     // Lazily looked up once per pass instance
-    private TypeInfo? _u64Type;
-    private TypeInfo? _s64Type;
-    private TypeInfo? _textType;
-    private TypeInfo? _boolType;
-    private TypeInfo? _byteSizeType;
+    private TypeSymbol? _u64Type;
+    private TypeSymbol? _s64Type;
+    private TypeSymbol? _textType;
+    private TypeSymbol? _boolType;
+    private TypeSymbol? _byteSizeType;
 
     // Set per-body in RunOnInstantiatedGenericBodies so that
     // ResolveReceiverType can resolve unbound generic params (e.g. T -> Core.Byte).
-    private Dictionary<string, TypeInfo>? _currentTypeSubs;
+    private Dictionary<string, TypeSymbol>? _currentTypeSubs;
 
     //  Public entry points
 
@@ -338,7 +338,7 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
                 Arguments: { Count: 0 }
             } bsCall && _foldableRoutines.Contains(item: routineName))
         {
-            TypeInfo? receiverType = ResolveReceiverType(receiver: bsCallee.Object);
+            TypeSymbol? receiverType = ResolveReceiverType(receiver: bsCallee.Object);
             if (receiverType != null)
             {
                 return FoldBsCall(routineName: routineName,
@@ -354,23 +354,23 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     //  Type resolution
 
     /// <summary>
-    /// Resolves the <see cref="TypeInfo"/> for the receiver of a potential BS call.
+    /// Resolves the <see cref="TypeSymbol"/> for the receiver of a potential BS call.
     /// Returns null when the receiver is an unbound generic type parameter (can't fold).
     /// </summary>
-    private TypeInfo? ResolveReceiverType(Expression receiver)
+    private TypeSymbol? ResolveReceiverType(Expression receiver)
     {
         // 1. Use the expression's ResolvedType if it's a concrete (non-generic-param) type.
-        if (receiver.ResolvedType is { } rt and not GenericParameterTypeInfo)
+        if (receiver.ResolvedType is { } rt and not GenericParameterTypeSymbol)
         {
             return rt;
         }
 
         // 1b. ResolvedType is a generic param -> look it up in the current body's TypeSubs
         //     (e.g. T in List[T].getitem! body with TypeSubs {T -> Core.Byte, I -> Core.S64}).
-        if (receiver.ResolvedType is GenericParameterTypeInfo gp)
+        if (receiver.ResolvedType is GenericParameterTypeSymbol gp)
         {
             if (_currentTypeSubs != null &&
-                _currentTypeSubs.TryGetValue(key: gp.Name, value: out TypeInfo? subFromSubs))
+                _currentTypeSubs.TryGetValue(key: gp.Name, value: out TypeSymbol? subFromSubs))
             {
                 return subFromSubs;
             }
@@ -389,7 +389,7 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
         {
             // If identifier name is a generic param name, resolve via TypeSubs first.
             if (_currentTypeSubs != null &&
-                _currentTypeSubs.TryGetValue(key: idName, value: out TypeInfo? subByName))
+                _currentTypeSubs.TryGetValue(key: idName, value: out TypeSymbol? subByName))
             {
                 return subByName;
             }
@@ -401,7 +401,7 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
         if (receiver is TypeExpression { Name: var teName })
         {
             if (_currentTypeSubs != null &&
-                _currentTypeSubs.TryGetValue(key: teName, value: out TypeInfo? teSub))
+                _currentTypeSubs.TryGetValue(key: teName, value: out TypeSymbol? teSub))
             {
                 return teSub;
             }
@@ -450,11 +450,11 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     /// routine on <paramref name="type"/>, or null if the routine is not supported or required
     /// types are not yet registered.
     /// </summary>
-    private Expression? FoldBsCall(string routineName, TypeInfo type, SourceLocation loc,
+    private Expression? FoldBsCall(string routineName, TypeSymbol type, SourceLocation loc,
         bool receiverIsInFlight = false)
     {
         EnsureTypes();
-        string inFlightPrefix = receiverIsInFlight && type is EntityTypeInfo
+        string inFlightPrefix = receiverIsInFlight && type is EntityTypeSymbol
             ? "?"
             : "";
         switch (routineName)
@@ -521,23 +521,23 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     }
 
     // Folds `member_variable_count` to an S64 literal of the type's declared member count.
-    private LiteralExpression FoldMemberVariableCount(TypeInfo type, SourceLocation loc)
+    private LiteralExpression FoldMemberVariableCount(TypeSymbol type, SourceLocation loc)
     {
         long count = type switch
         {
-            TupleTypeInfo t => t.MemberVariables.Count,
-            ChoiceTypeInfo ch => ch.Cases.Count,
-            FlagsTypeInfo f => f.Members.Count,
-            VariantTypeInfo v => v.Members.Count,
-            RecordTypeInfo r => r.MemberVariables.Count,
-            EntityTypeInfo e => e.MemberVariables.Count,
+            TupleTypeSymbol t => t.MemberVariables.Count,
+            ChoiceTypeSymbol ch => ch.Cases.Count,
+            FlagsTypeSymbol f => f.Members.Count,
+            VariantTypeSymbol v => v.Members.Count,
+            RecordTypeSymbol r => r.MemberVariables.Count,
+            EntityTypeSymbol e => e.MemberVariables.Count,
             _ => 0L
         };
         return MakeLiteralS64(value: count, type: _s64Type!, loc: loc);
     }
 
     // Folds `is_generic` to a Bool literal.
-    private LiteralExpression FoldIsGeneric(TypeInfo type, SourceLocation loc)
+    private LiteralExpression FoldIsGeneric(TypeSymbol type, SourceLocation loc)
     {
         bool isGen = type.IsGenericDefinition;
         return new LiteralExpression(Value: isGen,
@@ -548,10 +548,10 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     }
 
     // Folds `is_in_flight` to a Bool literal (true only for an in-flight entity receiver).
-    private LiteralExpression FoldIsInFlight(TypeInfo type, bool receiverIsInFlight,
+    private LiteralExpression FoldIsInFlight(TypeSymbol type, bool receiverIsInFlight,
         SourceLocation loc)
     {
-        bool inFlight = receiverIsInFlight && type is EntityTypeInfo;
+        bool inFlight = receiverIsInFlight && type is EntityTypeSymbol;
         return new LiteralExpression(Value: inFlight,
             LiteralType: inFlight
                 ? TokenType.True
@@ -560,17 +560,17 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     }
 
     // Folds `type_kind` to the matching TypeKind choice case, or null if unresolvable.
-    private LiteralExpression? FoldTypeKind(TypeInfo type, SourceLocation loc)
+    private LiteralExpression? FoldTypeKind(TypeSymbol type, SourceLocation loc)
     {
         // TypeKind lives in `module BuilderQuery` — qualify (bare lookup relied on the short-name scan).
-        TypeInfo? tkType = _registry.LookupType(name: "BuilderQuery.TypeKind");
-        if (tkType is not ChoiceTypeInfo tkChoice)
+        TypeSymbol? tkType = _registry.LookupType(name: "BuilderQuery.TypeKind");
+        if (tkType is not ChoiceTypeSymbol tkChoice)
         {
             return null;
         }
 
         // Wrappers (Retained/Modifying/etc) report the inner type's kind.
-        TypeInfo kindType = type is WrapperTypeInfo wt
+        TypeSymbol kindType = type is WrapperTypeSymbol wt
             ? wt.InnerType
             : type;
         string caseName = kindType.Category switch
@@ -608,15 +608,15 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
 
     //  Literal factory helpers
 
-    private static LiteralExpression MakeLiteralU64(ulong value, TypeInfo type, SourceLocation loc)
+    private static LiteralExpression MakeLiteralU64(ulong value, TypeSymbol type, SourceLocation loc)
     {
         return new LiteralExpression(Value: value,
             LiteralType: TokenType.U64Literal,
             Location: loc) { ResolvedType = type };
     }
 
-    private static CreatorExpression MakeByteSizeCreator(ulong value, TypeInfo u64Type,
-        TypeInfo byteSizeType, SourceLocation loc)
+    private static CreatorExpression MakeByteSizeCreator(ulong value, TypeSymbol u64Type,
+        TypeSymbol byteSizeType, SourceLocation loc)
     {
         return MakeByteSizeCreatorPublic(value: value,
             u64Type: u64Type,
@@ -624,8 +624,8 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
             loc: loc);
     }
 
-    internal static CreatorExpression MakeByteSizeCreatorPublic(ulong value, TypeInfo u64Type,
-        TypeInfo byteSizeType, SourceLocation loc)
+    internal static CreatorExpression MakeByteSizeCreatorPublic(ulong value, TypeSymbol u64Type,
+        TypeSymbol byteSizeType, SourceLocation loc)
     {
         LiteralExpression u64Lit = MakeLiteralU64(value: value, type: u64Type, loc: loc);
         return new CreatorExpression(TypeName: "ByteSize",
@@ -634,14 +634,14 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
             Location: loc) { ResolvedType = byteSizeType };
     }
 
-    private static LiteralExpression MakeLiteralS64(long value, TypeInfo type, SourceLocation loc)
+    private static LiteralExpression MakeLiteralS64(long value, TypeSymbol type, SourceLocation loc)
     {
         return new LiteralExpression(Value: value,
             LiteralType: TokenType.S64Literal,
             Location: loc) { ResolvedType = type };
     }
 
-    private static LiteralExpression MakeLiteralText(string value, TypeInfo type,
+    private static LiteralExpression MakeLiteralText(string value, TypeSymbol type,
         SourceLocation loc)
     {
         return new LiteralExpression(Value: value,
@@ -649,12 +649,12 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
             Location: loc) { ResolvedType = type };
     }
 
-    private string GetShortTypeName(TypeInfo type)
+    private string GetShortTypeName(TypeSymbol type)
     {
-        if (type is GenericParameterTypeInfo gp)
+        if (type is GenericParameterTypeSymbol gp)
         {
             return _currentTypeSubs != null &&
-                   _currentTypeSubs.TryGetValue(key: gp.Name, value: out TypeInfo? sub)
+                   _currentTypeSubs.TryGetValue(key: gp.Name, value: out TypeSymbol? sub)
                 ? GetShortTypeName(type: sub)
                 : gp.Name;
         }
@@ -682,12 +682,12 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
             : fullName[..(dot + 1)] + mark + fullName[(dot + 1)..];
     }
 
-    private string GetFullTypeName(TypeInfo type)
+    private string GetFullTypeName(TypeSymbol type)
     {
-        if (type is GenericParameterTypeInfo gp)
+        if (type is GenericParameterTypeSymbol gp)
         {
             return _currentTypeSubs != null &&
-                   _currentTypeSubs.TryGetValue(key: gp.Name, value: out TypeInfo? sub)
+                   _currentTypeSubs.TryGetValue(key: gp.Name, value: out TypeSymbol? sub)
                 ? GetFullTypeName(type: sub)
                 : gp.Name;
         }
@@ -710,23 +710,23 @@ internal sealed class BuilderQueryInliningPass : AstRewriter
     /// <summary>
     /// Returns the byte size of <paramref name="type"/> as seen by collection pointer arithmetic.
     /// </summary>
-    internal static ulong CalculateDataSizeForType(TypeInfo type)
+    internal static ulong CalculateDataSizeForType(TypeSymbol type)
     {
         return type switch
         {
-            // Tuple is a RecordTypeInfo (item0/item1/... members) — delegate to SizeBytes like records.
+            // Tuple is a RecordTypeSymbol (item0/item1/... members) — delegate to SizeBytes like records.
             // `element_count * 8` was wrong for tuples holding a non-8-byte element (e.g. a Text=24).
-            TupleTypeInfo t => (ulong)t.SizeBytes(pointerSize: 8),
+            TupleTypeSymbol t => (ulong)t.SizeBytes(pointerSize: 8),
             // Variant is a tagged union: tag + MAX arm payload (not sum). Delegate to SizeBytes.
-            // Variant is a RecordTypeInfo subclass, so it MUST precede the Record arms below.
-            VariantTypeInfo v => (ulong)v.SizeBytes(pointerSize: 8),
-            RecordTypeInfo { BackendType: not null } r => LlvmBackendTypeSize(
+            // Variant is a RecordTypeSymbol subclass, so it MUST precede the Record arms below.
+            VariantTypeSymbol v => (ulong)v.SizeBytes(pointerSize: 8),
+            RecordTypeSymbol { BackendType: not null } r => LlvmBackendTypeSize(
                 llvmType: r.BackendType),
-            // Delegate to the SAME size function codegen uses (RecordTypeInfo.SizeBytes) so the List
+            // Delegate to the SAME size function codegen uses (RecordTypeSymbol.SizeBytes) so the List
             // element stride matches the actual struct layout. `member_count * 8` was wrong for any
             // record with a non-8-byte member (a nested value-record like Text=24, or i32/i128).
-            RecordTypeInfo r => (ulong)r.SizeBytes(pointerSize: 8),
-            EntityTypeInfo => 8, // heap pointer (Crashable, an entity subclass, included)
+            RecordTypeSymbol r => (ulong)r.SizeBytes(pointerSize: 8),
+            EntityTypeSymbol => 8, // heap pointer (Crashable, an entity subclass, included)
             _ => 0
         };
     }

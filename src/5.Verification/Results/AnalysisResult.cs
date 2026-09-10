@@ -1,9 +1,9 @@
-using Compiler.Instantiation;
-using Compiler.Instantiation.Passes;
-using Compiler.Declaration;
+using Builder.Instantiation;
+using Builder.Instantiation.Passes;
+using Builder.Declaration;
 using SyntaxTree;
 
-namespace Compiler.Verification.Results;
+namespace Builder.Verification.Results;
 
 /// <summary>
 /// Result of semantic analysis.

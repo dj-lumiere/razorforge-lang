@@ -1,4 +1,4 @@
-namespace Compiler.Instantiation;
+namespace Builder.Instantiation;
 
 /// <summary>
 /// Kind of generated error handling variant.

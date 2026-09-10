@@ -1,9 +1,9 @@
-using Compiler.Instantiation;
-using Compiler.Tokenizer;
+using Builder.Instantiation;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Phase 8: lowers compiler-synthesized <see cref="VariantReturnStatement"/> nodes into ordinary AST
@@ -24,22 +24,22 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
 
     /// <summary>Return type (the concrete carrier, e.g. <c>Maybe[S64]</c>) of the routine whose body
     /// is being lowered — needed to construct the carrier record.</summary>
-    private TypeInfo? _carrierReturn;
+    private TypeSymbol? _carrierReturn;
 
-    private Dictionary<string, TypeInfo?>? _returnByKey;
+    private Dictionary<string, TypeSymbol?>? _returnByKey;
 
-    private Dictionary<string, TypeInfo?> ReturnByKey => _returnByKey ??= ctx.Registry
+    private Dictionary<string, TypeSymbol?> ReturnByKey => _returnByKey ??= ctx.Registry
        .GetAllRoutines()
        .GroupBy(keySelector: r => r.RegistryKey)
        .ToDictionary(keySelector: g => g.Key,
             elementSelector: g => g.First()
                                    .ReturnType);
 
-    private TypeInfo? _boolType;
-    private TypeInfo? BoolType => _boolType ??= ctx.Registry.LookupType(name: "Bool");
+    private TypeSymbol? _boolType;
+    private TypeSymbol? BoolType => _boolType ??= ctx.Registry.LookupType(name: "Bool");
 
-    private TypeInfo? _u64Type;
-    private TypeInfo? U64Type => _u64Type ??= ctx.Registry.LookupType(name: "U64");
+    private TypeSymbol? _u64Type;
+    private TypeSymbol? U64Type => _u64Type ??= ctx.Registry.LookupType(name: "U64");
 
     /// <summary>A <c>Bool</c>-typed literal for a carrier's <c>present</c> flag.</summary>
     private LiteralExpression BoolLiteral(bool value, SourceLocation loc)
@@ -61,7 +61,7 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
 
     /// <summary>Builds `return Carrier(type_id: …, payload: …)` for a Result/Lookup carrier.
     /// A null payload is omitted so the record's memberwise builder zero-fills it (the absent state).</summary>
-    private ReturnStatement MakeCarrierReturn(RecordTypeInfo carrier, ulong typeId,
+    private ReturnStatement MakeCarrierReturn(RecordTypeSymbol carrier, ulong typeId,
         Expression? payload, SourceLocation loc)
     {
         var members =
@@ -152,7 +152,7 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
 
     // Try → Maybe[T] (a plain `{present: Bool, value: T}` record) built with a real
     // CreatorExpression: present carries the value; throw / absent / return-a-crashable = absent.
-    private ReturnStatement LowerTryVariant(VariantReturnStatement vr, RecordTypeInfo maybe)
+    private ReturnStatement LowerTryVariant(VariantReturnStatement vr, RecordTypeSymbol maybe)
     {
         if (vr.SiteKind == VariantSiteKind.FromVariantPassthrough && vr.Value != null)
         {
@@ -160,7 +160,7 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
         }
 
         bool present = vr.SiteKind == VariantSiteKind.FromReturn &&
-                       vr.Value?.ResolvedType is not CrashableTypeInfo;
+                       vr.Value?.ResolvedType is not CrashableTypeSymbol;
         bool hasValue = present && vr.Value is not null
             and not IdentifierExpression { Name: "None" };
 
@@ -186,7 +186,7 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
     // entity/error POINTER stored straight into the CPtr slot. Absent = type_id 0, payload zeroed.
     // Scalar payloads still need a reinterpret-to-CPtr, so those fall through to codegen for now.
     private Statement LowerCheckLookupVariant(Statement statement, VariantReturnStatement vr,
-        RecordTypeInfo carrier)
+        RecordTypeSymbol carrier)
     {
         if (vr.SiteKind == VariantSiteKind.FromVariantPassthrough && vr.Value != null)
         {
@@ -232,13 +232,13 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
             // Try → Maybe[T] (a plain `{present: Bool, value: T}` record) built with a real
             // CreatorExpression: present carries the value; throw / absent / return-a-crashable = absent.
             { VariantKind: ErrorHandlingVariantKind.Try } when
-                _carrierReturn is RecordTypeInfo maybe => LowerTryVariant(vr: s, maybe: maybe),
+                _carrierReturn is RecordTypeSymbol maybe => LowerTryVariant(vr: s, maybe: maybe),
             // Check → Result[T] / Lookup → Lookup[T] (record { type_id: U64, payload: CPtr }): build the
             // record directly. type_id = FNV of the payload type (matches the reader); the payload is the
             // entity/error POINTER stored straight into the CPtr slot. Absent = type_id 0, payload zeroed.
             // Scalar payloads still need a reinterpret-to-CPtr, so those fall through to codegen for now.
             { VariantKind: ErrorHandlingVariantKind.Check or ErrorHandlingVariantKind.Lookup } when
-                _carrierReturn is RecordTypeInfo carrier => LowerCheckLookupVariant(statement: s,
+                _carrierReturn is RecordTypeSymbol carrier => LowerCheckLookupVariant(statement: s,
                     vr: s,
                     carrier: carrier),
             _ => s

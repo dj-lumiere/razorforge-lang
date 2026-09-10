@@ -1,4 +1,4 @@
-namespace Compiler.Parser;
+namespace Builder.Parser;
 
 /// <summary>
 /// Represents a build-time warning for style violations or deprecated patterns

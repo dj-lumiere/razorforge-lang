@@ -1,28 +1,26 @@
 using System.Diagnostics;
-using Compiler.Desugaring;
-using Compiler.Lowering;
-using Compiler.Lowering.Passes;
-using Compiler.Diagnostics;
-using Compiler.Instantiation;
-using Compiler.Instantiation.Passes;
-using Compiler.Desugaring.Passes;
-using Compiler.Declaration;
-using Compiler.Targeting;
+using Builder.Desugaring;
+using Builder.Lowering;
+using Builder.Lowering.Passes;
+using Builder.Diagnostics;
+using Builder.Instantiation;
+using Builder.Instantiation.Passes;
+using Builder.Desugaring.Passes;
+using Builder.Declaration;
+using Builder.Targeting;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification.Enums;
-using Compiler.Verification.Results;
-using Compiler.Verification.Scopes;
-using Compiler.Collection.Passes;
-using Compiler.LlvmEmit;
-using Compiler.Collection;
-using Compiler.Tokenizer;
+using Builder.Verification.Enums;
+using Builder.Verification.Results;
+using Builder.Verification.Scopes;
+using Builder.Collection.Passes;
+using Builder.LlvmEmit;
+using Builder.Collection;
+using Builder.Tokenizer;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 /// <summary>
 /// Semantic analyzer for RazorForge and Suflae programs.
@@ -323,10 +321,10 @@ public sealed partial class SemanticVerifier
     public static TypeRegistry.StdlibSnapshot CaptureStdlibSnapshot(Language language)
     {
         var sa = new SemanticVerifier(language: language) { SaOnly = true };
-        List<Token> tokens = new Compiler.Tokenizer.Tokenizer(source: "module __snapshot__",
+        List<Token> tokens = new Builder.Tokenizer.Tokenizer(source: "module __snapshot__",
             fileName: "__snapshot__",
             language: language).Tokenize();
-        var parser = new Compiler.Parser.Parser(tokens: tokens,
+        var parser = new Builder.Parser.Parser(tokens: tokens,
             language: language,
             fileName: "__snapshot__");
         sa.Analyze(program: parser.Parse());
@@ -350,9 +348,9 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// When true, root EVERY concrete stdlib routine in reachability so monomorphization materializes the
     /// full stdlib generic closure — for emitting a precompiled stdlib base (see
-    /// <see cref="Compiler.LlvmEmit.LlvmEmitter.GenerateBase"/>) that must define everything it
+    /// <see cref="Builder.LlvmEmit.LlvmEmitter.GenerateBase"/>) that must define everything it
     /// references. Threaded into <see cref="InstantiationContext.SeedAllStdlibRoutines"/> and (as
-    /// <see cref="Compiler.Desugaring.DesugaringContext.SynthesizeAllDerives"/>) the Phase-6 derive
+    /// <see cref="Builder.Desugaring.DesugaringContext.SynthesizeAllDerives"/>) the Phase-6 derive
     /// synthesis. Default false = normal builds (byte-identical).
     /// </summary>
     public bool SeedAllStdlibRoutines { get; set; }
@@ -1163,7 +1161,7 @@ public sealed partial class SemanticVerifier
     /// block user builds.
     /// </summary>
     /// <returns>List of errors found in stdlib routine bodies.</returns>
-    /// <summary>Runs the <see cref="Compiler.Declaration.RuntimeContractCheck"/> against the loaded
+    /// <summary>Runs the <see cref="Builder.Declaration.RuntimeContractCheck"/> against the loaded
     /// stdlib registry: asserts every name the compiler hard-codes against the stdlib still resolves.
     /// Call AFTER <see cref="ValidateStdlibBodies"/> (which loads and analyzes the stdlib). Returns a
     /// description per broken contract; empty means all contracts hold.</summary>
@@ -2010,7 +2008,7 @@ public sealed partial class SemanticVerifier
 
         _registry.EnterScope(kind: ScopeKind.Function, name: routineInfo.Name);
 
-        foreach (ParameterInfo param in routineInfo.Parameters)
+        foreach (ParamInfo param in routineInfo.Parameters)
         {
             _registry.DeclareVariable(name: param.Name, type: param.Type);
         }

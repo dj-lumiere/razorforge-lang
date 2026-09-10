@@ -1,9 +1,9 @@
-using Compiler.Instantiation;
-using Compiler.Tokenizer;
+using Builder.Instantiation;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Lowers <see cref="InsertedTextExpression"/> f-strings to <c>represent</c>/<c>diagnose</c>
@@ -70,7 +70,7 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// </summary>
     private Expression LowerFString(InsertedTextExpression ftext)
     {
-        TypeInfo? textType = ctx.Registry.LookupType(name: "Text");
+        TypeSymbol? textType = ctx.Registry.LookupType(name: "Text");
         SourceLocation loc = ftext.Location;
 
         // Collect lowered Text expressions for each part (skipping empty text parts).
@@ -122,7 +122,7 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <c>=</c>/<c>=?</c> format specs) followed by the <c>represent</c>/<c>diagnose</c> render call.
     /// </summary>
     private void AppendExpressionPart(List<Expression> exprs, ExpressionPart ep,
-        TypeInfo? textType)
+        TypeSymbol? textType)
     {
         Expression loweredInner = VisitExpression(expr: ep.Expression);
         string memberRoutineName = ep.FormatSpec is "?" or "=?"
@@ -156,7 +156,7 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
         // text is post-processed via `Text.replace` because the type-name
         // prefix is compile-time known and appears verbatim at the head of
         // `diagnose` / `represent` output.
-        if (ep.Expression is { IsInFlight: true, ResolvedType: EntityTypeInfo entityType })
+        if (ep.Expression is { IsInFlight: true, ResolvedType: EntityTypeSymbol entityType })
         {
             renderCall = WrapInFlightEntityMarker(renderCall: renderCall,
                 ep: ep,
@@ -172,7 +172,7 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewrit
     /// <c>?</c> immediately before the short type name in the compile-time-known type-name prefix.
     /// </summary>
     private static CallExpression WrapInFlightEntityMarker(Expression renderCall,
-        ExpressionPart ep, EntityTypeInfo entityType, TypeInfo? textType)
+        ExpressionPart ep, EntityTypeSymbol entityType, TypeSymbol? textType)
     {
         string fullName = entityType.FullName;
         int dot = fullName.LastIndexOf(value: '.');

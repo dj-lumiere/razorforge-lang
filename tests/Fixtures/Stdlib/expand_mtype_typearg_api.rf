@@ -4,7 +4,7 @@ import BuilderExpansion
 import Collections
 
 # Exercises `$typeof(m)` in TYPE-ARGUMENT position (the sibling of the expression-position splice): inside
-# `expand m in allmemvarof(T)`, the comptime member type splices into a generic argument — `Hijacked[$typeof(m)]`
+# `expand m in allmemvarof(T)`, the buildtime member type splices into a generic argument — `Hijacked[$typeof(m)]`
 # and `hijacked_from[$typeof(m)]` — folding to the field's concrete type at monomorphization ($Col ->
 # S64/F32/Bool). Allocates a 1-slot typed raw buffer per field, pokes the field value in, peeks it back.
 

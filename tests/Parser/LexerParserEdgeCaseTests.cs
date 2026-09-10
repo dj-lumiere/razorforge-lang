@@ -1,6 +1,6 @@
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
-using Compiler.Verification.Results;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
+using Builder.Verification.Results;
 using SyntaxTree;
 
 namespace RazorForge.Tests.Parser;

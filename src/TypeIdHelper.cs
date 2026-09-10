@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Compiler;
+namespace Builder;
 
 /// <summary>
 /// Authoritative FNV-1a type ID computation shared across synthesis, postprocessing passes, and codegen.

@@ -2,8 +2,7 @@ using System.Collections;
 using System.Reflection;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using TypeInfo = TypeModel.Types.TypeInfo;
-using Compiler.Verification;
+using Builder.Verification;
 using Xunit.Abstractions;
 
 #pragma warning disable xUnit1004
@@ -12,7 +11,7 @@ namespace RazorForge.Tests.Perf;
 /// <summary>
 /// DE-RISK PROBE for modular .pbrf (per-module separate-compilation artifacts). The whole design hinges on
 /// ONE empirical question: when we partition the compiled-stdlib object graph by module and walk each
-/// module's roots, do all cross-module reference edges terminate at a SYMBOL (TypeInfo / RoutineInfo /
+/// module's roots, do all cross-module reference edges terminate at a SYMBOL (TypeSymbol / RoutineInfo /
 /// VariableInfo — things with a stable cross-module key), or are there INTERIOR objects reachable from ≥2
 /// modules' roots without crossing a symbol boundary (identity hazards that would be duplicated across
 /// artifacts and break reference identity on reload)?
@@ -40,15 +39,15 @@ public sealed class PbrfPartitionAnalysis
     {
         switch (o)
         {
-            case TypeInfo t:
+            case TypeSymbol t:
                 if (t.TypeArguments is { Count: > 0 })
                 {
                     return Inst; // monomorph / resolved generic
                 }
 
-                if (t is RoutineTypeInfo or TupleTypeInfo or GenericParameterTypeInfo
-                    or ProtocolSelfTypeInfo or ConstGenericValueTypeInfo
-                    or ComptimeConstGenericTypeInfo or AssociatedProjectionTypeInfo)
+                if (t is RoutineTypeSymbol or TupleTypeSymbol or GenericParameterTypeSymbol
+                    or ProtocolSelfTypeSymbol or ConstGenericValueTypeSymbol
+                    or BuildtimeConstGenericTypeSymbol or AssociatedProjectionTypeSymbol)
                 {
                     return Builtin; // structural
                 }
@@ -62,7 +61,7 @@ public sealed class PbrfPartitionAnalysis
                     return Inst;
                 }
 
-                TypeInfo? owner = r.OwnerType;
+                TypeSymbol? owner = r.OwnerType;
                 if (owner is { TypeArguments: { Count: > 0 } })
                 {
                     return Inst;
@@ -79,14 +78,14 @@ public sealed class PbrfPartitionAnalysis
 
     private static bool IsSymbol(object o)
     {
-        return o is TypeInfo or RoutineInfo or VariableInfo;
+        return o is TypeSymbol or RoutineInfo or VariableInfo;
     }
 
     private static string SymName(object o)
     {
         return o switch
         {
-            TypeInfo t => t.FullName,
+            TypeSymbol t => t.FullName,
             RoutineInfo r => r.RegistryKey,
             VariableInfo v => v.Name,
             _ => o.GetType()
@@ -377,7 +376,7 @@ public sealed class PbrfPartitionAnalysis
             list.Add(item: sym);
         }
 
-        foreach (TypeInfo t in warm.Registry.Types.Values)
+        foreach (TypeSymbol t in warm.Registry.Types.Values)
         {
             Add(sym: t);
         }

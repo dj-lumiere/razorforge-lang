@@ -1,4 +1,4 @@
-using Compiler.Verification.Results;
+using Builder.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 
@@ -32,7 +32,7 @@ public class ImplicitWrapperCopyCallArgTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy &&
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy &&
                 e.Message.Contains(value: "in call",
                     comparisonType: StringComparison.OrdinalIgnoreCase));
     }
@@ -58,7 +58,7 @@ public class ImplicitWrapperCopyCallArgTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>Passing a primitive (trivially copyable) is accepted.</summary>
@@ -78,7 +78,7 @@ public class ImplicitWrapperCopyCallArgTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>Passing a trivially-Assignable record by name is accepted.</summary>
@@ -102,7 +102,7 @@ public class ImplicitWrapperCopyCallArgTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>
@@ -129,6 +129,6 @@ public class ImplicitWrapperCopyCallArgTests
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 }

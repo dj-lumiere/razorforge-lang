@@ -1,4 +1,4 @@
-namespace Compiler.Verification.Enums;
+namespace Builder.Verification.Enums;
 
 /// <summary>
 /// The kind of scope in the program structure.

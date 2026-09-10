@@ -1,7 +1,7 @@
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// The <c>validate-stdlib</c> resolution check for <see cref="RuntimeContract"/> (Design 1 step 2 of
@@ -109,7 +109,7 @@ public static class RuntimeContractCheck
     /// </summary>
     private static void CheckCarrierFieldContracts(TypeRegistry registry, List<string> errors)
     {
-        TypeInfo? carrier = registry.LookupType(name: CarrierTypeName);
+        TypeSymbol? carrier = registry.LookupType(name: CarrierTypeName);
         if (carrier is null)
         {
             errors.Add(item: $"carrier type '{CarrierTypeName}' is not registered " +
@@ -127,12 +127,12 @@ public static class RuntimeContractCheck
                   $"carrier-field contract '{CarrierTypeName}.{field}' resolves to NO member variable"));
     }
 
-    private static HashSet<string> MemberVariableNames(TypeInfo type)
+    private static HashSet<string> MemberVariableNames(TypeSymbol type)
     {
         IEnumerable<string> names = type switch
         {
-            RecordTypeInfo r => r.MemberVariables.Select(selector: m => m.Name),
-            EntityTypeInfo e => e.MemberVariables.Select(selector: m => m.Name),
+            RecordTypeSymbol r => r.MemberVariables.Select(selector: m => m.Name),
+            EntityTypeSymbol e => e.MemberVariables.Select(selector: m => m.Name),
             _ => []
         };
         return new HashSet<string>(collection: names, comparer: StringComparer.Ordinal);

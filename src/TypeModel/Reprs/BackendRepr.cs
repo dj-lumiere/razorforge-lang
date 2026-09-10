@@ -16,10 +16,10 @@ namespace TypeModel.Reprs;
 /// <param name="IsPassedIndirectly">True when ABI requires passing this value by hidden pointer.</param>
 public sealed record BackendRepr(
     BackendReprKind Kind,
-    TypeInfo SourceType,
+    TypeSymbol SourceType,
     string LlvmAbiType,
     PointerFlavor PointerFlavor = PointerFlavor.None,
-    TypeInfo? PointeeType = null,
+    TypeSymbol? PointeeType = null,
     string? AggregateLayoutKey = null,
     bool IsTransparent = false,
     bool IsPassedIndirectly = false)

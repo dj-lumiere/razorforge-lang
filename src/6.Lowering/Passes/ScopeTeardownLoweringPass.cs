@@ -1,10 +1,10 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Verification;
+using Builder.Verification;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Inserts explicit <c>local.destroy()</c> calls at scope exits — the unified teardown lowering.
@@ -33,13 +33,13 @@ namespace Compiler.Lowering.Passes;
 /// </summary>
 internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
 {
-    private readonly TypeInfo? _blankType = ctx.Registry.LookupType(name: "None");
+    private readonly TypeSymbol? _blankType = ctx.Registry.LookupType(name: "None");
     private int _spillCounter;
 
     /// <summary>A live owned binding: its name, type, and resolved <c>destroy</c> routine.
     /// An entity binding always holds a valid owned allocation while live (a lateinit zeroed
     /// placeholder, the declaration initializer, or a later-assigned value).</summary>
-    private readonly record struct Owned(string Name, TypeInfo Type, RoutineInfo Destroy);
+    private readonly record struct Owned(string Name, TypeSymbol Type, RoutineInfo Destroy);
 
     public void Run(Program program)
     {
@@ -110,7 +110,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         // ownership in — a bare ENTITY the caller relinquished) OR handing over a borrow. A RECORD param
         // (value record / Text / RC wrapper / access token) is always a BORROW — the caller retains
         // ownership and tears it down at ITS scope exit, so the callee must NOT destroy it. Only a bare
-        // `EntityTypeInfo` param is consuming (RF-S413 forces `steal` at the call site), owned by the
+        // `EntityTypeSymbol` param is consuming (RF-S413 forces `steal` at the call site), owned by the
         // routine and torn down at every exit exactly like a top-level local. The retain that used to
         // balance a callee-owned record param at the arg boundary is gone (RecordCopyLoweringPass no
         // longer stores at the boundary); retain now lives at the DESTINATION (store primitive / field
@@ -119,7 +119,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         // Suflae exception: an SF entity parameter is ALSO a borrowed handle — the caller keeps
         // ownership, so destroying it here double-frees the caller's live entity. After representation
         // unification (SignatureResolver.MaybeRoamSuflaeEntity) an SF entity param resolves to `Roamed[E]`
-        // (a RecordTypeInfo) which is a record → borrow by the rule above anyway; a bare `EntityTypeInfo`
+        // (a RecordTypeSymbol) which is a record → borrow by the rule above anyway; a bare `EntityTypeSymbol`
         // param in SF is skipped here (it would otherwise be consuming per the RF rule).
         bool isSuflae = ctx.Registry.Language == TypeModel.Enums.Language.Suflae;
         var paramLive = new List<Owned>();
@@ -135,10 +135,10 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
                 continue;
             }
 
-            TypeInfo? pt = p.Type?.ResolvedType;
+            TypeSymbol? pt = p.Type?.ResolvedType;
             // Only a bare-entity (consuming / steal'd) param is owned by the callee; every record param
             // is a borrow the caller still owns.
-            if (pt is not EntityTypeInfo)
+            if (pt is not EntityTypeSymbol)
             {
                 continue;
             }
@@ -379,7 +379,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             }
         }
 
-        TypeInfo? t = v.Type?.ResolvedType ?? v.Initializer?.ResolvedType;
+        TypeSymbol? t = v.Type?.ResolvedType ?? v.Initializer?.ResolvedType;
         if (t != null && !_movedNames.Contains(item: v.Name) && !IsUsingBinding(v: v) &&
             !IsViewBinding(v: v) && TryResolveDestroy(type: t, destroy: out RoutineInfo? d) &&
             d != null)
@@ -492,7 +492,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
                 continue;
             }
 
-            return live[index: i].Type is EntityTypeInfo
+            return live[index: i].Type is EntityTypeSymbol
                 ? live[index: i]
                 : null;
         }
@@ -546,7 +546,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     private Statement LowerRoamedFieldReassign(Statement original, MemberExpression target,
         Expression rhs, Func<Expression, Statement> rebuild)
     {
-        TypeInfo? fieldType = target.ResolvedType;
+        TypeSymbol? fieldType = target.ResolvedType;
         if (fieldType is null ||
             TypeRegistry.GetRcWrapperBaseName(type: fieldType) != RuntimeContract.Roamed ||
             !TryResolveDestroy(type: fieldType, destroy: out RoutineInfo? destroy) ||
@@ -650,7 +650,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     /// <c>Retained[Tracer].destroy</c> without surfacing the no-owner universal <c>T.destroy</c> stub,
     /// and excludes the abstract tier.
     /// </summary>
-    private bool TryResolveDestroy(TypeInfo type, out RoutineInfo? destroy)
+    private bool TryResolveDestroy(TypeSymbol type, out RoutineInfo? destroy)
     {
         TypeRegistry.Lifecycle lc = ctx.Registry.GetLifecycle(type: type);
         destroy = lc.Destroy;
@@ -670,9 +670,9 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     /// owned elsewhere, so destroying them here would free a caller's value. Abstract types
     /// (generic params, protocols) likewise have no concrete destructor to call.
     /// </summary>
-    internal static bool NeedsTeardown(TypeInfo type)
+    internal static bool NeedsTeardown(TypeSymbol type)
     {
-        return type is not (GenericParameterTypeInfo or ProtocolTypeInfo);
+        return type is not (GenericParameterTypeSymbol or ProtocolTypeSymbol);
     }
 
     /// <summary>
@@ -795,7 +795,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
                 {
                     Callee: MemberExpression
                     {
-                        Object: IdentifierExpression { ResolvedType: EntityTypeInfo } recv
+                        Object: IdentifierExpression { ResolvedType: EntityTypeSymbol } recv
                     }
                 } rcCtorCall when rcCtorCall.ResolvedType is { } rcRes &&
                                   TypeRegistry.GetRcWrapperBaseName(type: rcRes) is not null:
@@ -848,7 +848,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             // (Harmless for scalar arms: scalars have no `destroy`. Entity/record field moves are
             // handled via `steal`; variant/carrier boxing has no steal, so mark it here.)
             case CreatorExpression creator
-                when (creator.ConstructedType ?? creator.ResolvedType) is VariantTypeInfo:
+                when (creator.ConstructedType ?? creator.ResolvedType) is VariantTypeSymbol:
                 HandleVariantBoxingMove(creator: creator);
                 break;
             // Constructing an ENTITY (incl. Crashable) MOVES each identifier argument bound to a
@@ -865,7 +865,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             // `List[Text]` fields).
             case CreatorExpression entityCreator
                 when (entityCreator.ConstructedType ?? entityCreator.ResolvedType) is
-                EntityTypeInfo ent:
+                EntityTypeSymbol ent:
                 HandleEntityConstructionMove(entityCreator: entityCreator, ent: ent);
                 break;
         }
@@ -893,13 +893,13 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         }
     }
 
-    private void HandleEntityConstructionMove(CreatorExpression entityCreator, EntityTypeInfo ent)
+    private void HandleEntityConstructionMove(CreatorExpression entityCreator, EntityTypeSymbol ent)
     {
         foreach ((string memberName, Expression val) in entityCreator.MemberVariables)
         {
             if (Unwrap(e: val) is IdentifierExpression a)
             {
-                TypeInfo? fieldType = ent.MemberVariables
+                TypeSymbol? fieldType = ent.MemberVariables
                                          .FirstOrDefault(predicate: m => m.Name == memberName)
                                         ?.Type;
                 if (fieldType == null)

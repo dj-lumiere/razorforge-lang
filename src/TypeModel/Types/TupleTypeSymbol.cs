@@ -8,12 +8,12 @@ namespace TypeModel.Types;
 /// fields named item0, item1, ..., itemN. <c>(S64, Bool)</c> becomes
 /// <c>Tuple[S64, Bool]</c> — a named LLVM struct type, emitted on demand.
 /// </summary>
-public sealed class TupleTypeInfo : RecordTypeInfo
+public sealed class TupleTypeSymbol : RecordTypeSymbol
 {
     /// <summary>
     /// The element types in order (item0, item1, ..., itemN).
     /// </summary>
-    public List<TypeInfo> ElementTypes { get; }
+    public List<TypeSymbol> ElementTypes { get; }
 
     /// <summary>
     /// <c>true</c> when all elements are record-like (records, choices, flags, variants,
@@ -25,18 +25,18 @@ public sealed class TupleTypeInfo : RecordTypeInfo
     /// <summary>
     /// Returns <c>true</c> if <paramref name="t"/> is record-like for tuple inference purposes.
     /// </summary>
-    public static bool IsRecordLike(TypeInfo t)
+    public static bool IsRecordLike(TypeSymbol t)
     {
         return t switch
         {
-            TupleTypeInfo tt => tt.IsValueTuple,
-            RecordTypeInfo => true, // includes VariantTypeInfo (a RecordTypeInfo subclass)
+            TupleTypeSymbol tt => tt.IsValueTuple,
+            RecordTypeSymbol => true, // includes VariantTypeSymbol (a RecordTypeSymbol subclass)
             _ => false
         };
     }
 
     /// <summary>Creates a tuple type whose element types are the supplied list.</summary>
-    public TupleTypeInfo(List<TypeInfo> elementTypes) : base(
+    public TupleTypeSymbol(List<TypeSymbol> elementTypes) : base(
         name: BuildName(elementTypes: elementTypes))
     {
         ElementTypes = elementTypes;
@@ -57,7 +57,7 @@ public sealed class TupleTypeInfo : RecordTypeInfo
         TypeArguments = elementTypes;
     }
 
-    internal static string BuildName(List<TypeInfo> elementTypes)
+    internal static string BuildName(List<TypeSymbol> elementTypes)
     {
         string args = string.Join(separator: ", ",
             values: elementTypes.Select(selector: t => t.Name));
@@ -66,11 +66,11 @@ public sealed class TupleTypeInfo : RecordTypeInfo
 
 
     /// <inheritdoc/>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         throw new InvalidOperationException(
             message:
-            "Tuple types cannot be further resolved. Create a new TupleTypeInfo instead.");
+            "Tuple types cannot be further resolved. Create a new TupleTypeSymbol instead.");
     }
 
     /// <summary>Gets the member variable info for a specific element index.</summary>

@@ -1,13 +1,11 @@
-using Compiler.Diagnostics;
+using Builder.Diagnostics;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Compiler.Instantiation;
+using Builder.Instantiation;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 /// <summary>
 /// Phase 5: Wired routine synthesis and derived operator generation.
@@ -16,8 +14,8 @@ public sealed partial class SemanticVerifier
 {
     /// <summary>
     /// Known wired memberRoutines that are valid operator/special memberRoutines. Derived from the single source
-    /// of truth <see cref="Compiler.Declaration.WiredRoutineCatalog"/> (entries flagged
-    /// <see cref="Compiler.Declaration.WiredViews.KnownWired"/>).
+    /// of truth <see cref="Builder.Declaration.WiredRoutineCatalog"/> (entries flagged
+    /// <see cref="Builder.Declaration.WiredViews.KnownWired"/>).
     /// </summary>
     private static readonly HashSet<string> KnownWiredMemberRoutines =
         Declaration.WiredRoutineCatalog.BuildKnownWiredMemberRoutines();
@@ -41,8 +39,8 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Maps operator wired memberRoutines to their required protocols. Types must follow the protocol to
     /// define the operator memberRoutine. Derived from the single source of truth
-    /// <see cref="Compiler.Declaration.WiredRoutineCatalog"/> (entries flagged
-    /// <see cref="Compiler.Declaration.WiredViews.ProtocolDecl"/>).
+    /// <see cref="Builder.Declaration.WiredRoutineCatalog"/> (entries flagged
+    /// <see cref="Builder.Declaration.WiredViews.ProtocolDecl"/>).
     /// </summary>
     private static readonly Dictionary<string, List<string>> WiredToProtocols =
         Declaration.WiredRoutineCatalog.BuildWiredToProtocols();
@@ -161,11 +159,11 @@ public sealed partial class SemanticVerifier
             GenericParameters = external.GenericParameters
         };
 
-        var parameters = new List<ParameterInfo>();
+        var parameters = new List<ParamInfo>();
         foreach (Parameter param in external.Parameters)
         {
             TypeSymbol paramType = ResolveType(typeExpr: param.Type);
-            parameters.Add(item: new ParameterInfo(name: param.Name, type: paramType)
+            parameters.Add(item: new ParamInfo(name: param.Name, type: paramType)
             {
                 DefaultValue = param.DefaultValue, IsVariadicParam = param.IsVariadic
             });

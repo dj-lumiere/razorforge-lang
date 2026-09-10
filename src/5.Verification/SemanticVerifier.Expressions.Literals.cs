@@ -1,14 +1,12 @@
 using System.Globalization;
-using Compiler.Diagnostics;
-using Compiler.Tokenizer;
+using Builder.Diagnostics;
+using Builder.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Types;
-using Compiler.Verification.Results;
+using Builder.Verification.Results;
 
-namespace Compiler.Verification;
-
-using TypeSymbol = TypeInfo;
+namespace Builder.Verification;
 
 /// <summary>
 /// Phase 5: Literal expression analysis and deferred numeric parsing.
@@ -37,7 +35,7 @@ public sealed partial class SemanticVerifier
             ReportError(code: SemanticDiagnosticCode.UnknownLiteralType,
                 message: $"Unknown literal type '{literal.LiteralType}'.",
                 location: literal.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         if (IsSuflaeSuffixGateViolation(literal: literal, typeName: typeName))
@@ -48,7 +46,7 @@ public sealed partial class SemanticVerifier
                 "`import Numerics`. Bare numbers default to Integer/Decimal (fixed-width types like " +
                 "S32/U64/F128 stay behind the import to keep the surface approachable).",
                 location: literal.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         typeName = ApplyContextualTypeInference(literal: literal,
@@ -57,7 +55,7 @@ public sealed partial class SemanticVerifier
             earlyExit: out bool earlyExitOnOverflow);
         if (earlyExitOnOverflow)
         {
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         StoreParsedLiteral(literal: literal, typeName: typeName);
@@ -68,7 +66,7 @@ public sealed partial class SemanticVerifier
             ReportError(code: SemanticDiagnosticCode.LiteralTypeNotDefined,
                 message: $"Type '{typeName}' is not defined.",
                 location: literal.Location);
-            return ErrorTypeInfo.Instance;
+            return ErrorTypeSymbol.Instance;
         }
 
         return type;
@@ -167,7 +165,7 @@ public sealed partial class SemanticVerifier
         // Suflae: `none` against a `Roamed[E]` slot (an OPTIONAL entity reference `x: E?`) is a null
         // Roamed handle (roamed_none). Entity references carry their own none via a null pointer, so
         // no Maybe carrier is needed.
-        if (_registry.Language == Language.Suflae && expectedType is RecordTypeInfo
+        if (_registry.Language == Language.Suflae && expectedType is RecordTypeSymbol
             {
                 GenericDefinition.Name: Declaration.RuntimeContract.Roamed
             })
@@ -179,7 +177,7 @@ public sealed partial class SemanticVerifier
             message:
             $"'none' is only valid where the expected type is Maybe[T], Lookup[T], or a variant with a None arm; got {expectedType?.Name ?? "no contextual type"}.",
             location: literal.Location);
-        return ErrorTypeInfo.Instance;
+        return ErrorTypeSymbol.Instance;
     }
 
     /// <summary>

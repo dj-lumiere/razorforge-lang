@@ -1,4 +1,4 @@
-using Compiler.Verification.Results;
+using Builder.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 
@@ -30,7 +30,7 @@ public class MoveOnConsumeTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.UseAfterSteal &&
+            filter: e => e.Code == Builder.Diagnostics.SemanticDiagnosticCode.UseAfterSteal &&
                          e.Message.Contains(value: "'a'",
                              comparisonType: StringComparison.OrdinalIgnoreCase));
     }
@@ -63,7 +63,7 @@ public class MoveOnConsumeTests
         // Skip if the test infrastructure rejects record-with-Owned construction first;
         // otherwise the deadref check should fire on `b.inner.value`.
         if (result.Errors.Any(predicate: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.UseAfterSteal))
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.UseAfterSteal))
         {
             return; // expected case landed.
         }
@@ -72,7 +72,7 @@ public class MoveOnConsumeTests
         // ImplicitWrapperCopy from `b.inner.retain()` — that's a fresh-call result, OK.
         Assert.DoesNotContain(collection: result.Errors,
             filter: e =>
-                e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
+                e.Code == Builder.Diagnostics.SemanticDiagnosticCode.ImplicitWrapperCopy);
     }
 
     /// <summary>`.retain()` twice on the same variable; the second use is a double-consume error.</summary>
@@ -92,7 +92,7 @@ public class MoveOnConsumeTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.Contains(collection: result.Errors,
-            filter: e => e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.UseAfterSteal);
+            filter: e => e.Code == Builder.Diagnostics.SemanticDiagnosticCode.UseAfterSteal);
     }
 
     /// <summary>`ra.retain()` on a `Retained[T]` source does NOT kill `ra`.</summary>
@@ -113,7 +113,7 @@ public class MoveOnConsumeTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
-            filter: e => e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.UseAfterSteal);
+            filter: e => e.Code == Builder.Diagnostics.SemanticDiagnosticCode.UseAfterSteal);
     }
 
     /// <summary>`ra.track()` on a `Retained[T]` source does NOT kill `ra`.</summary>
@@ -134,6 +134,6 @@ public class MoveOnConsumeTests
 
         AnalysisResult result = AnalyzeSa(source: source);
         Assert.DoesNotContain(collection: result.Errors,
-            filter: e => e.Code == Compiler.Diagnostics.SemanticDiagnosticCode.UseAfterSteal);
+            filter: e => e.Code == Builder.Diagnostics.SemanticDiagnosticCode.UseAfterSteal);
     }
 }

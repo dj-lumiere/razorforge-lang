@@ -3,7 +3,7 @@ using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Statement code generation: control flow, assignments, declarations, returns.
@@ -141,7 +141,7 @@ public partial class LlvmEmitter
     private void EmitVariableDeclaration(StringBuilder sb, VariableDeclaration varDecl)
     {
         // Determine the type
-        TypeInfo? varType = ResolveVariableDeclType(varDecl: varDecl) ??
+        TypeSymbol? varType = ResolveVariableDeclType(varDecl: varDecl) ??
                             throw UndeterminableVariableType(varDecl: varDecl);
 
         string llvmType = GetValueLlvmType(type: varType);
@@ -244,14 +244,14 @@ public partial class LlvmEmitter
     /// Registers the variable in the scope-exit cleanup sets: bare entities, records with RC fields,
     /// and RC-wrapper-typed variables (which also zero-init their alloca and drop moved-from owners).
     /// </summary>
-    private void TrackVariableForCleanup(VariableDeclaration varDecl, TypeInfo varType,
+    private void TrackVariableForCleanup(VariableDeclaration varDecl, TypeSymbol varType,
         string varPtr, string uniqueName)
     {
         switch (varType)
         {
             // Track entity variables for automatic cleanup at return points. Tracked when
             // initialized via constructor (heap allocation) or as a lateinit placeholder.
-            case EntityTypeInfo when IsEntityConstructorCall(expr: varDecl.Initializer) ||
+            case EntityTypeSymbol when IsEntityConstructorCall(expr: varDecl.Initializer) ||
                                      varDecl.IsLateInit && varDecl.Initializer == null:
                 _localEntityVars.Add(item: (varDecl.Name, $"%{uniqueName}.addr"));
                 // Zero-init the alloca: a declaration inside a not-taken conditional still has its
@@ -259,12 +259,12 @@ public partial class LlvmEmitter
                 EmitLine(sb: _currentRoutineEntryAllocas, line: $"  store ptr null, ptr {varPtr}");
                 break;
             // Track record variables with RC wrapper fields for retain/release
-            case RecordTypeInfo { HasRCMemberVariables: true } rcRecord:
+            case RecordTypeSymbol { HasRCMemberVariables: true } rcRecord:
                 _localRcRecordVars.Add(item: (varDecl.Name, $"%{uniqueName}.addr", rcRecord));
                 break;
         }
 
-        if (varType is RecordTypeInfo rcWrapRecord &&
+        if (varType is RecordTypeSymbol rcWrapRecord &&
             GetGenericBaseName(type: rcWrapRecord) is { } rcWrapBase &&
             RcWrapperBaseNames.Contains(item: rcWrapBase))
         {
@@ -279,7 +279,7 @@ public partial class LlvmEmitter
     /// Tracks a variable whose type IS an RC wrapper (Retained[T], Guarded[T], …): registers it for
     /// release, zero-inits the alloca, and drops the moved-from entity from cleanup on a retain/roam.
     /// </summary>
-    private void TrackRcWrapperVariable(VariableDeclaration varDecl, RecordTypeInfo rcWrapRecord,
+    private void TrackRcWrapperVariable(VariableDeclaration varDecl, RecordTypeSymbol rcWrapRecord,
         string varPtr, string uniqueName)
     {
         _localRetainedVars.Add(item: (varDecl.Name, $"%{uniqueName}.addr", rcWrapRecord));
@@ -300,7 +300,7 @@ public partial class LlvmEmitter
                 {
                     Object: IdentifierExpression { Name: var srcEntityName } srcRecv
                 }
-            } rcCall && srcRecv.ResolvedType is EntityTypeInfo &&
+            } rcCall && srcRecv.ResolvedType is EntityTypeSymbol &&
             rcCall.ResolvedType is { } rcResultType &&
             Declaration.TypeRegistry.GetRcWrapperBaseName(type: rcResultType) is not null)
         {
@@ -314,7 +314,7 @@ public partial class LlvmEmitter
     /// allocation), or a zeroed value slot otherwise. No-op for a non-lateinit uninitialized decl.
     /// </summary>
     private void EmitLateInitPlaceholder(StringBuilder sb, VariableDeclaration varDecl,
-        TypeInfo varType, string llvmType, string varPtr)
+        TypeSymbol varType, string llvmType, string varPtr)
     {
         if (!varDecl.IsLateInit)
         {
@@ -324,7 +324,7 @@ public partial class LlvmEmitter
         // The block must be calloc-backed (rf_allocate_dynamic, NOT _uninit): destroy runs on the
         // placeholder and walks its fields — zeroed fields are null-safe to free, garbage fields are
         // wild pointers. Zeroed contents are teardown armor, not a language guarantee.
-        if (varType is EntityTypeInfo lateInitEntity)
+        if (varType is EntityTypeSymbol lateInitEntity)
         {
             int blockSize = lateInitEntity.HeapBlockSize(pointerSize: _pointerSizeBytes);
             string placeholder = NextTemp();
@@ -343,22 +343,22 @@ public partial class LlvmEmitter
     /// Only applies between scalar @llvm-annotated records; aggregates share shape and need no cast.
     /// </summary>
     private string CoerceInitializerToDeclaredType(StringBuilder sb, VariableDeclaration varDecl,
-        TypeInfo varType, string llvmType, string value)
+        TypeSymbol varType, string llvmType, string value)
     {
         if (varDecl.Type == null)
         {
             return value;
         }
 
-        TypeInfo? initType = GetExpressionType(expr: varDecl.Initializer!);
+        TypeSymbol? initType = GetExpressionType(expr: varDecl.Initializer!);
         if (initType == null)
         {
             return value;
         }
 
         string initLlvm = GetLlvmType(type: initType);
-        bool initIsScalar = initType is RecordTypeInfo { BackendType: not null };
-        bool varIsScalar = varType is RecordTypeInfo { BackendType: not null };
+        bool initIsScalar = initType is RecordTypeSymbol { BackendType: not null };
+        bool varIsScalar = varType is RecordTypeSymbol { BackendType: not null };
         return initLlvm != llvmType && initIsScalar && varIsScalar
             ? EmitPrimitiveCast(sb: sb,
                 value: value,
@@ -370,9 +370,9 @@ public partial class LlvmEmitter
     /// <summary>
     /// Resolves the variable decl type from semantic compiler state.
     /// </summary>
-    private TypeInfo? ResolveVariableDeclType(VariableDeclaration varDecl)
+    private TypeSymbol? ResolveVariableDeclType(VariableDeclaration varDecl)
     {
-        TypeInfo? varType = null;
+        TypeSymbol? varType = null;
         if (varDecl.Type != null)
         {
             varType = ResolveTypeExpression(typeExpr: varDecl.Type);
@@ -383,7 +383,7 @@ public partial class LlvmEmitter
         // `var abs_val: Integer = …` in `Integer.to_digit_bytes!()`, IO referencing the Numerics `Integer`,
         // which codegen cannot re-resolve by bare name without the short-name scan). Fall back to the
         // initializer's own resolved type (a hoisted temp identifier already carries it).
-        if (varType is null or ErrorTypeInfo && varDecl.Initializer != null)
+        if (varType is null or ErrorTypeSymbol && varDecl.Initializer != null)
         {
             varType = GetExpressionType(expr: varDecl.Initializer) ?? varType;
         }
@@ -397,12 +397,12 @@ public partial class LlvmEmitter
         // `routine.ReturnType` directly and would overwrite our correct varType with the
         // bare form. Only re-resolve when the existing varType is missing or still has
         // unresolved generic parameters.
-        bool varTypeIsUnresolved = varType is null || varType is ErrorTypeInfo ||
-                                   varType is GenericParameterTypeInfo ||
+        bool varTypeIsUnresolved = varType is null || varType is ErrorTypeSymbol ||
+                                   varType is GenericParameterTypeSymbol ||
                                    ContainsGenericParameter(type: varType);
         if (varDecl.Initializer is CallExpression genericCallInit && varTypeIsUnresolved)
         {
-            TypeInfo? explicitGenericReturn =
+            TypeSymbol? explicitGenericReturn =
                 TryResolveExplicitGenericCallReturnType(call: genericCallInit);
             if (explicitGenericReturn != null)
             {
@@ -425,9 +425,9 @@ public partial class LlvmEmitter
     }
 
     /// <summary>
-    /// Resolves a type expression to a TypeInfo.
+    /// Resolves a type expression to a TypeSymbol.
     /// </summary>
-    private TypeInfo? ResolveTypeExpression(TypeExpression typeExpr)
+    private TypeSymbol? ResolveTypeExpression(TypeExpression typeExpr)
     {
         return ResolveTypeArgument(ta: typeExpr);
     }
@@ -435,9 +435,9 @@ public partial class LlvmEmitter
     /// <summary>
     /// Attempts to resolve explicit generic call return type and reports whether it succeeded.
     /// </summary>
-    private TypeInfo? TryResolveExplicitGenericCallReturnType(CallExpression call)
+    private TypeSymbol? TryResolveExplicitGenericCallReturnType(CallExpression call)
     {
-        if (call.ConstructedType is not null and not ErrorTypeInfo)
+        if (call.ConstructedType is not null and not ErrorTypeSymbol)
         {
             return call.ConstructedType;
         }
@@ -452,7 +452,7 @@ public partial class LlvmEmitter
                                    expr: a is NamedArgumentExpression na
                                        ? na.Value
                                        : a))
-                              .OfType<TypeInfo>()
+                              .OfType<TypeSymbol>()
                               .ToList());
         }
 
@@ -469,7 +469,7 @@ public partial class LlvmEmitter
                                   .Select(selector: selector =>
                                        ResolveTypeExpression(typeExpr: selector))
                                   .Where(predicate: t => t != null)
-                                  .Cast<TypeInfo>()
+                                  .Cast<TypeSymbol>()
                                   .ToList();
             if (resolvedTypeArgs.Count == explicitTypeArgs.Count)
             {
@@ -519,7 +519,7 @@ public partial class LlvmEmitter
                 // EmitEntityMemberVariableWrite), so the RHS is NOT moved into the field — it keeps its
                 // own reference and tears down normally. Consuming it here (move semantics, for the
                 // strict Retained/Tracked wrappers) would drop a ref the field just retained → underflow.
-                TypeInfo? memberType = GetExpressionType(expr: member);
+                TypeSymbol? memberType = GetExpressionType(expr: member);
                 if (memberType == null ||
                     GetGenericBaseName(type: memberType) is not { } targetBase ||
                     targetBase != Declaration.RuntimeContract.Roamed)
@@ -696,27 +696,27 @@ public partial class LlvmEmitter
 
     /// <summary>The <c>__ModuleGlobals</c> entity inside a <c>Roamed[__ModuleGlobals]</c> handle type,
     /// or null when the type is not that handle.</summary>
-    private static EntityTypeInfo? ModuleGlobalsInnerEntity(TypeInfo? t)
+    private static EntityTypeSymbol? ModuleGlobalsInnerEntity(TypeSymbol? t)
     {
-        EntityTypeInfo? inner = t switch
+        EntityTypeSymbol? inner = t switch
         {
-            WrapperTypeInfo
+            WrapperTypeSymbol
             {
-                Name: Declaration.RuntimeContract.Roamed, InnerType: EntityTypeInfo e
+                Name: Declaration.RuntimeContract.Roamed, InnerType: EntityTypeSymbol e
             } => e,
-            RecordTypeInfo
+            RecordTypeSymbol
             {
                 GenericDefinition.Name: Declaration.RuntimeContract.Roamed,
-                TypeArguments: [EntityTypeInfo e]
+                TypeArguments: [EntityTypeSymbol e]
             } => e,
             _ => null
         };
-        return inner?.BareName == Builder.Program.ModuleGlobalsEntityName
+        return inner?.BareName == Builder.Execution.Program.ModuleGlobalsEntityName
             ? inner
             : null;
     }
 
-    private static bool IsAtomicWidthScalar(TypeInfo? t, out bool isFloat)
+    private static bool IsAtomicWidthScalar(TypeSymbol? t, out bool isFloat)
     {
         isFloat = false;
         switch (t?.BareName)
@@ -750,12 +750,12 @@ public partial class LlvmEmitter
     /// ADDRESS: read the entity ptr from the roam controller's <c>data</c>, then GEP to the field.</summary>
     private string EmitRoamedEntityFieldAddress(StringBuilder sb, MemberExpression fieldMember)
     {
-        EntityTypeInfo entity = ModuleGlobalsInnerEntity(t: fieldMember.Object.ResolvedType)!;
+        EntityTypeSymbol entity = ModuleGlobalsInnerEntity(t: fieldMember.Object.ResolvedType)!;
         string handle = EmitExpression(sb: sb, expr: fieldMember.Object);
-        TypeInfo? controllerType =
+        TypeSymbol? controllerType =
             _registry.LookupType(name: $"RoamController[{entity.FullName}]") ??
             _registry.LookupType(name: $"Core.RoamController[{entity.FullName}]");
-        string entityPtr = controllerType is EntityTypeInfo controllerEntity
+        string entityPtr = controllerType is EntityTypeSymbol controllerEntity
             ? EmitEntityMemberVariableRead(sb: sb,
                 entityPtr: handle,
                 entity: controllerEntity,
@@ -770,7 +770,7 @@ public partial class LlvmEmitter
     /// <summary>The GEP pointer to an entity member variable (the address, without the load that
     /// <see cref="EmitEntityMemberVariableRead"/> appends).</summary>
     private string EmitEntityMemberVariableFieldPointer(StringBuilder sb, string entityPtr,
-        EntityTypeInfo entity, string memberVariableName)
+        EntityTypeSymbol entity, string memberVariableName)
     {
         entity = RefreshEntityMemberVariables(entity: entity,
             memberVariableName: memberVariableName);
@@ -806,11 +806,11 @@ public partial class LlvmEmitter
     /// </summary>
     private void EmitVariableAssignment(StringBuilder sb, string varName, string value)
     {
-        if (!_localVariables.TryGetValue(key: varName, value: out TypeInfo? varType))
+        if (!_localVariables.TryGetValue(key: varName, value: out TypeSymbol? varType))
         {
             // Suflae module-level `global`: store to its `@global` symbol.
             if (_moduleGlobals.TryGetValue(key: varName,
-                    value: out (TypeInfo Type, string Symbol) gslot))
+                    value: out (TypeSymbol Type, string Symbol) gslot))
             {
                 EmitLine(sb: sb,
                     line:
@@ -828,13 +828,13 @@ public partial class LlvmEmitter
         string varPtr = $"%{llvmName}.addr";
 
         // Release old value's RC fields before overwrite
-        if (varType is RecordTypeInfo { HasRCMemberVariables: true } rcRecord)
+        if (varType is RecordTypeSymbol { HasRCMemberVariables: true } rcRecord)
         {
             EmitRcRecordRelease(sb: sb, llvmAddr: varPtr, recordType: rcRecord);
         }
 
         // Release old RC wrapper value before overwrite
-        if (varType is RecordTypeInfo rcWrapOld &&
+        if (varType is RecordTypeSymbol rcWrapOld &&
             GetGenericBaseName(type: rcWrapOld) is { } rcWrapOldBase &&
             RcWrapperBaseNames.Contains(item: rcWrapOldBase))
         {
@@ -858,9 +858,9 @@ public partial class LlvmEmitter
     /// Emits a store to a member variable.
     /// </summary>
     private void EmitMemberVariableAssignment(StringBuilder sb, MemberExpression member,
-        string value, TypeInfo? valueType = null)
+        string value, TypeSymbol? valueType = null)
     {
-        TypeInfo? targetType = GetExpressionType(expr: member.Object);
+        TypeSymbol? targetType = GetExpressionType(expr: member.Object);
         targetType = MarkerProtocolInner(type: targetType) ?? targetType;
 
         // Struct-record field write (no @llvm backend type): address-based. EmitLvalueAddress
@@ -869,7 +869,7 @@ public partial class LlvmEmitter
         // field assignment — not just bare-local identifiers. GEP to the field index and store.
         // Wrapper records (`@llvm("ptr")`) and entities have backend types / pointer identity and
         // are handled by the value-based branches below.
-        if (targetType is RecordTypeInfo { BackendType: null } structRecord &&
+        if (targetType is RecordTypeSymbol { BackendType: null } structRecord &&
             !(GetGenericBaseName(type: structRecord) is { } srBase &&
               WrapperTypeNames.Contains(item: srBase)))
         {
@@ -883,7 +883,7 @@ public partial class LlvmEmitter
         // Evaluate the object as a value (entity ptr / wrapper ptr) for the remaining branches.
         string target = EmitExpression(sb: sb, expr: member.Object);
 
-        if (targetType is EntityTypeInfo entity)
+        if (targetType is EntityTypeSymbol entity)
         {
             EmitEntityMemberVariableWrite(sb: sb,
                 entityPtr: target,
@@ -895,12 +895,12 @@ public partial class LlvmEmitter
         // Wrapper-of-record field write: Modifying[Record] etc. The wrapper is `@llvm("ptr")`
         // and the pointer addresses a record value in memory. GEP into the record at the
         // field index and store. (Record-inner branch must come before the entity-inner one
-        // since RecordTypeInfo and EntityTypeInfo are distinct AST nodes.)
-        else if (targetType is RecordTypeInfo wrapperRecOfRec &&
+        // since RecordTypeSymbol and EntityTypeSymbol are distinct AST nodes.)
+        else if (targetType is RecordTypeSymbol wrapperRecOfRec &&
                  GetGenericBaseName(type: wrapperRecOfRec) is { } wrapRecBaseName &&
                  WrapperTypeNames.Contains(item: wrapRecBaseName) &&
                  wrapperRecOfRec is { BackendType: not null, TypeArguments.Count: > 0 } &&
-                 wrapperRecOfRec.TypeArguments[index: 0] is RecordTypeInfo innerRecord &&
+                 wrapperRecOfRec.TypeArguments[index: 0] is RecordTypeSymbol innerRecord &&
                  !wrapperRecOfRec.MemberVariables.Any(
                      predicate: mv => mv.Name == member.MemberName))
         {
@@ -911,11 +911,11 @@ public partial class LlvmEmitter
                 innerRecord: innerRecord);
         }
         // Wrapper type forwarding: Modifying[T], Amending[T], etc. -> write through to inner entity
-        else if (targetType is RecordTypeInfo wrapperRecord &&
+        else if (targetType is RecordTypeSymbol wrapperRecord &&
                  GetGenericBaseName(type: wrapperRecord) is { } wrapBaseName &&
                  WrapperTypeNames.Contains(item: wrapBaseName) &&
                  wrapperRecord.TypeArguments is { Count: > 0 } &&
-                 wrapperRecord.TypeArguments[index: 0] is EntityTypeInfo innerEntity)
+                 wrapperRecord.TypeArguments[index: 0] is EntityTypeSymbol innerEntity)
         {
             EmitWrapperForwardingMemberVariableWrite(sb: sb,
                 member: member,
@@ -935,7 +935,7 @@ public partial class LlvmEmitter
 
     /// <summary>Address-based store into a struct-record field (no @llvm backend type).</summary>
     private void EmitStructRecordMemberVariableWrite(StringBuilder sb, MemberExpression member,
-        string value, RecordTypeInfo structRecord)
+        string value, RecordTypeSymbol structRecord)
     {
         int sfIndex = -1;
         MemberVariableInfo? sfInfo = null;
@@ -969,7 +969,7 @@ public partial class LlvmEmitter
     /// <summary>GEP-and-store into the record addressed by a <c>@llvm("ptr")</c> wrapper-of-record
     /// (Modifying[Record] etc.), where <paramref name="target"/> is the loaded wrapper pointer.</summary>
     private void EmitWrapperOfRecordMemberVariableWrite(StringBuilder sb, MemberExpression member,
-        string value, string target, RecordTypeInfo innerRecord)
+        string value, string target, RecordTypeSymbol innerRecord)
     {
         int fieldIndex = -1;
         MemberVariableInfo? fieldInfo = null;
@@ -1002,7 +1002,7 @@ public partial class LlvmEmitter
     /// <summary>Forwards a field write through a wrapper (Modifying[T], Retained[T], Roamed[T], …) to
     /// the inner entity, projecting through the controller's <c>data</c> where needed.</summary>
     private void EmitWrapperForwardingMemberVariableWrite(StringBuilder sb,
-        MemberExpression member, string value, TypeInfo? valueType,
+        MemberExpression member, string value, TypeSymbol? valueType,
         WrapperWriteContext ctx)
     {
         // Roamed[T] projects through RoamController.data and writes directly — handled separately
@@ -1030,12 +1030,12 @@ public partial class LlvmEmitter
 
     /// <summary>Emits a Roamed[T] wrapper field write by projecting through <c>RoamController.data</c>.</summary>
     private void EmitRoamedWrapperMemberVariableWrite(StringBuilder sb, MemberExpression member,
-        string value, TypeInfo? valueType, WrapperWriteContext ctx)
+        string value, TypeSymbol? valueType, WrapperWriteContext ctx)
     {
-        TypeInfo? controllerType =
+        TypeSymbol? controllerType =
             _registry.LookupType(name: $"RoamController[{ctx.InnerEntity.FullName}]") ??
             _registry.LookupType(name: $"Core.RoamController[{ctx.InnerEntity.FullName}]");
-        string roamEntPtr = controllerType is EntityTypeInfo controllerEntity
+        string roamEntPtr = controllerType is EntityTypeSymbol controllerEntity
             ? EmitEntityMemberVariableRead(sb: sb,
                 entityPtr: ctx.Target,
                 entity: controllerEntity,
@@ -1056,8 +1056,8 @@ public partial class LlvmEmitter
     private string ResolveWrapperInnerEntityPtr(StringBuilder sb, WrapperWriteContext ctx)
     {
         string target = ctx.Target;
-        RecordTypeInfo wrapperRecord = ctx.WrapperRecord;
-        EntityTypeInfo innerEntity = ctx.InnerEntity;
+        RecordTypeSymbol wrapperRecord = ctx.WrapperRecord;
+        EntityTypeSymbol innerEntity = ctx.InnerEntity;
 
         // Retained[T] / Tracked[T]: pointer targets a RetainController[T]; the entity lives in
         // its `data` field. Without this, writes would store into the controller's strong_count.
@@ -1065,10 +1065,10 @@ public partial class LlvmEmitter
             (ctx.WrapBaseName == Declaration.RuntimeContract.Retained ||
              ctx.WrapBaseName == Declaration.RuntimeContract.Tracked))
         {
-            TypeInfo? controllerType =
+            TypeSymbol? controllerType =
                 _registry.LookupType(name: $"RetainController[{innerEntity.FullName}]") ??
                 _registry.LookupType(name: $"Core.RetainController[{innerEntity.FullName}]");
-            return controllerType is EntityTypeInfo controllerEntity
+            return controllerType is EntityTypeSymbol controllerEntity
                 ? EmitEntityMemberVariableRead(sb: sb,
                     entityPtr: target,
                     entity: controllerEntity,
@@ -1101,7 +1101,7 @@ public partial class LlvmEmitter
         // Note: the inline record setitem path below is a known workaround — the receiver must be the
         // alloca pointer so mutations persist, whereas EmitMemberRoutineCall would load a value copy.
         // Both paths are intentional; the inline path is tracked for future cleanup.
-        TypeInfo? targetType = GetExpressionType(expr: index.Object);
+        TypeSymbol? targetType = GetExpressionType(expr: index.Object);
         targetType = MarkerProtocolInner(type: targetType) ?? targetType;
 
         RoutineInfo? setItem = LookupSetItemMemberRoutine(index: index);
@@ -1149,9 +1149,9 @@ public partial class LlvmEmitter
     /// Whether an index assignment should use the inline pointer-based record <c>setitem</c> path
     /// (a resolved record setitem that isn't a wrapper forwarder and is concretely instantiable).
     /// </summary>
-    private static bool IsInlineRecordSetItem(RoutineInfo? setItem, TypeInfo? targetType)
+    private static bool IsInlineRecordSetItem(RoutineInfo? setItem, TypeSymbol? targetType)
     {
-        if (setItem == null || targetType is not RecordTypeInfo ||
+        if (setItem == null || targetType is not RecordTypeSymbol ||
             !setItem.Name.Contains(value: "setitem") ||
             setItem.IsGenericDefinition && !targetType.IsGenericResolution)
         {
@@ -1165,7 +1165,7 @@ public partial class LlvmEmitter
         // wrapper forwarders).
         bool isWrapperForwardingSetItem = setItem.Parameters.Count >= 2 &&
                                           targetType.TypeArguments is
-                                              [not ConstGenericValueTypeInfo] &&
+                                              [not ConstGenericValueTypeSymbol] &&
                                           setItem.Parameters[^1].Type.FullName !=
                                           targetType.TypeArguments[^1].FullName;
         return !isWrapperForwardingSetItem;
@@ -1173,14 +1173,14 @@ public partial class LlvmEmitter
 
     /// <summary>Emits the inline pointer-based record <c>setitem</c> call (receiver = lvalue address).</summary>
     private void EmitInlineRecordSetItem(StringBuilder sb, IndexExpression index, Expression rhs,
-        RoutineInfo setItem, TypeInfo targetType)
+        RoutineInfo setItem, TypeSymbol targetType)
     {
         string value = EmitExpression(sb: sb, expr: rhs);
         // The receiver must be the storage address so the element write persists in the caller's
         // frame. EmitLvalueAddress recurses through arbitrary lvalue chains (`coll[i]`, `a.b[i]`, …).
         string receiver = EmitLvalueAddress(sb: sb, expr: index.Object);
         string indexValue = EmitExpression(sb: sb, expr: index.Index);
-        TypeInfo? indexType = GetExpressionType(expr: index.Index);
+        TypeSymbol? indexType = GetExpressionType(expr: index.Index);
 
         string mangledName = MangleRoutineName(routine: setItem);
         GenerateRoutineDeclaration(routine: setItem);
@@ -1194,9 +1194,9 @@ public partial class LlvmEmitter
         // call by hand, so it must apply the SAME byval coercion the normal call path does — otherwise
         // the raw struct SSA value lands where the callee expects a pointer and the callee dereferences
         // garbage (AV). Scalar value params (i64, …) fall through unchanged.
-        TypeInfo? rhsType = GetExpressionType(expr: rhs);
+        TypeSymbol? rhsType = GetExpressionType(expr: rhs);
         if (rhsType != null &&
-            setItem.Parameters is [.., { Type: not GenericParameterTypeInfo } valueParam] &&
+            setItem.Parameters is [.., { Type: not GenericParameterTypeSymbol } valueParam] &&
             TryCoerceArgToByval(sb: sb,
                 argValue: value,
                 actualType: rhsType,
@@ -1219,9 +1219,9 @@ public partial class LlvmEmitter
     /// param type, falling back to the target's last type-argument only when the param is still an
     /// unresolved generic parameter.
     /// </summary>
-    private string ResolveSetItemValueLlvm(RoutineInfo setItem, TypeInfo targetType)
+    private string ResolveSetItemValueLlvm(RoutineInfo setItem, TypeSymbol targetType)
     {
-        if (setItem.Parameters is [.., _, { Type: not GenericParameterTypeInfo }])
+        if (setItem.Parameters is [.., _, { Type: not GenericParameterTypeSymbol }])
         {
             return GetLlvmType(type: setItem.Parameters[^1].Type);
         }
@@ -1241,7 +1241,7 @@ public partial class LlvmEmitter
     /// <c>setitem</c> memberRoutine.
     /// </summary>
     private void EmitRawIndexStore(StringBuilder sb, IndexExpression index, Expression rhs,
-        TypeInfo? targetType)
+        TypeSymbol? targetType)
     {
         string rawValue = EmitExpression(sb: sb, expr: rhs);
         string target = EmitExpression(sb: sb, expr: index.Object);
@@ -1249,9 +1249,9 @@ public partial class LlvmEmitter
 
         string elemType = targetType switch
         {
-            RecordTypeInfo { TypeArguments.Count: > 0 } r => GetLlvmType(
+            RecordTypeSymbol { TypeArguments.Count: > 0 } r => GetLlvmType(
                 type: r.TypeArguments![index: 0]),
-            EntityTypeInfo { TypeArguments.Count: > 0 } e => GetLlvmType(
+            EntityTypeSymbol { TypeArguments.Count: > 0 } e => GetLlvmType(
                 type: e.TypeArguments![index: 0]),
             _ => throw new InvalidOperationException(
                 message:
@@ -1269,7 +1269,7 @@ public partial class LlvmEmitter
     /// </summary>
     private RoutineInfo? LookupSetItemMemberRoutine(IndexExpression index)
     {
-        TypeInfo? targetType = GetExpressionType(expr: index.Object);
+        TypeSymbol? targetType = GetExpressionType(expr: index.Object);
         targetType = MarkerProtocolInner(type: targetType) ?? targetType;
         if (targetType == null)
         {
@@ -1299,7 +1299,7 @@ public partial class LlvmEmitter
     /// Emits release calls for all RC wrapper fields in a record.
     /// Called before overwriting a record variable or at scope exit.
     /// </summary>
-    private void EmitRcRecordRelease(StringBuilder sb, string llvmAddr, RecordTypeInfo recordType)
+    private void EmitRcRecordRelease(StringBuilder sb, string llvmAddr, RecordTypeSymbol recordType)
     {
         string llvmType = GetLlvmType(type: recordType);
         string loaded = NextTemp();
@@ -1333,7 +1333,7 @@ public partial class LlvmEmitter
 
         foreach (MemberVariableInfo field in recordType.MemberVariables)
         {
-            if (field.Type is not WrapperTypeInfo w || !RcWrapperBaseNames.Contains(item: w.Name))
+            if (field.Type is not WrapperTypeSymbol w || !RcWrapperBaseNames.Contains(item: w.Name))
             {
                 continue;
             }
@@ -1346,7 +1346,7 @@ public partial class LlvmEmitter
             // to `release`→controller), not `release` directly — keeps every teardown on one verb.
             RoutineInfo? destroyMemberRoutine = _registry.LookupMemberRoutineOverload(type: w,
                 memberRoutineName: "destroy",
-                argTypes: new List<TypeInfo>());
+                argTypes: new List<TypeSymbol>());
             if (destroyMemberRoutine == null)
             {
                 continue;
@@ -1387,7 +1387,7 @@ public partial class LlvmEmitter
     /// forwards to <c>release()</c>→controller). Both Retained and Tracked expose <c>destroy</c>.
     /// </summary>
     private void EmitRetainedVarRelease(StringBuilder sb, string llvmAddr,
-        RecordTypeInfo recordType)
+        RecordTypeSymbol recordType)
     {
         if (GetGenericBaseName(type: recordType) is not { } baseName ||
             !Declaration.RuntimeContract.RcWrapperBaseNames.Contains(item: baseName))
@@ -1397,7 +1397,7 @@ public partial class LlvmEmitter
 
         RoutineInfo? releaseMemberRoutine = _registry.LookupMemberRoutineOverload(type: recordType,
             memberRoutineName: "destroy",
-            argTypes: new List<TypeInfo>());
+            argTypes: new List<TypeSymbol>());
         if (releaseMemberRoutine == null)
         {
             return;
@@ -1581,6 +1581,6 @@ public partial class LlvmEmitter
 /// </summary>
 internal sealed record WrapperWriteContext(
     string Target,
-    RecordTypeInfo WrapperRecord,
+    RecordTypeSymbol WrapperRecord,
     string WrapBaseName,
-    EntityTypeInfo InnerEntity);
+    EntityTypeSymbol InnerEntity);

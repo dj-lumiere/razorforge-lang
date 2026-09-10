@@ -3,8 +3,6 @@ using TypeModel.Types;
 
 namespace TypeModel.Symbols;
 
-using TypeSymbol = TypeInfo;
-
 /// <summary>
 /// Information about a member variable in a record or entity.
 /// </summary>

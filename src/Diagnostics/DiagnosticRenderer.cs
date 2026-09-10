@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
-using Compiler.Parser;
+using Builder.Parser;
 using SyntaxTree;
-using Compiler.Verification.Results;
+using Builder.Verification.Results;
 
-namespace Compiler.Diagnostics;
+namespace Builder.Diagnostics;
 
 /// <summary>
 /// Renders compiler diagnostics with a source-line excerpt and column caret, in the style of

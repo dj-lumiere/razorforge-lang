@@ -1,4 +1,4 @@
-namespace Compiler.Verification.Enums;
+namespace Builder.Verification.Enums;
 
 /// <summary>
 /// Kind of error handling type.

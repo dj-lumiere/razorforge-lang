@@ -1,4 +1,4 @@
-namespace Compiler.Declaration;
+namespace Builder.Declaration;
 
 /// <summary>
 /// Central inventory of the plain (non-<c>$</c>) stdlib routine names, stdlib type names, and native
@@ -90,7 +90,7 @@ public static class RuntimeContract
     }
 
     /// <summary>The two ORTHOGONAL duplication verbs. <c>assign</c> (Assignable) = the implicit shallow
-    /// bind/share verb that <see cref="Compiler.Lowering.Passes.RecordCopyLoweringPass"/> INJECTS at
+    /// bind/share verb that <see cref="Builder.Lowering.Passes.RecordCopyLoweringPass"/> INJECTS at
     /// every implicit-copy site (<c>b = a</c>, non-<c>steal</c> arg, return) — a bitwise dup for value
     /// records, a refcount++ share for managed leaves. <c>duplicate</c> (Copyable) = the explicit DEEP copy
     /// (<c>a.duplicate()</c>). For a refcounted (RC/BRC/ARC) type the two coincide (deep-clone collapses to

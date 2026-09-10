@@ -1,8 +1,8 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using SyntaxTree;
 using TypeModel.Types;
 
-namespace Compiler.Lowering.Passes;
+namespace Builder.Lowering.Passes;
 
 /// <summary>
 /// Routes every Suflae module-level <c>global</c> through the hidden per-program
@@ -31,17 +31,17 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
     private TypeRegistry Registry => ctx.Registry;
 
     // Resolved lazily on first use — the roamed singleton type is only known once SA has registered it.
-    private TypeInfo? _singletonType;
+    private TypeSymbol? _singletonType;
     private bool _resolvedSingleton;
 
-    private TypeInfo? SingletonType
+    private TypeSymbol? SingletonType
     {
         get
         {
             if (!_resolvedSingleton)
             {
                 _singletonType = Registry
-                                .LookupVariable(name: Builder.Program.ModuleGlobalsSingletonName)
+                                .LookupVariable(name: Builder.Execution.Program.ModuleGlobalsSingletonName)
                                ?.Type;
                 _resolvedSingleton = true;
             }
@@ -70,7 +70,7 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
         // lives as fields of __ModuleGlobals; leaving them would emit dead @global cells.
         program.Declarations.RemoveAll(match: node =>
             node is VariableDeclaration { IsGlobal: true } g &&
-            g.Name != Builder.Program.ModuleGlobalsSingletonName);
+            g.Name != Builder.Execution.Program.ModuleGlobalsSingletonName);
     }
 
     /// <summary>Rewrites global references inside synthesized error-handling variant bodies.</summary>
@@ -225,7 +225,7 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
     {
         // The one real substitution: a stamped global reference -> `__globals__.<name>`.
         if (e is IdentifierExpression id && id.IsModuleGlobal &&
-            id.Name != Builder.Program.ModuleGlobalsSingletonName)
+            id.Name != Builder.Execution.Program.ModuleGlobalsSingletonName)
         {
             return RewriteGlobalIdentifier(id: id);
         }
@@ -240,7 +240,7 @@ internal sealed class GlobalEntityRewritePass(PostprocessingContext ctx)
     private MemberExpression RewriteGlobalIdentifier(IdentifierExpression id)
     {
         var receiver = new IdentifierExpression(
-            Name: Builder.Program.ModuleGlobalsSingletonName,
+            Name: Builder.Execution.Program.ModuleGlobalsSingletonName,
             Location: id.Location) { ResolvedType = SingletonType };
         return new MemberExpression(Object: receiver, MemberName: id.Name, Location: id.Location)
         {

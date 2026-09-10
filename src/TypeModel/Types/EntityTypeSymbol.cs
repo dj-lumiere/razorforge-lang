@@ -1,4 +1,4 @@
-using Compiler.Declaration;
+using Builder.Declaration;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 
@@ -8,7 +8,7 @@ namespace TypeModel.Types;
 /// Type information for entities (reference types, heap-allocated).
 /// Entity variables cannot be reassigned - they have stable identity.
 /// </summary>
-public class EntityTypeInfo : TypeInfo
+public class EntityTypeSymbol : TypeSymbol
 {
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.Entity;
@@ -24,7 +24,7 @@ public class EntityTypeInfo : TypeInfo
     public List<MemberExpandTemplateInfo> ExpandTemplates { get; set; } = [];
 
     /// <summary>Protocols this entity implements (obeys).</summary>
-    public List<TypeInfo> ImplementedProtocols { get; set; } = [];
+    public List<TypeSymbol> ImplementedProtocols { get; set; } = [];
 
     /// <summary>Conditional-conformance conditions from an <c>obeys P onlyif (param obeys proto, …)</c>
     /// clause, stored on the generic DEFINITION and keyed by the conditionally-obeyed protocol's bare name.
@@ -41,7 +41,7 @@ public class EntityTypeInfo : TypeInfo
     /// slot name (e.g. <c>Iter</c>) to the concrete type that fills it (e.g. <c>ListEmitter[T]</c>).
     /// Resolved during monomorphization when projecting <c>S/Iter</c>.
     /// </summary>
-    public Dictionary<string, TypeInfo> AssociatedTypeBindings { get; set; } = new();
+    public Dictionary<string, TypeSymbol> AssociatedTypeBindings { get; set; } = new();
 
     /// <summary>
     /// Size of the underlying heap-allocated struct (sum of member sizes with alignment).
@@ -67,7 +67,7 @@ public class EntityTypeInfo : TypeInfo
     /// <summary>
     /// For generic definitions, the original generic type this was resolved from.
     /// </summary>
-    public EntityTypeInfo? GenericDefinition { get; init; }
+    public EntityTypeSymbol? GenericDefinition { get; init; }
 
     /// <summary>
     /// Looks up a member variable by name in this entity.
@@ -80,10 +80,10 @@ public class EntityTypeInfo : TypeInfo
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="EntityTypeInfo"/> class.
+    /// Initializes a new instance of the <see cref="EntityTypeSymbol"/> class.
     /// </summary>
     /// <param name="name">The name of the entity type.</param>
-    public EntityTypeInfo(string name) : base(name: name)
+    public EntityTypeSymbol(string name) : base(name: name)
     {
     }
 
@@ -94,25 +94,25 @@ public class EntityTypeInfo : TypeInfo
     [ThreadStatic]
     private static HashSet<string>? _creatingInstances;
 
-    /// Maps resolvedName -> the partially-built EntityTypeInfo for that name, so recursive
+    /// Maps resolvedName -> the partially-built EntityTypeSymbol for that name, so recursive
     /// self-references in member types return the same object rather than an empty shell.
     /// This ensures BTreeListNode[T].children has a List whose element type IS the outer
     /// BTreeListNode[T] instance, not a zero-member placeholder.
     /// [ThreadStatic] fields cannot have non-null initializers; use <see cref="InProgressEntities"/>.
     [ThreadStatic]
-    private static Dictionary<string, EntityTypeInfo>? _inProgressEntities;
+    private static Dictionary<string, EntityTypeSymbol>? _inProgressEntities;
 
     /// <summary>Per-thread lazy-initialized set of in-progress cycle keys.</summary>
     private static HashSet<string> CreatingInstances => _creatingInstances ??= [];
 
     /// <summary>Per-thread lazy-initialized map of in-progress entity instances keyed by cycle key.</summary>
-    private static Dictionary<string, EntityTypeInfo> InProgressEntities =>
-        _inProgressEntities ??= new Dictionary<string, EntityTypeInfo>();
+    private static Dictionary<string, EntityTypeSymbol> InProgressEntities =>
+        _inProgressEntities ??= new Dictionary<string, EntityTypeSymbol>();
 
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">Thrown if this is not a generic definition.</exception>
     /// <exception cref="ArgumentException">Thrown if the number of type arguments doesn't match.</exception>
-    public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
+    public override TypeSymbol CreateInstance(List<TypeSymbol> typeArguments)
     {
         if (!IsGenericDefinition)
         {
@@ -140,15 +140,15 @@ public class EntityTypeInfo : TypeInfo
         // parameter list (e.g. `entity BitArrayIterator[N] obeys Iterator[Bool]`) leaves the
         // protocol's own type arguments un-resolved on the concrete instance, and downstream
         // positional matching collapses the protocol arg into the entity's first slot.
-        var substitution = new Dictionary<string, TypeInfo>();
+        var substitution = new Dictionary<string, TypeSymbol>();
         for (int i = 0; i < GenericParameters.Count; i++)
         {
             substitution[key: GenericParameters[index: i]] = typeArguments[index: i];
         }
 
         var substitutedProtocols = ImplementedProtocols.Select(selector: p =>
-                                                            (TypeInfo)(ProtocolTypeInfo)
-                                                            RecordTypeInfo.SubstituteType(type: p,
+                                                            (TypeSymbol)(ProtocolTypeSymbol)
+                                                            RecordTypeSymbol.SubstituteType(type: p,
                                                                 substitution: substitution))
                                                        .ToList();
 
@@ -156,7 +156,7 @@ public class EntityTypeInfo : TypeInfo
         // (e.g. `relates ListEmitter[T] as Iter` becomes `Iter -> ListEmitter[S64]`).
         var substitutedBindings = AssociatedTypeBindings.ToDictionary(keySelector: kv => kv.Key,
             elementSelector: kv =>
-                RecordTypeInfo.SubstituteType(type: kv.Value, substitution: substitution));
+                RecordTypeSymbol.SubstituteType(type: kv.Value, substitution: substitution));
 
         // Detect cycles from self-referential member types (e.g., BTreeListNode[T].children:
         // List[BTreeListNode[T]]). Return the in-progress entity so the recursive reference
@@ -166,7 +166,7 @@ public class EntityTypeInfo : TypeInfo
             // Return the partially-built entity if available; a fresh empty shell otherwise
             // (the shell case should not normally occur since we always register below first).
             return InProgressEntities.TryGetValue(key: cycleKey,
-                value: out EntityTypeInfo? inProgress)
+                value: out EntityTypeSymbol? inProgress)
                 ? inProgress
                 : BuildEntityShell(resolvedName: resolvedName,
                     substitutedProtocols: substitutedProtocols,
@@ -177,7 +177,7 @@ public class EntityTypeInfo : TypeInfo
         // Create the entity shell BEFORE substituting member types so that any recursive
         // reference encountered during substitution (cycle detected above) returns this
         // same object — which will have its members populated by the time callers use it.
-        EntityTypeInfo entity = BuildEntityShell(resolvedName: resolvedName,
+        EntityTypeSymbol entity = BuildEntityShell(resolvedName: resolvedName,
             substitutedProtocols: substitutedProtocols,
             substitutedBindings: substitutedBindings,
             typeArguments: typeArguments);
@@ -226,11 +226,11 @@ public class EntityTypeInfo : TypeInfo
 
     // Builds an empty-membered entity shell carrying this definition's provenance. Used both for the
     // cycle-detected fallback and for the pre-substitution shell (whose members are populated later).
-    private EntityTypeInfo BuildEntityShell(string resolvedName,
-        List<TypeInfo> substitutedProtocols, Dictionary<string, TypeInfo> substitutedBindings,
-        List<TypeInfo> typeArguments)
+    private EntityTypeSymbol BuildEntityShell(string resolvedName,
+        List<TypeSymbol> substitutedProtocols, Dictionary<string, TypeSymbol> substitutedBindings,
+        List<TypeSymbol> typeArguments)
     {
-        return new EntityTypeInfo(name: resolvedName)
+        return new EntityTypeSymbol(name: resolvedName)
         {
             MemberVariables = [],
             ImplementedProtocols = substitutedProtocols,
@@ -251,9 +251,9 @@ public class EntityTypeInfo : TypeInfo
     /// <param name="substitution">The type parameter substitution map.</param>
     /// <returns>A new <see cref="MemberVariableInfo"/> with the substituted type.</returns>
     private static MemberVariableInfo SubstituteMemberVariableType(
-        MemberVariableInfo memberVariable, Dictionary<string, TypeInfo> substitution)
+        MemberVariableInfo memberVariable, Dictionary<string, TypeSymbol> substitution)
     {
-        TypeInfo substitutedType =
+        TypeSymbol substitutedType =
             SubstituteType(type: memberVariable.Type, substitution: substitution);
         return memberVariable.WithSubstitutedType(newType: substitutedType);
     }
@@ -264,10 +264,10 @@ public class EntityTypeInfo : TypeInfo
     /// <param name="type">The type to substitute.</param>
     /// <param name="substitution">The type parameter substitution map.</param>
     /// <returns>The substituted type, or the original if no substitution applies.</returns>
-    private static TypeInfo SubstituteType(TypeInfo type,
-        Dictionary<string, TypeInfo> substitution)
+    private static TypeSymbol SubstituteType(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitution)
     {
-        if (substitution.TryGetValue(key: type.Name, value: out TypeInfo? substituted))
+        if (substitution.TryGetValue(key: type.Name, value: out TypeSymbol? substituted))
         {
             return substituted;
         }
@@ -281,8 +281,8 @@ public class EntityTypeInfo : TypeInfo
     }
 
     // Substitute a generic resolution's args and re-resolve through the ambient registry per kind.
-    private static TypeInfo SubstituteGenericResolution(TypeInfo type,
-        Dictionary<string, TypeInfo> substitution)
+    private static TypeSymbol SubstituteGenericResolution(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitution)
     {
         var newArgs = type.TypeArguments!
                           .Select(selector: arg =>
@@ -294,7 +294,7 @@ public class EntityTypeInfo : TypeInfo
         // get registered and picked up by the monomorphization planner.
         TypeRegistry? registry = TypeRegistry.Ambient;
 
-        if (type is EntityTypeInfo { GenericDefinition: not null } entityType)
+        if (type is EntityTypeSymbol { GenericDefinition: not null } entityType)
         {
             return registry != null
                 ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition,
@@ -302,7 +302,7 @@ public class EntityTypeInfo : TypeInfo
                 : entityType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
-        if (type is RecordTypeInfo { GenericDefinition: not null } recordType)
+        if (type is RecordTypeSymbol { GenericDefinition: not null } recordType)
         {
             return registry != null
                 ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition,
@@ -310,7 +310,7 @@ public class EntityTypeInfo : TypeInfo
                 : recordType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
-        if (type is ProtocolTypeInfo { GenericDefinition: not null } protocolType)
+        if (type is ProtocolTypeSymbol { GenericDefinition: not null } protocolType)
         {
             return registry != null
                 ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition,
@@ -318,7 +318,7 @@ public class EntityTypeInfo : TypeInfo
                 : protocolType.GenericDefinition.CreateInstance(typeArguments: newArgs);
         }
 
-        if (type is WrapperTypeInfo wrapperType)
+        if (type is WrapperTypeSymbol wrapperType)
         {
             return wrapperType.CreateInstance(typeArguments: newArgs);
         }

@@ -1,6 +1,6 @@
 using TypeModel.Enums;
 
-namespace Compiler.Diagnostics;
+namespace Builder.Diagnostics;
 
 /// <summary>
 /// Unified grammar diagnostic codes for both RazorForge (RF-G) and Suflae (SF-G).

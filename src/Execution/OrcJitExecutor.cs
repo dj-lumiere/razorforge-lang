@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using LLVMSharp.Interop;
 
-namespace Builder;
+namespace Builder.Execution;
 
 /// <summary>
 /// In-process ORC LLJIT executor: JITs a full RazorForge LLVM-IR module at -O0 and calls its
@@ -144,7 +144,7 @@ internal static unsafe class OrcJitExecutor
         // Windows: link each object into ONE contiguous slab so SEH-unwind IMAGE_REL_AMD64_ADDR32NB
         // relocations resolve (default SectionMemoryManager lays sections out unordered → intermittent
         // "relocation requires an ordered section layout" crash). No-op elsewhere.
-        bool traceJit = Compiler.Diagnostics.DiagnosticFlags.JitTrace;
+        bool traceJit = Builder.Diagnostics.DiagnosticFlags.JitTrace;
 
         void JitStage(string s)
         {
@@ -372,7 +372,7 @@ internal static unsafe class OrcJitExecutor
             throw new InvalidOperationException(message: $"ORC JIT unavailable: {error}");
         }
 
-        bool traceJit = Compiler.Diagnostics.DiagnosticFlags.JitTrace;
+        bool traceJit = Builder.Diagnostics.DiagnosticFlags.JitTrace;
 
         void JitStage(string s)
         {

@@ -1,4 +1,4 @@
-namespace Compiler.Tokenizer;
+namespace Builder.Tokenizer;
 
 /// <summary>
 /// Partial class containing operator scanning memberRoutines for the unified tokenizer.

@@ -4,7 +4,7 @@ using TypeModel.Reprs;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
-namespace Compiler.LlvmEmit;
+namespace Builder.LlvmEmit;
 
 /// <summary>
 /// Type mapping: RazorForge/Suflae types -> LLVM IR types.
@@ -31,7 +31,7 @@ public partial class LlvmEmitter
             return GetLlvmType(repr: expr.ResolvedRepr);
         }
 
-        TypeInfo? type = GetExpressionType(expr: expr);
+        TypeSymbol? type = GetExpressionType(expr: expr);
         return type != null
             ? GetLlvmType(type: type)
             : fallback;
@@ -48,7 +48,7 @@ public partial class LlvmEmitter
     /// boundary — exactly how clang lowers C++ <c>bool</c> — removes the <c>i1</c> from the aggregate.
     /// The struct size is unchanged (an <c>i1</c> already occupied a byte), so field offsets are stable.
     /// </summary>
-    private string GetFieldStorageLlvmType(TypeInfo type)
+    private string GetFieldStorageLlvmType(TypeSymbol type)
     {
         return FieldNeedsBoolStorage(type: type)
             ? "i8"
@@ -56,20 +56,20 @@ public partial class LlvmEmitter
     }
 
     /// <summary>True when a record field's register type is <c>i1</c> (Bool) and needs <c>i8</c> storage.</summary>
-    private bool FieldNeedsBoolStorage(TypeInfo type)
+    private bool FieldNeedsBoolStorage(TypeSymbol type)
     {
         return GetLlvmType(type: type) is "i1";
     }
 
     /// <summary>
     /// The LLVM type for STORING a value of <paramref name="type"/> (an alloca, a struct field, a
-    /// by-value parameter). Identical to <see cref="GetLlvmType(TypeInfo)"/> except for <c>None</c>: None is
+    /// by-value parameter). Identical to <see cref="GetLlvmType(TypeSymbol)"/> except for <c>None</c>: None is
     /// <c>@llvm("void")</c>, and <c>void</c> is illegal as a value (you cannot <c>alloca void</c> or
     /// put a <c>void</c> field in a struct). A stored None is the empty record <c>{}</c> — a real
-    /// zero-size value. Direct routine RETURNS keep using <see cref="GetLlvmType(TypeInfo)"/> (so void-returning
+    /// zero-size value. Direct routine RETURNS keep using <see cref="GetLlvmType(TypeSymbol)"/> (so void-returning
     /// routines stay <c>void</c>); only None-as-a-VALUE uses this.
     /// </summary>
-    private string GetValueLlvmType(TypeInfo type)
+    private string GetValueLlvmType(TypeSymbol type)
     {
         string t = GetLlvmType(type: type);
         return t == "void"
@@ -79,7 +79,7 @@ public partial class LlvmEmitter
 
     /// <summary>zext an <c>i1</c> Bool value to its <c>i8</c> storage form before writing an aggregate field.</summary>
     private string CoerceBoolToStorage(System.Text.StringBuilder sb, string value,
-        TypeInfo fieldType)
+        TypeSymbol fieldType)
     {
         if (!FieldNeedsBoolStorage(type: fieldType))
         {
@@ -93,7 +93,7 @@ public partial class LlvmEmitter
 
     /// <summary>trunc an <c>i8</c> storage Bool back to <c>i1</c> after reading an aggregate field.</summary>
     private string CoerceStorageToBool(System.Text.StringBuilder sb, string storageValue,
-        TypeInfo fieldType)
+        TypeSymbol fieldType)
     {
         if (!FieldNeedsBoolStorage(type: fieldType))
         {
@@ -105,30 +105,30 @@ public partial class LlvmEmitter
         return t;
     }
 
-    private string GetLlvmType(TypeInfo type)
+    private string GetLlvmType(TypeSymbol type)
     {
         // Array[T, N] element-type consistency: the `@llvm("[{N} x {T}]")` template bakes the element's
-        // STRUCTURAL type (RecordTypeInfo.LlvmType → `{i32,i32}`), but record/variant VALUES carry the
+        // STRUCTURAL type (RecordTypeSymbol.LlvmType → `{i32,i32}`), but record/variant VALUES carry the
         // NAMED struct type (`%"Record.X"`). LLVM's value-aggregate ops (insertvalue for array literals)
         // require the element type to match EXACTLY, so a named value into a structural-element array is a
         // hard type error. Rebuild the array type from the element's own GetLlvmType (the single source of
         // truth for the named form) so element positions everywhere — literal, param, alloca — agree.
         // Scalars/wrappers are skipped (their structural form already equals their named form).
-        if (type is RecordTypeInfo
+        if (type is RecordTypeSymbol
             {
                 IsGenericResolution: true,
-                TypeArguments: [RecordTypeInfo or VariantTypeInfo, ConstGenericValueTypeInfo]
+                TypeArguments: [RecordTypeSymbol or VariantTypeSymbol, ConstGenericValueTypeSymbol]
             } arrayType && GetGenericBaseName(type: arrayType) == "Array")
         {
-            TypeInfo elem = arrayType.TypeArguments![index: 0];
-            long count = ((ConstGenericValueTypeInfo)arrayType.TypeArguments[index: 1]).Value;
+            TypeSymbol elem = arrayType.TypeArguments![index: 0];
+            long count = ((ConstGenericValueTypeSymbol)arrayType.TypeArguments[index: 1]).Value;
             return $"[{count} x {GetLlvmType(type: elem)}]";
         }
 
         return type switch
         {
             // Records with @llvm annotation -> use backend type directly (skip generic definitions with template holes)
-            RecordTypeInfo
+            RecordTypeSymbol
             {
                 BackendType: not null, IsGenericDefinition: false
             } record => record.LlvmType,
@@ -136,7 +136,7 @@ public partial class LlvmEmitter
             // Generic-definition record (unresolved) -> HARD ERROR. codegen never fails silently: a
             // generic-def type reaching the backend is an upstream monomorphization bug, not a `ptr` to
             // paper over. It must be a concrete instance (GenericMonomorphizationPass) before codegen.
-            RecordTypeInfo { IsGenericDefinition: true } genDefRecord => throw new
+            RecordTypeSymbol { IsGenericDefinition: true } genDefRecord => throw new
                 InvalidOperationException(
                     message:
                     $"Generic-definition record '{genDefRecord.Name}' reached GetLlvmType " +
@@ -144,18 +144,18 @@ public partial class LlvmEmitter
                     "instance before codegen. codegen is a never-fail translator; this leak is an upstream bug."),
 
             // Records with no fields -> look up the registered definition (may have @llvm annotation)
-            RecordTypeInfo { MemberVariables.Count: 0 } record when _registry.LookupType(
-                name: record.Name) is RecordTypeInfo
+            RecordTypeSymbol { MemberVariables.Count: 0 } record when _registry.LookupType(
+                name: record.Name) is RecordTypeSymbol
             {
                 BackendType: not null
             } llvmRecord => llvmRecord.LlvmType,
 
-            // Variants -> struct { tag, payload }. Variant is a RecordTypeInfo subclass, so this
-            // MUST precede the RecordTypeInfo arms below or a variant would be treated as a record.
-            VariantTypeInfo variant => GetVariantTypeName(variant: variant),
+            // Variants -> struct { tag, payload }. Variant is a RecordTypeSymbol subclass, so this
+            // MUST precede the RecordTypeSymbol arms below or a variant would be treated as a record.
+            VariantTypeSymbol variant => GetVariantTypeName(variant: variant),
 
             // Records with no fields and generic base type has @llvm annotation
-            RecordTypeInfo
+            RecordTypeSymbol
             {
                 MemberVariables.Count: 0,
                 GenericDefinition: { BackendType: not null } baseRecord
@@ -164,20 +164,20 @@ public partial class LlvmEmitter
             // Multi-member-variable records -> LLVM struct type.
             // Also ensure the struct declaration is emitted -> carrier types like Result[Result[T]]
             // may be created on-demand without being registered, so the type loop never sees them.
-            RecordTypeInfo record => EnsureRecordTypeDeclared(record: record),
+            RecordTypeSymbol record => EnsureRecordTypeDeclared(record: record),
 
             // Entities (and Crashable, an entity subclass) -> pointer to LLVM struct
-            EntityTypeInfo => "ptr",
+            EntityTypeSymbol => "ptr",
 
             // Wrappers (Viewing, Modifying, Hijacked, etc.) -> all pointers at LLVM level.
             // All wrapper kinds lower to a bare pointer; the semantic distinction exists only in the type system.
-            WrapperTypeInfo => "ptr",
+            WrapperTypeSymbol => "ptr",
 
             // A marker borrow protocol (Accessing[X]/Controlling[X]) is representation-transparent to its
             // inner X (an entity → ptr, a value → the value's own layout). Monomorphization collapses most
             // markers to X before codegen, but the residual (non-monomorphized paths) still arrives here, so
             // fold it to the inner's backend form rather than emitting a wrong `ptr` for a value inner.
-            ProtocolTypeInfo { TypeArguments: [{ } markerInner] } markerProto when
+            ProtocolTypeSymbol { TypeArguments: [{ } markerInner] } markerProto when
                 Declaration.RuntimeContract.IsMarkerProtocol(
                     baseName: (markerProto.GenericDefinition ?? markerProto).BareName) =>
                 GetLlvmType(type: markerInner),
@@ -186,7 +186,7 @@ public partial class LlvmEmitter
             // `Emittable[T]` return, a generic-def body, an unsubstituted protocol-typed slot) is an upstream
             // monomorphization gap. codegen never fails silently: surface it loudly so the leak is fixed
             // upstream, not masked by a type-erased `ptr`. (Marker protocols are unwrapped in the arm above.)
-            ProtocolTypeInfo proto => throw new InvalidOperationException(
+            ProtocolTypeSymbol proto => throw new InvalidOperationException(
                 message:
                 $"Protocol type '{proto.Name}' reached GetLlvmType [inRoutine={_currentEmittingRoutine?.FullName}] — " +
                 "a non-marker protocol must be substituted/monomorphized before codegen. codegen is a never-fail " +
@@ -196,29 +196,29 @@ public partial class LlvmEmitter
             // C-ABI symbol; `bound` is null (captureless) or a heap payload of pre-bound captures
             // (= C userdata). A captureless value is effectively the 1-word `fn`; the pair maps onto
             // C's (callback, userdata) convention. See [[cabi-callback-ffi]].
-            RoutineTypeInfo => "{ ptr, ptr }",
+            RoutineTypeSymbol => "{ ptr, ptr }",
 
             // Const generic value -> the LLVM form of its DECLARED type (e.g. a `N: U32` const is `i32`,
             // not a blanket `i64`). ResolveConstGenericUnderlyingType maps it to the underlying primitive
             // (defaulting to U64 for an untyped literal); guard the degenerate case where that lookup fails
             // and returns the const itself, which would otherwise recurse into this same arm.
-            ConstGenericValueTypeInfo constGen =>
+            ConstGenericValueTypeSymbol constGen =>
                 ResolveConstGenericUnderlyingType(constVal: constGen) is { } underlying &&
-                underlying is not ConstGenericValueTypeInfo
+                underlying is not ConstGenericValueTypeSymbol
                     ? GetLlvmType(type: underlying)
                     : "i64",
 
             // Unresolved generic parameter -> illegal in codegen. All type parameters must be
             // substituted by GenericMonomorphizationPass before the backend is entered.
-            GenericParameterTypeInfo gp => throw new InvalidOperationException(
+            GenericParameterTypeSymbol gp => throw new InvalidOperationException(
                 message:
-                $"GenericParameterTypeInfo '{gp.Name}' reached GetLlvmType [inRoutine={_currentEmittingRoutine?.FullName}] " +
+                $"GenericParameterTypeSymbol '{gp.Name}' reached GetLlvmType [inRoutine={_currentEmittingRoutine?.FullName}] " +
                 "all generic parameters must be substituted before codegen entry. " +
                 "Check that GenericMonomorphizationPass ran and GenericAstRewriter " +
                 "annotated all expression ResolvedTypes."),
 
             // Error placeholder
-            ErrorTypeInfo => throw new InvalidOperationException(
+            ErrorTypeSymbol => throw new InvalidOperationException(
                 message:
                 "Error type found in codegen - semantic analysis should have caught this"),
 
@@ -232,7 +232,7 @@ public partial class LlvmEmitter
     /// Gets the LLVM struct type name for a record, ensuring its declaration is emitted.
     /// Called from GetLLVMType so on-demand records (e.g., Result[Result[T]]) are always declared.
     /// </summary>
-    private string EnsureRecordTypeDeclared(RecordTypeInfo record)
+    private string EnsureRecordTypeDeclared(RecordTypeSymbol record)
     {
         string name = GetRecordTypeName(record: record);
         // Proactively declare if not yet emitted -> covers types created on-demand
@@ -247,14 +247,14 @@ public partial class LlvmEmitter
 
     /// <summary>
     /// Realm-marked mangle base (option-b, ambient-bare): the ambient RF realm renders BARE
-    /// (<see cref="TypeInfo.FullName"/>) so pure-RF IR is byte-identical (zero golden regold); a
+    /// (<see cref="TypeSymbol.FullName"/>) so pure-RF IR is byte-identical (zero golden regold); a
     /// non-ambient realm (the SF wrapper world-line) gets a <c>{Realm}::</c> prefix so an SF
     /// <c>Core.List[S32]</c> (layout <c>{ inner }</c>) never collides with the RF <c>Core.List[S32]</c>
     /// (real element storage) — they are DISTINCT LLVM structs/symbols in a mixed binary (bare `List`
     /// in a `.sf` file → SF wrapper delegating to an RF inner, both live at once). Generic args stay in
     /// FullName (ambient/bare) — only the owner's own realm is marked.
     /// </summary>
-    private static string RealmMangleBase(TypeInfo t)
+    private static string RealmMangleBase(TypeSymbol t)
     {
         return t.Realm == "RF"
             ? t.FullName
@@ -264,25 +264,25 @@ public partial class LlvmEmitter
     /// <summary>
     /// Gets the LLVM struct type name for a record.
     /// </summary>
-    private static string GetRecordTypeName(RecordTypeInfo record)
+    private static string GetRecordTypeName(RecordTypeSymbol record)
     {
-        // Module-qualified (TypeInfo.FullName) so same-named records in different modules never
+        // Module-qualified (TypeSymbol.FullName) so same-named records in different modules never
         // collide into one LLVM struct name (which LLVM would silently rename to `.0`).
         return $"%{Q(name: $"Record.{RealmMangleBase(t: record)}")}";
     }
 
     /// <summary>The LLVM struct name for an entity — no generation side effect. Used INSIDE
     /// GenerateEntityType (where ensuring would re-enter) and other name-only contexts. Uses the
-    /// module-qualified <see cref="TypeInfo.FullName"/> (e.g. <c>Entity.Random.Random</c>,
+    /// module-qualified <see cref="TypeSymbol.FullName"/> (e.g. <c>Entity.Random.Random</c>,
     /// <c>Entity.Core.List[Core.S64]</c>) so same-named entities in different modules never collide
     /// into one LLVM struct name (which LLVM would silently rename to <c>.0</c> and miscompile).</summary>
-    private static string RawEntityTypeName(EntityTypeInfo entity)
+    private static string RawEntityTypeName(EntityTypeSymbol entity)
     {
         return $"%{Q(name: $"Entity.{RealmMangleBase(t: entity)}")}";
     }
 
     /// <summary>The bare LLVM struct name for a crashable — no generation side effect.</summary>
-    private static string RawCrashableTypeName(CrashableTypeInfo crashable)
+    private static string RawCrashableTypeName(CrashableTypeSymbol crashable)
     {
         return $"%{Q(name: $"Crashable.{RealmMangleBase(t: crashable)}")}";
     }
@@ -293,7 +293,7 @@ public partial class LlvmEmitter
     /// never as a by-value field (entity fields are `ptr`), so on-demand emission here lets the broad
     /// registry sweep be skipped — pruning entities the program never touches.
     /// </summary>
-    private string GetEntityTypeName(EntityTypeInfo entity)
+    private string GetEntityTypeName(EntityTypeSymbol entity)
     {
         string name = RawEntityTypeName(entity: entity);
         if (!_generatedTypes.Contains(item: name) && !entity.IsGenericDefinition &&
@@ -310,7 +310,7 @@ public partial class LlvmEmitter
     /// Gets the LLVM struct type name for a crashable type, ensuring its struct definition is emitted
     /// on first use (crashables are referenced opaquely in size GEPs and field access).
     /// </summary>
-    private string GetCrashableTypeName(CrashableTypeInfo crashable)
+    private string GetCrashableTypeName(CrashableTypeSymbol crashable)
     {
         string name = RawCrashableTypeName(crashable: crashable);
         if (!_generatedTypes.Contains(item: name) && !crashable.IsGenericDefinition &&
@@ -324,7 +324,7 @@ public partial class LlvmEmitter
     }
 
     /// <summary>The bare LLVM struct name for a variant — no generation side effect.</summary>
-    private static string RawVariantTypeName(VariantTypeInfo variant)
+    private static string RawVariantTypeName(VariantTypeSymbol variant)
     {
         return $"%{Q(name: $"Variant.{variant.FullName}")}";
     }
@@ -333,7 +333,7 @@ public partial class LlvmEmitter
     /// Gets the LLVM struct type name for a variant, ensuring its struct (tag + payload) is emitted
     /// on first use — variants are passed/returned by value, so the def must exist.
     /// </summary>
-    private string GetVariantTypeName(VariantTypeInfo variant)
+    private string GetVariantTypeName(VariantTypeSymbol variant)
     {
         string name = RawVariantTypeName(variant: variant);
         if (!_generatedTypes.Contains(item: name) && !variant.IsGenericDefinition &&
@@ -350,7 +350,7 @@ public partial class LlvmEmitter
     /// Returns the named LLVM type for an error-handling carrier (Maybe[T], Result[T], Lookup[T]).
     /// Delegates to GetLLVMType -> carrier layouts come from their Standard library definitions.
     /// </summary>
-    private string GetCarrierLlvmType(TypeInfo type)
+    private string GetCarrierLlvmType(TypeSymbol type)
     {
         return GetLlvmType(type: type);
     }
@@ -358,12 +358,12 @@ public partial class LlvmEmitter
     /// <summary>
     /// Returns the named LLVM type for a Lookup[T] carrier given the inner value type T.
     /// </summary>
-    private string GetLookupCarrierLlvmType(TypeInfo valueType)
+    private string GetLookupCarrierLlvmType(TypeSymbol valueType)
     {
-        TypeInfo? def = _registry.LookupType(name: "Lookup");
+        TypeSymbol? def = _registry.LookupType(name: "Lookup");
         if (def != null)
         {
-            TypeInfo? resolved =
+            TypeSymbol? resolved =
                 _registry.TryGetResolution(genericDef: def, typeArguments: [valueType]);
             if (resolved != null)
             {
@@ -378,12 +378,12 @@ public partial class LlvmEmitter
     /// <summary>
     /// Returns the named LLVM type for a Result[T] carrier given the inner value type T.
     /// </summary>
-    private string GetResultCarrierLlvmType(TypeInfo valueType)
+    private string GetResultCarrierLlvmType(TypeSymbol valueType)
     {
-        TypeInfo? def = _registry.LookupType(name: "Result");
+        TypeSymbol? def = _registry.LookupType(name: "Result");
         if (def != null)
         {
-            TypeInfo? resolved =
+            TypeSymbol? resolved =
                 _registry.TryGetResolution(genericDef: def, typeArguments: [valueType]);
             if (resolved != null)
             {
@@ -396,15 +396,15 @@ public partial class LlvmEmitter
     }
 
     /// <summary>Returns true if <paramref name="type"/> is a Maybe[T], Result[T], or Lookup[T] carrier.</summary>
-    private static bool IsCarrierType(TypeInfo type)
+    private static bool IsCarrierType(TypeSymbol type)
     {
-        return type is RecordTypeInfo { CarrierKind: not CarrierKind.None };
+        return type is RecordTypeSymbol { CarrierKind: not CarrierKind.None };
     }
 
     /// <summary>Returns true if <paramref name="type"/> is a Maybe[T] carrier.</summary>
-    private static bool IsMaybeType(TypeInfo type)
+    private static bool IsMaybeType(TypeSymbol type)
     {
-        return type is RecordTypeInfo { CarrierKind: CarrierKind.Maybe };
+        return type is RecordTypeSymbol { CarrierKind: CarrierKind.Maybe };
     }
 
     /// <summary>
@@ -426,12 +426,12 @@ public partial class LlvmEmitter
     /// For entities, this returns ptr (all entities are pointers).
     /// For records, this returns the struct type (passed by value).
     /// </summary>
-    private string GetParameterLlvmType(TypeInfo type)
+    private string GetParameterLlvmType(TypeSymbol type)
     {
         return type switch
         {
             // Entities (and Crashable, an entity subclass) are always passed as pointers
-            EntityTypeInfo => "ptr",
+            EntityTypeSymbol => "ptr",
 
             // Other types use normal mapping
             _ => GetLlvmType(type: type)
@@ -439,10 +439,10 @@ public partial class LlvmEmitter
     }
 
     /// <summary>
-    /// Gets the size in bytes for a type. Delegates to <see cref="TypeInfo.SizeBytes"/>
+    /// Gets the size in bytes for a type. Delegates to <see cref="TypeSymbol.SizeBytes"/>
     /// so each type kind owns its own size rule.
     /// </summary>
-    private int GetTypeSize(TypeInfo type)
+    private int GetTypeSize(TypeSymbol type)
     {
         return type.SizeBytes(pointerSize: _pointerSizeBytes);
     }
@@ -459,9 +459,9 @@ public partial class LlvmEmitter
     /// Returns true if <paramref name="type"/> is an unsigned integer type.
     /// Uses protocol conformance: unsigned types obey <c>UnsignedIntegral</c>.
     /// </summary>
-    private static bool IsUnsignedIntegerType(TypeInfo? type)
+    private static bool IsUnsignedIntegerType(TypeSymbol? type)
     {
-        return type is RecordTypeInfo record &&
+        return type is RecordTypeSymbol record &&
                record.ImplementedProtocols.Any(predicate: p => p.Name == "UnsignedIntegral");
     }
 
@@ -594,20 +594,20 @@ public partial class LlvmEmitter
     /// <summary>Bundles a memberRoutine lookup result with fully-resolved context for codegen emission.</summary>
     private sealed record ResolvedMemberRoutine(
         RoutineInfo Routine,
-        TypeInfo OwnerType,
+        TypeSymbol OwnerType,
         bool IsFailable,
         List<string>? ModulePath,
         string MangledName,
         bool IsMonomorphized,
-        Dictionary<string, TypeInfo>? memberRoutineTypeArgs);
+        Dictionary<string, TypeSymbol>? memberRoutineTypeArgs);
 
     /// <summary>
     /// Looks up a memberRoutine on a type and returns a fully-resolved bundle for codegen.
     /// Generic instantiation must already be complete before this runs.
     /// </summary>
-    private ResolvedMemberRoutine? ResolveMemberRoutine(TypeInfo receiverType,
-        string memberRoutineName, List<TypeInfo>? memberRoutineTypeArgs = null,
-        List<TypeInfo>? argTypes = null)
+    private ResolvedMemberRoutine? ResolveMemberRoutine(TypeSymbol receiverType,
+        string memberRoutineName, List<TypeSymbol>? memberRoutineTypeArgs = null,
+        List<TypeSymbol>? argTypes = null)
     {
         receiverType = ApplyTypeSubstitutions(type: receiverType);
         var resolvedArgTypes = argTypes?.Select(selector: ApplyTypeSubstitutions)
@@ -617,7 +617,7 @@ public partial class LlvmEmitter
         // Failability is structural (same name); the overload's own IsFailable flag carries it.
         RoutineInfo? memberRoutine = _registry.LookupMemberRoutineOverload(type: receiverType,
             memberRoutineName: memberRoutineName,
-            argTypes: resolvedArgTypes ?? new List<TypeInfo>());
+            argTypes: resolvedArgTypes ?? new List<TypeSymbol>());
 
         if (memberRoutine == null)
         {
@@ -634,7 +634,7 @@ public partial class LlvmEmitter
         }
 
         if (memberRoutine.IsGenericDefinition ||
-            memberRoutine.OwnerType is GenericParameterTypeInfo)
+            memberRoutine.OwnerType is GenericParameterTypeSymbol)
         {
             // Synthesized wrapper forwarder: the raw generic-def-anchored version was returned
             // instead of the concrete instance. The concrete body will be emitted by Phase C;
@@ -666,10 +666,10 @@ public partial class LlvmEmitter
     /// Substitutes a generic parameter name with a concrete type in a type expression.
     /// Handles both direct substitution (T -> Point) and nested resolution (Viewing[T] -> Viewing[Point]).
     /// </summary>
-    private TypeInfo SubstituteGenericParamInType(TypeInfo type, string paramName,
-        TypeInfo concreteType)
+    private TypeSymbol SubstituteGenericParamInType(TypeSymbol type, string paramName,
+        TypeSymbol concreteType)
     {
-        if (type.Name == paramName || type is GenericParameterTypeInfo gp && gp.Name == paramName)
+        if (type.Name == paramName || type is GenericParameterTypeSymbol gp && gp.Name == paramName)
         {
             return concreteType;
         }
@@ -680,10 +680,10 @@ public partial class LlvmEmitter
         }
 
         bool anyChanged = false;
-        var substitutedArgs = new List<TypeInfo>();
-        foreach (TypeInfo arg in type.TypeArguments)
+        var substitutedArgs = new List<TypeSymbol>();
+        foreach (TypeSymbol arg in type.TypeArguments)
         {
-            TypeInfo substituted = SubstituteGenericParamInType(type: arg,
+            TypeSymbol substituted = SubstituteGenericParamInType(type: arg,
                 paramName: paramName,
                 concreteType: concreteType);
             substitutedArgs.Add(item: substituted);
@@ -699,16 +699,16 @@ public partial class LlvmEmitter
     /// Rebuilds a generic-resolution (or wrapper) type with substituted type arguments, resolving
     /// its generic base (or the wrapper's generic-definition record). Returns null if no base found.
     /// </summary>
-    private TypeInfo? RebuildResolutionWithArgs(TypeInfo type, List<TypeInfo> substitutedArgs)
+    private TypeSymbol? RebuildResolutionWithArgs(TypeSymbol type, List<TypeSymbol> substitutedArgs)
     {
-        TypeInfo? genericBase = GetGenericBase(type: type);
+        TypeSymbol? genericBase = GetGenericBase(type: type);
         if (genericBase != null)
         {
             return _registry.GetOrCreateResolution(genericDef: genericBase,
                 typeArguments: substitutedArgs);
         }
 
-        if (type is WrapperTypeInfo && _registry.LookupType(name: type.Name) is
+        if (type is WrapperTypeSymbol && _registry.LookupType(name: type.Name) is
                 { IsGenericDefinition: true } wrapperRecordDef)
         {
             return _registry.GetOrCreateResolution(genericDef: wrapperRecordDef,
@@ -723,7 +723,7 @@ public partial class LlvmEmitter
     /// when the carried routine still points at a generic definition or partial resolution.
     /// </summary>
     private RoutineInfo? NormalizeResolvedRoutineReference(RoutineInfo? routine,
-        TypeInfo? receiverType, TypeInfo? returnType, List<TypeInfo> argTypes)
+        TypeSymbol? receiverType, TypeSymbol? returnType, List<TypeSymbol> argTypes)
     {
         if (routine == null)
         {
@@ -735,7 +735,7 @@ public partial class LlvmEmitter
         string lookupMemberRoutineName = GetMemberRoutineLookupName(routine: routine);
 
         bool ownerMismatch = receiverType != null &&
-                             routine.OwnerType is { } ownerType and not ProtocolTypeInfo &&
+                             routine.OwnerType is { } ownerType and not ProtocolTypeSymbol &&
                              NormalizeRoutineLookupType(type: ownerType)
                                ?.FullName != receiverType.FullName;
 
@@ -793,15 +793,15 @@ public partial class LlvmEmitter
             return true;
         }
 
-        TypeInfo? owner = routine.OwnerType;
+        TypeSymbol? owner = routine.OwnerType;
         return owner?.TypeArguments is { Count: > 0 } ownerArgs &&
                HasUnresolvedParam(types: ownerArgs);
 
-        static bool HasUnresolvedParam(List<TypeInfo> types)
+        static bool HasUnresolvedParam(List<TypeSymbol> types)
         {
-            foreach (TypeInfo t in types)
+            foreach (TypeSymbol t in types)
             {
-                if (t is GenericParameterTypeInfo or ErrorTypeInfo)
+                if (t is GenericParameterTypeSymbol or ErrorTypeSymbol)
                 {
                     return true;
                 }
@@ -819,9 +819,9 @@ public partial class LlvmEmitter
     /// <summary>
     /// Normalizes wrapper lookup types to their canonical registry-backed generic resolutions.
     /// </summary>
-    private TypeInfo? NormalizeRoutineLookupType(TypeInfo? type)
+    private TypeSymbol? NormalizeRoutineLookupType(TypeSymbol? type)
     {
-        if (type is WrapperTypeInfo wrapperType &&
+        if (type is WrapperTypeSymbol wrapperType &&
             _registry.LookupType(name: wrapperType.Name) is
                 { IsGenericDefinition: true } wrapperDef &&
             wrapperType.TypeArguments is { Count: > 0 })

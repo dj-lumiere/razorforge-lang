@@ -1,7 +1,7 @@
-using Compiler.Instantiation;
+using Builder.Instantiation;
 using SyntaxTree;
 
-namespace Compiler.Lowering;
+namespace Builder.Lowering;
 
 /// <summary>
 /// The single home for the four body-collection walks every Phase-8 lowering pass would otherwise
