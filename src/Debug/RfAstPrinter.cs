@@ -138,19 +138,21 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
                 text: $"{FormatRoutineSignature(ri: ri)}\n{PrintBodyOf(stmt: entry.Value)}");
         }
 
-        // 3. Monomorphized instances (concrete AST bodies), bucketed by owner.
+        // 3. Monomorphized instances (concrete AST bodies), bucketed by owner. INCLUDES synthesized
+        // instances (per-owner derives the collector materializes — represent/eq/cmp/destroy/lt/…):
+        // codegen EMITS these, so a debuggable dump MUST show them. They were previously skipped, which is
+        // exactly why a materialized `ComparisonSign.eq` / `Character.destroy` was invisible in the dump.
+        // Each synthesized instance is tagged so the reader can tell it from a normal monomorphization.
         foreach ((string _, MonomorphizedBody mono) in instantiatedGenericBodies ??
                                                        new Dictionary<string, MonomorphizedBody>())
         {
-            if (mono.IsSynthesized)
-            {
-                continue;
-            }
-
             _indent = 0;
+            string tag = mono.IsSynthesized
+                ? "# [synthesized instance]\n"
+                : "";
             buckets.CategorizeRoutine(ri: mono.Info,
                 text:
-                $"{FormatRoutineSignature(ri: mono.Info)}\n{PrintBodyOf(stmt: mono.Ast.Body)}");
+                $"{tag}{FormatRoutineSignature(ri: mono.Info)}\n{PrintBodyOf(stmt: mono.Ast.Body)}");
         }
 
         return EmitBuckets(buckets: buckets);

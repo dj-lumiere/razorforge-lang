@@ -42,7 +42,7 @@ relates BitArrayEmittable[N] as Iter
 ### :param index: The zero-based byte position.
 ### :returns: The byte stored at `index`.
 @llvm_ir("{result} = alloca [{(N+7)//8} x i8]\nstore [{(N+7)//8} x i8] {array}, ptr {prev}\n{result} = getelementptr [{(N+7)//8} x i8], ptr {prev}, i32 0, i64 {index}\n{result} = load i8, ptr {prev}")
-routine LLVM::byte_at_bits[N](array: BitArray[N], index: U64) -> U8 needs N is U64
+routine LLVM::byte_at_bits[N](array: BitArray[N], index: U64) -> U8 needs U64 N
 
 ### Writes `value` into the byte at `index` of a `BitArray[N]`'s packed storage.
 ### :param array: The bit array to update.
@@ -50,7 +50,7 @@ routine LLVM::byte_at_bits[N](array: BitArray[N], index: U64) -> U8 needs N is U
 ### :param value: The byte to store.
 ### :returns: A copy of `array` with the byte at `index` replaced by `value`.
 @llvm_ir("{result} = alloca [{(N+7)//8} x i8]\nstore [{(N+7)//8} x i8] {array}, ptr {prev}\n{result} = getelementptr [{(N+7)//8} x i8], ptr {prev}, i32 0, i64 {index}\nstore i8 {value}, ptr {prev}\n{result} = load [{(N+7)//8} x i8], ptr {first}")
-routine LLVM::set_byte_at_bits[N](array: BitArray[N], index: U64, value: U8) -> BitArray[N] needs N is U64
+routine LLVM::set_byte_at_bits[N](array: BitArray[N], index: U64, value: U8) -> BitArray[N] needs U64 N
 
 # ============================================================================
 # Query Operations

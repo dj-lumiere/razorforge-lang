@@ -72,7 +72,7 @@ routine List[T](capacity: U64) -> List[T]
 ### :param fill_value: The value to copy into each slot.
 ### :returns: A list containing `count` copies of `fill_value`.
 routine List[T](count: U64, fill_value: T) -> List[T]
-needs T is Copyable
+needs T obeys Copyable
   if count == 0u64
     return List[T]()
 

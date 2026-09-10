@@ -406,6 +406,40 @@ internal sealed class AutoWiredRegistrationPass
                 u64Type: u64Type,
                 existingMemberRoutines: existingMemberRoutines);
         }
+
+        // Synthesize the all-fields memberwise creator `Type(field1: T1, …)` for a plain record too —
+        // entities already get one in HandleEntityCategory. Without a REAL registered all-fields creator,
+        // a field-init construction written inside the type's OWN creator (e.g. `Text()`'s
+        // `return Text(data:.., count:.., ctrl:..)`) has no concrete overload to bind to and mis-resolves
+        // to a DIFFERENT creator — the no-arg `Text()` — so codegen emits a self-call → infinite recursion
+        // → StackOverflow. A registered memberwise creator gives field-init an unambiguous symbol to resolve
+        // to. Skips @llvm-backed records (scalars/wrappers construct no field tuple), zero-field records,
+        // generic defs, and any type already declaring the exact all-fields overload (by param NAME + TYPE).
+        if (type is RecordTypeInfo { BackendType: null, IsGenericDefinition: false } recForCreate &&
+            !isWrapper && recForCreate.MemberVariables is { Count: > 0 } recFields &&
+            !existingMemberRoutines.Any(predicate: m =>
+                m.IsCreator && m.Parameters.Count == recFields.Count &&
+                recFields.Select(selector: mv => mv.Name)
+                         .SequenceEqual(second: m.Parameters.Select(selector: p => p.Name)) &&
+                recFields.Select(selector: mv => mv.Type.FullName)
+                         .SequenceEqual(
+                              second: m.Parameters.Select(selector: p => p.Type.FullName))))
+        {
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
+            {
+                Kind = RoutineKind.Creator,
+                OwnerType = type,
+                Parameters = recFields
+                            .Select(selector: mv => new ParameterInfo(name: mv.Name, type: mv.Type))
+                            .ToList(),
+                ReturnType = type,
+                IsFailable = false,
+                DeclaredMutation = MutationCategory.Readonly,
+                MutationCategory = MutationCategory.Readonly,
+                Visibility = VisibilityModifier.Open,
+                IsSynthesized = true
+            });
+        }
     }
 
     /// <summary>

@@ -25,7 +25,7 @@ public class MarkerProtocolAllowlistTests
                           pass
                         @llvm("ptr")
                         record Weird[T] obeys Accessing[T]
-                        needs T is EntityType
+                        needs EntityType T
                           pass
                         """;
 
@@ -44,7 +44,7 @@ public class MarkerProtocolAllowlistTests
                           pass
                         @llvm("ptr")
                         record Sneaky[T] obeys Controlling[T]
-                        needs T is EntityType
+                        needs EntityType T
                           pass
                         """;
 
@@ -102,7 +102,7 @@ public class MarkerProtocolAllowlistTests
                           pass
                         @llvm("ptr")
                         record BadWrapper[T]
-                        needs T is EntityType
+                        needs EntityType T
                           extra_field: S64
                         """;
 
@@ -120,7 +120,7 @@ public class MarkerProtocolAllowlistTests
                           pass
                         @llvm("ptr")
                         record TightWrapper[T]
-                        needs T is EntityType
+                        needs EntityType T
                           pass
                         """;
 

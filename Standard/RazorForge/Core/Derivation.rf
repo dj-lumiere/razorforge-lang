@@ -38,12 +38,12 @@ needs AnyType T
     else => return value.represent()
 
 ### Variant `represent()`: TYPE-dispatch on the live arm — `TypeName(payload_repr)`, or `TypeName(none)`
-### for the absent arm. The `@override needs T is VariantType` gate makes the wired synthesizer pick this
+### for the absent arm. The `@override needs VariantType T` gate makes the wired synthesizer pick this
 ### over the record default for a variant type. `expand m in branchof(T)` generates one arm clause each;
 ### the explicit `is None` clause covers the absent arm the payload expansion skips.
 @override
 routine T.represent() -> Text
-needs T is VariantType
+needs VariantType T
   when me
     is None => return me.type_name() + "(none)"
     expand m in branchof(T)
@@ -55,7 +55,7 @@ needs T is VariantType
 ### branch — so no bindingless-arm form is needed.)
 @override
 routine T.diagnose() -> Text
-needs T is VariantType
+needs VariantType T
   when me
     is None => return me.full_type_name() + "(type_id: 0, none)"
     expand m in branchof(T)
@@ -66,7 +66,7 @@ needs T is VariantType
 ### walk is exhaustive (one case always matches), so the trailing `pierce` is unreachable.
 @override
 routine T.represent() -> Text
-needs T is ChoiceType
+needs ChoiceType T
   expand c in caseof(T)
     if S32(from: me) == $valueof(c)
       return nameof(c)
@@ -75,7 +75,7 @@ needs T is ChoiceType
 ### Choice `diagnose()`: `Module.ChoiceName(id: <discriminant>, CaseName)`, matching the C# builder.
 @override
 routine T.diagnose() -> Text
-needs T is ChoiceType
+needs ChoiceType T
   expand c in caseof(T)
     if S32(from: me) == $valueof(c)
       return me.full_type_name() + "(id: " + S32(from: me).represent() + ", " + nameof(c) + ")"
@@ -86,7 +86,7 @@ needs T is ChoiceType
 ### test per member `(U64(from: me) & $valueof(c)) != 0` appends its name.
 @override
 routine T.represent() -> Text
-needs T is FlagsType
+needs FlagsType T
   var result = ""
   var first = true
   expand c in caseof(T)
@@ -104,7 +104,7 @@ needs T is FlagsType
 ### digit per declared member in declaration order ('1' if set), matching the C# builder.
 @override
 routine T.diagnose() -> Text
-needs T is FlagsType
+needs FlagsType T
   var result = ""
   var first = true
   var bits = "%"
@@ -183,12 +183,12 @@ needs TupleType T
 ### uniformly through the universal walk, no capability gate.
 @override
 routine T.represent() -> Text
-needs T is RoutineType
+needs RoutineType T
   return me.type_name()
 
 @override
 routine T.diagnose() -> Text
-needs T is RoutineType
+needs RoutineType T
   return me.full_type_name()
 
 ### The auto-derived default `diagnose()` for any record: `Module.TypeName(field: value, …)`. Uses the
@@ -232,6 +232,30 @@ needs T obeys Comparable
     if me.$nameof(m).cmp(you: you.$nameof(m)) isnot SAME
       return me.$nameof(m).cmp(you: you.$nameof(m))
   return SAME
+
+### Choice `eq`/`cmp`: a choice holds EXACTLY ONE case, so equality and ordering are just a compare of
+### the S32 discriminant — NOT the record field-walk above (a choice has no member variables, so
+### `allmemvarof(T)` is empty and the record template would wrongly return `true`/`SAME` for every pair).
+### `S32(from: me)` reinterprets the discriminant (the same reader the choice `represent` uses); the inner
+### `==`/`cmp` resolve to the hand-written `S32` ops, so there is no recursion back into this derive.
+@override
+routine T.eq(you: T) -> Bool
+needs ChoiceType T
+  return S32(from: me) == S32(from: you)
+
+@override
+routine T.cmp(you: T) -> ComparisonSign
+needs ChoiceType T
+  return S32(from: me).cmp(you: S32(from: you))
+
+### Flags `eq`: EXACT bitmask equality (`perms == READ` means "exactly READ, nothing else"). A flags value
+### is a SET of bits, so membership/subset ("is READ on?") is the separate `in` operator, never `==`. Like
+### the choice derives, this compares the reinterpreted U64 bitmask via the hand-written `U64` op — no
+### field-walk, no recursion. Flags have no natural total order, so no `cmp` derive.
+@override
+routine T.eq(you: T) -> Bool
+needs FlagsType T
+  return U64(from: me) == U64(from: you)
 
 ### The auto-derived ordering helpers `lt`/`le`/`gt`/`ge` for any Comparable type, derived from `cmp`
 ### (`me.cmp(you)` is `ME_SMALL`/`SAME`/`ME_LARGE`). These used to be emitted by the C# DerivedOperatorPass,
@@ -310,7 +334,7 @@ needs T obeys Copyable
 ### `Me(from: …)`; None / borrow arms (borrow can't be a variant payload) fall to `else => return me`.
 @override
 routine T.duplicate() -> Me
-needs T is VariantType
+needs VariantType T
 needs T obeys Copyable
   when me
     is None => return me
@@ -325,14 +349,14 @@ needs T obeys Copyable
 ### destructor. The `allmemvarof` walk covers every owned member including `secret`.
 @overridable
 routine T.destroy()
-needs T is RecordType
+needs RecordType T
   expand m in allmemvarof(T)
     me.$nameof(m).destroy()
   return
 
 @override
 routine T.destroy()
-needs T is EntityType
+needs EntityType T
   expand m in allmemvarof(T)
     me.$nameof(m).destroy()
   danger
@@ -344,7 +368,7 @@ needs T is EntityType
 ### explicit `is None` + `else` cover the payload-less / void arms (nothing to destroy).
 @override
 routine T.destroy()
-needs T is VariantType
+needs VariantType T
   when me
     is None => return
     expand m in branchof(T)
@@ -438,7 +462,7 @@ needs Assignable everywhere
 ### `Maybe[S32]` in a struct) MUST resolve `.assign()` — the record's own `assign` field-walk calls it.
 @override
 routine T.assign() -> Me
-needs T is VariantType
+needs VariantType T
 needs T obeys Assignable
   when me
     is None => return me

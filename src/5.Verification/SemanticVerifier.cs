@@ -927,6 +927,10 @@ public sealed partial class SemanticVerifier
         // Stage-2 (pull/(B)): bind the demand-resolution hook so the collector can analyze a reached
         // stdlib file on first touch. No-op until the Stage-5 flip (guarded by _eagerStdlibAnalyzed).
         ctx.AnalyzeRoutineOnDemand = AnalyzeStdlibProgramOnDemand;
+        // Bind the sibling hook that SA-annotates a derive-template body the collector clones per concrete
+        // owner (lt/le/gt/ge from cmp, represent/cmp/… on a plain type) — the raw template body needs types
+        // resolved in the owner's context before the fresh-body lowering sweep folds its operators.
+        ctx.AnalyzeMaterializedDeriveBody = AnalyzeMaterializedDeriveBodyOnDemand;
 
         // v0.2.0 may-suspend effect analysis over the call graph RoutineReachabilityPass populated
         // (in either the timed or pipeline path above). Runs here — after both branches — so it is
@@ -1361,6 +1365,19 @@ public sealed partial class SemanticVerifier
     /// load-bearing (the collector drives per-file analysis on reach).</summary>
     private bool _eagerStdlibAnalyzed;
 
+
+    /// <summary>
+    /// SA-annotates a derive-template body the collector cloned for a concrete owner (T→owner already
+    /// substituted): resolves types/calls in the owner's context via <see cref="AnalyzeCompilerGeneratedBody"/>
+    /// so the fresh-body lowering sweep can fold its operators (<c>me.type_name() + "("</c>) and resolve its
+    /// delegated calls (<c>me.cmp(you)</c>). Annotates in place; returns the same body. Bound to
+    /// <see cref="InstantiationContext.AnalyzeMaterializedDeriveBody"/>.
+    /// </summary>
+    private Statement AnalyzeMaterializedDeriveBodyOnDemand(RoutineInfo routine, Statement body)
+    {
+        AnalyzeCompilerGeneratedBody(routineInfo: routine, body: body);
+        return body;
+    }
 
     /// <summary>
     /// Ensures the stdlib file declaring <paramref name="routineKey"/> has been body-analyzed, running the

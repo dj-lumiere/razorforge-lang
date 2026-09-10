@@ -59,6 +59,13 @@ public sealed class DesugaringContext
     /// Given a reached routine key, ensures its body is analyzed before the collector walks it.</summary>
     public Func<string, bool>? AnalyzeRoutineOnDemand { get; set; }
 
+    /// <summary>Demand hook for a derive-template body materialized on reach, mirrored from
+    /// <see cref="InstantiationContext.AnalyzeMaterializedDeriveBody"/> when the collector runs on this
+    /// adapter. Semantically analyzes the freshly T→owner-substituted template body in its owner's context
+    /// (annotating types/calls) so the fresh-body lowering sweep can fold its operators.</summary>
+    public Func<TypeModel.Symbols.RoutineInfo, SyntaxTree.Statement, SyntaxTree.Statement>?
+        AnalyzeMaterializedDeriveBody { get; set; }
+
     /// <summary>
     /// When true, synthesize structural derive bodies (destroy/represent/hash/…) for ALL concrete types,
     /// not just the ones reachability marked live. Used when emitting a precompiled stdlib "base" that must

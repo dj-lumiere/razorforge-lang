@@ -135,17 +135,27 @@ public partial class SemanticVerifier
         TargetConfig? target = null, RfBuildMode buildMode = RfBuildMode.Debug)
     {
         _registry = new TypeRegistry(language: language, snapshot: warm.Registry);
-        _registry.RestoreStdlibPrograms(programs: warm.StdlibPrograms);
-        _registry.SkipStdlibReprocessing = true;
+        // PER-BUILD ISOLATION: the captured stdlib program ASTs are shared BY REFERENCE across every warm build
+        // the daemon serves from this one snapshot. On-demand analysis + monomorphization + the collector lower
+        // routine bodies IN PLACE (a routine not reached at capture is still un-lowered and gets lowered on the
+        // first build that reaches it; call nodes get resolution annotations), so a shared body would leak one
+        // build's lowering into the next — the warm/cold define-set divergence (a spurious extra define, e.g.
+        // Range[U64]'s creator, appearing on the 2nd+ warm build). Give THIS build its own programs with freshly
+        // cloned routine bodies (every other node + each RoutineDeclaration.ResolvedInfo stays shared), so all
+        // per-build lowering lands on build-local ASTs and the shared snapshot graph is never mutated. Every
+        // reader — on-demand analysis, GMP's FindInStdlib template index, and codegen — resolves through the SAME
+        // cloned program (StdlibPrograms serves this list), so there is no shared-vs-clone split.
+        _registry.RestoreStdlibPrograms(programs: warm.StdlibPrograms
+           .Select(selector: e =>
+                (Compiler.Instantiation.StdlibProgramBodyCloner.CloneBodies(program: e.Program),
+                    e.FilePath, e.Module))
+           .ToList());
         // Re-lazy the primed whole-stdlib instance closure so this warm compile re-discovers only what the
         // USER program reaches (like cold), instead of GMP re-processing all ~638 primed instances (cold
-        // reaches ~378, codegen keeps ~122). User-reachability un-lazies via MaterializeIfLazy.
-        int _relazied = _registry.RelazyStdlibConcreteInstances();
-        if (Diagnostics.DiagnosticFlags.PhaseTiming)
-        {
-            Console.Error.WriteLine(
-                value: $"[warm-restore] re-lazied {_relazied} primed concrete instances");
-        }
+        // reaches ~378, codegen keeps ~122). User-reachability un-lazies via MaterializeIfLazy. The lazy set is
+        // per-registry (not a flag on the shared TypeInfo), so this marks instances lazy for THIS build only —
+        // the snapshot graph is never mutated.
+        _registry.RelazyStdlibConcreteInstances();
 
         _typeResolver = new TypeResolver(sa: this);
         _typeBodyResolver = new TypeBodyResolver(sa: this, typeResolver: _typeResolver);

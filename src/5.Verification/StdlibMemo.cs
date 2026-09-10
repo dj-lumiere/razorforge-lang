@@ -13,7 +13,7 @@ internal sealed record StdlibMemo(
     bool IsWarm,
     HashSet<string> RestoredVariantKeys,
     HashSet<string> RestoredInstantiationKeys,
-    Dictionary<string, Statement>? WarmStdlibRoutineBodies)
+    IReadOnlyDictionary<string, Statement>? WarmStdlibRoutineBodies)
 {
     /// <summary>The cold-build memo: nothing cached — every downstream pass does full work.</summary>
     public static StdlibMemo Empty { get; } = new(

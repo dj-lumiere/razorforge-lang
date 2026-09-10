@@ -1091,7 +1091,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             }
 
             _reachedOwners.Add(item: owner);
-            owner.IsStdlibLazy = false;
+            _ctx.Registry.ClearStdlibLazy(type: owner);
             _ctx.LiveOwnerTypeNames.Add(item: owner.FullName);
         }
 
@@ -1121,10 +1121,80 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             }
 
             BuildGenericInstanceIfNeeded(r: r, key: key);
+            MaterializeDeriveTemplateBodyIfNeeded(r: r, key: key);
             if (!_walked.Contains(item: key) && GetBody(key: key) is { } body)
             {
                 _worklist.Enqueue(item: (key, body));
             }
+        }
+
+        // A reached derive member (lt/le/gt/ge from cmp, or ANY capability-conferred derive — cmp/eq/hash/
+        // represent — on a concrete owner that does not hand-write it) whose per-type body lives ONLY in the
+        // derive-template store (DeriveText.rf `T.lt() -> me.cmp(you) is ME_SMALL`, etc.). NOTHING else
+        // materializes these: they are not hand-written (programBodies), not synthesized by DerivedOperatorPass
+        // (synthesizedBodies holds only ne/notcontains/crash_title/wrapper-forwarders), and not a generic
+        // INSTANCE (BuildGenericInstanceIfNeeded). Clone the template for this concrete owner (T → owner) so the
+        // walk steps THROUGH the body (discovering its cmp/eq callees) AND codegen has a body to emit. The clone
+        // lands in InstantiatedGenericBodies as a FRESH entry, so the collector's LowerFreshBodies sweep lowers
+        // it (the stored template body is the raw, pre-lowering decl body). Higher-priority body sources win via
+        // the guards below, so a type that hand-writes the member (U64.cmp, Text.eq) keeps its own body.
+        private void MaterializeDeriveTemplateBodyIfNeeded(RoutineInfo r, string key)
+        {
+            if (_ctx.InstantiatedGenericBodies.ContainsKey(key: key) ||
+                _ctx.VariantBodies.ContainsKey(key: key) ||
+                programBodies.ContainsKey(key: key) ||
+                (synthesizedBodies?.ContainsKey(key: key) ?? false))
+            {
+                return;
+            }
+
+            // Needs a genuine T → owner substitution: a concrete (fully-resolved) owner, never a generic
+            // definition or a bare type-parameter placeholder.
+            if (r.OwnerType is not { IsGenericDefinition: false } owner ||
+                owner is GenericParameterTypeInfo)
+            {
+                return;
+            }
+
+            if (_ctx.Registry.GetDeriveTemplate(name: r.Name,
+                    arity: r.Parameters.Count,
+                    forType: owner) is not { } template)
+            {
+                return;
+            }
+
+            var typeSubs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal)
+            {
+                [key: template.OwnerParam] = owner
+            };
+            Statement rewritten = GenericAstRewriter.RewriteStatement(stmt: template.Body,
+                subs: new Dictionary<string, string>(comparer: StringComparer.Ordinal)
+                {
+                    [key: template.OwnerParam] = owner.FullName
+                },
+                typeSubs: typeSubs,
+                registry: _ctx.Registry,
+                enclosingRoutine: r);
+
+            // The template body is RAW source AST (captured pre-analysis): substitution alone leaves its
+            // operands/calls untyped, so operator lowering can't fold `me.type_name() + "("` and it reaches
+            // codegen raw. SA-annotate it in the owner's context first (types/calls resolved), THEN it lands
+            // as a FRESH body the collector's LowerFreshBodies sweep can lower.
+            rewritten = _ctx.AnalyzeMaterializedDeriveBody?.Invoke(arg1: r, arg2: rewritten) ??
+                        rewritten;
+
+            // IsSynthesized: FALSE deliberately — unlike a DerivedOperatorPass body (built pre-resolved +
+            // pre-lowered), this clone is raw source that STILL needs the fresh-body lowering sweep
+            // (BodyDispatch skips IsSynthesized entries). Marking it non-synthesized routes it through the
+            // same lowering + emit path as a hand-written stdlib body (which MaterializeReachedStdlibBodies
+            // also stores IsSynthesized: false), so its `is ME_SMALL` / operator nodes get lowered.
+            _ctx.InstantiatedGenericBodies[key: key] = new MonomorphizedBody(
+                Ast: WrapInShellDecl(name: r.Name, body: rewritten, info: r),
+                Info: r,
+                TypeSubs: typeSubs,
+                VariantStatus: null,
+                VariantInnerType: null,
+                IsSynthesized: false);
         }
 
         // Stage-2 (pull/(B)) demand resolution: ensure this reached routine's body is analyzed (calls/types

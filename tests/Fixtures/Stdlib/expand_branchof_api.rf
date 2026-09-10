@@ -3,7 +3,7 @@ import IO/Console
 import BuilderExpansion
 
 # Exercises `expand m in branchof(T)` — the variant-arm sibling of caseof. Inside a comptime `when` over
-# a `T is VariantType`, the arm template `is $typeof(m) v => …` is unrolled once per payload arm at
+# a `VariantType T`, the arm template `is $typeof(m) v => …` is unrolled once per payload arm at
 # monomorphization: $typeof(m) folds to the concrete arm type, nameof(m) to its name, and `v` binds the
 # payload. The explicit `is None =>` clause covers the absent arm the payload expansion skips. This is
 # the same branchof machinery stdlib DeriveText uses for variant represent/diagnose, here in user code.
@@ -14,7 +14,7 @@ variant Value
   None
 
 routine describe[T](val: T) -> Text
-needs T is VariantType
+needs VariantType T
   when val
     is None => return "none"
     expand m in branchof(T)

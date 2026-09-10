@@ -43,7 +43,7 @@ routine knuth_divide[N](
   b: Hijacked[Array[U64, N]],
   rem: Hijacked[Array[U64, N]]
 ) -> Array[U64, N]
-needs N is U64
+needs U64 N
   var nl = LLVM::reinterpret_bits[U64, S64](N)
   var q = Array[U64, N]()
   danger

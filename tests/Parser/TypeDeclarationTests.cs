@@ -251,7 +251,7 @@ public class TypeDeclarationTests
                         entity SortedCache[K, V]
                         needs K obeys Comparable
                         needs K obeys Hashable
-                        needs V is EntityType
+                        needs EntityType V
                           entries: Dict[K, V]
                         """;
 

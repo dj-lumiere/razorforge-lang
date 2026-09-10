@@ -89,10 +89,39 @@ public sealed partial class TypeRegistry
 
     /// <summary>
     /// Set to true while <c>AnalyzeStdlibBodies</c> runs.
-    /// New resolutions created in this window are marked <see cref="TypeInfo.IsStdlibLazy"/>
+    /// New resolutions created in this window are marked stdlib-lazy (see <see cref="IsStdlibLazy"/>)
     /// and excluded from GMP until user code references them.
     /// </summary>
     private bool _stdlibAnalysisActive;
+
+    /// <summary>
+    /// Per-registry "created during stdlib analysis, defer until reached" set, keyed by <see cref="TypeInfo"/>
+    /// REFERENCE identity. This is PER-BUILD state and deliberately lives on the registry, NOT on the shared
+    /// <see cref="TypeInfo"/> objects: a warm compile restores the same <see cref="TypeInfo"/> instances from a
+    /// captured <see cref="StdlibSnapshot"/> across many builds, so a mutable lazy flag on the object would
+    /// leak one build's materialization into the next (the warm/cold define-set divergence). Keying the flag
+    /// here means each build's relazy/materialize churn stays isolated to its own registry and the shared
+    /// snapshot graph is never mutated.
+    /// </summary>
+    private readonly HashSet<TypeInfo> _stdlibLazyTypes = new(comparer: ReferenceEqualityComparer.Instance);
+
+    /// <summary>Whether <paramref name="type"/> is currently deferred as stdlib-lazy in THIS registry.</summary>
+    public bool IsStdlibLazy(TypeInfo type)
+    {
+        return _stdlibLazyTypes.Contains(item: type);
+    }
+
+    /// <summary>Marks <paramref name="type"/> stdlib-lazy in this registry. Returns true if newly added.</summary>
+    public bool MarkStdlibLazy(TypeInfo type)
+    {
+        return _stdlibLazyTypes.Add(item: type);
+    }
+
+    /// <summary>Clears the stdlib-lazy mark on <paramref name="type"/> in this registry. Returns true if it was set.</summary>
+    public bool ClearStdlibLazy(TypeInfo type)
+    {
+        return _stdlibLazyTypes.Remove(item: type);
+    }
 
     /// <summary>
     /// Set of type FullNames determined to be live by <c>TypeLivenessPass</c>.
@@ -130,7 +159,7 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>Called at the start of <c>AnalyzeStdlibBodies</c>. New resolutions created
-    /// inside this window are marked <see cref="TypeInfo.IsStdlibLazy"/> and excluded from
+    /// inside this window are marked stdlib-lazy (see <see cref="IsStdlibLazy"/>) and excluded from
     /// GMP iteration until user code references them.</summary>
     public void BeginStdlibAnalysis()
     {
@@ -144,17 +173,16 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>
-    /// Clears <see cref="TypeInfo.IsStdlibLazy"/> on <paramref name="type"/> and enqueues it
+    /// Clears the stdlib-lazy mark on <paramref name="type"/> and enqueues it
     /// to the GMP discovery queue if applicable. No-op if already materialized.
     /// </summary>
     private void MaterializeIfLazy(TypeInfo type)
     {
-        if (!type.IsStdlibLazy)
+        if (!ClearStdlibLazy(type: type))
         {
             return;
         }
 
-        type.IsStdlibLazy = false;
         if (_gmpDiscoveryQueue == null || type is not (EntityTypeInfo or RecordTypeInfo) ||
             !IsFullyConcrete(t: type))
         {
@@ -475,6 +503,7 @@ public sealed partial class TypeRegistry
         _restoredStdlibPrograms = programs;
     }
 
+
     /// <summary>Stdlib programs that still need Phase 6/7/8 lowering: the loader's freshly-parsed
     /// programs. In a cold compile that is EVERY stdlib program; in a warm compile the restored programs
     /// are already lowered (excluded here), so this is just the modules the warm compile imported
@@ -482,12 +511,6 @@ public sealed partial class TypeRegistry
     /// <see cref="StdlibPrograms"/> — re-lowering the restored (already-lowered) programs would diverge.</summary>
     public List<(Program Program, string FilePath, string Module)> FreshlyLoadedStdlibPrograms =>
         _stdlibLoader?.AllLoadedPrograms ?? [];
-
-    /// <summary>True when the stdlib was restored from a warm-compile snapshot already fully
-    /// desugared/lowered/synthesized. The global desugaring + postprocessing passes then SKIP their
-    /// stdlib-program loops (re-lowering already-lowered ASTs would be wasted work / double-apply).
-    /// User programs and synthesized/monomorphized user bodies are still processed normally.</summary>
-    public bool SkipStdlibReprocessing { get; set; }
 
     private readonly List<(Program Program, string FilePath, string Module)> _userPrograms = [];
 
@@ -1358,7 +1381,7 @@ public sealed partial class TypeRegistry
             // It is excluded from GMP until user code actually references it, at which
             // point MaterializeIfLazy will enqueue it. This prevents 22K+ phantom bodies
             // from being monomorphized for types the user program never imports.
-            resolved.IsStdlibLazy = true;
+            MarkStdlibLazy(type: resolved);
         }
         else
         {
@@ -2018,9 +2041,9 @@ public sealed partial class TypeRegistry
         // Check cache
         if (_wrapperResolutions.TryGetValue(key: key, value: out WrapperTypeInfo? wrapperType))
         {
-            if (!_stdlibAnalysisActive && wrapperType.IsStdlibLazy)
+            if (!_stdlibAnalysisActive)
             {
-                wrapperType.IsStdlibLazy = false;
+                ClearStdlibLazy(type: wrapperType);
             }
 
             return wrapperType;
@@ -2034,7 +2057,7 @@ public sealed partial class TypeRegistry
 
         if (_stdlibAnalysisActive)
         {
-            newType.IsStdlibLazy = true;
+            MarkStdlibLazy(type: newType);
         }
 
         return newType;
@@ -2070,8 +2093,8 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>
-    /// Clears the "created during stdlib analysis, defer until user code needs it" (<see
-    /// cref="TypeInfo.IsStdlibLazy"/>) flag on EVERY concrete instance, so all of them flow through
+    /// Clears the "created during stdlib analysis, defer until user code needs it" (see
+    /// <see cref="IsStdlibLazy"/>) flag on EVERY concrete instance, so all of them flow through
     /// monomorphization + derive synthesis. Used when building a precompiled stdlib base (empty entry
     /// program), where nothing user-side references these instances yet but the base must still define them.
     /// Returns how many were materialized. Normal builds never call this.
@@ -2083,9 +2106,8 @@ public sealed partial class TypeRegistry
                                            .Distinct()
                                            .ToList())
         {
-            if (t.IsStdlibLazy)
+            if (ClearStdlibLazy(type: t))
             {
-                t.IsStdlibLazy = false;
                 n++;
             }
         }
@@ -2094,12 +2116,13 @@ public sealed partial class TypeRegistry
     }
 
     /// <summary>
-    /// WARM-RESTORE: re-marks every concrete generic/wrapper instance as <see cref="TypeInfo.IsStdlibLazy"/>.
+    /// WARM-RESTORE: marks every concrete generic/wrapper instance stdlib-lazy in THIS registry.
     /// The whole-stdlib snapshot capture UN-lazied instances the stdlib's own bodies reference (Maybe/Result/
     /// Hijacked[X] for many X) — far more than any single user program uses (measured warm 638 vs cold 378
     /// processed, only 122 live). Re-lazying on restore makes a warm compile re-discover from the USER
     /// program's reachability (via <see cref="MaterializeIfLazy"/>), like a cold compile does, instead of
-    /// GMP re-processing the whole primed closure every run. Returns how many were re-lazied.
+    /// GMP re-processing the whole primed closure every run. Returns how many were re-lazied. The lazy set is
+    /// per-registry (see <see cref="_stdlibLazyTypes"/>) so this never mutates the shared snapshot graph.
     /// </summary>
     public int RelazyStdlibConcreteInstances()
     {
@@ -2107,9 +2130,9 @@ public sealed partial class TypeRegistry
 
         void Relazy(TypeInfo t)
         {
-            if (!t.IsStdlibLazy && t.TypeArguments is { Count: > 0 } && IsFullyConcrete(t: t))
+            if (!IsStdlibLazy(type: t) && t.TypeArguments is { Count: > 0 } && IsFullyConcrete(t: t))
             {
-                t.IsStdlibLazy = true;
+                MarkStdlibLazy(type: t);
                 n++;
             }
         }
@@ -2144,7 +2167,7 @@ public sealed partial class TypeRegistry
                          t is EntityTypeInfo or RecordTypeInfo &&
                          t is { IsGenericDefinition: false, TypeArguments: { Count: > 0 } args } &&
                          args.All(predicate: IsFullyConcrete) && IsConcreteTypeLive(t: t) &&
-                         !t.IsStdlibLazy)
+                         !IsStdlibLazy(type: t))
                     .Distinct(); // dual-index stores the same TypeInfo under two keys; deduplicate by reference.
 
     /// <summary>
@@ -2158,7 +2181,7 @@ public sealed partial class TypeRegistry
                     .Where(predicate: t =>
                          t is EntityTypeInfo or RecordTypeInfo &&
                          t is { IsGenericDefinition: false, TypeArguments: { Count: > 0 } args } &&
-                         args.All(predicate: IsFullyConcrete) && !t.IsStdlibLazy)
+                         args.All(predicate: IsFullyConcrete) && !IsStdlibLazy(type: t))
                     .Distinct();
 
     /// <summary>
@@ -2207,7 +2230,7 @@ public sealed partial class TypeRegistry
                            .Where(predicate: t =>
                                 t.TypeArguments is { Count: > 0 } args &&
                                 args.All(predicate: IsFullyConcrete) && IsConcreteTypeLive(t: t) &&
-                                !t.IsStdlibLazy)
+                                !IsStdlibLazy(type: t))
                            .Distinct();
 
     /// <summary>
@@ -2221,7 +2244,7 @@ public sealed partial class TypeRegistry
         _wrapperResolutions.Values
                            .Where(predicate: t =>
                                 t.TypeArguments is { Count: > 0 } args &&
-                                args.All(predicate: IsFullyConcrete) && !t.IsStdlibLazy)
+                                args.All(predicate: IsFullyConcrete) && !IsStdlibLazy(type: t))
                            .Distinct();
 
     /// <summary>

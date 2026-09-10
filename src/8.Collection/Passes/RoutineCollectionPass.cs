@@ -62,7 +62,8 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
                 LiveRoutineKeys = ctx.LiveRoutineKeys,
                 LiveOwnerTypeNames = ctx.LiveOwnerTypeNames,
                 SynthesizeAllDerives = ctx.SeedAllStdlibRoutines,
-                AnalyzeRoutineOnDemand = ctx.AnalyzeRoutineOnDemand
+                AnalyzeRoutineOnDemand = ctx.AnalyzeRoutineOnDemand,
+                AnalyzeMaterializedDeriveBody = ctx.AnalyzeMaterializedDeriveBody
             };
 
         List<(string Key, Statement Body)> entrySeeds = CollectEntrySeeds();
@@ -288,6 +289,10 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
             return;
         }
 
+        // `body` is the RoutineDeclaration.Body from ctx.Registry.StdlibPrograms (see BuildProgramBodyIndex).
+        // On a WARM build the restored stdlib programs are per-build build-local copies (a reached restored
+        // program is cloned by the on-demand analyzer, see SemanticVerifier.AnalyzeStdlibProgramOnDemand), so
+        // this body is already isolated from the shared snapshot and safe to lower in place — no extra clone.
         ctx.InstantiatedGenericBodies[key: liveKey] = new MonomorphizedBody(
             Ast: WrapInSynthShellDecl(name: info.Name, body: body, info: info),
             Info: info,

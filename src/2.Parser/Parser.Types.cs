@@ -22,10 +22,11 @@ public partial class Parser
     /// </remarks>
     /// <returns>A <see cref="TypeExpression"/> AST node.</returns>
     /// <summary>The recognized compiler-classified type-KIND names, all carrying a <c>-Type</c>
-    /// suffix so a reader tells a kind-group membership (<c>is RecordType</c>) apart from a capability
-    /// (<c>obeys Serializable</c>) or an identity/const-generic (<c>N is U64</c>). Written as
-    /// <c>T is &lt;Name&gt;Type</c> in a constraint; the old <c>within &lt;Name&gt;</c> spelling and the
-    /// bare lowercase <c>is record</c>/<c>is variant</c> forms are gone — this is the single surface.</summary>
+    /// suffix so a reader tells a kind-group membership (<c>RecordType T</c>) apart from a capability
+    /// (<c>T obeys Serializable</c>) or a const-generic (<c>U64 N</c>). Written CLASSIFIER-FIRST as
+    /// <c>&lt;Name&gt;Type T</c> in a constraint or bracket; the old <c>T is &lt;Name&gt;Type</c>,
+    /// <c>within &lt;Name&gt;</c>, and bare lowercase <c>is record</c> spellings are all gone —
+    /// classifier-first is the single surface (<c>is</c> is now type-equality only).</summary>
     private static readonly Dictionary<string, ConstraintKind> TypeKindNames =
         new(comparer: StringComparer.Ordinal)
         {
@@ -101,38 +102,44 @@ public partial class Parser
         "ZeroMemvarType, CrashableType, TypeName";
 
     /// <summary>Parses the target of an <c>is</c> generic constraint after the <c>is</c> keyword has
-    /// been consumed. A known <c>-Type</c> kind-group name (<c>is RecordType</c>) becomes a
-    /// compiler-classified kind constraint; any other type identifier (<c>N is U64</c>) is a
-    /// const-generic / identity constraint. Guarded by the inline (<c>[T is …]</c>) and <c>needs</c> sites
-    /// so both accept exactly the same surface. NOTE: the runtime <c>is Crashable e</c> error-catch
-    /// PATTERN is a different parse site (expression position) and is unaffected.</summary>
+    /// been consumed. <c>is</c> now means ONLY <b>type equality</b> (<c>T is S32</c> — the type parameter
+    /// must be exactly that type). The two other axes are classifier-FIRST and no longer spelled with
+    /// <c>is</c>: a type-KIND is <c>&lt;Kind&gt; T</c> (<c>RecordType T</c>, not <c>T is RecordType</c>) and
+    /// a CONST-generic is <c>&lt;Type&gt; N</c> (<c>U64 N</c>, not <c>N is U64</c>) — both handled by
+    /// <see cref="ParseClassifierFirstParam"/>. A kind name after <c>is</c> is therefore a hard error that
+    /// points at the classifier-first spelling. NOTE: the runtime <c>is Crashable e</c> error-catch PATTERN
+    /// is a different parse site (expression position) and is unaffected.</summary>
     private GenericConstraintDeclaration ParseIsConstraint(string paramName,
         SourceLocation location)
     {
         if (Check(type: TokenType.Identifier) &&
-            TryGetTypeKindConstraint(name: CurrentToken.Text, kind: out ConstraintKind kind))
+            TryGetTypeKindConstraint(name: CurrentToken.Text, kind: out ConstraintKind _))
         {
-            Advance();
-            return new GenericConstraintDeclaration(ParameterName: paramName,
-                ConstraintType: kind,
-                ConstraintTypes: null,
-                Location: location);
+            // KILLED: `T is <Kind>Type` — the kind classifier is now written FIRST. `is` is reserved for
+            // type equality, so a kind after `is` is ambiguous with it and rejected outright.
+            throw ThrowParseError(code: GrammarDiagnosticCode.InvalidConstraintKind,
+                message:
+                $"'{paramName} is {CurrentToken.Text}' is no longer valid — write the kind classifier " +
+                $"FIRST: '{CurrentToken.Text} {paramName}'. (`is` now means only type equality; a " +
+                $"const-generic is likewise '<Type> {paramName}', e.g. 'U64 {paramName}'.)");
         }
 
         if (Check(type: TokenType.Identifier))
         {
-            // Const-generic / identity: `N is U64`. Validation is deferred to semantic analysis.
-            TypeExpression constType = ParseType();
+            // `T is <Type>` = TYPE EQUALITY: the parameter must resolve to exactly this type. (Const-generics
+            // moved to the classifier-first '<Type> N' spelling, so `is` no longer produces ConstGeneric.)
+            // Validation is deferred to semantic analysis.
+            TypeExpression eqType = ParseType();
             return new GenericConstraintDeclaration(ParameterName: paramName,
-                ConstraintType: ConstraintKind.ConstGeneric,
-                ConstraintTypes: [constType],
+                ConstraintType: ConstraintKind.TypeEquality,
+                ConstraintTypes: [eqType],
                 Location: location);
         }
 
         throw ThrowParseError(code: GrammarDiagnosticCode.InvalidConstraintKind,
             message:
-            $"Expected a type-kind ({TypeKindNamesHint}) or a type after 'is' in a constraint. " +
-            "The lowercase 'is record'/'is variant' and 'within' forms were removed — use 'is RecordType' etc.");
+            "Expected a type after 'is' in a constraint (type equality, e.g. 'T is S32'). A type-KIND is " +
+            "written classifier-first ('RecordType T'), and a const-generic likewise ('U64 N').");
     }
 
     private TypeExpression ParseType()

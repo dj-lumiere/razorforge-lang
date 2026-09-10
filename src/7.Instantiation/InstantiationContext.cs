@@ -141,6 +141,18 @@ public sealed class InstantiationContext
     public Func<string, bool>? AnalyzeRoutineOnDemand { get; set; }
 
     /// <summary>
+    /// Demand hook for a derive-template body materialized on reach (a scalar's <c>lt</c>/<c>le</c>/
+    /// <c>gt</c>/<c>ge</c>, or a plain type's <c>represent</c>/<c>cmp</c>/… cloned from the DeriveText.rf
+    /// <c>T.&lt;name&gt;</c> template): the stored template body is RAW source AST, so after the collector
+    /// substitutes <c>T</c> → the concrete owner it must be semantically analyzed (types/calls resolved) in
+    /// the owner's context BEFORE the fresh-body lowering sweep — otherwise operators (<c>me.type_name() +
+    /// "("</c>) reach codegen unlowered. Set by <c>SemanticVerifier</c> to <c>AnalyzeCompilerGeneratedBody</c>;
+    /// annotates the passed body in place and returns it. Null ⇒ no on-demand SA (eager pipeline).
+    /// </summary>
+    public Func<TypeModel.Symbols.RoutineInfo, SyntaxTree.Statement, SyntaxTree.Statement>?
+        AnalyzeMaterializedDeriveBody { get; set; }
+
+    /// <summary>
     /// When true, root EVERY concrete stdlib routine in reachability so monomorphization materializes the
     /// FULL stdlib generic closure, not just what the entry program reaches. Used when emitting a precompiled
     /// stdlib "base" that must define everything it references (a user's own instantiations are compiled
