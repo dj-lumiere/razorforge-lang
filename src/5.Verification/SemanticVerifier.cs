@@ -275,7 +275,7 @@ public sealed partial class SemanticVerifier
     /// Only valid with <see cref="SaOnly"/> = true; the full pipeline re-runs stdlib lowering
     /// so it cannot safely reuse snapshot state.
     /// </summary>
-    private readonly bool _snapshotMode;
+    private readonly StdlibMemo _memo;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SemanticVerifier"/> class.
@@ -294,6 +294,7 @@ public sealed partial class SemanticVerifier
         _conformanceAnalyzer = new ProtocolConformanceAnalyzer(sa: this);
         _target = target ?? TargetConfig.ForCurrentHost();
         _buildMode = buildMode;
+        _memo = StdlibMemo.Empty;
     }
 
     /// <summary>
@@ -311,7 +312,7 @@ public sealed partial class SemanticVerifier
         _conformanceAnalyzer = new ProtocolConformanceAnalyzer(sa: this);
         _target = target ?? TargetConfig.ForCurrentHost();
         _buildMode = buildMode;
-        _snapshotMode = true;
+        _memo = StdlibMemo.Empty with { IsWarm = true };
     }
 
     /// <summary>
@@ -442,7 +443,7 @@ public sealed partial class SemanticVerifier
             // already enforced in the cold capture run. The opt-in-derive marking (_optInDeriveMemberRoutines,
             // which excludes eq/cmp/assign/copy) is NOT part of the serialized snapshot, so re-running here
             // over the restored stdlib would false-positive on Array.assign/Dict.copy/etc.
-            if (!_snapshotMode)
+            if (!_memo.IsWarm)
             {
                 CheckOverridableDeriveMarkers();
             }
@@ -521,7 +522,7 @@ public sealed partial class SemanticVerifier
         ValidateProtocolImplementations();
         PreRegisterUserVariants(program: program);
         // Snapshot mode: stdlib variants are already registered in the restored registry.
-        if (!_snapshotMode)
+        if (!_memo.IsWarm)
         {
             PreRegisterStdlibVariants();
         }
@@ -621,7 +622,7 @@ public sealed partial class SemanticVerifier
         {
             VariantBodies = _variantBodies,
             SynthesizeAllDerives = SeedAllStdlibRoutines,
-            RestoredVariantKeys = _restoredVariantKeys
+            RestoredVariantKeys = _memo.RestoredVariantKeys
         };
         new DesugaringPipeline(ctx: ctx).RunGlobal();
         SubMark(label: $"{nameof(DesugaringPipeline)}.RunGlobal");
@@ -666,12 +667,12 @@ public sealed partial class SemanticVerifier
         // iterating (verified: no ContainsKey/TryGetValue and every indexer read is the loop's own key).
         // Cold path is untouched: _restoredVariantKeys is empty, so the block is skipped entirely.
         Dictionary<string, Statement>? stashedRestoredVariants = null;
-        if (_restoredVariantKeys.Count > 0)
+        if (_memo.RestoredVariantKeys.Count > 0)
         {
             stashedRestoredVariants = new Dictionary<string, Statement>(
-                capacity: _restoredVariantKeys.Count,
+                capacity: _memo.RestoredVariantKeys.Count,
                 comparer: StringComparer.Ordinal);
-            foreach (string key in _restoredVariantKeys)
+            foreach (string key in _memo.RestoredVariantKeys)
             {
                 if (_variantBodies.TryGetValue(key: key, value: out Statement? restoredBody))
                 {
@@ -773,14 +774,14 @@ public sealed partial class SemanticVerifier
         // the passes and the fixpoint below observe.
         Dictionary<string, Statement>? stashedP8Variants = null;
         long _p8GateStash = 0;
-        if (_restoredVariantKeys.Count > 0)
+        if (_memo.RestoredVariantKeys.Count > 0)
         {
             Stopwatch? _swGate = SaTiming
                 ? Stopwatch.StartNew()
                 : null;
             stashedP8Variants =
                 new Dictionary<string, Statement>(comparer: StringComparer.Ordinal);
-            foreach (string key in _restoredVariantKeys)
+            foreach (string key in _memo.RestoredVariantKeys)
             {
                 if (mergedVariantBodies.TryGetValue(key: key, value: out Statement? body))
                 {
@@ -801,8 +802,7 @@ public sealed partial class SemanticVerifier
                 InstantiatedGenericBodies = _instantiatedGenericBodies,
                 Target = _target,
                 BuildMode = _buildMode,
-                BodyScanCache = _bodyScanCache,
-                StdlibTemplateBodies = _warmStdlibRoutineBodies
+                StdlibTemplateBodies = _memo.WarmStdlibRoutineBodies
             }) { SaTiming = SaTiming, SeedAllStdlibRoutines = SeedAllStdlibRoutines };
 
         // Rewrite Accessing[T]/Controlling[T] params to inner T before reachability so
@@ -942,7 +942,7 @@ public sealed partial class SemanticVerifier
         // the FRESH (user-delta) ones. Cold path: _restoredInstantiationKeys empty → classifies all.
         new CallOverloadResolutionPass(ctx: classCtx).RunOnStatements(
             statements: _instantiatedGenericBodies
-                       .Where(predicate: kv => !_restoredInstantiationKeys.Contains(item: kv.Key))
+                       .Where(predicate: kv => !_memo.RestoredInstantiationKeys.Contains(item: kv.Key))
                        .Select(selector: kv => kv.Value.Ast.Body));
     }
 
@@ -1103,7 +1103,7 @@ public sealed partial class SemanticVerifier
         // Warm-restore: the stdlib program ASTs are shared read-only across warm compiles and were
         // already lowered to backend representation at capture time — re-running reprPass on them each
         // warm run is pure redundant cost (and re-mutating a shared AST is unsafe).
-        if (!_snapshotMode)
+        if (!_memo.IsWarm)
         {
             foreach ((Program stdlibProgram, _, _) in _registry.StdlibPrograms)
             {
@@ -1114,7 +1114,7 @@ public sealed partial class SemanticVerifier
         foreach ((string key, Statement body) in _variantBodies)
         {
             // Warm-restore: variants captured from the snapshot were already repr'd + validated.
-            if (_restoredVariantKeys.Contains(item: key))
+            if (_memo.RestoredVariantKeys.Contains(item: key))
             {
                 continue;
             }
@@ -1129,7 +1129,7 @@ public sealed partial class SemanticVerifier
         foreach ((string key, MonomorphizedBody mono) in _instantiatedGenericBodies)
         {
             // Warm-restore: instantiations captured from the snapshot were already repr'd + validated.
-            if (_restoredInstantiationKeys.Contains(item: key))
+            if (_memo.RestoredInstantiationKeys.Contains(item: key))
             {
                 continue;
             }
@@ -1441,7 +1441,7 @@ public sealed partial class SemanticVerifier
                 {
                     VariantBodies = _variantBodies,
                     SynthesizeAllDerives = SeedAllStdlibRoutines,
-                    RestoredVariantKeys = _restoredVariantKeys
+                    RestoredVariantKeys = _memo.RestoredVariantKeys
                 };
             new DesugaringPipeline(ctx: dctx).Run(program: entry.Program);
             var pctx = new PostprocessingContext(registry: _registry,
@@ -1680,7 +1680,7 @@ public sealed partial class SemanticVerifier
         // (ControlFlowLoweringPass generates try_emit calls that Phase 5 must resolve).
         // Snapshot mode: stdlib variants are already registered in the restored registry (parity with the
         // single-file Analyze gate) — re-registering them is pure warm-compile overhead (~240 ms).
-        if (!_snapshotMode)
+        if (!_memo.IsWarm)
         {
             PreRegisterStdlibVariants();
         }
@@ -1909,7 +1909,7 @@ public sealed partial class SemanticVerifier
         {
             Statement body = _variantBodies[key: key];
             // Warm-restore: variants captured from the snapshot were already analyzed at capture time.
-            if (_restoredVariantKeys.Contains(item: key))
+            if (_memo.RestoredVariantKeys.Contains(item: key))
             {
                 continue;
             }

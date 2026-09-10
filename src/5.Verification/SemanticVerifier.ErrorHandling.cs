@@ -386,8 +386,8 @@ public sealed partial class SemanticVerifier
             // the variant exactly as cold does — else the inner rewrite fails and the user variant calls
             // the raw failable form, crashing on the recoverable path.
             if (!_routineBodies.TryGetValue(key: baseRoutine.RegistryKey,
-                    value: out Statement? collectedBody) && (_warmStdlibRoutineBodies == null ||
-                                                             !_warmStdlibRoutineBodies.TryGetValue(
+                    value: out Statement? collectedBody) && (_memo.WarmStdlibRoutineBodies == null ||
+                                                             !_memo.WarmStdlibRoutineBodies.TryGetValue(
                                                                  key: baseRoutine.RegistryKey,
                                                                  value: out collectedBody)))
             {
@@ -456,7 +456,7 @@ public sealed partial class SemanticVerifier
             {
                 string key = variant.Routine.RegistryKey;
                 if (_variantBodies.ContainsKey(key: key) ||
-                    _restoredVariantKeys.Contains(item: key))
+                    _memo.RestoredVariantKeys.Contains(item: key))
                 {
                     continue;
                 }

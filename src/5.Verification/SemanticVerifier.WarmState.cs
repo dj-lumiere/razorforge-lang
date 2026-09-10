@@ -153,7 +153,6 @@ public partial class SemanticVerifier
         _conformanceAnalyzer = new ProtocolConformanceAnalyzer(sa: this);
         _target = target ?? TargetConfig.ForCurrentHost();
         _buildMode = buildMode;
-        _snapshotMode = true;
 
         // Seed the codegen-consumed body dicts from the captured (already-lowered/analyzed) stdlib.
         // NOTE: _routineBodies is deliberately NOT seeded — it is the synthesis working set that drives
@@ -166,7 +165,6 @@ public partial class SemanticVerifier
         // default-impl lowering needs the stdlib extension templates (e.g. `Iterable[Text].join`) to
         // recognize + clone them per implementer; without this a warm compile can't specialize them and
         // the generic-def reaches codegen unresolved ("Unresolved generic member routine …join").
-        _warmStdlibRoutineBodies = warm.RoutineBodies;
         foreach (KeyValuePair<string, (RoutineInfo Routine, Statement Body)> kv in warm
                     .SynthesizedBodies)
         {
@@ -174,8 +172,6 @@ public partial class SemanticVerifier
         }
 
         _variantBodies = new Dictionary<string, Statement>(dictionary: warm.VariantBodies);
-        _restoredVariantKeys = new HashSet<string>(collection: warm.VariantBodies.Keys,
-            comparer: StringComparer.Ordinal);
         // Skip restoring EMPTY synthesized sentinels that have NO matching variant body. The stdlib
         // snapshot captures a placeholder body for a resolved routine whose owner was not live in the
         // stdlib-only snapshot program (e.g. `DictEmittable[Text,SerialValue].try_emit` — no stdlib code
@@ -201,11 +197,17 @@ public partial class SemanticVerifier
         }
 
         _instantiatedGenericBodies = restoredInst;
-        _restoredInstantiationKeys = new HashSet<string>(collection: restoredInst.Keys,
-            comparer: StringComparer.Ordinal);
-        // Share the daemon-lifetime reachability body-scan cache by reference so it persists (and grows)
-        // across every warm compile restored from this snapshot. Cold compiles leave it null → RRP walks.
-        _bodyScanCache = warm.BodyScanCache;
+
+        // Keep the captured stdlib routine bodies as a LOOKUP-ONLY source (see the seeding comment above),
+        // plus the already-analyzed variant/instantiation keys, in ONE immutable memo consumed read-only
+        // downstream.
+        _memo = new StdlibMemo(
+            IsWarm: true,
+            RestoredVariantKeys: new HashSet<string>(collection: warm.VariantBodies.Keys,
+                comparer: StringComparer.Ordinal),
+            RestoredInstantiationKeys: new HashSet<string>(collection: restoredInst.Keys,
+                comparer: StringComparer.Ordinal),
+            WarmStdlibRoutineBodies: warm.RoutineBodies);
         if (Diagnostics.DiagnosticFlags.PhaseTiming)
         {
             Console.Error.WriteLine(
@@ -214,22 +216,4 @@ public partial class SemanticVerifier
         }
     }
 
-    /// <summary>Variant-body keys restored from a warm snapshot — already analyzed at capture time, so
-    /// <see cref="AnalyzeVariantBodies"/> skips them instead of re-analyzing (the ~3.6 s warm cost).</summary>
-    private HashSet<string> _restoredVariantKeys = new(comparer: StringComparer.Ordinal);
-
-    /// <summary>Monomorphized-instantiation keys restored from a warm snapshot — already lowered to
-    /// backend representation + validated at capture time, so <see cref="RunPhase9PostDesugarChecks"/>
-    /// skips re-running <c>BackendRepresentationPass</c>/validation on them (redundant warm cost).</summary>
-    private HashSet<string> _restoredInstantiationKeys = new(comparer: StringComparer.Ordinal);
-
-    /// <summary>Daemon-lifetime reachability body-scan cache (see <see cref="CompiledStdlibState.BodyScanCache"/>);
-    /// non-null only on a warm compile. Threaded into <c>InstantiationContext</c> so
-    /// <c>RoutineReachabilityPass</c> can skip re-walking already-scanned stdlib bodies.</summary>
-    private Dictionary<RoutineDeclaration, RoutineBodyScan>? _bodyScanCache;
-
-    /// <summary>Warm-only stdlib routine template bodies (from the snapshot), threaded into
-    /// <see cref="Compiler.Instantiation.InstantiationContext.StdlibTemplateBodies"/> so protocol
-    /// default-impl lowering can find + clone stdlib extension templates. Null on a cold compile.</summary>
-    private Dictionary<string, Statement>? _warmStdlibRoutineBodies;
 }
