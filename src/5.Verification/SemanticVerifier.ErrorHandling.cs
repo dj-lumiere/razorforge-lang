@@ -421,7 +421,8 @@ public sealed partial class SemanticVerifier
                 // on-demand hook (re-entry-guarded), and generating a body re-looks-up its inner variants,
                 // which must re-fire the hook. So bodies are built later by DrainVariantBodyGenQueue, OUTSIDE
                 // the guard, where those transitive inner lookups synthesize freely.
-                _variantBodyGenQueue.Enqueue(item: (deferred.body, result.Variants));
+                _variantBodyGenQueue.Enqueue(
+                    item: (deferred.baseRoutine, deferred.body, result.Variants));
             }
         }
 
@@ -434,8 +435,14 @@ public sealed partial class SemanticVerifier
 
     /// <summary>Bases whose variants are registered but whose bodies are not yet generated. Drained by
     /// <see cref="DrainVariantBodyGenQueue"/> before variant-body analysis.</summary>
-    private readonly Queue<(Statement baseBody, List<GeneratedVariant> variants)>
+    private readonly
+        Queue<(RoutineInfo baseRoutine, Statement baseBody, List<GeneratedVariant> variants)>
         _variantBodyGenQueue = new();
+
+    /// <summary>Base RegistryKeys whose body has already been SA-annotated for variant-body generation (see
+    /// <see cref="DrainVariantBodyGenQueue"/>) — analyze once per base.</summary>
+    private readonly HashSet<string> _variantBaseBodiesAnalyzed =
+        new(comparer: StringComparer.Ordinal);
 
     /// <summary>
     /// Generates the bodies of all on-demand-synthesized variants (the demand-driven replacement for
@@ -449,7 +456,24 @@ public sealed partial class SemanticVerifier
     {
         while (_variantBodyGenQueue.Count > 0)
         {
-            (Statement baseBody, List<GeneratedVariant> variants) = _variantBodyGenQueue.Dequeue();
+            (RoutineInfo baseRoutine, Statement baseBody, List<GeneratedVariant> variants) =
+                _variantBodyGenQueue.Dequeue();
+
+            // The captured base body is the PRE-SA declaration body: if the base failable routine was never
+            // DIRECTLY called (only its try_/check_/lookup_ variant is used — e.g. `S64.from_digit_bytes!`,
+            // reached solely via `try_from_digit_bytes`), SA never annotated its body, so an inner failable
+            // call (`from_digit_bytes_at`) carries NO ResolvedRoutine. The variant-body rewriter's non-tail
+            // propagation (ErrorHandlingVariantPass.TryBuildTryPropagation) keys on `ce.ResolvedRoutine is
+            // { IsFailable: true }` to convert that inner call into its own try_ variant + Maybe-unwrap; with a
+            // null ResolvedRoutine it silently skips, leaving the RAW crashable call in the recover variant →
+            // the throw propagates and CRASHES on the recoverable path instead of returning absent. Annotate
+            // the base body in its owner's context FIRST (idempotent, once per base) so the inner call is
+            // resolved before the clone+transform.
+            if (_variantBaseBodiesAnalyzed.Add(item: baseRoutine.RegistryKey))
+            {
+                AnalyzeCompilerGeneratedBody(routineInfo: baseRoutine, body: baseBody);
+            }
+
             foreach (GeneratedVariant variant in variants)
             {
                 string key = variant.Routine.RegistryKey;
