@@ -1,5 +1,6 @@
 using Builder.Tokenizer;
 using SyntaxTree;
+using TypeModel.Symbols;
 using TypeModel.Types;
 
 namespace Builder.Verification;
@@ -289,6 +290,27 @@ public partial class SemanticVerifier
             if (folded != null)
             {
                 return folded;
+            }
+        }
+
+        // Leaf fold: a 0-arg member call to a constant entity-list-returning BuilderQuery reflection routine
+        // (member_variable_info/protocol_info/routine_info) on a concrete record/entity receiver → inline
+        // analyzed List[E] literal of E(...) creators (E = FieldInfo/ProtocolInfo/RoutineInfo).
+        if (expr is CallExpression
+            {
+                Callee: MemberExpression { MemberName: var ern, Object: { } erecv },
+                Arguments: { Count: 0 }
+            } bqeCall && BuilderInfoProvider.IsEntityListReturningConstantRoutine(name: ern) &&
+            erecv.ResolvedType is { } eowner && eowner is not GenericParameterTypeSymbol &&
+            !eowner.IsGenericDefinition)
+        {
+            ListLiteralExpression? foldedEntity = FoldEntityInfoReflectionCall(owner: eowner,
+                routineName: ern,
+                returnType: bqeCall.ResolvedRoutine?.ReturnType,
+                loc: bqeCall.Location);
+            if (foldedEntity != null)
+            {
+                return foldedEntity;
             }
         }
 
@@ -660,6 +682,233 @@ public partial class SemanticVerifier
         // the per-arity from_literal(Array[Text,N]) builder onto ResolvedLiteralBuilder so reachability seeds it.
         AnalyzeListLiteralExpression(list: literal, expectedType: returnType);
         return literal;
+    }
+
+    /// <summary>
+    /// Folds a constant entity-list-returning BuilderQuery reflection call (member_variable_info/
+    /// protocol_info/routine_info) into an inline analyzed <c>List[E]</c> literal of <c>E(...)</c> creators
+    /// (E = FieldInfo/ProtocolInfo/RoutineInfo). The rows are built as RAW (un-analyzed) AST — the wrapping
+    /// <see cref="AnalyzeListLiteralExpression"/> recursively analyzes each creator (construction, nested
+    /// <c>List[Text]</c> builders, the bare Visibility case-name identifier) AND resolves the list's own
+    /// <c>from_literal</c> builder, so reachability seeds every collection <c>create</c>/<c>add_last</c> body.
+    /// MUST stay behaviourally identical to the (now-removed) synthesized bodies in
+    /// <c>WiredRoutinePass.TryBuild{MemberVariable,Protocol,Routine}InfoBody</c>. Returns null when the
+    /// receiver is not a record/entity or the BuilderQuery entity type cannot be resolved (defer).
+    /// </summary>
+    private ListLiteralExpression? FoldEntityInfoReflectionCall(TypeSymbol owner, string routineName,
+        TypeSymbol? returnType, SourceLocation loc)
+    {
+        if (owner is not (RecordTypeSymbol or EntityTypeSymbol))
+        {
+            return null;
+        }
+
+        (string entityTypeName, List<List<(string Name, Expression Value)>>? rows) = routineName switch
+        {
+            "member_variable_info" => ("FieldInfo", BuildFieldInfoRows(owner: owner, loc: loc)),
+            "protocol_info" => ("ProtocolInfo", BuildProtocolInfoRows(owner: owner, loc: loc)),
+            "routine_info" => ("RoutineInfo", BuildRoutineInfoRows(owner: owner, loc: loc)),
+            _ => ("", null)
+        };
+        if (rows == null)
+        {
+            return null;
+        }
+
+        // The BuilderQuery entity type must resolve (import BuilderQuery); otherwise defer. Use a name the
+        // creator's construction analysis (LookupTypeWithImports) will re-resolve regardless of the analyzed
+        // module's imports — the qualified `BuilderQuery.FieldInfo` when available, else the bare name.
+        TypeSymbol? entityType = _registry.LookupType(name: $"BuilderQuery.{entityTypeName}") ??
+                                 _registry.LookupType(name: entityTypeName);
+        if (entityType == null)
+        {
+            return null;
+        }
+
+        string creatorTypeName = string.IsNullOrEmpty(value: entityType.Module)
+            ? entityType.BareName
+            : $"{entityType.Module}.{entityType.BareName}";
+
+        var elements = rows.Select(selector: row => (Expression)new CreatorExpression(
+                                TypeName: creatorTypeName,
+                                TypeArguments: null,
+                                MemberVariables: row,
+                                Location: loc))
+                           .ToList();
+        var literal =
+            new ListLiteralExpression(Elements: elements, ElementType: null, Location: loc);
+        // Analyze as a source `[E(...), ...]` literal would be: recursively analyzes each creator (+ nested
+        // list-of-Text and the bare Visibility identifier) and resolves ResolvedLiteralBuilder so reachability
+        // seeds List[E].from_literal / create / add_last.
+        AnalyzeListLiteralExpression(list: literal, expectedType: returnType);
+        return literal;
+    }
+
+    // One FieldInfo row per member variable: (name, type_name, visibility, offset[U64]).
+    private static List<List<(string Name, Expression Value)>>? BuildFieldInfoRows(TypeSymbol owner,
+        SourceLocation loc)
+    {
+        List<MemberVariableInfo> fields = owner switch
+        {
+            RecordTypeSymbol r => r.MemberVariables,
+            EntityTypeSymbol e => e.MemberVariables,
+            _ => []
+        };
+
+        ulong[] offsets = ComputeBestEffortFieldOffsets(owner: owner, fields: fields);
+        var rows = new List<List<(string Name, Expression Value)>>(capacity: fields.Count);
+        for (int i = 0; i < fields.Count; i++)
+        {
+            MemberVariableInfo f = fields[index: i];
+            rows.Add(item:
+            [
+                ("name", MakeReflTextLit(value: f.Name, loc: loc)),
+                ("type_name", MakeReflTextLit(value: f.Type.ShortTypeName, loc: loc)),
+                ("visibility", MakeReflVisibility(visibility: f.Visibility, loc: loc)),
+                ("offset", MakeReflU64Lit(value: offsets[i], loc: loc))
+            ]);
+        }
+
+        return rows;
+    }
+
+    // One ProtocolInfo row per implemented protocol: (name, routine_names[List[Text]], is_generated).
+    private static List<List<(string Name, Expression Value)>> BuildProtocolInfoRows(TypeSymbol owner,
+        SourceLocation loc)
+    {
+        List<TypeSymbol> protocols = owner switch
+        {
+            RecordTypeSymbol r => r.ImplementedProtocols,
+            EntityTypeSymbol e => e.ImplementedProtocols,
+            _ => []
+        };
+
+        return protocols
+              .Select(selector: p => new List<(string Name, Expression Value)>
+               {
+                   ("name", MakeReflTextLit(value: p.Name, loc: loc)),
+                   ("routine_names", MakeReflTextList(
+                       values: p is ProtocolTypeSymbol pt
+                           ? pt.MemberRoutines.Select(selector: m => m.Name)
+                           : Enumerable.Empty<string>(),
+                       loc: loc)),
+                   ("is_generated", MakeReflBoolLit(value: false, loc: loc))
+               })
+              .ToList();
+    }
+
+    // One RoutineInfo row per member routine of owner.
+    private List<List<(string Name, Expression Value)>> BuildRoutineInfoRows(TypeSymbol owner,
+        SourceLocation loc)
+    {
+        return _registry
+              .GetMemberRoutinesForType(type: owner)
+              .Select(selector: r => new List<(string Name, Expression Value)>
+               {
+                   ("name", MakeReflTextLit(value: r.Name, loc: loc)),
+                   ("param_types", MakeReflTextList(
+                       values: r.Parameters.Select(selector: p => p.Type.ShortTypeName),
+                       loc: loc)),
+                   ("param_names", MakeReflTextList(
+                       values: r.Parameters.Select(selector: p => p.Name),
+                       loc: loc)),
+                   ("return_type", MakeReflTextLit(
+                       value: r.ReturnType?.ShortTypeName ?? "None", loc: loc)),
+                   ("is_crashable", MakeReflBoolLit(value: r.IsFailable, loc: loc)),
+                   ("is_generated", MakeReflBoolLit(value: r.IsSynthesized, loc: loc)),
+                   ("visibility", MakeReflVisibility(visibility: r.Visibility, loc: loc))
+               })
+              .ToList();
+    }
+
+    /// <summary>
+    /// Cumulative C-ABI byte offsets: align the running cursor to each field's alignment before placing it,
+    /// then advance by its size — the layout codegen emits. Layout is not always computable at fold time (an
+    /// unsized parameter, a throwing backend size walk), so offsets are BEST-EFFORT: any failure zeroes that
+    /// offset. A <c>@layout("packed")</c> owner has no inter-field padding, so fields sit at the cursor.
+    /// </summary>
+    private static ulong[] ComputeBestEffortFieldOffsets(TypeSymbol owner,
+        List<MemberVariableInfo> fields)
+    {
+        bool ownerPacked = owner is RecordTypeSymbol { IsPacked: true };
+        ulong[] offsets = new ulong[fields.Count];
+        ulong cursor = 0;
+        for (int i = 0; i < fields.Count; i++)
+        {
+            try
+            {
+                ulong align = ownerPacked
+                    ? 1ul
+                    : (ulong)Math.Max(val1: 1,
+                        val2: fields[index: i]
+                             .Type
+                             .Alignment(pointerSize: 8));
+                cursor = (cursor + align - 1) / align * align;
+                offsets[i] = cursor;
+                cursor += (ulong)Math.Max(val1: 0,
+                    val2: fields[index: i]
+                         .Type
+                         .SizeBytes(pointerSize: 8));
+            }
+            catch
+            {
+                offsets[i] = 0;
+            }
+        }
+
+        return offsets;
+    }
+
+    // A raw (un-analyzed) Text literal; AnalyzeExpression types it from the field context.
+    private static LiteralExpression MakeReflTextLit(string value, SourceLocation loc)
+    {
+        return new LiteralExpression(Value: value,
+            LiteralType: TokenType.TextLiteral,
+            Location: loc);
+    }
+
+    // A raw U64 literal (a bare integer literal conforms to the U64 field type in context).
+    private static LiteralExpression MakeReflU64Lit(ulong value, SourceLocation loc)
+    {
+        return new LiteralExpression(Value: value,
+            LiteralType: TokenType.U64Literal,
+            Location: loc);
+    }
+
+    // A raw Bool literal.
+    private static LiteralExpression MakeReflBoolLit(bool value, SourceLocation loc)
+    {
+        return new LiteralExpression(Value: value,
+            LiteralType: value
+                ? TokenType.True
+                : TokenType.False,
+            Location: loc);
+    }
+
+    // A raw inline `[t0, t1, ...]` List[Text] literal for the nested routine_names/param_* fields.
+    private static ListLiteralExpression MakeReflTextList(IEnumerable<string> values,
+        SourceLocation loc)
+    {
+        var elements = values
+                      .Select(selector: v => (Expression)MakeReflTextLit(value: v, loc: loc))
+                      .ToList();
+        return new ListLiteralExpression(Elements: elements, ElementType: null, Location: loc);
+    }
+
+    // The bare Visibility choice case-name identifier (OPEN/POSTED/SECRET), exactly as source writes it —
+    // resolved by construction analysis against the Visibility field type. NOT a preset int literal (which
+    // would be re-derived to its backing int and mismatch the choice field).
+    private static IdentifierExpression MakeReflVisibility(VisibilityModifier visibility,
+        SourceLocation loc)
+    {
+        string caseName = visibility switch
+        {
+            VisibilityModifier.Open => "OPEN",
+            VisibilityModifier.Posted => "POSTED",
+            VisibilityModifier.Secret => "SECRET",
+            _ => "OPEN"
+        };
+        return new IdentifierExpression(Name: caseName, Location: loc);
     }
 
     /// <summary>

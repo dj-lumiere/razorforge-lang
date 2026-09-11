@@ -68,6 +68,29 @@ public static class BuilderInfoProvider
         return ListReturningConstantRoutines.Contains(item: name);
     }
 
+    /// <summary>
+    /// Per-type CONSTANT entity-list-returning BuilderQuery reflection routines: 0 runtime params, value is a
+    /// compile-time-constant <c>List[E]</c> of a BuilderQuery metadata ENTITY (<c>FieldInfo</c>/
+    /// <c>ProtocolInfo</c>/<c>RoutineInfo</c>). Like <see cref="ListReturningConstantRoutines"/> these are NOT
+    /// synthesized as routine bodies; they are folded at the call site to an inline analyzed
+    /// <c>List[E]</c> literal of <c>E(...)</c> creators by
+    /// <c>SemanticVerifier.FoldListBuilderQueryReflection</c> BEFORE reachability, so the collection
+    /// <c>create</c>/<c>add_last</c> builders get seeded and BuilderQuery never survives as an emitted routine.
+    /// </summary>
+    public static readonly IReadOnlySet<string> EntityListReturningConstantRoutines =
+        new HashSet<string>(comparer: StringComparer.Ordinal)
+        {
+            "member_variable_info",
+            "protocol_info",
+            "routine_info"
+        };
+
+    /// <summary>Returns true if the routine name is a constant entity-list-returning BuilderQuery reflection routine.</summary>
+    public static bool IsEntityListReturningConstantRoutine(string name)
+    {
+        return EntityListReturningConstantRoutines.Contains(item: name);
+    }
+
     /// <summary>Returns true if the routine name is a standalone BuilderQuery routine.</summary>
     public static bool IsBuilderQueryStandalone(string name)
     {
