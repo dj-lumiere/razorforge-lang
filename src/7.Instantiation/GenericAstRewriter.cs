@@ -2535,9 +2535,14 @@ internal static class GenericAstRewriter
         }
 
         // ResolveType returns null when the target needs no substitution (a fully concrete pattern
-        // type like `Text`), so fall back to the pattern's own resolved type.
+        // type like `Text`), so fall back to the pattern's own resolved type. When the pattern type
+        // is UNRESOLVED (ResolvedType == null) — the case for a derive template materialized from RAW
+        // pre-analysis source (`MaterializeDeriveTemplateBodyIfNeeded` folds BEFORE the body is SA'd),
+        // where every `is X` arm's TypeExpression has no ResolvedType yet — resolve it by NAME from the
+        // registry instead, so the arm can still match (otherwise every arm fails → the else field-walk
+        // is always taken, e.g. `S32.serialize()` boxing to `{}` instead of its SerialValue arm).
         TypeSymbol? target = typePattern.Type.ResolvedType == null
-            ? null
+            ? ctx.ResolveTypeExpressionPublic(typeExpr: typePattern.Type)
             : ctx.ResolveType(original: typePattern.Type.ResolvedType) ??
               typePattern.Type.ResolvedType;
         return target == null

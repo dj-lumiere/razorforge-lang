@@ -467,6 +467,63 @@ public sealed partial class SemanticVerifier
         }
     }
 
+    /// <summary>
+    /// Mints the body of an auto-generated variant arm EXTRACTOR (<c>Arm.create!(from: V)</c>) the first
+    /// time a call site resolves it, keyed off the EXACT overload SA resolved (no name-scan). Stores into
+    /// <see cref="_variantBodies"/> so <see cref="AnalyzeVariantBodies"/> annotates it like a try_/check_/
+    /// lookup_ body and it flows through the SAME lowering + reachability + codegen path. Body:
+    /// <code>when from { is Arm v =&gt; return v.duplicate(), else =&gt; absent }</code>
+    /// — extract the arm payload when the active arm matches (DEEP-copied via <c>duplicate</c> so the caller
+    /// does not alias the variant's heap payload → double-free), else the failable <c>absent</c> crashes on a
+    /// wrong arm. (Was <c>WiredRoutinePass.TryBuildVariantArmConstructorBody</c>, deleted with that pass; the
+    /// mirror BOX creator <c>V.create(from: Arm)</c> is inlined at the call by ExpressionLoweringPass and
+    /// needs no body.) Idempotent — a warm-restored or already-minted body is left untouched.
+    /// </summary>
+    private void EnsureVariantArmExtractorBody(RoutineInfo extractor)
+    {
+        string key = extractor.RegistryKey;
+        if (extractor.OwnerType is not { } armType ||
+            extractor.Parameters is not [{ Type: VariantTypeSymbol variant }] ||
+            _variantBodies.ContainsKey(key: key) ||
+            _memo.RestoredVariantKeys.Contains(item: key))
+        {
+            return;
+        }
+
+        var loc = new SourceLocation(FileName: "", Line: 0, Column: 0, Position: 0);
+        var fromRef = new IdentifierExpression(Name: "from", Location: loc)
+        {
+            ResolvedType = variant
+        };
+        var typeExpr = new TypeExpression(Name: armType.Name, GenericArguments: null, Location: loc)
+        {
+            ResolvedType = armType
+        };
+        var vRef = new IdentifierExpression(Name: "v", Location: loc) { ResolvedType = armType };
+        // `v.duplicate()` — DEEP copy the payload out so the extracted value is independent of the
+        // source variant's heap arm (identity for scalars, deep for Dict/List/Text).
+        Expression extracted = new CallExpression(
+            Callee: new MemberExpression(Object: vRef,
+                MemberName: Declaration.RuntimeContract.Duplication.Duplicate,
+                Location: loc) { ResolvedType = armType },
+            Arguments: [],
+            Location: loc) { ResolvedType = armType };
+        var matchClause = new WhenClause(
+            Pattern: new TypePattern(Type: typeExpr,
+                VariableName: "v",
+                Bindings: null,
+                Location: loc),
+            Body: new ReturnStatement(Value: extracted, Location: loc),
+            Location: loc);
+        var elseClause = new WhenClause(
+            Pattern: new ElsePattern(VariableName: null, Location: loc),
+            Body: new AbsentStatement(Location: loc),
+            Location: loc);
+        _variantBodies[key: key] = new WhenStatement(Expression: fromRef,
+            Clauses: [matchClause, elseClause],
+            Location: loc);
+    }
+
     /// <summary>Variant RegistryKeys already reported as collisions, to avoid duplicate RF-S409s
     /// when a pre-register pass runs over the same routine set more than once.</summary>
     private readonly HashSet<string> _reportedVariantCollisions = new();

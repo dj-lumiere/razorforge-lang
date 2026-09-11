@@ -1190,8 +1190,13 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     private static CreatorExpression? TryRewriteVariantCallConstruction(CallExpression call,
         List<Expression> args)
     {
-        if (call is not { ConstructedType: VariantTypeSymbol callVariant, ResolvedRoutine: null } ||
-            args.Count != 1)
+        // Fire when SA left this construction routine-less OR bound it to the SYNTHESIZED, bodiless variant
+        // arm-boxing creator (`SerialValue.create(from: S32)`, registered by RegisterVariantArmConstructors
+        // with IsSynthesized and NO body). Both must lower to the arm-shaped CreatorExpression that
+        // EmitVariantConstruction inlines — emitting a CALL to the bodiless creator links undefined. A
+        // user-written variant creator (IsSynthesized:false) has a real body and keeps the call.
+        if (call.ConstructedType is not VariantTypeSymbol callVariant || args.Count != 1 ||
+            call.ResolvedRoutine is { IsSynthesized: false })
         {
             return null;
         }

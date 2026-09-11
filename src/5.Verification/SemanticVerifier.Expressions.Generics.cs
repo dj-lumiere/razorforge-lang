@@ -567,6 +567,15 @@ public sealed partial class SemanticVerifier
             !creator.Parameters.Any(predicate: p => p.IsVariadicParam))
         {
             generic.ResolvedRoutine = creator;
+            // A failable variant arm EXTRACTOR (`Dict![Text, SerialValue](from: sv)`) resolves through this
+            // generic-construction path — mint its pattern-matching body keyed off the resolved overload,
+            // same as the plain-call path in AnalyzeCreatorConstruction. Idempotent.
+            if (creator is
+                { IsCreator: true, IsFailable: true, Parameters: [{ Type: VariantTypeSymbol }] })
+            {
+                EnsureVariantArmExtractorBody(extractor: creator);
+            }
+
             ValidateExclusiveTokenUniqueness(arguments: generic.Arguments,
                 location: generic.Location);
             // Prefer the concrete resolvedType over the creator's return type when that type is still

@@ -371,10 +371,26 @@ needs T obeys Hashable
 @overridable
 routine T.serialize() -> SerialValue
 needs AnyType T
-  var __sv = Dict[Text, SerialValue]()
-  expand m in openmemvarof(T)
-    discard __sv.add(key: nameof(m), value: me.$nameof(m).serialize())
-  return SerialValue(steal __sv)
+  when T
+    is Bool => return SerialValue(from: me)
+    is S8 => return SerialValue(from: me)
+    is S16 => return SerialValue(from: me)
+    is S32 => return SerialValue(from: me)
+    is S64 => return SerialValue(from: me)
+    is U8 => return SerialValue(from: me)
+    is U16 => return SerialValue(from: me)
+    is U32 => return SerialValue(from: me)
+    is U64 => return SerialValue(from: me)
+    is F32 => return SerialValue(from: me)
+    is F64 => return SerialValue(from: me)
+    is Moment => return SerialValue(from: me)
+    is Bytes => return SerialValue(from: me)
+    is Text => return SerialValue(from: me)
+    else =>
+      var __sv = Dict[Text, SerialValue]()
+      expand m in openmemvarof(T)
+        discard __sv.add(key: nameof(m), value: me.$nameof(m).serialize())
+      return SerialValue(steal __sv)
 
 ### The auto-derived deep `copy()` (Copyable): forwards to `store` — a bitwise copy for a pure value
 ### type, or the retaining store for a managed-leaf / retaining-field record. Same as the C# builder.

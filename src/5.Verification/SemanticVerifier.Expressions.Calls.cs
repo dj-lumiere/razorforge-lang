@@ -1295,6 +1295,15 @@ public sealed partial class SemanticVerifier
         bool isVariantArmExtractor = creator is
             { IsCreator: true, IsFailable: true, Parameters: [{ Type: VariantTypeSymbol }] };
 
+        // The extractor is synthesized bodiless — its real pattern-matching body is minted HERE, keyed
+        // off the EXACT overload SA just resolved (no name-scan): `when from { is Arm v => return
+        // v.duplicate(), else => absent }`. AnalyzeVariantBodies annotates it later like a try_/check_
+        // body; without this the bare `Dict!(from: sv)` call link-fails as "declared+called never defined".
+        if (isVariantArmExtractor)
+        {
+            EnsureVariantArmExtractorBody(extractor: creator!);
+        }
+
         call.ConstructedType = callableType;
         call.LoweringKind = isVariantArmExtractor
             ? ClassifyMemberRoutineCall(memberRoutine: creator)
