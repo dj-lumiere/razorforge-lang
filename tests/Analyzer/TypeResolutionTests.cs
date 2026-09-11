@@ -820,7 +820,7 @@ public class TypeResolutionTests
                           x: S32
 
                         record Bar[T]
-                        needs T is Foo
+                        needs Foo T
                           value: S32
 
                         routine test(b: Bar[Foo])
@@ -840,7 +840,7 @@ public class TypeResolutionTests
         // Type argument doesn't match required const type
         string source = """
                         entity Buffer[T, N]
-                        needs N is Address
+                        needs Address N
                           data: T
 
                         routine test(buf: Buffer[U8, S32])

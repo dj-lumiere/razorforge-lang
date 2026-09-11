@@ -428,7 +428,7 @@ public class CompilerPipelineLoweringTests
             });
 
         string llvmIr = generator.Generate();
-        Assert.Contains(expectedSubstring: "Core.List[Core.List[Core.S64]].create",
+        Assert.Contains(expectedSubstring: "Core.List[Core.List[Core.S64]].from_literal",
             actualString: llvmIr);
     }
 
@@ -604,8 +604,6 @@ public class CompilerPipelineLoweringTests
     public void Codegen_ByteSizeAllocatorWrapper_PassesScalarAbiToRawCFunction()
     {
         string source = """
-                        import Collections.List
-
                         routine start()
                           var items = List[S64]()
                           return
@@ -1296,14 +1294,19 @@ public class CompilerPipelineLoweringTests
                         preset WIDTH: Address = 16addr
 
                         entity Buffer[T, N]
-                        needs N is Address
+                        needs Address N
                           data: T
 
                         routine Buffer[T, N].first() -> T
                           return me.data
 
-                        routine start(buf: Buffer[U8, WIDTH]) -> U8
+                        routine test(buf: Buffer[U8, WIDTH]) -> U8
                           return buf.first()
+
+                        routine start()
+                          var buf = Buffer[U8, WIDTH](data: 1u8)
+                          test(steal buf)
+                          return
                         """;
 
         Program program = Parse(source: source);
