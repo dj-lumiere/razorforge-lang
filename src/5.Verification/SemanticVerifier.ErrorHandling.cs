@@ -931,8 +931,61 @@ public sealed partial class SemanticVerifier
                                                   routine.BaseName == qualifiedName))
                                             .ToList();
         return MatchRoutineDeclaration(candidates: standaloneCandidates,
-            decl: decl,
-            moduleName: moduleName);
+                   decl: decl,
+                   moduleName: moduleName) ??
+               ResolveCreatorDeclaration(typeName: bareName, decl: decl);
+    }
+
+    /// <summary>
+    /// Resolves a TYPE-NAME failable creator declaration (<c>routine S64!(from_text: Text)</c>) to its
+    /// creator <see cref="RoutineInfo"/>. Such a decl parses with its type name as the routine name, but the
+    /// creator is REGISTERED under the empty <see cref="RoutineInfo.CreatorName"/> (keyed <c>Owner#Params</c>),
+    /// so the by-NAME free/member resolution above misses it — leaving the failable creator with NO
+    /// deferred-variant base, so its <c>try_</c>/<c>check_</c>/<c>lookup_</c> conversion variant is never
+    /// synthesized and a recover call (<c>try_S64_from_text</c> whose tail is <c>S64!(from_text:)</c>) falls
+    /// through to the RAW crashable creator, CRASHING on the recoverable path. Matching the creator overload
+    /// by the decl's parameter types registers it as a deferred base like any other failable routine.
+    /// (The variant it generates is keyed as a member routine — see
+    /// <c>ErrorHandlingGenerator.VariantKind</c> — so it does NOT collide with the anonymous base creator.)
+    /// Returns null when the name is not a concrete type or no matching creator overload exists.
+    /// </summary>
+    private RoutineInfo? ResolveCreatorDeclaration(string typeName, RoutineDeclaration decl)
+    {
+        if (_registry.LookupType(name: typeName) is not { IsGenericDefinition: false } ctorType)
+        {
+            return null;
+        }
+
+        // Resolve the decl's parameter types to match the creator overload. This runs at PRE-REGISTRATION
+        // (Phase 3), where a param type may not yet resolve in scope (a forward-declared / not-yet-imported
+        // type like `Integer` in a numeric conversion `routine S64!(from: Integer)`); ResolveType would
+        // otherwise EMIT an RF-S100 as a side effect. Suppress those — an unresolvable param simply means
+        // this creator can't be matched here, so it is skipped (no deferred base), not a user-facing error.
+        int errorsBefore = _errors.Count;
+        var argTypes = new List<TypeSymbol>(capacity: decl.Parameters.Count);
+        foreach (Parameter p in decl.Parameters)
+        {
+            if (p.Type is null)
+            {
+                TrimErrorsTo(count: errorsBefore);
+                return null;
+            }
+
+            argTypes.Add(item: ResolveType(typeExpr: p.Type));
+        }
+
+        TrimErrorsTo(count: errorsBefore);
+        return _registry.LookupCreatorOverload(type: ctorType, argTypes: argTypes);
+    }
+
+    /// <summary>Discards any diagnostics appended since <paramref name="count"/> (a snapshot of
+    /// <c>_errors.Count</c>) — used to suppress the side-effect diagnostics of a speculative resolution.</summary>
+    private void TrimErrorsTo(int count)
+    {
+        if (_errors.Count > count)
+        {
+            _errors.RemoveRange(index: count, count: _errors.Count - count);
+        }
     }
 
     /// <summary>

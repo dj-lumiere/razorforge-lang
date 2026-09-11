@@ -1,5 +1,6 @@
 using Builder.Declaration;
 using SyntaxTree;
+using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
@@ -50,6 +51,41 @@ public sealed class ErrorHandlingGenerator
             ? "create"
             : original.Name;
         return $"{prefix}_{baseName}";
+    }
+
+    /// <summary>
+    /// The <see cref="RoutineKind"/> a failable variant must carry. For a NON-creator base the variant keeps
+    /// the base's kind. A CREATOR base becomes a <see cref="RoutineKind.CommonRoutine"/> — a STATIC member
+    /// routine (owner-scoped, NO <c>me</c> receiver, like a <c>common routine</c>). Two reasons it can't stay a
+    /// creator NOR become a plain member routine: (1) a creator's <see cref="RoutineInfo.RegistryKey"/> is
+    /// <c>Owner#Params</c> (name-INDEPENDENT — a type has one anonymous constructor family), so a creator-kind
+    /// variant keys IDENTICALLY to the base creator → RF-S409 self-collision + unfindable as
+    /// <c>S64.try_create</c>; (2) a plain <see cref="RoutineKind.MemberRoutine"/> gets a synthetic <c>me</c>
+    /// receiver at codegen (<c>OwnerType != null &amp;&amp; !IsCommon</c>), but the creator has none, so the call
+    /// (which passes only <c>from_x</c>) ABI-mismatches the def (<c>me, from_x</c>) → garbage. CommonRoutine
+    /// keys by name (<c>Owner.try_create#Params</c> — resolvable by <c>LookupMemberRoutineOverload</c>, used by
+    /// the <c>.try_S64()</c> conversion + the variant-body tail rewrite) AND suppresses the receiver.
+    /// </summary>
+    private static RoutineKind VariantKind(RoutineInfo original)
+    {
+        return original.IsCreator
+            ? RoutineKind.CommonRoutine
+            : original.Kind;
+    }
+
+    /// <summary>
+    /// The <see cref="RoutineInfo.MeType"/> a failable variant must carry. A CREATOR has no receiver (it
+    /// CONSTRUCTS the owner), so its demoted member-routine variant (see <see cref="VariantKind"/>) must keep
+    /// <c>MeType = null</c> — a STATIC member routine like a <c>common routine</c>. Copying the creator's own
+    /// MeType would give the variant a spurious <c>me</c> receiver, shifting the ABI (the caller passes only
+    /// the <c>from_x</c> arg, but the def expects <c>me</c> first) → garbage/absent result. Non-creator bases
+    /// keep their receiver.
+    /// </summary>
+    private static TypeSymbol? VariantMeType(RoutineInfo original)
+    {
+        return original.IsCreator
+            ? null
+            : original.MeType;
     }
 
     /// <summary>
@@ -317,9 +353,9 @@ public sealed class ErrorHandlingGenerator
 
             return new RoutineInfo(name: GenerateVariantName(prefix: "try", original: original))
             {
-                Kind = original.Kind,
+                Kind = VariantKind(original: original),
                 OwnerType = original.OwnerType,
-                MeType = original.MeType,
+                MeType = VariantMeType(original: original),
                 Parameters = original.Parameters,
                 ReturnType = boolType,
                 IsFailable = false,
@@ -350,9 +386,9 @@ public sealed class ErrorHandlingGenerator
 
         return new RoutineInfo(name: GenerateVariantName(prefix: "try", original: original))
         {
-            Kind = original.Kind,
+            Kind = VariantKind(original: original),
             OwnerType = original.OwnerType,
-            MeType = original.MeType,
+            MeType = VariantMeType(original: original),
             Parameters = original.Parameters,
             ReturnType = maybeType,
             IsFailable = false, // try_ variants don't fail
@@ -394,9 +430,9 @@ public sealed class ErrorHandlingGenerator
 
         return new RoutineInfo(name: GenerateVariantName(prefix: "check", original: original))
         {
-            Kind = original.Kind,
+            Kind = VariantKind(original: original),
             OwnerType = original.OwnerType,
-            MeType = original.MeType,
+            MeType = VariantMeType(original: original),
             Parameters = original.Parameters,
             ReturnType = resultType,
             IsFailable = false, // check_ variants don't fail
@@ -443,9 +479,9 @@ public sealed class ErrorHandlingGenerator
             // Degenerated: Lookup[None] -> Result[None], and the API name becomes check_ not lookup_
             return new RoutineInfo(name: GenerateVariantName(prefix: "check", original: original))
             {
-                Kind = original.Kind,
+                Kind = VariantKind(original: original),
                 OwnerType = original.OwnerType,
-                MeType = original.MeType,
+                MeType = VariantMeType(original: original),
                 Parameters = original.Parameters,
                 ReturnType = resultType,
                 IsFailable = false,
@@ -475,9 +511,9 @@ public sealed class ErrorHandlingGenerator
 
         return new RoutineInfo(name: GenerateVariantName(prefix: "lookup", original: original))
         {
-            Kind = original.Kind,
+            Kind = VariantKind(original: original),
             OwnerType = original.OwnerType,
-            MeType = original.MeType,
+            MeType = VariantMeType(original: original),
             Parameters = original.Parameters,
             ReturnType = lookupType,
             IsFailable = false, // lookup_ variants don't fail
