@@ -123,24 +123,26 @@ needs FlagsType T
   return me.full_type_name() + "(value: " + bits + ", " + result + ")"
 
 ### Choice `all_cases()`: every declared case value, in declaration order. `caseof` yields each case;
-### `$valueof(c)` is its S32 discriminant, reconstructed into a `Me` value via the reverse `Me(from: S32)`
-### constructor. Replaces the C# `BuildAllCasesBody` (which left the bare case names unresolved at codegen).
+### `$valueof(c)` is its S32 discriminant, reinterpreted back to `Me` inline. This is the SAFE reverse: the
+### walked `$valueof(c)` is by construction a declared discriminant, so no validity check is needed here (a
+### from-untrusted-scalar public creator would additionally validate + throw). `Me` resolves as a type
+### argument because this is a member routine whose owner is `T`.
 @overridable
 routine T.all_cases() -> List[Me]
 needs ChoiceType T
   var result = List[Me]()
   expand c in caseof(T)
-    result.add_last(value: Me(from: $valueof(c)))
+    result.add_last(value: LLVM::reinterpret_bits[S32, Me]($valueof(c)))
   return result
 
-### Flags `all_cases()`: every declared single-bit member value. `$valueof(c)` is its U64 bit, reconstructed
-### via the reverse `Me(from: U64)` constructor.
+### Flags `all_cases()`: every declared single-bit member value; `$valueof(c)` is its U64 bit, reinterpreted
+### back to `Me` inline (safe — a declared member bit).
 @overridable
 routine T.all_cases() -> List[Me]
 needs FlagsType T
   var result = List[Me]()
   expand c in caseof(T)
-    result.add_last(value: Me(from: $valueof(c)))
+    result.add_last(value: LLVM::reinterpret_bits[U64, Me]($valueof(c)))
   return result
 
 ### Choice/Flags `count()` is NOT a template: it is emitted as a BUILDTIME CONSTANT (`return <N>_u64`)
@@ -191,6 +193,16 @@ routine T.diagnose() -> Text
 needs RoutineType T
   return me.full_type_name()
 
+### A routine VALUE (`{ptr fn, ptr bound}`) owns no heap resource that a holding field is responsible for —
+### a captureless function pointer, or a bound word managed elsewhere — so its teardown is a no-op. The
+### record/entity/variant destroy templates are kind-gated and none match a RoutineType, so without this a
+### routine-typed member (`entity Callback { f: Routine[...] }`, an iterator's `transform`/`predicate`) would
+### field-walk into an UNDEFINED `Routine[(…),…].destroy()` at link.
+@override
+routine T.destroy()
+needs RoutineType T
+  return
+
 ### The auto-derived default `diagnose()` for any record: `Module.TypeName(field: value, …)`. Uses the
 ### fully-qualified name and shows ALL fields (secret ones prefixed `[secret] ` via `visibilityof`); each
 ### value still renders via `represent` (never `diagnose`) to avoid exponentially verbose nested output.
@@ -233,6 +245,20 @@ needs T obeys Comparable
       return me.$nameof(m).cmp(you: you.$nameof(m))
   return SAME
 
+### A choice value IS its S32 discriminant and a flags value IS its U64 bitmask (both are the raw backing
+### scalar at the machine level), so `S32(from: choice)` / `U64(from: flags)` are pure representation
+### reinterprets — a `bitcast` of identical width, i.e. a no-op. Written as universal templates so the demand
+### collector materializes a REAL body per concrete choice/flags (rather than a bodyless phantom creator that
+### would link-fail). The choice/flags eq/cmp/represent/diagnose derives below, and `is`/`in` pattern
+### lowering, read the discriminant/bitmask through these.
+routine S32(from: T) -> S32
+needs ChoiceType T
+  return LLVM::reinterpret_bits[T, S32](from)
+
+routine U64(from: T) -> U64
+needs FlagsType T
+  return LLVM::reinterpret_bits[T, U64](from)
+
 ### Choice `eq`/`cmp`: a choice holds EXACTLY ONE case, so equality and ordering are just a compare of
 ### the S32 discriminant — NOT the record field-walk above (a choice has no member variables, so
 ### `allmemvarof(T)` is empty and the record template would wrongly return `true`/`SAME` for every pair).
@@ -256,6 +282,40 @@ needs ChoiceType T
 routine T.eq(you: T) -> Bool
 needs FlagsType T
   return U64(from: me) == U64(from: you)
+
+### Flags bitwise combinators: `a and b` (union) lowers to `bitor`, `a but b` (intersection) to `bitand`;
+### `bitxor` for symmetry. A flags value IS its U64 bitmask, so each reads both operands as U64, applies the
+### U64 bitwise op, and reinterprets the result back to the flags type. The result bits are always a subset
+### of declared members (both operands are valid), so the reverse reinterpret is safe — no validity check.
+### `Me` resolves as a type argument because the owner is `T` (a member routine).
+@override
+routine T.bitor(you: T) -> Me
+needs FlagsType T
+  return LLVM::reinterpret_bits[U64, Me](U64(from: me).bitor(you: U64(from: you)))
+
+@override
+routine T.bitand(you: T) -> Me
+needs FlagsType T
+  return LLVM::reinterpret_bits[U64, Me](U64(from: me).bitand(you: U64(from: you)))
+
+@override
+routine T.bitxor(you: T) -> Me
+needs FlagsType T
+  return LLVM::reinterpret_bits[U64, Me](U64(from: me).bitxor(you: U64(from: you)))
+
+### Flags `all_off` (empty mask) / `all_on` (union of every declared member bit, folded over `caseof`).
+@override
+routine T.all_off() -> Me
+needs FlagsType T
+  return LLVM::reinterpret_bits[U64, Me](0u64)
+
+@override
+routine T.all_on() -> Me
+needs FlagsType T
+  var mask = 0u64
+  expand c in caseof(T)
+    mask = mask.bitor(you: $valueof(c))
+  return LLVM::reinterpret_bits[U64, Me](mask)
 
 ### The auto-derived ordering helpers `lt`/`le`/`gt`/`ge` for any Comparable type, derived from `cmp`
 ### (`me.cmp(you)` is `ME_SMALL`/`SAME`/`ME_LARGE`). These used to be emitted by the C# DerivedOperatorPass,

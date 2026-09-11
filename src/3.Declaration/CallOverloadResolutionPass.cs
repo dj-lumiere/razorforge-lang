@@ -763,7 +763,21 @@ internal sealed class CallOverloadResolutionPass
         RoutineInfo? routine = allArgTypesKnown
             ? _registry.LookupRoutineOverload(baseName: name, argTypes: argTypes)
             : null;
-        routine ??= _registry.LookupRoutine(fullName: name);
+
+        // The by-name fallback is ONLY for genuine FREE-ROUTINE calls in untyped-arg stdlib bodies where the
+        // signature overload couldn't run (`decimalfixed_neg(a: you)`). It must NEVER rescue a call whose name
+        // is a constructable TYPE: a same-named "creator" of the WRONG ARITY would be picked by name alone —
+        // `BitList(data:, count:, capacity:)` name-only-resolves to the 0-arg `BitList()` (whose body IS that
+        // very construction) and SELF-RECURSES. A real creator overload is found BY SIGNATURE above (a 1-arg
+        // `BitList(capacity: 5)` still resolves); anything else on a type name routes to the construction path
+        // below. Whether the args are typed or not, a type name never takes the name-only fallback.
+        bool isTypeConstruction =
+            _registry.LookupType(name: name) is { IsGenericDefinition: false };
+        if (!isTypeConstruction)
+        {
+            routine ??= _registry.LookupRoutine(fullName: name);
+        }
+
         if (routine == null)
         {
             // Not a free routine — a TYPE-CONSTRUCTION call `TypeName(args)` (a buildtime-`expand` monomorph
@@ -771,13 +785,17 @@ internal sealed class CallOverloadResolutionPass
             // SA'd). SA normally stamps ConstructedType + `create` here; do the same so codegen's constructor
             // path emits it instead of tripping the RF-S959 gate. Only fires on an unresolved call whose name
             // is a concrete type (idempotent; no effect on resolved calls or real free-routine names).
-            if (call is { ConstructedType: null } && _registry.LookupType(name: name) is
-                    { IsGenericDefinition: false } ctorType)
+            if (call is { ConstructedType: null } &&
+                _registry.LookupType(name: name) is { IsGenericDefinition: false } ctorType)
             {
                 call.ConstructedType = ctorType;
                 call.ResolvedType ??= ctorType;
                 call.LoweringKind = CallLoweringKind.TypeConstructor;
-                if (_registry.LookupCreator(type: ctorType) is { } ctorCreate)
+                // Resolve the creator BY SIGNATURE (arg types), never name-only — a name-only `LookupCreator`
+                // could hand back a wrong-arity creator (e.g. the 0-arg `BitList()`), reintroducing the
+                // self-recursion this guard prevents.
+                if (_registry.LookupCreatorOverload(type: ctorType, argTypes: argTypes) is
+                    { } ctorCreate)
                 {
                     call.ResolvedRoutine = ctorCreate;
                 }

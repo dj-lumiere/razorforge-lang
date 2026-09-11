@@ -950,7 +950,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 }
 
                 foreach (TypeSymbol owner in _reachedOwners
-                                          .Where(predicate: o => seededOwners.Add(item: o))
+                                          .Where(predicate: seededOwners.Add)
                                           .ToArray())
                 {
                     ForceSeedOwner(type: owner);
@@ -1140,7 +1140,21 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // the guards below, so a type that hand-writes the member (U64.cmp, Text.eq) keeps its own body.
         private void MaterializeDeriveTemplateBodyIfNeeded(RoutineInfo r, string key)
         {
-            if (_ctx.InstantiatedGenericBodies.ContainsKey(key: key) ||
+            // An EMPTY synthesized sentinel (0-statement body) already in InstantiatedGenericBodies means
+            // BuildGenericInstanceIfNeeded instantiated a generic-def member that has no real body of its own —
+            // a DERIVE-ONLY member such as an entity `destroy` on a generic backing type (`ListEmittable[T]`,
+            // `ArrayEmittable[T, N]`): the def carries only the signature, the per-type body must still be
+            // cloned from the derive template. Codegen SKIPS a 0-statement synthesized body, so leaving the
+            // sentinel in place emits no definition → the `destroy` call link-fails ("declared+called but never
+            // defined"). So an empty sentinel must NOT block materialization — fall through and overwrite it
+            // with the real template clone (the GetDeriveTemplate lookup below is the gate: no matching template
+            // → the sentinel is left untouched, which is correct for a type that genuinely has no derive body).
+            bool hasRealBody =
+                _ctx.InstantiatedGenericBodies.TryGetValue(key: key,
+                    value: out MonomorphizedBody? existing) &&
+                !(existing.IsSynthesized &&
+                  existing.Ast.Body is BlockStatement { Statements.Count: 0 });
+            if (hasRealBody ||
                 _ctx.VariantBodies.ContainsKey(key: key) ||
                 programBodies.ContainsKey(key: key) ||
                 (synthesizedBodies?.ContainsKey(key: key) ?? false))
@@ -1277,6 +1291,16 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // Discover (build-if-generic + mark-live + queue-body).
         private void ForceSeedOwner(TypeSymbol type)
         {
+            // ROOT of the itertools builder StackOverflow: a NON-CONCRETE owner (unbound generic param, e.g. a
+            // `Routine[(T,), Bool]` predicate-field type that was marked a reached owner while its `T` was still
+            // open) must NOT have its universal derives materialized. Doing so binds the derive's own owner
+            // param `T` to that owner — but the owner CONTAINS `T` (`T := Routine[(T,), Bool]`), an infinite
+            // type that later crashes `ResolveType`. Only a fully-concrete owner is a real instance to seed.
+            if (ContainsGenericParam(t: type))
+            {
+                return;
+            }
+
             SeedNonCallDrivenWiredRoutines(type: type);
             SeedImplicitCodegenInserts(type: type);
             SeedEntitySelfFreeIfApplicable(type: type);
@@ -1455,6 +1479,15 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         /// nested in a type argument) — i.e. not yet a fully-concrete monomorphized type.</summary>
         private static bool ContainsGenericParam(TypeSymbol t)
         {
+            // A RoutineTypeSymbol carries its holes in ParameterTypes/ReturnType, NOT TypeArguments — so a
+            // non-concrete `Routine[(T,), Bool]` would slip past a TypeArguments-only scan and get force-seeded
+            // as if concrete (then its universal derive binds `T := Routine[(T,), Bool]` → infinite type).
+            if (t is RoutineTypeSymbol rt)
+            {
+                return rt.ParameterTypes.Any(predicate: ContainsGenericParam) ||
+                       rt.ReturnType is { } ret && ContainsGenericParam(t: ret);
+            }
+
             return t is GenericParameterTypeSymbol or ProtocolSelfTypeSymbol
                        or BuildtimeConstGenericTypeSymbol ||
                    (t.TypeArguments?.Any(predicate: ContainsGenericParam) ?? false);
@@ -1829,6 +1862,29 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         return ctx.Registry.TypeHasWiredRoutine(type: owner, wiredName: routine.Name);
     }
 
+    /// <summary>OCCURS-CHECK: true when <paramref name="t"/> transitively CONTAINS a generic parameter named
+    /// <paramref name="paramName"/> — i.e. a substitution <c>paramName := t</c> is CYCLIC (substituting the
+    /// param reintroduces the param, so re-resolution never terminates). Created by an inference/unification
+    /// that bound a param to a type containing it with no occurs-check — the itertools lambda-predicate case
+    /// binds the element `T := Routine[(T,), Bool]`, and later `ResolveType` follows `T → Routine[(T,),Bool] →
+    /// T → …` forever, crashing the builder with a StackOverflow.</summary>
+    private static bool TypeContainsParam(TypeSymbol t, string paramName)
+    {
+        if (t is GenericParameterTypeSymbol gp)
+        {
+            return gp.Name == paramName;
+        }
+
+        if (t is RoutineTypeSymbol rt)
+        {
+            return rt.ParameterTypes.Any(predicate: p => TypeContainsParam(t: p, paramName: paramName)) ||
+                   rt.ReturnType is { } ret && TypeContainsParam(t: ret, paramName: paramName);
+        }
+
+        return t.TypeArguments is { } args &&
+               args.Any(predicate: a => TypeContainsParam(t: a, paramName: paramName));
+    }
+
     private void ProcessResolvedMemberRoutineGenericRoutines()
     {
         var processed = new HashSet<string>(comparer: StringComparer.Ordinal);
@@ -1878,6 +1934,17 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         Dictionary<string, TypeSymbol> typeSubs =
             BuildResolvedRoutineTypeSubstitutions(resolvedRoutine: resolvedRoutine);
         if (typeSubs.Count == 0 || typeSubs.Values.Any(predicate: HasUnresolvedTypeArgs))
+        {
+            return;
+        }
+
+        // OCCURS-CHECK. A universal derive (`T.roam_trace()` / `roam_free` / `cyclic_visit`) materialized onto
+        // a routine-type owner such as `Routine[(T,), Bool]` binds its owner param `T` to that owner — but the
+        // owner's OWN inner parameter is ALSO named `T` (a slot-vs-name collision), so the binding becomes the
+        // self-referential `T := Routine[(T,), Bool]`. Substituting it re-introduces `T` without end, and a
+        // later `ResolveType` follows `T → Routine[(T,),Bool] → T → …` forever, crashing the builder with a
+        // StackOverflow. Such an instantiation is an infinite type — not a real reachable instance — so drop it.
+        if (typeSubs.Any(predicate: kv => TypeContainsParam(t: kv.Value, paramName: kv.Key)))
         {
             return;
         }

@@ -2163,7 +2163,16 @@ public sealed partial class TypeRegistry
                 candidates: candidates);
         }
 
-        if (DefaultMemberRoutine(memberRoutineName: memberRoutineName) is { } defaultMember)
+        // A universal DEFAULT member (e.g. `T.hijack() -> Hijacked[T]`) must NOT be substituted onto a bare
+        // GENERIC DEFINITION. CollectGenericResolutionCandidates walks a concrete instance's genericDef to
+        // re-substitute its OWN generic members; if the default is substituted onto the bare def here it
+        // produces an UNRECOVERABLE `Hijacked[<bare def>]` return (the universal `T` binds to the def, not the
+        // instance), which then pollutes the concrete instance's candidate set and — being a same-name overload
+        // — can win over the correct `Hijacked[ListEmittable[S32]]`, link-failing on the bare symbol. The
+        // concrete instance collects the default itself (with the right `T -> ListEmittable[S32]`), so skipping
+        // it for the generic-def pass loses nothing.
+        if (!type.IsGenericDefinition &&
+            DefaultMemberRoutine(memberRoutineName: memberRoutineName) is { } defaultMember)
         {
             candidates.Add(item: SubstituteMemberRoutineForOwner(memberRoutine: defaultMember,
                 resolvedOwner: type)!);

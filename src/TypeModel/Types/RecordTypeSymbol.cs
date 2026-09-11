@@ -646,6 +646,31 @@ public class RecordTypeSymbol : TypeSymbol
             return substituted;
         }
 
+        // A RoutineTypeSymbol / TupleTypeSymbol carries its holes in ParameterTypes-ReturnType / ElementTypes,
+        // NOT TypeArguments — the IsGenericResolution path below would leave a `Routine[(T,), U]` / `(T, Bool)`
+        // FIELD unsubstituted on monomorphization, so its destroy field-walk emits a NON-CONCRETE
+        // `Routine[(T,), U].destroy()` into LlvmEmit (undefined at link). Substitute the slots recursively.
+        if (type is RoutineTypeSymbol rt)
+        {
+            return new RoutineTypeSymbol(
+                parameterTypes: rt.ParameterTypes
+                                  .Select(selector: p => SubstituteType(type: p,
+                                       substitution: substitution))
+                                  .ToList(),
+                returnType: rt.ReturnType != null
+                    ? SubstituteType(type: rt.ReturnType, substitution: substitution)
+                    : null) { IsFailable = rt.IsFailable };
+        }
+
+        if (type is TupleTypeSymbol tuple)
+        {
+            return new TupleTypeSymbol(elementTypes: tuple.ElementTypes
+                                                          .Select(selector: e => SubstituteType(
+                                                               type: e,
+                                                               substitution: substitution))
+                                                          .ToList());
+        }
+
         // If it's a generic resolution, recursively substitute
         if (!type.IsGenericResolution || type.TypeArguments == null)
         {

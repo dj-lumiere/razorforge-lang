@@ -272,6 +272,33 @@ public class EntityTypeSymbol : TypeSymbol
             return substituted;
         }
 
+        // A RoutineTypeSymbol keeps its holes in ParameterTypes/ReturnType, NOT TypeArguments — so the
+        // IsGenericResolution/TypeArguments path below would leave a `transform: Routine[(T,), U]` FIELD
+        // unsubstituted when a generic iterator entity is monomorphized (`SelectEmittable[S64, S64, …]`).
+        // Its `destroy` field-walk then emits a call to the NON-CONCRETE `Routine[(T,), U].destroy()`, which
+        // reaches LlvmEmit (a dumb translator that must only ever see concrete types) and links undefined.
+        // Substitute the routine's parameter/return slots recursively. Tuples carry theirs the same way.
+        if (type is RoutineTypeSymbol rt)
+        {
+            return new RoutineTypeSymbol(
+                parameterTypes: rt.ParameterTypes
+                                  .Select(selector: p => SubstituteType(type: p,
+                                       substitution: substitution))
+                                  .ToList(),
+                returnType: rt.ReturnType != null
+                    ? SubstituteType(type: rt.ReturnType, substitution: substitution)
+                    : null) { IsFailable = rt.IsFailable };
+        }
+
+        if (type is TupleTypeSymbol tuple)
+        {
+            return new TupleTypeSymbol(elementTypes: tuple.ElementTypes
+                                                          .Select(selector: e => SubstituteType(
+                                                               type: e,
+                                                               substitution: substitution))
+                                                          .ToList());
+        }
+
         if (!type.IsGenericResolution || type.TypeArguments == null)
         {
             return type;

@@ -14,7 +14,19 @@ internal static class RoutineGenericParameters
 
         foreach (GenericConstraintDeclaration constraint in constraints)
         {
-            if (constraint.ConstraintType != ConstraintKind.AnyType)
+            // A classifier-first constraint `needs <Kind> T` DECLARES its parameter as a generic type
+            // parameter of the routine — the `needs` alternative to the bracket form `[T]`. Every classifier
+            // kind counts (AnyType/RecordType/EntityType/ChoiceType/FlagsType/VariantType/TupleType/
+            // RoutineType/RedirectType/Crashable/ConstGeneric), not just AnyType: the classifier-first
+            // migration (`T is XType` → `XType T`) renamed the surface but left this recognizing only the
+            // old `AnyType` (from `needs T is TypeName`), so `needs ChoiceType T` on a free routine like
+            // `routine S32(from: T)` never declared `T` — the resolver then reported "Unknown type T" for
+            // `T` in a type-argument position (e.g. `LLVM::reinterpret_bits[T, S32]`).
+            // `obeys P` (capability), `T in [...]` (TypeEquality), and `everywhere` (owner `Me`) do NOT
+            // declare a new parameter — they constrain one declared elsewhere (bracket, owner, or another
+            // classifier constraint) — so they are skipped.
+            if (constraint.ConstraintType is ConstraintKind.Obeys or ConstraintKind.TypeEquality
+                or ConstraintKind.Everywhere)
             {
                 continue;
             }

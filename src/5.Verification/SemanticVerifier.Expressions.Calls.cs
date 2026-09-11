@@ -580,6 +580,41 @@ public sealed partial class SemanticVerifier
         // Variadic fallback: if resolved routine is non-variadic but has too many args,
         // try a variadic generic overload (e.g., show("a","b","c") -> show[T](values...: T))
         RecoverMissingFreeOverload(call: call, callName: callName, routine: ref routine);
+
+        // FINAL signature check: after every arity/type/generic refinement above, if the routine STILL cannot
+        // accept the call's argument count (more args than params with no variadic tail, or fewer than the
+        // required non-default params) it is NOT a valid resolution — the arity-blind first-wins name lookup
+        // handed back the wrong overload and no correct one exists as a FREE routine. Drop it so the call
+        // routes to type-construction (`BitList(data:, count:, capacity:)` → the entity memberwise creator,
+        // which the 0-arg `BitList()` first-wins wrongly shadowed → StackOverflow) or a proper unresolved-call
+        // error — NOT a bare, unmangled `@name` emitted for a wrong-arity overload. This runs AFTER refinement,
+        // so a genuine multi-arity overload set (`describe(n)`/`describe(t)`/`describe(a, b)`) already bound the
+        // right member and passes.
+        if (routine != null && !RoutineCanAcceptArgCount(routine: routine,
+                argCount: call.Arguments.Count))
+        {
+            routine = null;
+            call.ResolvedRoutine = null;
+        }
+    }
+
+    /// <summary>True when a call supplying <paramref name="argCount"/> positional/named arguments can bind to
+    /// <paramref name="routine"/>: at least the required (non-default, non-variadic) parameters are covered,
+    /// and no more args than parameters unless the tail is variadic.</summary>
+    private static bool RoutineCanAcceptArgCount(RoutineInfo routine, int argCount)
+    {
+        // A variadic tail absorbs any number of extra args (its position in the list — RF puts it FIRST —
+        // does not matter to arity acceptance: it only lifts the upper bound). Required = the non-default,
+        // non-variadic parameters that MUST be supplied.
+        bool hasVariadic = routine.Parameters.Any(predicate: p => p.IsVariadicParam);
+        int requiredCount = routine.Parameters.Count(predicate: p =>
+            !p.HasDefaultValue && !p.IsVariadicParam);
+        if (argCount < requiredCount)
+        {
+            return false;
+        }
+
+        return hasVariadic || argCount <= routine.Parameters.Count;
     }
 
     /// <summary>

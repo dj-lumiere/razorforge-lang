@@ -550,26 +550,12 @@ internal sealed class AutoWiredRegistrationPass
             });
         }
 
-        // S32.create(from: ChoiceType) — a choice is S32-backed, so this reinterprets its discriminant
-        // to S32 (no width change). The choice `eq` derive + choice pattern lowering use it to compare
-        // discriminants via S32.eq (icmp eq i32), so the `is` operator never reaches codegen.
-        TypeSymbol? s32ChoiceType = _registry.LookupType(name: "S32");
-        if (s32ChoiceType != null && !type.IsGenericDefinition &&
-            _registry.LookupCreatorOverload(type: s32ChoiceType, argTypes: [type]) == null)
-        {
-            _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
-            {
-                Kind = RoutineKind.Creator,
-                OwnerType = s32ChoiceType,
-                Parameters = [new ParamInfo(name: "from", type: type)],
-                ReturnType = s32ChoiceType,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                Visibility = VisibilityModifier.Open,
-                IsSynthesized = true
-            });
-        }
+        // `S32(from: ChoiceType)` is NOT registered as a phantom creator here. A choice IS its S32
+        // discriminant (both i32), so reading it back as S32 is a representation no-op — modelled as the
+        // universal template `routine S32(from: ChoiceType T)` in Derivation.rf (`LLVM::reinterpret_bits`),
+        // which the demand collector materializes into a real bitcast body per concrete choice. A bodyless
+        // phantom here would resolve as a call to a never-defined symbol (link error); the template gives it
+        // a real definition. The choice eq/cmp/represent derives + `is` pattern lowering consume it.
 
         if (textType != null)
         {
@@ -739,23 +725,12 @@ internal sealed class AutoWiredRegistrationPass
             returnType: type,
             existingMemberRoutines: existingMemberRoutines);
 
-        // U64.create(from: FlagsType) — flags_val.U64() desugars to U64.create(from: flags_val)
-        if (u64Type != null && !type.IsGenericDefinition &&
-            _registry.LookupCreatorOverload(type: u64Type, argTypes: [type]) == null)
-        {
-            _registry.RegisterRoutine(routine: new RoutineInfo(name: RoutineInfo.CreatorName)
-            {
-                Kind = RoutineKind.Creator,
-                OwnerType = u64Type,
-                Parameters = [new ParamInfo(name: "from", type: type)],
-                ReturnType = u64Type,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                Visibility = VisibilityModifier.Open,
-                IsSynthesized = true
-            });
-        }
+        // `U64(from: FlagsType)` is NOT registered as a phantom creator here. A flags value IS its U64
+        // bitmask (both i64), so reading it back as U64 is a representation no-op — modelled as the
+        // universal template `routine U64(from: FlagsType T)` in Derivation.rf (`LLVM::reinterpret_bits`),
+        // which the demand collector materializes into a real bitcast body per concrete flags. A bodyless
+        // phantom here would resolve as a call to a never-defined symbol (link error). The flags eq/represent
+        // derives consume it.
 
         MaybeRegisterWired(owner: type,
             name: "all_on",

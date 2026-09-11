@@ -100,6 +100,7 @@ internal static class GenericAstRewriter
         public IReadOnlyDictionary<string, TypeSymbol>? TypeSubs { get; } = typeSubs;
         public TypeRegistry? Registry { get; } = registry;
 
+
         /// <summary>
         /// PURE STRUCTURAL DEEP-COPY mode. When true, NO buildtime folding/unrolling runs — every
         /// <c>expand</c> loop, <c>when T … is X</c> type-switch, arm-expansion, splice, and metadata
@@ -792,7 +793,19 @@ internal static class GenericAstRewriter
         private RoutineInfo? ResolveMemberCallRoutine(MemberExpression member,
             List<TypeSymbol> callArgTypes)
         {
-            TypeSymbol? receiverType = ResolveTypeForLookup(original: member.Object.ResolvedType);
+            // The receiver's own ResolvedType is the RAW template annotation — for a universal derive
+            // (`T.destroy()`) cloned onto a GENERIC owner it is the bare owner GENERIC-DEF (`ListEmittable[T]`),
+            // whose own param `T` COLLIDES BY NAME with the template's owner param `T`. Re-resolving it through
+            // the name-keyed substitution then wrongly maps `ListEmittable`'s inner `T` and drops the concrete
+            // arg — `me.hijack()` resolves on the bare `ListEmittable`, so the chained `.invalidate()` links to
+            // the undefined `Hijacked[ListEmittable]` instead of `Hijacked[ListEmittable[S32]]`. When the
+            // receiver is a parameter / `me`, its concrete type is already known authoritatively in ParamTypes
+            // (set from the enclosing routine's RESOLVED owner/params), so prefer it — no colliding re-resolve.
+            TypeSymbol? receiverType =
+                member.Object is IdentifierExpression { Name: { } recvName } &&
+                ParamTypes.TryGetValue(key: recvName, value: out TypeSymbol? paramRecv)
+                    ? paramRecv
+                    : ResolveTypeForLookup(original: member.Object.ResolvedType);
             // A const-generic value receiver (e.g. `N` in `Array[T, N]` monomorphized to the value 4)
             // has no memberRoutines of its own — arithmetic/comparison resolves on its underlying numeric
             // type. Mirror CallOverloadResolutionPass's const-generic handling so `N - 1` lowers to a
@@ -848,6 +861,16 @@ internal static class GenericAstRewriter
             if (routine != null && routine.IsFailable == isFailable)
             {
                 return InstantiateFreeRoutine(candidate: routine);
+            }
+
+            // A construction call `TypeName(args)` whose (typed) args matched no free-routine overload above
+            // must NOT be name-only-rescued to a WRONG-ARITY same-named creator: `BitList(data:, count:,
+            // capacity:)` would resolve to the 0-arg `BitList()` — whose OWN body is that very construction —
+            // and self-recurse to a StackOverflow. Leave it unresolved so RebindPlainCall keeps the call's
+            // SA-stamped construction (ConstructedType). A genuine creator overload was already returned above.
+            if (Registry.LookupType(name: callName) is { IsGenericDefinition: false })
+            {
+                return null;
             }
 
             routine = Registry.LookupRoutine(fullName: callName, isFailable: isFailable) ??
