@@ -230,6 +230,50 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
         {
             TryMaterializeStdlibBody(liveKey: liveKey, programBodies: programBodies);
         }
+
+        MaterializeReachedVariantBodies();
+    }
+
+    /// <summary>
+    /// Materializes every REACHED variant body (<c>try_</c>/<c>check_</c>/<c>lookup_</c>/<c>try_emit</c>) that
+    /// nothing else placed into <c>InstantiatedGenericBodies</c> — the FREE, NON-generic variant case.
+    /// A generic or member-of-generic variant is materialized during the demand walk by
+    /// <c>GenericMonomorphizationPass.TryBuildAndStoreVariantBody</c> (it has a <c>GenericDefinition</c>), so it
+    /// already holds a key here. But a free non-generic failable routine's variant (e.g.
+    /// <c>Subprocess.try_term_signal_value</c>, the variant of <c>term_signal_value!(raw: S32)</c>) has NO
+    /// GenericDefinition and is never materialized by that path — its body lives ONLY in <c>VariantBodies</c>.
+    /// Codegen's <c>GenerateRoutineDefinitions</c> emits definitions solely from user decls +
+    /// <c>InstantiatedGenericBodies</c> (it does not iterate VariantBodies), so such a live variant would only
+    /// be DECLAREd, never DEFINEd → link over-prune ("undefined symbol"). Wrap each reached variant body as a
+    /// synthesized <see cref="MonomorphizedBody"/> so codegen emits it.
+    /// </summary>
+    private void MaterializeReachedVariantBodies()
+    {
+        foreach (string liveKey in ctx.LiveRoutineKeys)
+        {
+            if (ctx.InstantiatedGenericBodies.ContainsKey(key: liveKey) ||
+                !ctx.VariantBodies.TryGetValue(key: liveKey, value: out Statement? variantBody))
+            {
+                continue;
+            }
+
+            RoutineInfo? info = ctx.Registry.LookupRoutine(fullName: liveKey) ??
+                                ctx.Registry.GetAllRoutines()
+                                   .FirstOrDefault(predicate: r => r.RegistryKey == liveKey);
+            if (info is not { IsGenericDefinition: false } ||
+                info.OwnerType?.IsGenericDefinition == true)
+            {
+                continue;
+            }
+
+            ctx.InstantiatedGenericBodies[key: liveKey] = new MonomorphizedBody(
+                Ast: WrapInSynthShellDecl(name: info.Name, body: variantBody, info: info),
+                Info: info,
+                TypeSubs: new Dictionary<string, TypeSymbol>(comparer: StringComparer.Ordinal),
+                VariantStatus: null,
+                VariantInnerType: null,
+                IsSynthesized: true);
+        }
     }
 
     /// <summary>

@@ -1470,6 +1470,70 @@ public sealed partial class SemanticVerifier
                 buildMode: _buildMode,
                 monomorphizedBodies: _instantiatedGenericBodies);
             new PostprocessingPipeline(ctx: pctx).Run(program: entry.Program);
+
+            // A failable `try_`/`check_`/`lookup_` variant synthesized DURING this file's on-demand
+            // analysis (e.g. `proc_result_of` calls `try_term_signal_value`) enqueues its raw body onto
+            // _variantBodyGenQueue but is NEVER finalized: the eager DrainVariantBodyGenQueue /
+            // AnalyzeVariantBodies / RunGlobal variant-body sweep already ran (before demand collection),
+            // and the per-file .Run(program) overloads above process only this program's own decls, not
+            // _variantBodies. So the enqueued variant body would be orphaned (SA resolved the call → codegen
+            // emits the call site, but no body → declare-not-define → link fail). Finalize any bodies THIS
+            // file's analysis enqueued, mirroring the eager sequence but scoped to the newly-synthesized keys.
+            if (_variantBodyGenQueue.Count > 0)
+            {
+                var priorVariantKeys = new HashSet<string>(collection: _variantBodies.Keys,
+                    comparer: StringComparer.Ordinal);
+                // Generates raw bodies for the enqueued variants into _variantBodies (drains transitively).
+                DrainVariantBodyGenQueue();
+                // SA-annotate ONLY the newly-added keys (mirrors AnalyzeVariantBodies; do NOT re-analyze all).
+                foreach (string key in _variantBodies.Keys.ToList())
+                {
+                    if (priorVariantKeys.Contains(item: key) ||
+                        _memo.RestoredVariantKeys.Contains(item: key))
+                    {
+                        continue;
+                    }
+
+                    RoutineInfo? variantInfo = _registry.LookupRoutine(fullName: key) ?? _registry
+                       .GetAllRoutines()
+                       .FirstOrDefault(predicate: r => r.RegistryKey == key);
+                    if (variantInfo == null)
+                    {
+                        continue;
+                    }
+
+                    AnalyzeCompilerGeneratedBody(routineInfo: variantInfo,
+                        body: _variantBodies[key: key]);
+                }
+
+                // Lower the newly-added variant bodies. Both RunGlobal variants iterate ctx.VariantBodies
+                // (the SAME _variantBodies object) and are idempotent no-ops on already-lowered bodies, so
+                // sweeping the whole dict re-touches the prior keys harmlessly while lowering the new ones.
+                var dctx2 = new DesugaringContext(registry: _registry,
+                    routineBodies: _routineBodies,
+                    target: _target,
+                    buildMode: _buildMode)
+                {
+                    VariantBodies = _variantBodies,
+                    SynthesizeAllDerives = SeedAllStdlibRoutines,
+                    RestoredVariantKeys = _memo.RestoredVariantKeys
+                };
+                new DesugaringPipeline(ctx: dctx2).RunGlobal();
+                _variantBodies = dctx2.VariantBodies;
+
+                var pctx2 = new PostprocessingContext(registry: _registry,
+                    variantBodies: _variantBodies,
+                    synthesizedBodies: _synthesizedBodies.ToDictionary(
+                        keySelector: kvp => kvp.Key,
+                        elementSelector: kvp => kvp.Value.Body),
+                    target: _target,
+                    buildMode: _buildMode,
+                    monomorphizedBodies: _instantiatedGenericBodies)
+                {
+                    SynthesizeAllDerives = SeedAllStdlibRoutines
+                };
+                new PostprocessingPipeline(ctx: pctx2).RunGlobal();
+            }
         }
         finally
         {
