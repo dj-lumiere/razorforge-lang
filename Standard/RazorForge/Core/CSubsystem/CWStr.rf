@@ -25,8 +25,13 @@ routine CWStr.ptr() -> Hijacked[CWChar]
 routine CWStr(from_ptr: Hijacked[CWChar]) -> CWStr
   return LLVM::reinterpret_bits[Hijacked[CWChar], CWStr](from_ptr)
 
-### A `CWStr` that does not reference any wide C string (a null pointer).
-preset CWSTR_NULL: CWStr = CWStr(from_ptr: hijacked_none[CWChar]())
+### A `CWStr` that does not reference any wide C string (a null pointer). A `common routine` factory
+### (not a `preset`): its value is a `CWStr(from_ptr: hijacked_none())` construction, not a compile-time
+### scalar constant, so inlining it at every use (what a `preset` does) leaves the call unresolved at
+### codegen. (A future null-pointer literal could make this a real `preset` again.)
+### :returns: The null `CWStr` value.
+common routine CWStr.null() -> CWStr
+  return CWStr(from_ptr: hijacked_none[CWChar]())
 
 ### Returns `true` when this wrapper does not reference any wide C string.
 ### :returns: The resulting `Bool` value.

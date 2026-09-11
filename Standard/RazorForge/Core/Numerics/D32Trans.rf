@@ -688,26 +688,26 @@ routine D32.round_ties_away() -> D32
 # IEEE 754 Tier 3 — decimal-specific (quantize, same_quantum, remainder)
 # ============================================================================
 
-### IEEE 754 sameQuantum: `true` when `me` and `other` share an exponent, or are both infinite,
+### IEEE 754 sameQuantum: `true` when `me` and `you` share an exponent, or are both infinite,
 ### or both NaN. Never crashes.
-### :param other: The value whose quantum to compare against.
+### :param you: The value whose quantum to compare against.
 ### :returns: Whether the two share a quantum.
-routine D32.same_quantum(other: D32) -> Bool
+routine D32.same_quantum(you: D32) -> Bool
   var pa = me.decode()
-  var pb = other.decode()
+  var pb = you.decode()
   if LLVM::unsigned_ge(a: pa.special, b: 2_u64) or LLVM::unsigned_ge(a: pb.special, b: 2_u64)
     return LLVM::unsigned_ge(a: pa.special, b: 2_u64) and LLVM::unsigned_ge(a: pb.special, b: 2_u64)
   if LLVM::int_eq(a: pa.special, b: 1_u64) or LLVM::int_eq(a: pb.special, b: 1_u64)
     return LLVM::int_eq(a: pa.special, b: 1_u64) and LLVM::int_eq(a: pb.special, b: 1_u64)
   return LLVM::int_eq(a: pa.exp, b: pb.exp)
 
-### IEEE 754 quantize: `me`'s value re-expressed with `other`'s exponent (half-even when dropping
+### IEEE 754 quantize: `me`'s value re-expressed with `you`'s exponent (half-even when dropping
 ### digits). NaN if the result needs more than 7 significand digits, or for incompatible specials.
-### :param other: The value supplying the target exponent.
-### :returns: `me` quantized to `other`'s exponent, or NaN if not representable.
-routine D32.quantize(other: D32) -> D32
+### :param you: The value supplying the target exponent.
+### :returns: `me` quantized to `you`'s exponent, or NaN if not representable.
+routine D32.quantize(you: D32) -> D32
   var pa = me.decode()
-  var pb = other.decode()
+  var pb = you.decode()
   if LLVM::unsigned_ge(a: pa.special, b: 2_u64) or LLVM::unsigned_ge(a: pb.special, b: 2_u64)
     return D32.quiet_nan()
   var ainf = LLVM::int_eq(a: pa.special, b: 1_u64)
@@ -739,19 +739,19 @@ routine D32.quantize(other: D32) -> D32
     q = LLVM::add(a: q, b: LLVM::zero_extend[U64, U256](1_u64))
   return d32_of_parts(p: D32Parts(sign: pa.sign, special: 0_u64, exp: target, coeff: LLVM::int_truncate[U256, U64](q)))
 
-### IEEE 754 remainder: `me - other * n` with `n` the nearest integer to `me / other` (ties even).
-### NaN if `me` infinite or `other` zero; `me` if `other` infinite. Never crashes.
-### :param other: The divisor.
-### :returns: The IEEE remainder of `me / other`.
-routine D32.remainder(other: D32) -> D32
-  if me.is_nan() or other.is_nan()
+### IEEE 754 remainder: `me - you * n` with `n` the nearest integer to `me / you` (ties even).
+### NaN if `me` infinite or `you` zero; `me` if `you` infinite. Never crashes.
+### :param you: The divisor.
+### :returns: The IEEE remainder of `me / you`.
+routine D32.remainder(you: D32) -> D32
+  if me.is_nan() or you.is_nan()
     return D32.quiet_nan()
-  if me.is_infinite() or other.is_zero()
+  if me.is_infinite() or you.is_zero()
     return D32.quiet_nan()
-  if other.is_infinite()
+  if you.is_infinite()
     return me
-  var n = me.truediv_unchecked(you: other).rint()
-  return me.sub_unchecked(you: other.mul_unchecked(you: n))
+  var n = me.truediv_unchecked(you: you).rint()
+  return me.sub_unchecked(you: you.mul_unchecked(you: n))
 
 ### IEEE 754 normalize (the `reduce` operation): trailing zeros stripped to the simplest cohort
 ### member (`3.00` -> `3`, `1.50` -> `1.5`, `100` -> `1E+2`, `0.00` -> `0`). Specials pass through.

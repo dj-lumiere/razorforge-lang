@@ -8,16 +8,6 @@ module Core
 ### This routine must run before runtime services that depend on global runtime state.
 routine C::rf_runtime_init()
 
-### Hardware 128/64 -> 64 unsigned divide: computes (hi:lo) / d, returns the quotient
-### and writes the remainder through `rem`. PRECONDITION: hi < d (so the 64-bit quotient
-### cannot overflow). The base-2^64 estimation primitive for Knuth-D wide division — one
-### x86-64 `DIV r64` (or MSVC `_udiv128`), with a portable fallback on arm64/wasm.
-### :param hi: High 64 bits of the dividend.
-### :param lo: Low 64 bits of the dividend.
-### :param d: The 64-bit divisor (must exceed `hi`).
-### :param rem: Pointer to a `U64` slot that receives the remainder.
-### :returns: The 64-bit quotient.
-dangerous routine C::rf_udivrem_128_64(hi: U64, lo: U64, d: U64, rem: Hijacked[U64]) -> U64
 ### Allocates zero-initialized dynamic memory.
 ### :param size: The number of bytes to allocate.
 ### :returns: The resulting `Address` value.

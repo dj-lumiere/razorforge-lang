@@ -13,10 +13,18 @@ record C32 obeys Numeric, Equatable
 # Math routines use the component F32's `_unchecked` ops (raw IEEE, no overflow
 # checks); NaN/±inf therefore propagate through the complex result per IEEE 754.
 
-# Complex constants
-preset C32_ZERO: C32 = C32(real: 0.0_f32, imag: 0.0_f32)
-preset C32_ONE: C32 = C32(real: 1.0_f32, imag: 0.0_f32)
-preset C32_I: C32 = C32(real: 0.0_f32, imag: 1.0_f32)
+# Complex constants. `common routine` factories (not `preset`s): a `C32` value is a two-`F32` record, not
+# a compile-time scalar constant, so inlining it at every use (what a `preset` does) leaves the
+# construction unresolved / emits an undefined creator symbol at codegen.
+### The complex zero value (0 + 0i). :returns: The resulting `C32` value.
+common routine C32.zero() -> C32
+  return C32(real: 0.0_f32, imag: 0.0_f32)
+### The complex unit value (1 + 0i). :returns: The resulting `C32` value.
+common routine C32.one() -> C32
+  return C32(real: 1.0_f32, imag: 0.0_f32)
+### The imaginary unit (0 + 1i). :returns: The resulting `C32` value.
+common routine C32.i() -> C32
+  return C32(real: 0.0_f32, imag: 1.0_f32)
 
 # ============================================================================
 # Creators
@@ -257,7 +265,7 @@ routine C32.tan() -> C32
 routine C32.asin() -> C32
   # asin(z) = −i·log(iz + √(1 − z²)); iz = (−im, re).
   var iz = C32(real: -me.imag, imag: me.real)
-  var w = iz + (C32_ONE - me * me).sqrt_unchecked()
+  var w = iz + (C32.one() - me * me).sqrt_unchecked()
   var v = w.log_unchecked()
   # Multiply log(w) by −i: (re, im) -> (im, −re).
   return C32(real: v.imag, imag: -v.real)
@@ -266,7 +274,7 @@ routine C32.asin() -> C32
 ### :returns: The principal value of `arccos(me)`.
 routine C32.acos() -> C32
   # acos(z) = −i·log(z + i·√(1 − z²)); i·s = (−s.im, s.re).
-  var s = (C32_ONE - me * me).sqrt_unchecked()
+  var s = (C32.one() - me * me).sqrt_unchecked()
   var w = me + C32(real: -s.imag, imag: s.real)
   var v = w.log_unchecked()
   # Multiply log(w) by −i: (re, im) -> (im, −re).
@@ -325,19 +333,19 @@ routine C32.tanh() -> C32
 ### :returns: The principal value of `arcsinh(me)`.
 routine C32.asinh() -> C32
   # asinh(z) = log(z + √(z² + 1)).
-  return (me + (me * me + C32_ONE).sqrt_unchecked()).log_unchecked()
+  return (me + (me * me + C32.one()).sqrt_unchecked()).log_unchecked()
 
 ### Returns the complex inverse hyperbolic cosine of this value.
 ### :returns: The principal value of `arccosh(me)`.
 routine C32.acosh() -> C32
   # acosh(z) = log(z + √(z² − 1)).
-  return (me + (me * me - C32_ONE).sqrt_unchecked()).log_unchecked()
+  return (me + (me * me - C32.one()).sqrt_unchecked()).log_unchecked()
 
 ### Returns the complex inverse hyperbolic tangent of this value.
 ### :returns: The principal value of `arctanh(me)`.
 routine C32.atanh() -> C32
   # atanh(z) = ½·log((1 + z)/(1 − z)).
-  var v = ((C32_ONE + me) / (C32_ONE - me)).log_unchecked()
+  var v = ((C32.one() + me) / (C32.one() - me)).log_unchecked()
   return C32(real: v.real / 2.0_f32, imag: v.imag / 2.0_f32)
 
 # ============================================================================
@@ -387,7 +395,7 @@ routine C32.sqrt_unchecked() -> C32
   # Half-magnitude formula: with r = |z|, re' = √((r+re)/2), im' = √((r−re)/2).
   var r = me.abs()
   if r == 0.0_f32
-    return C32_ZERO
+    return C32.zero()
   var rp = ((r + me.real) / 2.0_f32).sqrt_unchecked()
   var ip = ((r - me.real) / 2.0_f32).sqrt_unchecked()
   # Imag part takes the sign of the input's imag (principal root, re' ≥ 0).
@@ -407,7 +415,7 @@ routine C32.pow(you: C32) -> C32
 # ============================================================================
 
 ### Returns `true` if both the real and imaginary parts are exactly zero.
-### :returns: `true` if `me == C32_ZERO`.
+### :returns: `true` if `me == C32.zero()`.
 routine C32.is_zero() -> Bool
   return me.real == 0.0_f32 and me.imag == 0.0_f32
 

@@ -13,10 +13,18 @@ record C128 obeys Numeric, Equatable
 # Math routines use the component F128's `_unchecked` ops (raw IEEE, no overflow
 # checks); NaN/±inf therefore propagate through the complex result per IEEE 754.
 
-# Complex constants
-preset C128_ZERO: C128 = C128(real: 0.0_f128, imag: 0.0_f128)
-preset C128_ONE: C128 = C128(real: 1.0_f128, imag: 0.0_f128)
-preset C128_I: C128 = C128(real: 0.0_f128, imag: 1.0_f128)
+# Complex constants. `common routine` factories (not `preset`s): a `C128` value is a two-`F128` record,
+# not a compile-time scalar constant, so inlining it at every use (what a `preset` does) leaves the
+# construction unresolved / emits an undefined creator symbol at codegen.
+### The complex zero value (0 + 0i). :returns: The resulting `C128` value.
+common routine C128.zero() -> C128
+  return C128(real: 0.0_f128, imag: 0.0_f128)
+### The complex unit value (1 + 0i). :returns: The resulting `C128` value.
+common routine C128.one() -> C128
+  return C128(real: 1.0_f128, imag: 0.0_f128)
+### The imaginary unit (0 + 1i). :returns: The resulting `C128` value.
+common routine C128.i() -> C128
+  return C128(real: 0.0_f128, imag: 1.0_f128)
 
 # ============================================================================
 # Creators
@@ -252,7 +260,7 @@ routine C128.tan() -> C128
 routine C128.asin() -> C128
   # asin(z) = −i·log(iz + √(1 − z²)); iz = (−im, re).
   var iz = C128(real: -me.imag, imag: me.real)
-  var w = iz + (C128_ONE - me * me).sqrt_unchecked()
+  var w = iz + (C128.one() - me * me).sqrt_unchecked()
   var v = w.log_unchecked()
   # Multiply log(w) by −i: (re, im) -> (im, −re).
   return C128(real: v.imag, imag: -v.real)
@@ -261,7 +269,7 @@ routine C128.asin() -> C128
 ### :returns: The principal value of `arccos(me)`.
 routine C128.acos() -> C128
   # acos(z) = −i·log(z + i·√(1 − z²)); i·s = (−s.im, s.re).
-  var s = (C128_ONE - me * me).sqrt_unchecked()
+  var s = (C128.one() - me * me).sqrt_unchecked()
   var w = me + C128(real: -s.imag, imag: s.real)
   var v = w.log_unchecked()
   # Multiply log(w) by −i: (re, im) -> (im, −re).
@@ -308,19 +316,19 @@ routine C128.tanh() -> C128
 ### :returns: The principal value of `arcsinh(me)`.
 routine C128.asinh() -> C128
   # asinh(z) = log(z + √(z² + 1)).
-  return (me + (me * me + C128_ONE).sqrt_unchecked()).log_unchecked()
+  return (me + (me * me + C128.one()).sqrt_unchecked()).log_unchecked()
 
 ### Returns the complex inverse hyperbolic cosine of this value.
 ### :returns: The principal value of `arccosh(me)`.
 routine C128.acosh() -> C128
   # acosh(z) = log(z + √(z² − 1)).
-  return (me + (me * me - C128_ONE).sqrt_unchecked()).log_unchecked()
+  return (me + (me * me - C128.one()).sqrt_unchecked()).log_unchecked()
 
 ### Returns the complex inverse hyperbolic tangent of this value.
 ### :returns: The principal value of `arctanh(me)`.
 routine C128.atanh() -> C128
   # atanh(z) = ½·log((1 + z)/(1 − z)).
-  var v = ((C128_ONE + me) / (C128_ONE - me)).log_unchecked()
+  var v = ((C128.one() + me) / (C128.one() - me)).log_unchecked()
   return C128(real: v.real / 2.0_f128, imag: v.imag / 2.0_f128)
 
 # ============================================================================
@@ -370,7 +378,7 @@ routine C128.sqrt_unchecked() -> C128
   # Half-magnitude formula: with r = |z|, re' = √((r+re)/2), im' = √((r−re)/2).
   var r = me.abs()
   if r == 0.0_f128
-    return C128_ZERO
+    return C128.zero()
   var rp = ((r + me.real) / 2.0_f128).sqrt_unchecked()
   var ip = ((r - me.real) / 2.0_f128).sqrt_unchecked()
   # Imag part takes the sign of the input's imag (principal root, re' ≥ 0).
@@ -383,7 +391,7 @@ routine C128.sqrt_unchecked() -> C128
 # ============================================================================
 
 ### Returns `true` if both the real and imaginary parts are exactly zero.
-### :returns: `true` if `me == C128_ZERO`.
+### :returns: `true` if `me == C128.zero()`.
 routine C128.is_zero() -> Bool
   return me.real == 0.0_f128 and me.imag == 0.0_f128
 

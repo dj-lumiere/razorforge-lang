@@ -26,7 +26,13 @@ module Core
 record CStr
   pass
 
-preset CSTR_NULL: CStr = reinterpret_bits[Hijacked[Byte], CStr](hijacked_none[Byte]())
+### The null C string — a null `char*`. A `common routine` factory (not a `preset`): its value is a
+### `reinterpret_bits` of a `hijacked_none()` construction, not a compile-time scalar constant, so
+### inlining it at every use (what a `preset` does) leaves the call unresolved at codegen. (A future
+### null-pointer literal could make this a real `preset` again.)
+### :returns: The null `CStr` value.
+common routine CStr.null() -> CStr
+  return LLVM::reinterpret_bits[Hijacked[Byte], CStr](hijacked_none[Byte]())
 
 ### Returns the raw null-terminated byte pointer backing this C string.
 ### :returns: The underlying `Hijacked[Byte]` pointer.

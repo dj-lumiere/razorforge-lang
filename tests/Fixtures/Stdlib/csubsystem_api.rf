@@ -52,7 +52,7 @@ routine start()
   var s3 = make_wstr(a: 72u32, b: 105u32, c: 63u32)   # "Hi?"
   show(f"CWStr count={s.count()} is_null={s.is_null()} is_empty={s.is_empty()}")
   show(f"CWStr eq={s.eq(you: s2)} ne={s.eq(you: s3)} cmp_lt={s.cmp(you: s3)}")
-  show(f"CWStr null is_null={CWSTR_NULL.is_null()} is_empty={CWSTR_NULL.is_empty()}")
+  show(f"CWStr null is_null={CWStr.null().is_null()} is_empty={CWStr.null().is_empty()}")
   danger
     show(f"CWStr get0={s.getitem(index: 0u64).codepoint()} get2={s.getitem(index: 2u64).codepoint()}")
     var tail = s.offset(n: 1u64)

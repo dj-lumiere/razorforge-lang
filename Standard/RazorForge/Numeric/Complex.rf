@@ -14,10 +14,26 @@ record Complex obeys Numeric, Equatable, Hashable, Assignable, Copyable
 # 100 digits — comfortably above Decimal's fixed 70.
 preset DECIMAL_DEFAULT_PRECISION: S32 = 100
 
-# Complex constants
-preset COMPLEX_ZERO: Complex = Complex(real: Real.zero(), imag: Real.zero())
-preset COMPLEX_ONE: Complex = Complex(real: Real.one(), imag: Real.zero())
-preset COMPLEX_I: Complex = Complex(real: Real.zero(), imag: Real.one())
+# Complex constants. These are RECORD constructions over `Real` (an arbitrary-precision decimal record),
+# NOT compile-time scalar constants, so they are `common routine` factories — the same idiom as
+# `Real.zero()`/`Real.one()` — NOT `preset`s. (A `preset` inlines its value expression at every use;
+# inlining a `Real.zero()` construction leaves the call unresolved at codegen, since a preset value is not
+# re-analyzed at the inline site.)
+
+### The complex zero value (0 + 0i).
+### :returns: The resulting `Complex` value.
+common routine Complex.zero() -> Complex
+  return Complex(real: Real.zero(), imag: Real.zero())
+
+### The complex unit value (1 + 0i).
+### :returns: The resulting `Complex` value.
+common routine Complex.one() -> Complex
+  return Complex(real: Real.one(), imag: Real.zero())
+
+### The imaginary unit (0 + 1i).
+### :returns: The resulting `Complex` value.
+common routine Complex.i() -> Complex
+  return Complex(real: Real.zero(), imag: Real.one())
 
 # ============================================================================
 # Creators
@@ -26,7 +42,7 @@ preset COMPLEX_I: Complex = Complex(real: Real.zero(), imag: Real.one())
 ### Creates the complex zero value.
 ### :returns: The resulting `Complex` value.
 routine Complex() -> Complex
-  return COMPLEX_ZERO
+  return Complex.zero()
 
 ### Creates a purely real complex value.
 ### The imaginary component is initialized to zero.
@@ -179,7 +195,7 @@ routine Complex.arg(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Real
 routine Complex.sqrt(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Complex
   var r = me.abs()
   if r.is_zero()
-    return COMPLEX_ZERO
+    return Complex.zero()
 
   var two = Real(value: 2_s64)
   var rp = (r + me.real).divide(you: two, precision: precision).sqrt(precision)
@@ -254,7 +270,7 @@ routine Complex.tan(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Complex
 @readonly
 routine Complex.asin(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Complex
   var iz = Complex(real: -me.imag, imag: me.real)
-  var w = iz + (COMPLEX_ONE - me * me).sqrt(precision)
+  var w = iz + (Complex.one() - me * me).sqrt(precision)
   var v = w.log(precision)
   return Complex(real: v.imag_part(), imag: -v.real_part())
 
@@ -263,7 +279,7 @@ routine Complex.asin(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Complex
 ### :returns: The resulting `Complex` value.
 @readonly
 routine Complex.acos(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Complex
-  var s = (COMPLEX_ONE - me * me).sqrt(precision)
+  var s = (Complex.one() - me * me).sqrt(precision)
   var w = me + Complex(real: -s.imag_part(), imag: s.real_part())
   var v = w.log(precision)
   return Complex(real: v.imag_part(), imag: -v.real_part())
@@ -315,14 +331,14 @@ routine Complex.tanh(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Complex
 ### :returns: The resulting `Complex` value.
 @readonly
 routine Complex.asinh(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Complex
-  return (me + (me * me + COMPLEX_ONE).sqrt(precision)).log(precision)
+  return (me + (me * me + Complex.one()).sqrt(precision)).log(precision)
 
 ### Computes the principal inverse hyperbolic cosine of this value.
 ### :param precision: The decimal precision to use.
 ### :returns: The resulting `Complex` value.
 @readonly
 routine Complex.acosh(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Complex
-  return (me + (me * me - COMPLEX_ONE).sqrt(precision)).log(precision)
+  return (me + (me * me - Complex.one()).sqrt(precision)).log(precision)
 
 ### Computes the principal inverse hyperbolic tangent of this value.
 ### :param precision: The decimal precision to use.
@@ -330,7 +346,7 @@ routine Complex.acosh(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Complex
 @readonly
 routine Complex.atanh(precision: S32 = DECIMAL_DEFAULT_PRECISION) -> Complex
   var two = Real(value: 2_s64)
-  var v = ((COMPLEX_ONE + me) / (COMPLEX_ONE - me)).log(precision)
+  var v = ((Complex.one() + me) / (Complex.one() - me)).log(precision)
   return Complex(real: v.real_part().divide(you: two, precision: precision), imag: v.imag_part().divide(you: two, precision: precision))
 
 ### Computes the principal base-10 logarithm of this value.

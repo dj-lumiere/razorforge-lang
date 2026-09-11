@@ -13,32 +13,6 @@
 #endif
 
 // ============================================================================
-// Hardware-accelerated 128/64 -> 64 unsigned division.
-//   Computes (hi:lo) / d  -> quotient (return value) and remainder (*rem).
-//   PRECONDITION: hi < d, so the 64-bit quotient cannot overflow (no x86 #DE).
-// This is the base-2^64 estimation primitive for Knuth-D wide division and maps
-// to a single x86-64 `DIV r64` (or MSVC `_udiv128`); portable fallback elsewhere.
-// ============================================================================
-uint64_t rf_udivrem_128_64(uint64_t hi, uint64_t lo, uint64_t d, uint64_t* rem) {
-#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
-    /* GCC/Clang on x86-64 (incl. Clang in MSVC-compat mode): GCC inline asm
-       always works here, and avoids depending on _udiv128 being declared. */
-    uint64_t q, r;
-    __asm__("divq %[d]" : "=a"(q), "=d"(r) : "a"(lo), "d"(hi), [d] "r"(d));
-    *rem = r;
-    return q;
-#elif defined(_MSC_VER) && defined(_M_X64)
-    /* Real MSVC cl.exe: no GCC inline asm — use the intrinsic (same DIV r64). */
-    return _udiv128(hi, lo, d, rem);
-#else
-    /* Portable fallback (macOS arm64, wasm64): no 128/64 instruction exists. */
-    unsigned __int128 n = ((unsigned __int128)hi << 64) | (unsigned __int128)lo;
-    *rem = (uint64_t)(n % d);
-    return (uint64_t)(n / d);
-#endif
-}
-
-// ============================================================================
 // LibTomMath wrappers for arbitrary precision integers
 // ============================================================================
 

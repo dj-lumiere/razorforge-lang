@@ -10,21 +10,6 @@ import Collections
 # Used by D128 div (divisor always fits U128, quotient fits U128).
 # ============================================================================
 
-### (quotient, remainder) of (hi:lo) / d via the hardware 128/64 divide. Requires
-### hi < d. Wraps the dangerous intrinsic so callers stay outside `danger`.
-record UDR
-  q: U64
-  r: U64
-
-### (quotient, remainder) of the 128-bit value (hi:lo) divided by `d`, via one hardware
-### 128/64 divide. Caller must ensure `hi < d` (else the intrinsic overflows / traps).
-@inline
-routine udivrem128(hi: U64, lo: U64, d: U64) -> UDR
-  var scratch = 0_u64
-  danger
-    var q = C::rf_udivrem_128_64(hi: hi, lo: lo, d: d, rem: scratch.hijack())
-    return UDR(q: q, r: scratch)
-
 ### One Knuth-D quotient-digit step for a 2-limb divisor: divide (ujn:ujn1:ujn2) by
 ### the normalized divisor (vn1:vn0), returning the updated dividend limbs + qhat.
 record KStep
@@ -38,15 +23,16 @@ record KStep
 ### corrects it, runs the multiply-subtract, and adds the divisor back if it went negative.
 ### :returns: the updated top three dividend limbs and the final quotient digit `q`.
 @inline
-routine knuth_step(ujn: U64, ujn1: U64, ujn2: U64, vn0: U64, vn1: U64) -> KStep
-  # D3: initial qhat estimate. ujn == vn1 would overflow the 128/64 divide, so cap at 2^64-1.
+routine knuth_step(ujn: U64, ujn1: U64, ujn2: U64, vn0: U64, vn1: U64, vrec: U64) -> KStep
+  # D3: initial qhat estimate via multiply-only div2by1 (vrec = reciprocal_word(vn1), hoisted by the
+  # caller since vn1 is invariant). ujn == vn1 would break div2by1's u1 < d precondition, so cap at 2^64-1.
   var qhat = 0_u64
   var rhat = 0_u64
   if LLVM::int_eq(a: ujn, b: vn1)
     qhat = 18446744073709551615_u64
     rhat = LLVM::add(a: ujn1, b: vn1)
   else
-    var dr = udivrem128(hi: ujn, lo: ujn1, d: vn1)
+    var dr = div2by1(u1: ujn, u0: ujn1, d: vn1, v: vrec)
     qhat = dr.q
     rhat = dr.r
   # D3 correction: while qhat*vn0 > (rhat:ujn2), decrement qhat (and grow rhat by vn1).
@@ -103,14 +89,26 @@ routine udiv256_by_u128_sticky(num: U256, den: U256) -> U256
   var d0 = LLVM::int_truncate[U256, U64](den)
   var d1 = LLVM::int_truncate[U256, U64](LLVM::shift_right_unsigned(den, U256.to_width(s: 64_s64)))
   if LLVM::int_eq(a: d1, b: 0_u64)
-    # single-limb divisor: long division high -> low
-    var dr3 = udivrem128(hi: 0_u64, lo: a3, d: d0)
-    var dr2 = udivrem128(hi: dr3.r, lo: a2, d: d0)
-    var dr1 = udivrem128(hi: dr2.r, lo: a1, d: d0)
-    var dr0 = udivrem128(hi: dr1.r, lo: a0, d: d0)
+    # single-limb divisor: normalized long division via multiply-only div2by1 (no hardware divide).
+    # Normalize d0, shift the dividend limbs on the fly; the normalized remainder is nonzero iff the
+    # true remainder is (it equals true_rem << s1, no overflow since true_rem < d0 < 2^(64-s1)).
+    var s1 = LLVM::reinterpret_bits[U64, S64](LLVM::leading_zeros(d0))
+    var s1u = LLVM::reinterpret_bits[S64, U64](s1)
+    var s1i = LLVM::reinterpret_bits[S64, U64](LLVM::sub(a: 64_s64, b: s1))
+    var p1 = LLVM::signed_gt(a: s1, b: 0_s64)
+    var dn1 = LLVM::shift_left(value: d0, bits: s1u)
+    var vr1 = reciprocal_word(dn1)
+    var na3 = LLVM::bit_or(a: LLVM::shift_left(value: a3, bits: s1u), b: if p1 then LLVM::shift_right_unsigned(a2, s1i) else 0_u64)
+    var na2 = LLVM::bit_or(a: LLVM::shift_left(value: a2, bits: s1u), b: if p1 then LLVM::shift_right_unsigned(a1, s1i) else 0_u64)
+    var na1 = LLVM::bit_or(a: LLVM::shift_left(value: a1, bits: s1u), b: if p1 then LLVM::shift_right_unsigned(a0, s1i) else 0_u64)
+    var na0 = LLVM::shift_left(value: a0, bits: s1u)
+    var r0 = if p1 then LLVM::shift_right_unsigned(a3, s1i) else 0_u64
+    var dr3 = div2by1(u1: r0, u0: na3, d: dn1, v: vr1)
+    var dr2 = div2by1(u1: dr3.r, u0: na2, d: dn1, v: vr1)
+    var dr1 = div2by1(u1: dr2.r, u0: na1, d: dn1, v: vr1)
+    var dr0 = div2by1(u1: dr1.r, u0: na0, d: dn1, v: vr1)
     var q = asm256(q0: dr0.q, q1: dr1.q, q2: dr2.q, q3: dr3.q)
-    var r = dr0.r
-    if LLVM::int_ne(a: r, b: 0_u64)
+    if LLVM::int_ne(a: dr0.r, b: 0_u64)
       q = LLVM::bit_or(a: q, b: LLVM::zero_extend[U64, U256](1_u64))
     return q
   # two-limb divisor: Knuth-D, mlen=4 / m=2 unrolled (extra leading quotient digits
@@ -121,20 +119,22 @@ routine udiv256_by_u128_sticky(num: U256, den: U256) -> U256
   var si = LLVM::reinterpret_bits[S64, U64](LLVM::sub(a: 64_s64, b: s))
   var vn1 = LLVM::bit_or(a: LLVM::shift_left(value: d1, bits: su), b: if pos then LLVM::shift_right_unsigned(d0, si) else 0_u64)
   var vn0 = LLVM::shift_left(value: d0, bits: su)
+  # vn1 is normalized and invariant across the 3 unrolled quotient-digit steps → reciprocal once.
+  var vrec = reciprocal_word(vn1)
   var un0 = LLVM::shift_left(value: a0, bits: su)
   var un1 = LLVM::bit_or(a: LLVM::shift_left(value: a1, bits: su), b: if pos then LLVM::shift_right_unsigned(a0, si) else 0_u64)
   var un2 = LLVM::bit_or(a: LLVM::shift_left(value: a2, bits: su), b: if pos then LLVM::shift_right_unsigned(a1, si) else 0_u64)
   var un3 = LLVM::bit_or(a: LLVM::shift_left(value: a3, bits: su), b: if pos then LLVM::shift_right_unsigned(a2, si) else 0_u64)
   var un4 = if pos then LLVM::shift_right_unsigned(a3, si) else 0_u64
-  var st2 = knuth_step(ujn: un4, ujn1: un3, ujn2: un2, vn0: vn0, vn1: vn1)
+  var st2 = knuth_step(ujn: un4, ujn1: un3, ujn2: un2, vn0: vn0, vn1: vn1, vrec: vrec)
   un4 = st2.ujn
   un3 = st2.ujn1
   un2 = st2.ujn2
-  var st1 = knuth_step(ujn: un3, ujn1: un2, ujn2: un1, vn0: vn0, vn1: vn1)
+  var st1 = knuth_step(ujn: un3, ujn1: un2, ujn2: un1, vn0: vn0, vn1: vn1, vrec: vrec)
   un3 = st1.ujn
   un2 = st1.ujn1
   un1 = st1.ujn2
-  var st0 = knuth_step(ujn: un2, ujn1: un1, ujn2: un0, vn0: vn0, vn1: vn1)
+  var st0 = knuth_step(ujn: un2, ujn1: un1, ujn2: un0, vn0: vn0, vn1: vn1, vrec: vrec)
   un2 = st0.ujn
   un1 = st0.ujn1
   un0 = st0.ujn2
@@ -154,9 +154,19 @@ routine udiv256_by_u128_sticky(num: U256, den: U256) -> U256
 routine udiv128_by_u64_sticky(num: U128, den: U64) -> U128
   var a0 = LLVM::int_truncate[U128, U64](num)
   var a1 = LLVM::int_truncate[U128, U64](LLVM::shift_right_unsigned(num, 64_u128))
-  # long division high -> low; each partial dividend's high limb stays < den, so no overflow.
-  var dr1 = udivrem128(hi: 0_u64, lo: a1, d: den)
-  var dr0 = udivrem128(hi: dr1.r, lo: a0, d: den)
+  # normalized long division via multiply-only div2by1 (no hardware divide): normalize den,
+  # shift the dividend on the fly; the normalized remainder is nonzero iff the true remainder is.
+  var s1 = LLVM::reinterpret_bits[U64, S64](LLVM::leading_zeros(den))
+  var s1u = LLVM::reinterpret_bits[S64, U64](s1)
+  var s1i = LLVM::reinterpret_bits[S64, U64](LLVM::sub(a: 64_s64, b: s1))
+  var p1 = LLVM::signed_gt(a: s1, b: 0_s64)
+  var dn1 = LLVM::shift_left(value: den, bits: s1u)
+  var vr1 = reciprocal_word(dn1)
+  var na1 = LLVM::bit_or(a: LLVM::shift_left(value: a1, bits: s1u), b: if p1 then LLVM::shift_right_unsigned(a0, s1i) else 0_u64)
+  var na0 = LLVM::shift_left(value: a0, bits: s1u)
+  var r0 = if p1 then LLVM::shift_right_unsigned(a1, s1i) else 0_u64
+  var dr1 = div2by1(u1: r0, u0: na1, d: dn1, v: vr1)
+  var dr0 = div2by1(u1: dr1.r, u0: na0, d: dn1, v: vr1)
   var q = LLVM::bit_or(a: LLVM::zero_extend[U64, U128](dr0.q), b: LLVM::shift_left(value: LLVM::zero_extend[U64, U128](dr1.q), bits: 64_u128))
   if LLVM::int_ne(a: dr0.r, b: 0_u64)
     q = LLVM::bit_or(a: q, b: 1_u128)

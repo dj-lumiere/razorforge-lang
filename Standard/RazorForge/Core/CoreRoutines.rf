@@ -38,6 +38,57 @@ routine verify!(expr: Bool)
 routine breach!()
   throw LogicBreachedError()
 
+### The quotient and remainder of a single Möller-Granlund 2-by-1 word division.
+record WordQuoRem
+  q: U64
+  r: U64
+
+### The Möller-Granlund reciprocal of a NORMALIZED 64-bit divisor `d` (its MSB MUST be set):
+### `v = floor((2¹²⁸ − 1) / d) − 2⁶⁴`, the precomputed constant that turns each 2-by-1 division
+### into multiplies (see `div2by1`). This is intx's `reciprocal_2by1` — the only divide is one
+### native 64/64 seed: intx's 256-entry seed table `t[i] = 0x7fd00 / (i + 256)` indexed by `d >> 55`
+### is exactly `0x7fd00 / (d >> 55)` (523520 == 0x7fd00), so a single `unsigned_div` (ARM `UDIV` /
+### x86 `DIV` / wasm `div_u`, one instruction everywhere) replaces the table. The v1..v4 Newton
+### refinement is the intx sequence verbatim; all arithmetic is wrapping U64 as in the reference.
+### :returns: the reciprocal `v` feeding `div2by1`.
+routine reciprocal_word(d: U64) -> U64
+  var d9 = LLVM::shift_right_unsigned(d, 55_u64)
+  var v0 = LLVM::unsigned_div(a: 523520_u64, b: d9)
+  var d40 = LLVM::add(a: LLVM::shift_right_unsigned(d, 24_u64), b: 1_u64)
+  var t1 = LLVM::shift_right_unsigned(LLVM::mul(a: LLVM::mul(a: v0, b: v0), b: d40), 40_u64)
+  var v1 = LLVM::sub(a: LLVM::sub(a: LLVM::shift_left(v0, 11_u64), b: t1), b: 1_u64)
+  var inner = LLVM::sub(a: 1152921504606846976_u64, b: LLVM::mul(a: v1, b: d40))
+  var t2 = LLVM::shift_right_unsigned(LLVM::mul(a: v1, b: inner), 47_u64)
+  var v2 = LLVM::add(a: LLVM::shift_left(v1, 13_u64), b: t2)
+  var d0 = LLVM::bit_and(a: d, b: 1_u64)
+  var d63 = LLVM::add(a: LLVM::shift_right_unsigned(d, 1_u64), b: d0)
+  var mask = LLVM::sub(a: 0_u64, b: d0)
+  var e = LLVM::sub(a: LLVM::bit_and(a: LLVM::shift_right_unsigned(v2, 1_u64), b: mask), b: LLVM::mul(a: v2, b: d63))
+  var v2e = LLVM::mul(a: LLVM::zero_extend[U64, U128](v2), b: LLVM::zero_extend[U64, U128](e))
+  var v3 = LLVM::add(a: LLVM::shift_right_unsigned(LLVM::int_truncate[U128, U64](LLVM::shift_right_unsigned(v2e, 64_u128)), 1_u64), b: LLVM::shift_left(v2, 31_u64))
+  var v3d = LLVM::add(a: LLVM::mul(a: LLVM::zero_extend[U64, U128](v3), b: LLVM::zero_extend[U64, U128](d)), b: LLVM::zero_extend[U64, U128](d))
+  var v4 = LLVM::sub(a: LLVM::sub(a: v3, b: LLVM::int_truncate[U128, U64](LLVM::shift_right_unsigned(v3d, 64_u128))), b: d)
+  return v4
+
+### Möller-Granlund 2-by-1 division: `(u1:u0) / d` for a NORMALIZED `d` (MSB set) with `u1 < d`,
+### using the reciprocal `v = reciprocal_word(d)`. Multiply-only — this is what `rf_udivrem_128_64`
+### used to do with a hardware 128/64 divide, now portable to every target (no `divq`, no ARM
+### `__udivti3`). intx's `udivrem_2by1` verbatim; wrapping U64/U128 arithmetic as in the reference.
+### :returns: the quotient `q` and remainder `r` of `(u1:u0) / d`.
+routine div2by1(u1: U64, u0: U64, d: U64, v: U64) -> WordQuoRem
+  var u = LLVM::bit_or(a: LLVM::shift_left(LLVM::zero_extend[U64, U128](u1), 64_u128), b: LLVM::zero_extend[U64, U128](u0))
+  var qfull = LLVM::add(a: LLVM::mul(a: LLVM::zero_extend[U64, U128](v), b: LLVM::zero_extend[U64, U128](u1)), b: u)
+  var q0 = LLVM::int_truncate[U128, U64](qfull)
+  var q1 = LLVM::add(a: LLVM::int_truncate[U128, U64](LLVM::shift_right_unsigned(qfull, 64_u128)), b: 1_u64)
+  var r = LLVM::sub(a: u0, b: LLVM::mul(a: q1, b: d))
+  if LLVM::unsigned_gt(a: r, b: q0)
+    q1 = LLVM::sub(a: q1, b: 1_u64)
+    r = LLVM::add(a: r, b: d)
+  if LLVM::unsigned_ge(a: r, b: d)
+    q1 = LLVM::add(a: q1, b: 1_u64)
+    r = LLVM::sub(a: r, b: d)
+  return WordQuoRem(q: q1, r: r)
+
 routine knuth_divide[N](
   a: Hijacked[Array[U64, N]],
   b: Hijacked[Array[U64, N]],
@@ -48,24 +99,34 @@ needs U64 N
   var q = Array[U64, N]()
   danger
     var qp = q.hijack()
-    var rscratch = 0_u64
 
     # significant limb count of the divisor (highest non-zero limb + 1)
     var n = nl
     while LLVM::signed_gt(a: n, b: 1_s64) and LLVM::int_eq(a: LLVM::load_element_ref[Array[U64, N], U64](b, LLVM::reinterpret_bits[S64, U64](LLVM::sub(a: n, b: 1_s64))), b: 0_u64)
       n = LLVM::sub(a: n, b: 1_s64)
 
-    # ---- Single-limb divisor: simple long division, high limb to low ----
+    # ---- Single-limb divisor: normalized long division via multiply-only div2by1 ----
+    # Normalize d0 so its MSB is set (div2by1's precondition); shift the dividend limbs on
+    # the fly by the same amount, then denormalize the final remainder by shifting it back.
     if LLVM::signed_le(a: n, b: 1_s64)
       var d0 = LLVM::load_element_ref[Array[U64, N], U64](b, 0_u64)
-      var r = 0_u64
+      var sh1 = LLVM::reinterpret_bits[U64, S64](LLVM::leading_zeros(d0))
+      var sh1u = LLVM::reinterpret_bits[S64, U64](sh1)
+      var sh1inv = LLVM::reinterpret_bits[S64, U64](LLVM::sub(a: 64_s64, b: sh1))
+      var pos1 = LLVM::signed_gt(a: sh1, b: 0_s64)
+      var dn = LLVM::shift_left(d0, sh1u)
+      var vrec1 = reciprocal_word(dn)
+      # initial normalized remainder = the bits shifted out past the top limb (< dn, so u1 < d holds)
+      var r = if pos1 then LLVM::shift_right_unsigned(LLVM::load_element_ref[Array[U64, N], U64](a, LLVM::reinterpret_bits[S64, U64](LLVM::sub(a: nl, b: 1_s64))), sh1inv) else 0_u64
       var i = LLVM::sub(a: nl, b: 1_s64)
       while LLVM::signed_ge(a: i, b: 0_s64)
-        var qi = C::rf_udivrem_128_64(hi: r, lo: LLVM::load_element_ref[Array[U64, N], U64](a, LLVM::reinterpret_bits[S64, U64](i)), d: d0, rem: rscratch.hijack())
-        LLVM::store_element_ref[Array[U64, N], U64](qp, LLVM::reinterpret_bits[S64, U64](i), qi)
-        r = rscratch
+        var ahi = LLVM::shift_left(LLVM::load_element_ref[Array[U64, N], U64](a, LLVM::reinterpret_bits[S64, U64](i)), sh1u)
+        var alo = if LLVM::signed_gt(a: i, b: 0_s64) and pos1 then LLVM::shift_right_unsigned(LLVM::load_element_ref[Array[U64, N], U64](a, LLVM::reinterpret_bits[S64, U64](LLVM::sub(a: i, b: 1_s64))), sh1inv) else 0_u64
+        var dr = div2by1(u1: r, u0: LLVM::bit_or(a: ahi, b: alo), d: dn, v: vrec1)
+        LLVM::store_element_ref[Array[U64, N], U64](qp, LLVM::reinterpret_bits[S64, U64](i), dr.q)
+        r = dr.r
         i = LLVM::sub(a: i, b: 1_s64)
-      LLVM::store_element_ref[Array[U64, N], U64](rem, 0_u64, r)
+      LLVM::store_element_ref[Array[U64, N], U64](rem, 0_u64, LLVM::shift_right_unsigned(r, sh1u))
       var z = 1_s64
       while LLVM::signed_lt(a: z, b: nl)
         LLVM::store_element_ref[Array[U64, N], U64](rem, LLVM::reinterpret_bits[S64, U64](z), 0_u64)
@@ -118,6 +179,9 @@ needs U64 N
 
     var vn1 = LLVM::load_element_ref[Array[U64, N], U64](vnp, LLVM::reinterpret_bits[S64, U64](LLVM::sub(a: n, b: 1_s64)))
     var vn2 = LLVM::load_element_ref[Array[U64, N], U64](vnp, LLVM::reinterpret_bits[S64, U64](LLVM::sub(a: n, b: 2_s64)))
+    # vn1 is the normalized top divisor limb (MSB set by D1), invariant across the whole
+    # quotient-digit loop, so its Möller-Granlund reciprocal is computed exactly once here.
+    var vrec = reciprocal_word(vn1)
 
     # ---- D2..D7: main loop over quotient limbs, high to low ----
     var j = m
@@ -133,8 +197,9 @@ needs U64 N
         qhat = U64_MAX
         rhat = LLVM::add(a: un_jn1, b: vn1)
       else
-        qhat = C::rf_udivrem_128_64(hi: un_jn, lo: un_jn1, d: vn1, rem: rscratch.hijack())
-        rhat = rscratch
+        var dr = div2by1(u1: un_jn, u0: un_jn1, d: vn1, v: vrec)
+        qhat = dr.q
+        rhat = dr.r
       # correct qhat: while qhat*vn2 > (rhat:un[j+n-2]) and rhat fits 64 bits
       var un_jn2 = LLVM::load_element_ref[Array[U64, N], U64](unp, LLVM::reinterpret_bits[S64, U64](LLVM::sub(a: LLVM::add(a: j, b: n), b: 2_s64)))
       var keep = true
