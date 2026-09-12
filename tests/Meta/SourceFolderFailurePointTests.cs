@@ -83,7 +83,7 @@ public sealed partial class SourceFolderFailurePointTests
             ["RoutineCollectionPass", "RoutineReachabilityPass", "ReachableGenericCollectionPass"]
         },
         {
-            "9.CodeGen",
+            "9.LlvmEmit",
             "backend rejects unsupported AST/metadata states before emitting invalid IR",
             [
                 "InvalidOperationException", "NotImplementedException", "GetExpressionType",

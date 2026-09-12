@@ -43,17 +43,37 @@ record WordQuoRem
   q: U64
   r: U64
 
+### Möller-Granlund reciprocal_2by1 seed table (intx verbatim): RECIP2BY1_SEED[i] = 0x7fd00 // (i + 256),
+### indexed by (d >> 55) - 256. Makes reciprocal_word fully divide-free (a table load, no 64/64 divide).
+secret preset RECIP2BY1_SEED: Array[U16, 256] = [
+  2045_u16, 2037_u16, 2029_u16, 2021_u16, 2013_u16, 2005_u16, 1998_u16, 1990_u16, 1983_u16, 1975_u16, 1968_u16, 1960_u16, 1953_u16, 1946_u16, 1938_u16, 1931_u16,
+  1924_u16, 1917_u16, 1910_u16, 1903_u16, 1896_u16, 1889_u16, 1883_u16, 1876_u16, 1869_u16, 1863_u16, 1856_u16, 1849_u16, 1843_u16, 1836_u16, 1830_u16, 1824_u16,
+  1817_u16, 1811_u16, 1805_u16, 1799_u16, 1792_u16, 1786_u16, 1780_u16, 1774_u16, 1768_u16, 1762_u16, 1756_u16, 1750_u16, 1745_u16, 1739_u16, 1733_u16, 1727_u16,
+  1722_u16, 1716_u16, 1710_u16, 1705_u16, 1699_u16, 1694_u16, 1688_u16, 1683_u16, 1677_u16, 1672_u16, 1667_u16, 1661_u16, 1656_u16, 1651_u16, 1646_u16, 1641_u16,
+  1636_u16, 1630_u16, 1625_u16, 1620_u16, 1615_u16, 1610_u16, 1605_u16, 1600_u16, 1596_u16, 1591_u16, 1586_u16, 1581_u16, 1576_u16, 1572_u16, 1567_u16, 1562_u16,
+  1558_u16, 1553_u16, 1548_u16, 1544_u16, 1539_u16, 1535_u16, 1530_u16, 1526_u16, 1521_u16, 1517_u16, 1513_u16, 1508_u16, 1504_u16, 1500_u16, 1495_u16, 1491_u16,
+  1487_u16, 1483_u16, 1478_u16, 1474_u16, 1470_u16, 1466_u16, 1462_u16, 1458_u16, 1454_u16, 1450_u16, 1446_u16, 1442_u16, 1438_u16, 1434_u16, 1430_u16, 1426_u16,
+  1422_u16, 1418_u16, 1414_u16, 1411_u16, 1407_u16, 1403_u16, 1399_u16, 1396_u16, 1392_u16, 1388_u16, 1384_u16, 1381_u16, 1377_u16, 1374_u16, 1370_u16, 1366_u16,
+  1363_u16, 1359_u16, 1356_u16, 1352_u16, 1349_u16, 1345_u16, 1342_u16, 1338_u16, 1335_u16, 1332_u16, 1328_u16, 1325_u16, 1322_u16, 1318_u16, 1315_u16, 1312_u16,
+  1308_u16, 1305_u16, 1302_u16, 1299_u16, 1295_u16, 1292_u16, 1289_u16, 1286_u16, 1283_u16, 1280_u16, 1276_u16, 1273_u16, 1270_u16, 1267_u16, 1264_u16, 1261_u16,
+  1258_u16, 1255_u16, 1252_u16, 1249_u16, 1246_u16, 1243_u16, 1240_u16, 1237_u16, 1234_u16, 1231_u16, 1228_u16, 1226_u16, 1223_u16, 1220_u16, 1217_u16, 1214_u16,
+  1211_u16, 1209_u16, 1206_u16, 1203_u16, 1200_u16, 1197_u16, 1195_u16, 1192_u16, 1189_u16, 1187_u16, 1184_u16, 1181_u16, 1179_u16, 1176_u16, 1173_u16, 1171_u16,
+  1168_u16, 1165_u16, 1163_u16, 1160_u16, 1158_u16, 1155_u16, 1153_u16, 1150_u16, 1148_u16, 1145_u16, 1143_u16, 1140_u16, 1138_u16, 1135_u16, 1133_u16, 1130_u16,
+  1128_u16, 1125_u16, 1123_u16, 1121_u16, 1118_u16, 1116_u16, 1113_u16, 1111_u16, 1109_u16, 1106_u16, 1104_u16, 1102_u16, 1099_u16, 1097_u16, 1095_u16, 1092_u16,
+  1090_u16, 1088_u16, 1086_u16, 1083_u16, 1081_u16, 1079_u16, 1077_u16, 1074_u16, 1072_u16, 1070_u16, 1068_u16, 1066_u16, 1064_u16, 1061_u16, 1059_u16, 1057_u16,
+  1055_u16, 1053_u16, 1051_u16, 1049_u16, 1047_u16, 1044_u16, 1042_u16, 1040_u16, 1038_u16, 1036_u16, 1034_u16, 1032_u16, 1030_u16, 1028_u16, 1026_u16, 1024_u16
+]
+
 ### The Möller-Granlund reciprocal of a NORMALIZED 64-bit divisor `d` (its MSB MUST be set):
 ### `v = floor((2¹²⁸ − 1) / d) − 2⁶⁴`, the precomputed constant that turns each 2-by-1 division
-### into multiplies (see `div2by1`). This is intx's `reciprocal_2by1` — the only divide is one
-### native 64/64 seed: intx's 256-entry seed table `t[i] = 0x7fd00 / (i + 256)` indexed by `d >> 55`
-### is exactly `0x7fd00 / (d >> 55)` (523520 == 0x7fd00), so a single `unsigned_div` (ARM `UDIV` /
-### x86 `DIV` / wasm `div_u`, one instruction everywhere) replaces the table. The v1..v4 Newton
-### refinement is the intx sequence verbatim; all arithmetic is wrapping U64 as in the reference.
+### into multiplies (see `div2by1`). This is intx's `reciprocal_2by1` — seeded from the 256-entry
+### `RECIP2BY1_SEED` table (v0 = table[(d >> 55) - 256]), then refined by the v1..v4 Newton steps
+### of pure multiplies -- so reciprocal_word is fully DIVIDE-FREE: no 128/64, and not even a 64/64
+### divide. All arithmetic is wrapping U64 as in the reference.
 ### :returns: the reciprocal `v` feeding `div2by1`.
 routine reciprocal_word(d: U64) -> U64
   var d9 = LLVM::shift_right_unsigned(d, 55_u64)
-  var v0 = LLVM::unsigned_div(a: 523520_u64, b: d9)
+  var v0 = LLVM::zero_extend[U16, U64](RECIP2BY1_SEED[LLVM::sub(a: d9, b: 256_u64)])
   var d40 = LLVM::add(a: LLVM::shift_right_unsigned(d, 24_u64), b: 1_u64)
   var t1 = LLVM::shift_right_unsigned(LLVM::mul(a: LLVM::mul(a: v0, b: v0), b: d40), 40_u64)
   var v1 = LLVM::sub(a: LLVM::sub(a: LLVM::shift_left(v0, 11_u64), b: t1), b: 1_u64)

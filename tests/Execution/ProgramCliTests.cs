@@ -123,7 +123,7 @@ public sealed class ProgramCliTests : IDisposable
     }
 
     [Fact]
-    public void Codegen_ValidFile_WritesIrAndReturnsZero()
+    public void LlvmEmitter_ValidFile_WritesIrAndReturnsZero()
     {
         string outLl = Path.Combine(path1: _dir, path2: "sample.ll");
         (int code, _) = RunMain("codegen", _rf, outLl);

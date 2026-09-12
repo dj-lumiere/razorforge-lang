@@ -322,7 +322,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for tuple literal lowering and emits the expected IR.
     /// </summary>
     [Fact]
-    public void Codegen_TupleLiteralLowering_GeneratesIr()
+    public void LlvmEmitter_TupleLiteralLowering_GeneratesIr()
     {
         string source = """
                         routine test()
@@ -353,7 +353,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for priority queue dict literal and emits the expected IR.
     /// </summary>
     [Fact]
-    public void Codegen_PriorityQueueDictLiteral_GeneratesIr()
+    public void LlvmEmitter_PriorityQueueDictLiteral_GeneratesIr()
     {
         string source = """
                         import Collections
@@ -385,7 +385,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for nested owned list literal and emits the expected IR.
     /// </summary>
     [Fact]
-    public void Codegen_NestedOwnedListLiteral_GeneratesIr()
+    public void LlvmEmitter_NestedOwnedListLiteral_GeneratesIr()
     {
         string source = """
                         routine test()
@@ -442,7 +442,7 @@ public class CompilerPipelineLoweringTests
     /// `shl i256 <record-T>`). Driving codegen to completion is the lock — Generate() must not throw.
     /// </summary>
     [Fact]
-    public void Codegen_UserRecordNamedLikeGenericParam_DoesNotHijackParam()
+    public void LlvmEmitter_UserRecordNamedLikeGenericParam_DoesNotHijackParam()
     {
         string source = """
                         record T
@@ -483,7 +483,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for try floordiv variant uses failable operator symbols.
     /// </summary>
     [Fact]
-    public void Codegen_TryFloordivVariant_UsesFailableOperatorSymbols()
+    public void LlvmEmitter_TryFloordivVariant_UsesFailableOperatorSymbols()
     {
         string source = """
                         routine start()
@@ -525,7 +525,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for lambda lift and emits the expected IR.
     /// </summary>
     [Fact]
-    public void Codegen_LambdaLift_GeneratesIr()
+    public void LlvmEmitter_LambdaLift_GeneratesIr()
     {
         // RazorForge has no module-level mutable state (RF-S435), so the captured binding is a
         // routine local — the lambda lift still fires on the closure over `factor`. The lambda
@@ -562,7 +562,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for stdlib bit list add last and emits the expected definition.
     /// </summary>
     [Fact]
-    public void Codegen_StdlibBitListAddLast_IsDefined()
+    public void LlvmEmitter_StdlibBitListAddLast_IsDefined()
     {
         string source = """
                         import Collections.BitList
@@ -601,7 +601,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for byte size allocator wrapper passes scalar abi to raw c function.
     /// </summary>
     [Fact]
-    public void Codegen_ByteSizeAllocatorWrapper_PassesScalarAbiToRawCFunction()
+    public void LlvmEmitter_ByteSizeAllocatorWrapper_PassesScalarAbiToRawCFunction()
     {
         string source = """
                         routine start()
@@ -638,7 +638,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for concrete LLVM intrinsic call substitutes template type arguments.
     /// </summary>
     [Fact]
-    public void Codegen_ConcreteLlvmIntrinsicCall_SubstitutesTemplateTypeArguments()
+    public void LlvmEmitter_ConcreteLlvmIntrinsicCall_SubstitutesTemplateTypeArguments()
     {
         string source = """
                         routine test() -> S64
@@ -675,7 +675,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies const generic LLVM intrinsic arguments substitute numeric values, not carrier types.
     /// </summary>
     [Fact]
-    public void Codegen_ConstGenericLlvmIntrinsicCall_SubstitutesConstValue()
+    public void LlvmEmitter_ConstGenericLlvmIntrinsicCall_SubstitutesConstValue()
     {
         string source = """
                         routine test() -> Array[Byte, 8]
@@ -712,7 +712,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for bit list to U8 uses concrete hijacked U64 extract.
     /// </summary>
     [Fact]
-    public void Codegen_BitListToU8_UsesConcreteHijackedU64Extract()
+    public void LlvmEmitter_BitListToU8_UsesConcreteHijackedU64Extract()
     {
         // Variants are synthesized + emitted ON DEMAND — a bare propagating `to_u8!()` never
         // materializes `try_to_u8`. The `trigger` routine RECOVERS via the `try_` variant so the
@@ -765,7 +765,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for overloaded try create variants get distinct mangled names.
     /// </summary>
     [Fact]
-    public void Codegen_OverloadedTryCreateVariants_GetDistinctMangledNames()
+    public void LlvmEmitter_OverloadedTryCreateVariants_GetDistinctMangledNames()
     {
         string source = """
                         routine test()
@@ -819,7 +819,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for generic hijack does not emit bare create symbol.
     /// </summary>
     [Fact]
-    public void Codegen_GenericHijack_DoesNotEmitBareCreateSymbol()
+    public void LlvmEmitter_GenericHijack_DoesNotEmitBareCreateSymbol()
     {
         string source = """
                         dangerous routine wrap[T](value: T) -> Hijacked[T]
@@ -853,7 +853,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for generic hijacked from does not emit bare module symbol.
     /// </summary>
     [Fact]
-    public void Codegen_GenericHijackedFrom_DoesNotEmitBareModuleSymbol()
+    public void LlvmEmitter_GenericHijackedFrom_DoesNotEmitBareModuleSymbol()
     {
         string source = """
                         dangerous routine start() -> Hijacked[S64]
@@ -888,7 +888,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for chained memberRoutine call on call receiver and emits the expected IR.
     /// </summary>
     [Fact]
-    public void Codegen_ChainedMemberRoutineCall_OnCallReceiver_GeneratesIr()
+    public void LlvmEmitter_ChainedMemberRoutineCall_OnCallReceiver_GeneratesIr()
     {
         string source = """
                         record Box[T]
@@ -930,7 +930,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for wrapper memberRoutine call uses concrete generic return type.
     /// </summary>
     [Fact]
-    public void Codegen_WrapperMemberRoutineCall_UsesConcreteGenericReturnType()
+    public void LlvmEmitter_WrapperMemberRoutineCall_UsesConcreteGenericReturnType()
     {
         string source = """
                         dangerous routine test(ptr: Hijacked[S64]) -> S64
@@ -966,7 +966,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for memberRoutine conversion call uses semantic return type.
     /// </summary>
     [Fact]
-    public void Codegen_memberRoutineConversionCall_UsesSemanticReturnType()
+    public void LlvmEmitter_memberRoutineConversionCall_UsesSemanticReturnType()
     {
         string source = """
                         routine helper(value: S32) -> S32
@@ -1066,7 +1066,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for stdlib variant bodies do not warn about missing character constructor metadata.
     /// </summary>
     [Fact]
-    public void Codegen_StdlibVariantBodies_DoNotWarnAboutMissingCharacterConstructorMetadata()
+    public void LlvmEmitter_StdlibVariantBodies_DoNotWarnAboutMissingCharacterConstructorMetadata()
     {
         string source = """
                         routine helper(value: S32) -> S32
@@ -1288,7 +1288,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for const generic preset type argument uses resolved type expression metadata.
     /// </summary>
     [Fact]
-    public void Codegen_ConstGenericPresetTypeArgument_UsesResolvedTypeExpressionMetadata()
+    public void LlvmEmitter_ConstGenericPresetTypeArgument_UsesResolvedTypeExpressionMetadata()
     {
         string source = """
                         preset WIDTH: Address = 16addr
@@ -1346,7 +1346,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for typewise builder service memberRoutine uses semantic receiver type.
     /// </summary>
     [Fact]
-    public void Codegen_TypewiseBuilderQueryMemberRoutine_UsesSemanticReceiverType()
+    public void LlvmEmitter_TypewiseBuilderQueryMemberRoutine_UsesSemanticReceiverType()
     {
         string source = """
                         import BuilderQuery
@@ -1385,7 +1385,7 @@ public class CompilerPipelineLoweringTests
     /// Verifies code generation behavior for monomorphized generic body emits standalone generic helper definition.
     /// </summary>
     [Fact]
-    public void Codegen_MonomorphizedGenericBody_EmitsStandaloneGenericHelperDefinition()
+    public void LlvmEmitter_MonomorphizedGenericBody_EmitsStandaloneGenericHelperDefinition()
     {
         string source = """
                         dangerous routine wrap_addr[T](addr: Address) -> Hijacked[T]

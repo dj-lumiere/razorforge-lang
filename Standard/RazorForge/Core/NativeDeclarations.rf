@@ -8,6 +8,10 @@ module Core
 ### This routine must run before runtime services that depend on global runtime state.
 routine C::rf_runtime_init()
 
+### TEMPORARY (bench-only): hardware 128/64 -> 64 unsigned divide. PRECONDITION: hi < d.
+### Restored solely for div_ab_bench.rf's M-G-vs-`divq` A/B; remove after benchmarking.
+dangerous routine C::rf_udivrem_128_64(hi: U64, lo: U64, d: U64, rem: Hijacked[U64]) -> U64
+
 ### Allocates zero-initialized dynamic memory.
 ### :param size: The number of bytes to allocate.
 ### :returns: The resulting `Address` value.

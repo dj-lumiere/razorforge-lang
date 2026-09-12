@@ -191,6 +191,11 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
+      # x86-64 cross-check: hardware `divq` baseline (expected to beat M-G here).
+      - name: Benchmark div2by1 (M-G vs divq, x86-64)
+        continue-on-error: true
+        run: dotnet bin/Release/net10.0/RazorForge.dll buildandrun bench/div_ab_bench.rf
+
       - name: Test
         run: |
           dotnet test --configuration Release --no-build --verbosity normal \
@@ -394,6 +399,12 @@ jobs:
 
       - name: Build
         run: dotnet build --configuration Release --no-restore
+
+      # arm64 runner: no hardware 128/64 divide, so the shim falls back to __udivti3.
+      # This measures M-G div2by1 vs __udivti3 — the comparison that justifies the change.
+      - name: Benchmark div2by1 (M-G vs __udivti3, arm64)
+        continue-on-error: true
+        run: dotnet bin/Release/net10.0/RazorForge.dll buildandrun bench/div_ab_bench.rf
 
       - name: Test
         run: dotnet test --configuration Release --no-build --verbosity normal

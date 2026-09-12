@@ -13,6 +13,26 @@
 #endif
 
 // ============================================================================
+// TEMPORARY (bench-only): hardware 128/64 -> 64 unsigned divide, the old M-G-replaced
+// primitive. Kept solely so div_ab_bench.rf can A/B the shim's `divq` against M-G.
+// Remove once benchmarking is done.
+// ============================================================================
+uint64_t rf_udivrem_128_64(uint64_t hi, uint64_t lo, uint64_t d, uint64_t* rem) {
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+    uint64_t q, r;
+    __asm__("divq %[d]" : "=a"(q), "=d"(r) : "a"(lo), "d"(hi), [d] "r"(d));
+    *rem = r;
+    return q;
+#elif defined(_MSC_VER) && defined(_M_X64)
+    return _udiv128(hi, lo, d, rem);
+#else
+    unsigned __int128 n = ((unsigned __int128)hi << 64) | (unsigned __int128)lo;
+    *rem = (uint64_t)(n % d);
+    return (uint64_t)(n / d);
+#endif
+}
+
+// ============================================================================
 // LibTomMath wrappers for arbitrary precision integers
 // ============================================================================
 

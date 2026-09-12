@@ -79,7 +79,7 @@ public class CompilerPipelineInputEdgeCaseTests
     [InlineData("")]
     [InlineData("\uFEFF")]
     [InlineData("# comment\n")]
-    public void Codegen_DeclarationFreeSources_GeneratesModuleHeader(string source)
+    public void LlvmEmitter_DeclarationFreeSources_GeneratesModuleHeader(string source)
     {
         string llvmIr = GenerateIr(source: source);
 
@@ -95,7 +95,7 @@ public class CompilerPipelineInputEdgeCaseTests
     [InlineData("\n")]
     [InlineData("\r\n")]
     [InlineData("\r")]
-    public void Codegen_LineEndingVariants_GenerateNormalizedIr(string lineEnding)
+    public void LlvmEmitter_LineEndingVariants_GenerateNormalizedIr(string lineEnding)
     {
         string source = string.Join(separator: lineEnding,
             value:
@@ -115,7 +115,7 @@ public class CompilerPipelineInputEdgeCaseTests
     /// Verifies that a leading BOM survives the whole parser-analyzer-codegen path.
     /// </summary>
     [Fact]
-    public void Codegen_BomAtStart_GeneratesRoutineDefinition()
+    public void LlvmEmitter_BomAtStart_GeneratesRoutineDefinition()
     {
         string llvmIr = GenerateIr(source: "\uFEFFroutine test()\n  return\n");
 
@@ -126,7 +126,7 @@ public class CompilerPipelineInputEdgeCaseTests
     /// Verifies that long valid source lines survive analyzer and codegen.
     /// </summary>
     [Fact]
-    public void Codegen_VeryLongLine_GeneratesRoutineDefinition()
+    public void LlvmEmitter_VeryLongLine_GeneratesRoutineDefinition()
     {
         string longName = "value_" + new string(c: 'x', count: 12_000);
         string source = $"routine test()\n  var {longName} = 1\n  return\n";
@@ -150,7 +150,7 @@ public class CompilerPipelineInputEdgeCaseTests
     // several-fold. A true algorithmic regression (exponential in nesting) would run for minutes or
     // hang, so a 2-minute cap still surfaces it while tolerating runner variance.
     [Fact(Timeout = 120_000)]
-    public async Task Codegen_DeeplyNestedSource_GeneratesRoutineDefinitionAsync()
+    public async Task LlvmEmitter_DeeplyNestedSource_GeneratesRoutineDefinitionAsync()
     {
         // Task.Run (not a custom large-stack thread): depth 32 fits a default stack on every
         // platform, and a 64 MB-stack thread is pathologically slow to set up on macOS (eager stack
