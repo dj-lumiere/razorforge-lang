@@ -12,6 +12,16 @@ routine C::rf_runtime_init()
 ### Restored solely for div_ab_bench.rf's M-G-vs-`divq` A/B; remove after benchmarking.
 dangerous routine C::rf_udivrem_128_64(hi: U64, lo: U64, d: U64, rem: Hijacked[U64]) -> U64
 
+### Möller-Granlund reciprocal of a normalized `d` for `rf_udivrem_128_64_pre`. Returns 0 on
+### x86-64/MSVC (where `_pre` uses the hardware divide and ignores it); the real reciprocal on
+### arm64/wasm. Amortize it: compute once per divisor, reuse across every 2-by-1 divide by that `d`.
+dangerous routine C::rf_reciprocal_word(d: U64) -> U64
+
+### `(hi:lo) / d` with a PRECOMPUTED reciprocal `v` (from `rf_reciprocal_word`). PRECONDITION: hi < d
+### (and `d` normalized on the M-G path). x86-64 hardware `divq` / MSVC `_udiv128` (both ignore `v`) /
+### arm64+wasm multiply-only Möller-Granlund. Writes the remainder through `rem`, returns the quotient.
+dangerous routine C::rf_udivrem_128_64_pre(hi: U64, lo: U64, d: U64, v: U64, rem: Hijacked[U64]) -> U64
+
 ### Allocates zero-initialized dynamic memory.
 ### :param size: The number of bytes to allocate.
 ### :returns: The resulting `Address` value.
