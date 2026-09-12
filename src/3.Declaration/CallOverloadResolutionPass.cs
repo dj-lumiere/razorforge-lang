@@ -254,10 +254,16 @@ internal sealed class CallOverloadResolutionPass
             }:
                 WalkExpression(expr: vd.Initializer);
                 // Track the local's inferred type (from the walked initializer) so a later member call on a
-                // reference to it can recover a receiver type the monomorph clone left un-annotated.
-                if (vd.Initializer.ResolvedType is { } vt and not ErrorTypeSymbol)
+                // reference to it can recover a receiver type the monomorph clone left un-annotated. Prefer the
+                // walked ResolvedType; fall back to the deferred-type recovery (a chained call / construction
+                // whose ResolvedType the un-SA'd body never set — e.g. `var ptr = Hijacked[U64](…)`), so
+                // `ptr.peek()` downstream still resolves.
+                if ((vd.Initializer.ResolvedType is { } vt and not ErrorTypeSymbol
+                        ? vt
+                        : ComputeDeferredType(expr: vd.Initializer)) is { } localVt and
+                    not (ErrorTypeSymbol or GenericParameterTypeSymbol))
                 {
-                    _localVarTypes[key: vd.Name] = vt;
+                    _localVarTypes[key: vd.Name] = localVt;
                 }
 
                 break;
@@ -716,16 +722,30 @@ internal sealed class CallOverloadResolutionPass
     /// <summary>
     /// Computes an expression's type when its own <see cref="Expression.ResolvedType"/> is null/deferred, by
     /// walking a member-access chain and reading each field's static type off its (recursively computed)
-    /// owner. Only field accesses off a typed base (`me`, a typed local) are recovered — it never invents a
-    /// type. Used to resolve member calls in derive-template field-walk bodies whose unrolled member accesses
-    /// are intentionally left type-deferred (see <c>GenericAstRewriter</c>). Returns null when the chain does
-    /// not bottom out in a known type. Does NOT mutate the AST — resolution-only.
+    /// owner. Field accesses off a typed base (`me`, a typed local) AND member-call results (the return type
+    /// of a resolved member routine) are recovered — it never invents a type. Used to resolve member calls in
+    /// derive-template field-walk bodies AND in variant/emit bodies whose intermediate member accesses/calls
+    /// are left type-deferred (an emit body reaching the demand collector un-SA'd carries a raw chain like
+    /// <c>me.data.get_address() +% …</c> — the <c>+%</c>→<c>add_wrap</c> receiver is the
+    /// <c>me.data.get_address()</c> CALL, whose type must be recovered from <c>get_address</c>'s return type or
+    /// the outer <c>add_wrap</c> stays unresolved). Returns null when the chain does not bottom out in a known
+    /// type. Does NOT mutate the AST — resolution-only.
     /// </summary>
-    private static TypeSymbol? ComputeDeferredType(Expression expr)
+    private TypeSymbol? ComputeDeferredType(Expression expr)
     {
         if (expr.ResolvedType is { } t and not ErrorTypeSymbol)
         {
             return t;
+        }
+
+        // A local/`me` whose AST node carries no ResolvedType (an un-SA'd variant/emit body) but whose type
+        // IS known to this walk — `me` is seeded from the owner, locals from their declarations. Without this
+        // the chain roots (`me.data.…`) can't bottom out and the whole member chain stays untyped.
+        if (expr is IdentifierExpression { Name: var idName } &&
+            _localVarTypes.TryGetValue(key: idName, value: out TypeSymbol? localT) &&
+            localT is not (null or ErrorTypeSymbol or GenericParameterTypeSymbol))
+        {
+            return localT;
         }
 
         if (expr is MemberExpression member)
@@ -745,7 +765,94 @@ internal sealed class CallOverloadResolutionPass
             };
         }
 
+        // A CONSTRUCTION written as a CreatorExpression (`Hijacked[U64](…)` in an un-SA'd body whose
+        // ConstructedType/ResolvedType the lowering never stamped): recover the constructed type from the
+        // type name + explicit type args, so a local bound to it (`var ptr = Hijacked[U64](…)`) gets a
+        // receiver type for the downstream `ptr.peek()`.
+        if (expr is CreatorExpression creator)
+        {
+            return creator.ConstructedType is { } cct and not ErrorTypeSymbol
+                ? cct
+                : ResolveConstructedByName(typeName: creator.TypeName,
+                    typeArgs: creator.TypeArguments);
+        }
+
+        if (expr is CallExpression call)
+        {
+            // A construction `Type(...)`/`Type[Args](...)` carries its constructed type (set by
+            // ClassifyStandaloneCall / GenericCallLoweringPass) — e.g. `Hijacked[U64](…)`. Prefer it so a
+            // local bound to a construction (`var ptr = Hijacked[U64](…)`) gets a receiver type.
+            if (call.ConstructedType is { } ct and not ErrorTypeSymbol)
+            {
+                return ct;
+            }
+
+            // ConstructedType not yet stamped (an un-SA'd body whose construction GenericCallLoweringPass
+            // skipped for lack of a resolved routine): recover it from the callee type name + explicit type args.
+            if (call.Callee is IdentifierExpression { Name: var typeName } &&
+                ResolveConstructedByName(typeName: typeName, typeArgs: call.TypeArguments) is { } cbn)
+            {
+                return cbn;
+            }
+
+            // Member-call result: the return type of the (recursively-typed) receiver's member routine — what
+            // lets a chained call like `me.data.get_address()` (the receiver of a lowered `+%`/`add_wrap`)
+            // carry a type so the outer operator call resolves, even when the body was never SA-annotated.
+            if (call.Callee is MemberExpression callMember)
+            {
+                TypeSymbol? recvType = ComputeDeferredType(expr: callMember.Object);
+                if (recvType is null or GenericParameterTypeSymbol or ErrorTypeSymbol)
+                {
+                    return null;
+                }
+
+                return (_registry.LookupMemberRoutine(type: recvType,
+                            memberRoutineName: callMember.MemberName) ??
+                        _registry.LookupMemberRoutine(type: recvType,
+                            memberRoutineName: callMember.MemberName,
+                            isFailable: true))?.ReturnType;
+            }
+        }
+
         return null;
+    }
+
+    /// <summary>
+    /// Resolves a constructed type from a type name + explicit type-argument expressions (a bare-name
+    /// construction like <c>Hijacked[U64]</c> whose <c>ConstructedType</c> an un-SA'd body never stamped).
+    /// A generic def with a matching arg count resolves to the concrete instance; a non-generic name resolves
+    /// directly; anything else (unknown name, unresolvable arg, arity mismatch) returns null.
+    /// </summary>
+    private TypeSymbol? ResolveConstructedByName(string typeName, List<TypeExpression>? typeArgs)
+    {
+        if (_registry.LookupType(name: typeName) is not { } baseType)
+        {
+            return null;
+        }
+
+        if (!baseType.IsGenericDefinition)
+        {
+            return baseType;
+        }
+
+        if (typeArgs is not { Count: > 0 } targs ||
+            baseType.GenericParameters?.Count != targs.Count)
+        {
+            return null;
+        }
+
+        var argSyms = new List<TypeSymbol>(capacity: targs.Count);
+        foreach (TypeExpression ta in targs)
+        {
+            if (_registry.LookupType(name: ta.Name) is not { } argSym)
+            {
+                return null;
+            }
+
+            argSyms.Add(item: argSym);
+        }
+
+        return _registry.GetOrCreateResolution(genericDef: baseType, typeArguments: argSyms);
     }
 
     /// <summary>
