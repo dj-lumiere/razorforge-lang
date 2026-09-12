@@ -285,6 +285,33 @@ common routine S128.from_digit_bytes_at!(bytes: Bytes, start: U64) -> Tuple[S128
   var value: S128 = if negative then -acc else acc
   return (value, i)
 
+### The decimal digits of a POSITIVE U128 magnitude, least-significant first (caller reverses).
+### Peels base-10⁹ chunks — one wide `// 10⁹` per 9 digits, remainder as `mag - q*10⁹` (mul+sub,
+### not a second wide divide) — then formats each chunk with scalar `// 10` (the backend lowers a
+### constant divisor to a reciprocal multiply). Requires `mag > 0`.
+routine u128_digits_lsd(mag: U128) -> List[Byte]
+  var digits: List[Byte] = []
+  var ten9: U128 = 1000000000_u128
+  var v = mag
+  var q = v // ten9
+  var chunk = LLVM::int_truncate[U128, U64](LLVM::sub(a: v, b: LLVM::mul(a: q, b: ten9)))
+  v = q
+  while v > 0_u128
+    var i = 0_s64
+    while i < 9_s64
+      var digit = LLVM::int_truncate[U64, U8](LLVM::unsigned_rem(a: chunk, b: 10_u64))
+      digits.add_last(value: Byte(from: LLVM::add(a: 0x30_u8, b: digit)))
+      chunk = LLVM::unsigned_div(a: chunk, b: 10_u64)
+      i = i + 1_s64
+    q = v // ten9
+    chunk = LLVM::int_truncate[U128, U64](v -% q * ten9)
+    v = q
+  while chunk > 0_u64
+    var digit = LLVM::int_truncate[U64, U8](LLVM::unsigned_rem(a: chunk, b: 10_u64))
+    digits.add_last(value: Byte(from: LLVM::add(a: 0x30_u8, b: digit)))
+    chunk = LLVM::unsigned_div(a: chunk, b: 10_u64)
+  return digits
+
 routine S128.to_digit_bytes!() -> Bytes
   if me == 0_s128
     var buf: List[Byte] = []
@@ -297,12 +324,7 @@ routine S128.to_digit_bytes!() -> Bytes
   # U128, where 2^127 fits. For non-negative values the bit pattern already equals the value.
   var bits: U128 = reinterpret_bits[S128, U128](me)
   var mag: U128 = if negative then 0_u128 -% bits else bits
-  var digits: List[Byte] = []
-  while mag > 0_u128
-    var d: U128 = mag % 10_u128
-    var b: U8 = 0x30_u8 + U8(from: d)
-    digits.add_last(value: Byte(from: b))
-    mag = mag // 10_u128
+  var digits: List[Byte] = u128_digits_lsd(mag: mag)
   if negative
     digits.add_last(value: Byte(from: 0x2D_u8))
   digits.reverse_in_place()
@@ -342,13 +364,7 @@ routine U128.to_digit_bytes!() -> Bytes
     buf.add_last(value: Byte(from: 0x30_u8))
     return Bytes(from_list: buf)
 
-  var v = me
-  var digits: List[Byte] = []
-  while v > 0_u128
-    var d: U128 = v % 10_u128
-    var b: U8 = 0x30_u8 + U8(from: d)
-    digits.add_last(value: Byte(from: b))
-    v = v // 10_u128
+  var digits: List[Byte] = u128_digits_lsd(mag: me)
   digits.reverse_in_place()
   return Bytes(from_list: digits)
 

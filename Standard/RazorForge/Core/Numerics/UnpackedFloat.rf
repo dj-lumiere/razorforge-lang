@@ -38,21 +38,50 @@ needs L obeys FloorDivisible
 dangerous routine UnpackedFloat[M, L, W].destroy()
   return
 
-### Decimal digit string of a wide unsigned integer (MSD first; "0" for zero). Repeated
-### div/mod by 10 through the type's knuth-based FloorDivisible — table-free, any width.
-### Backs the wide-int and Decimal `represent`s.
+### The 9 decimal digits of a U64 in [0, 10⁹), zero-padded (interior base-10⁹ chunk of `wide_dec`).
+### The `// 10` / `% 10` here are on a scalar U64 by a constant, so the backend lowers them to a
+### reciprocal multiply (no hardware divide) — the "magic/Montgomery" step for the constant divisor.
+routine wide_dec9(c: U64) -> Text
+  var s = ""
+  var x = c
+  var i = 0_s64
+  while LLVM::signed_lt(a: i, b: 9_s64)
+    s = f"{LLVM::unsigned_rem(a: x, b: 10_u64)}" + s
+    x = LLVM::unsigned_div(a: x, b: 10_u64)
+    i = LLVM::add(a: i, b: 1_s64)
+  return s
+
+### The decimal digits of a nonzero U64 with no leading zeros (the most-significant base-10⁹ chunk).
+routine wide_dec_head(c: U64) -> Text
+  var s = ""
+  var x = c
+  while LLVM::int_ne(a: x, b: 0_u64)
+    s = f"{LLVM::unsigned_rem(a: x, b: 10_u64)}" + s
+    x = LLVM::unsigned_div(a: x, b: 10_u64)
+  return s
+
+### Decimal digit string of a wide unsigned integer (MSD first; "0" for zero). Peels base-10⁹
+### chunks: one wide `// 10⁹` / `% 10⁹` per 9 digits (vs per-digit) through the type's knuth-based
+### FloorDivisible, then formats each 9-digit chunk with scalar reciprocal-multiply `// 10`. The
+### wide divisor 10⁹ fits one limb, so each peel is the fast single-limb divide. Backs the wide-int
+### and Decimal `represent`s; table-free, any width.
 routine wide_dec[T](v: T) -> Text
 needs T obeys FloorDivisible
   if LLVM::int_eq(a: v, b: LLVM::zero_extend[U64, T](0_u64))
     return "0"
+  var ten9 = LLVM::zero_extend[U64, T](1000000000_u64)
   var out = ""
   var x = v
-  var ten = LLVM::zero_extend[U64, T](10_u64)
+  # divide first, then take the remainder as x - q*10⁹ (a wide mul+sub, not a second wide divide)
+  var q = x // ten9
+  var chunk = LLVM::int_truncate[T, U64](LLVM::sub(a: x, b: LLVM::mul(a: q, b: ten9)))
+  x = q
   while LLVM::int_ne(a: x, b: LLVM::zero_extend[U64, T](0_u64))
-    var r = x % ten
-    var d = LLVM::int_truncate[T, U64](r)
-    out = f"{d}" + out
-    x = x // ten
+    out = wide_dec9(c: chunk) + out
+    q = x // ten9
+    chunk = LLVM::int_truncate[T, U64](LLVM::sub(a: x, b: LLVM::mul(a: q, b: ten9)))
+    x = q
+  out = wide_dec_head(c: chunk) + out
   return out
 
 ### An unpacked value paired with an integer exponent/quadrant. Used instead of a
