@@ -1,0 +1,13 @@
+[package]
+name = "divbench"
+version = "0.0.1"
+description = "M-G div2by1 vs hardware 128/64 divide A/B microbenchmark"
+razorforge-version = "0.1.0"
+
+# `buildandrun bench/div_ab_bench.rf` resolves this (nearest) manifest and takes its
+# mode; the entry file is overridden by the command-line argument. release-time (-O3)
+# is mandatory — at -O0 M-G's ~30 ops lose to one `divq`/`__udivti3` call for no reason.
+[target]
+executable = "div_ab_bench.rf"
+mode = "release-time"
+use-daemon = false

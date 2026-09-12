@@ -1,0 +1,263 @@
+import IO/Console
+
+# ============================================================================
+# A/B microbenchmark: the 2-by-1 word-division PRIMITIVE that M-G replaced.
+#   HW  = C::rf_udivrem_128_64 (hardware x86 `divq`, the deleted shim; restored TEMPORARILY)
+#   M-G = reciprocal_word + div2by1 (multiply-only), copied verbatim below as b_recip/b_div2by1.
+# Two regimes, identical operand streams, calibration (PRNG+sink, no divide) subtracted:
+#   * fixed-d   : one normalized divisor reused N times  -> models the Knuth inner loop (reciprocal amortized)
+#   * varying-d : a fresh normalized divisor every iter  -> models a one-shot divide (reciprocal recomputed)
+# MUST be built at release (-O2/-O3); at -O0 M-G's ~30 ops lose to one `divq` for no real reason.
+# ============================================================================
+
+record WQR
+  q: U64
+  r: U64
+
+# --- verbatim copy of Core.reciprocal_word (so the bench is self-contained) ---
+preset RECIP_SEED_BENCH: Array[U16, 256] = [
+  2045_u16, 2037_u16, 2029_u16, 2021_u16, 2013_u16, 2005_u16, 1998_u16, 1990_u16, 1983_u16, 1975_u16, 1968_u16, 1960_u16, 1953_u16, 1946_u16, 1938_u16, 1931_u16,
+  1924_u16, 1917_u16, 1910_u16, 1903_u16, 1896_u16, 1889_u16, 1883_u16, 1876_u16, 1869_u16, 1863_u16, 1856_u16, 1849_u16, 1843_u16, 1836_u16, 1830_u16, 1824_u16,
+  1817_u16, 1811_u16, 1805_u16, 1799_u16, 1792_u16, 1786_u16, 1780_u16, 1774_u16, 1768_u16, 1762_u16, 1756_u16, 1750_u16, 1745_u16, 1739_u16, 1733_u16, 1727_u16,
+  1722_u16, 1716_u16, 1710_u16, 1705_u16, 1699_u16, 1694_u16, 1688_u16, 1683_u16, 1677_u16, 1672_u16, 1667_u16, 1661_u16, 1656_u16, 1651_u16, 1646_u16, 1641_u16,
+  1636_u16, 1630_u16, 1625_u16, 1620_u16, 1615_u16, 1610_u16, 1605_u16, 1600_u16, 1596_u16, 1591_u16, 1586_u16, 1581_u16, 1576_u16, 1572_u16, 1567_u16, 1562_u16,
+  1558_u16, 1553_u16, 1548_u16, 1544_u16, 1539_u16, 1535_u16, 1530_u16, 1526_u16, 1521_u16, 1517_u16, 1513_u16, 1508_u16, 1504_u16, 1500_u16, 1495_u16, 1491_u16,
+  1487_u16, 1483_u16, 1478_u16, 1474_u16, 1470_u16, 1466_u16, 1462_u16, 1458_u16, 1454_u16, 1450_u16, 1446_u16, 1442_u16, 1438_u16, 1434_u16, 1430_u16, 1426_u16,
+  1422_u16, 1418_u16, 1414_u16, 1411_u16, 1407_u16, 1403_u16, 1399_u16, 1396_u16, 1392_u16, 1388_u16, 1384_u16, 1381_u16, 1377_u16, 1374_u16, 1370_u16, 1366_u16,
+  1363_u16, 1359_u16, 1356_u16, 1352_u16, 1349_u16, 1345_u16, 1342_u16, 1338_u16, 1335_u16, 1332_u16, 1328_u16, 1325_u16, 1322_u16, 1318_u16, 1315_u16, 1312_u16,
+  1308_u16, 1305_u16, 1302_u16, 1299_u16, 1295_u16, 1292_u16, 1289_u16, 1286_u16, 1283_u16, 1280_u16, 1276_u16, 1273_u16, 1270_u16, 1267_u16, 1264_u16, 1261_u16,
+  1258_u16, 1255_u16, 1252_u16, 1249_u16, 1246_u16, 1243_u16, 1240_u16, 1237_u16, 1234_u16, 1231_u16, 1228_u16, 1226_u16, 1223_u16, 1220_u16, 1217_u16, 1214_u16,
+  1211_u16, 1209_u16, 1206_u16, 1203_u16, 1200_u16, 1197_u16, 1195_u16, 1192_u16, 1189_u16, 1187_u16, 1184_u16, 1181_u16, 1179_u16, 1176_u16, 1173_u16, 1171_u16,
+  1168_u16, 1165_u16, 1163_u16, 1160_u16, 1158_u16, 1155_u16, 1153_u16, 1150_u16, 1148_u16, 1145_u16, 1143_u16, 1140_u16, 1138_u16, 1135_u16, 1133_u16, 1130_u16,
+  1128_u16, 1125_u16, 1123_u16, 1121_u16, 1118_u16, 1116_u16, 1113_u16, 1111_u16, 1109_u16, 1106_u16, 1104_u16, 1102_u16, 1099_u16, 1097_u16, 1095_u16, 1092_u16,
+  1090_u16, 1088_u16, 1086_u16, 1083_u16, 1081_u16, 1079_u16, 1077_u16, 1074_u16, 1072_u16, 1070_u16, 1068_u16, 1066_u16, 1064_u16, 1061_u16, 1059_u16, 1057_u16,
+  1055_u16, 1053_u16, 1051_u16, 1049_u16, 1047_u16, 1044_u16, 1042_u16, 1040_u16, 1038_u16, 1036_u16, 1034_u16, 1032_u16, 1030_u16, 1028_u16, 1026_u16, 1024_u16
+]
+
+routine b_recip(d: U64) -> U64
+  var d9 = LLVM::shift_right_unsigned(d, 55_u64)
+  var v0 = LLVM::zero_extend[U16, U64](RECIP_SEED_BENCH[LLVM::sub(a: d9, b: 256_u64)])
+  var d40 = LLVM::add(a: LLVM::shift_right_unsigned(d, 24_u64), b: 1_u64)
+  var t1 = LLVM::shift_right_unsigned(LLVM::mul(a: LLVM::mul(a: v0, b: v0), b: d40), 40_u64)
+  var v1 = LLVM::sub(a: LLVM::sub(a: LLVM::shift_left(v0, 11_u64), b: t1), b: 1_u64)
+  var inner = LLVM::sub(a: 1152921504606846976_u64, b: LLVM::mul(a: v1, b: d40))
+  var t2 = LLVM::shift_right_unsigned(LLVM::mul(a: v1, b: inner), 47_u64)
+  var v2 = LLVM::add(a: LLVM::shift_left(v1, 13_u64), b: t2)
+  var d0 = LLVM::bit_and(a: d, b: 1_u64)
+  var d63 = LLVM::add(a: LLVM::shift_right_unsigned(d, 1_u64), b: d0)
+  var mask = LLVM::sub(a: 0_u64, b: d0)
+  var e = LLVM::sub(a: LLVM::bit_and(a: LLVM::shift_right_unsigned(v2, 1_u64), b: mask), b: LLVM::mul(a: v2, b: d63))
+  var v2e = LLVM::mul(a: LLVM::zero_extend[U64, U128](v2), b: LLVM::zero_extend[U64, U128](e))
+  var v3 = LLVM::add(a: LLVM::shift_right_unsigned(LLVM::int_truncate[U128, U64](LLVM::shift_right_unsigned(v2e, 64_u128)), 1_u64), b: LLVM::shift_left(v2, 31_u64))
+  var v3d = LLVM::add(a: LLVM::mul(a: LLVM::zero_extend[U64, U128](v3), b: LLVM::zero_extend[U64, U128](d)), b: LLVM::zero_extend[U64, U128](d))
+  var v4 = LLVM::sub(a: LLVM::sub(a: v3, b: LLVM::int_truncate[U128, U64](LLVM::shift_right_unsigned(v3d, 64_u128))), b: d)
+  return v4
+
+# --- verbatim copy of Core.div2by1 ---
+routine b_div2by1(u1: U64, u0: U64, d: U64, v: U64) -> WQR
+  var u = LLVM::bit_or(a: LLVM::shift_left(LLVM::zero_extend[U64, U128](u1), 64_u128), b: LLVM::zero_extend[U64, U128](u0))
+  var qfull = LLVM::add(a: LLVM::mul(a: LLVM::zero_extend[U64, U128](v), b: LLVM::zero_extend[U64, U128](u1)), b: u)
+  var q0 = LLVM::int_truncate[U128, U64](qfull)
+  var q1 = LLVM::add(a: LLVM::int_truncate[U128, U64](LLVM::shift_right_unsigned(qfull, 64_u128)), b: 1_u64)
+  var r = LLVM::sub(a: u0, b: LLVM::mul(a: q1, b: d))
+  if LLVM::unsigned_gt(a: r, b: q0)
+    q1 = LLVM::sub(a: q1, b: 1_u64)
+    r = LLVM::add(a: r, b: d)
+  if LLVM::unsigned_ge(a: r, b: d)
+    q1 = LLVM::add(a: q1, b: 1_u64)
+    r = LLVM::sub(a: r, b: d)
+  return WQR(q: q1, r: r)
+
+# --- splitmix64 draw ---
+record Draw
+  st: U64
+  v: U64
+@inline
+routine nextdraw(st: U64) -> Draw
+  var s = st +% 11400714819323198485_u64
+  var z = s
+  z = (z ^ (z >>> 30_u32)) *% 13787848793156543929_u64
+  z = (z ^ (z >>> 27_u32)) *% 10723151780598845931_u64
+  return Draw(st: s, v: z ^ (z >>> 31_u32))
+
+# operand mask: u1 = draw & (2^63 - 1) is < 2^63 <= d (d normalized), so u1 < d holds.
+# ============================ fixed-d scenarios ============================
+routine calib_fixed(n: S64, seed0: U64) -> S64
+  var best = -1_s64
+  var rep = 0_s64
+  while rep < 3_s64
+    var t0 = Moment.now()
+    var st = seed0
+    var sink = 0_u64
+    var i = 0_s64
+    while i < n
+      var da = nextdraw(st: st)
+      st = da.st
+      var db = nextdraw(st: st)
+      st = db.st
+      sink = sink ^ (da.v & 9223372036854775807_u64) ^ db.v
+      i = i +% 1_s64
+    discard LLVM::do_not_optimize[U64](value: sink)
+    var ns = Moment.now().elapsed_since(earlier: t0).total_nanoseconds()
+    best = when
+      rep == 0_s64 => ns
+      ns < best => ns
+      else => best
+    rep = rep +% 1_s64
+  return best
+
+routine hw_fixed(n: S64, d: U64, seed0: U64) -> S64
+  var best = -1_s64
+  var rep = 0_s64
+  while rep < 3_s64
+    var t0 = Moment.now()
+    var st = seed0
+    var sink = 0_u64
+    var i = 0_s64
+    while i < n
+      var da = nextdraw(st: st)
+      st = da.st
+      var db = nextdraw(st: st)
+      st = db.st
+      var scratch = 0_u64
+      danger
+        var q = C::rf_udivrem_128_64(hi: da.v & 9223372036854775807_u64, lo: db.v, d: d, rem: scratch.hijack())
+        sink = sink ^ q ^ scratch
+      i = i +% 1_s64
+    discard LLVM::do_not_optimize[U64](value: sink)
+    var ns = Moment.now().elapsed_since(earlier: t0).total_nanoseconds()
+    best = when
+      rep == 0_s64 => ns
+      ns < best => ns
+      else => best
+    rep = rep +% 1_s64
+  return best
+
+routine mg_fixed(n: S64, d: U64, seed0: U64) -> S64
+  var best = -1_s64
+  var rep = 0_s64
+  while rep < 3_s64
+    var t0 = Moment.now()
+    var st = seed0
+    var sink = 0_u64
+    var v = b_recip(d: d)   # reciprocal computed ONCE (amortized, like the Knuth loop)
+    var i = 0_s64
+    while i < n
+      var da = nextdraw(st: st)
+      st = da.st
+      var db = nextdraw(st: st)
+      st = db.st
+      var dr = b_div2by1(u1: da.v & 9223372036854775807_u64, u0: db.v, d: d, v: v)
+      sink = sink ^ dr.q ^ dr.r
+      i = i +% 1_s64
+    discard LLVM::do_not_optimize[U64](value: sink)
+    var ns = Moment.now().elapsed_since(earlier: t0).total_nanoseconds()
+    best = when
+      rep == 0_s64 => ns
+      ns < best => ns
+      else => best
+    rep = rep +% 1_s64
+  return best
+
+# ============================ varying-d scenarios ============================
+routine calib_var(n: S64, seed0: U64) -> S64
+  var best = -1_s64
+  var rep = 0_s64
+  while rep < 3_s64
+    var t0 = Moment.now()
+    var st = seed0
+    var sink = 0_u64
+    var i = 0_s64
+    while i < n
+      var dd = nextdraw(st: st)
+      st = dd.st
+      var da = nextdraw(st: st)
+      st = da.st
+      var db = nextdraw(st: st)
+      st = db.st
+      sink = sink ^ (dd.v | 9223372036854775808_u64) ^ (da.v & 9223372036854775807_u64) ^ db.v
+      i = i +% 1_s64
+    discard LLVM::do_not_optimize[U64](value: sink)
+    var ns = Moment.now().elapsed_since(earlier: t0).total_nanoseconds()
+    best = when
+      rep == 0_s64 => ns
+      ns < best => ns
+      else => best
+    rep = rep +% 1_s64
+  return best
+
+routine hw_var(n: S64, seed0: U64) -> S64
+  var best = -1_s64
+  var rep = 0_s64
+  while rep < 3_s64
+    var t0 = Moment.now()
+    var st = seed0
+    var sink = 0_u64
+    var i = 0_s64
+    while i < n
+      var dd = nextdraw(st: st)
+      st = dd.st
+      var da = nextdraw(st: st)
+      st = da.st
+      var db = nextdraw(st: st)
+      st = db.st
+      var scratch = 0_u64
+      danger
+        var q = C::rf_udivrem_128_64(hi: da.v & 9223372036854775807_u64, lo: db.v, d: dd.v | 9223372036854775808_u64, rem: scratch.hijack())
+        sink = sink ^ q ^ scratch
+      i = i +% 1_s64
+    discard LLVM::do_not_optimize[U64](value: sink)
+    var ns = Moment.now().elapsed_since(earlier: t0).total_nanoseconds()
+    best = when
+      rep == 0_s64 => ns
+      ns < best => ns
+      else => best
+    rep = rep +% 1_s64
+  return best
+
+routine mg_var(n: S64, seed0: U64) -> S64
+  var best = -1_s64
+  var rep = 0_s64
+  while rep < 3_s64
+    var t0 = Moment.now()
+    var st = seed0
+    var sink = 0_u64
+    var i = 0_s64
+    while i < n
+      var dd = nextdraw(st: st)
+      st = dd.st
+      var da = nextdraw(st: st)
+      st = da.st
+      var db = nextdraw(st: st)
+      st = db.st
+      var d = dd.v | 9223372036854775808_u64
+      var v = b_recip(d: d)   # reciprocal recomputed EVERY divide (one-shot, no amortization)
+      var dr = b_div2by1(u1: da.v & 9223372036854775807_u64, u0: db.v, d: d, v: v)
+      sink = sink ^ dr.q ^ dr.r
+      i = i +% 1_s64
+    discard LLVM::do_not_optimize[U64](value: sink)
+    var ns = Moment.now().elapsed_since(earlier: t0).total_nanoseconds()
+    best = when
+      rep == 0_s64 => ns
+      ns < best => ns
+      else => best
+    rep = rep +% 1_s64
+  return best
+
+routine start()
+  var n = 30000000_s64
+  var seed = 2611923443488238969_u64
+  var dfix = LLVM::bit_or(a: nextdraw(st: seed).v, b: 9223372036854775808_u64)
+  var so = 88172645463325252_u64
+  var cf = calib_fixed(n: n, seed0: so)
+  var hf = hw_fixed(n: n, d: dfix, seed0: so)
+  var mf = mg_fixed(n: n, d: dfix, seed0: so)
+  var cv = calib_var(n: n, seed0: so)
+  var hv = hw_var(n: n, seed0: so)
+  var mv = mg_var(n: n, seed0: so)
+  show(f"N = {n} divides per timed loop (best of 3)")
+  show(f"[fixed-d, reciprocal reused]  hw(divq) net = {hf -% cf} ns  ({(hf -% cf) *% 1000_s64 // n} ps/op)")
+  show(f"                              m-g      net = {mf -% cf} ns  ({(mf -% cf) *% 1000_s64 // n} ps/op)")
+  show(f"[varying-d, one-shot]         hw(divq) net = {hv -% cv} ns  ({(hv -% cv) *% 1000_s64 // n} ps/op)")
+  show(f"                              m-g      net = {mv -% cv} ns  ({(mv -% cv) *% 1000_s64 // n} ps/op)")
+  return
