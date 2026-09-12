@@ -1318,7 +1318,7 @@ public class CompilerPipelineLoweringTests
         RoutineDeclaration testRoutine = program.Declarations
                                                 .OfType<RoutineDeclaration>()
                                                 .Single(predicate: declaration =>
-                                                     declaration.Name == "start");
+                                                     declaration.Name == "test");
         TypeExpression parameterType =
             Assert.IsType<TypeExpression>(@object: testRoutine.Parameters[index: 0].Type);
         TypeExpression widthArg =
@@ -1338,7 +1338,7 @@ public class CompilerPipelineLoweringTests
             });
 
         string llvmIr = generator.Generate();
-        Assert.Contains(expectedSubstring: "define i8 @\"[independent] start(",
+        Assert.Contains(expectedSubstring: "define void @\"[independent] start()",
             actualString: llvmIr);
     }
 
